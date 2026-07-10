@@ -115,7 +115,7 @@ function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
 }
 
 /** Icône d'un salon selon son genre (texte, vocal, annonces). */
-function ChannelIcon({ kind }: { kind: GroupChannel['kind'] }) {
+export function ChannelIcon({ kind }: { kind: GroupChannel['kind'] }) {
   if (kind === 'voice') {
     return (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>

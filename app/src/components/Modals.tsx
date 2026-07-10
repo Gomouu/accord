@@ -5,12 +5,27 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import type { Dict } from '../i18n';
+import type { GroupChannelKind } from '../lib/api';
 import { useFriends, displayNameOf } from '../stores/friends';
 import { useGroups } from '../stores/groups';
 import { useUi, useT } from '../stores/ui';
 import { Avatar } from './Avatar';
+import { ChannelIcon } from './Sidebar';
 import { ServerSettingsModal } from './server/ServerSettingsModal';
 import { SettingsModal } from './settings/SettingsModal';
+
+/** Genres proposés dans le choix rapide (l'annonce reste réservée aux paramètres serveur). */
+type QuickChannelKind = Extract<GroupChannelKind, 'text' | 'voice'>;
+
+const QUICK_CHANNEL_KINDS: Array<{
+  kind: QuickChannelKind;
+  label: (t: Dict) => string;
+  hint: (t: Dict) => string;
+}> = [
+  { kind: 'text', label: (t) => t.groups.kindTextChannel, hint: (t) => t.groups.kindTextHint },
+  { kind: 'voice', label: (t) => t.groups.kindVoiceChannel, hint: (t) => t.groups.kindVoiceHint },
+];
 
 function ModalFrame({
   title,
@@ -158,20 +173,109 @@ function CreateGroupModal() {
   );
 }
 
+/** Carte de choix de genre (texte/vocal), clavier-accessible via un radiogroup. */
+function ChannelKindOption({
+  kind,
+  selected,
+  onSelect,
+}: {
+  kind: QuickChannelKind;
+  selected: boolean;
+  onSelect: (kind: QuickChannelKind) => void;
+}) {
+  const t = useT();
+  const option = QUICK_CHANNEL_KINDS.find((k) => k.kind === kind);
+  if (!option) return null;
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={() => onSelect(kind)}
+      className={`flex flex-1 items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple ${
+        selected
+          ? 'border-blurple bg-blurple/10'
+          : 'border-transparent bg-rail hover:bg-chat-hover'
+      }`}
+    >
+      <span
+        aria-hidden
+        className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+          selected ? 'bg-blurple text-white' : 'bg-modal text-faint'
+        }`}
+      >
+        <ChannelIcon kind={kind} />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold text-header">{option.label(t)}</span>
+        <span className="mt-0.5 block text-xs text-muted">{option.hint(t)}</span>
+      </span>
+    </button>
+  );
+}
+
 function CreateChannelModal({ groupId }: { groupId: string }) {
   const t = useT();
   const addChannel = useGroups((s) => s.addChannel);
   const setView = useUi((s) => s.setView);
+  const closeModal = useUi((s) => s.closeModal);
+  const toast = useUi((s) => s.toast);
+  const [kind, setKind] = useState<QuickChannelKind>('text');
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (): Promise<void> => {
+    const trimmed = name.trim();
+    if (trimmed === '' || busy) return;
+    setBusy(true);
+    try {
+      const channelId = await addChannel(groupId, trimmed, kind);
+      setView({ kind: 'group', groupId, channelId });
+      closeModal();
+    } catch {
+      toast('error', t.errors.actionFailed);
+      setBusy(false);
+    }
+  };
+
   return (
     <ModalFrame title={t.groups.addChannel}>
-      <NameForm
+      <div role="group" aria-label={t.groups.channelKindLabel} className="flex gap-2">
+        {QUICK_CHANNEL_KINDS.map(({ kind: candidate }) => (
+          <ChannelKindOption
+            key={candidate}
+            kind={candidate}
+            selected={kind === candidate}
+            onSelect={setKind}
+          />
+        ))}
+      </div>
+      <input
+        aria-label={t.groups.channelNamePlaceholder}
         placeholder={t.groups.channelNamePlaceholder}
-        action={t.groups.addChannelAction}
-        onSubmit={async (name) => {
-          const channelId = await addChannel(groupId, name);
-          setView({ kind: 'group', groupId, channelId });
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') void submit();
         }}
+        className="mt-4 w-full rounded bg-rail px-3 py-2.5 text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple"
       />
+      <div className="mt-4 flex justify-end gap-3">
+        <button
+          type="button"
+          onClick={closeModal}
+          className="px-4 py-2 text-sm font-medium text-norm hover:underline"
+        >
+          {t.app.cancel}
+        </button>
+        <button
+          type="button"
+          disabled={name.trim() === '' || busy}
+          onClick={() => void submit()}
+          className="rounded bg-blurple px-4 py-2 text-sm font-medium text-white hover:bg-blurple-hover disabled:opacity-50"
+        >
+          {t.groups.addChannelAction}
+        </button>
+      </div>
     </ModalFrame>
   );
 }

@@ -374,54 +374,83 @@ export function ProfilePopover() {
             </button>
           )}
 
-          {(canMessage || canBlock) && !confirmRemove && (
-            <div className="mt-3 flex gap-2">
+          {(canMessage || canRemove || canBlock) && !confirmRemove && (
+            <div className="mt-3 flex items-center gap-1.5">
               {canMessage && (
                 <button
                   type="button"
                   onClick={envoyerMessage}
-                  className="flex-1 rounded bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blurple-hover"
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
                 >
+                  <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    aria-hidden
+                  >
+                    <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v9a2.5 2.5 0 0 1-2.5 2.5H9.4l-4 3a.9.9 0 0 1-1.4-.7V5.5Z" />
+                  </svg>
                   {t.friends.sendDm}
                 </button>
               )}
               {canRemove && (
                 <button
                   type="button"
+                  title={t.friends.remove}
+                  aria-label={t.friends.remove}
                   onClick={() => setConfirmRemove(true)}
-                  className="rounded border border-input px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:border-red hover:text-red"
+                  className="shrink-0 rounded-full p-2 text-muted transition-colors hover:bg-chat-hover hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
                 >
-                  {t.friends.remove}
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    aria-hidden
+                  >
+                    <path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-3.3 0-7 1.7-7 4v2a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2c0-2.3-3.7-4-7-4Zm13-5a1 1 0 0 1-1 1h-6a1 1 0 1 1 0-2h6a1 1 0 0 1 1 1Z" />
+                  </svg>
                 </button>
               )}
               {canBlock && (
                 <button
                   type="button"
+                  title={t.friends.block}
+                  aria-label={t.friends.block}
                   onClick={bloquer}
-                  className="rounded border border-red px-3 py-1.5 text-sm font-medium text-red transition-colors hover:bg-red hover:text-white"
+                  className="shrink-0 rounded-full p-2 text-muted transition-colors hover:bg-chat-hover hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
                 >
-                  {t.friends.block}
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    aria-hidden
+                  >
+                    <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20ZM4.5 12a7.5 7.5 0 0 1 12-6L6 16.5A7.4 7.4 0 0 1 4.5 12Zm7.5 7.5A7.4 7.4 0 0 1 7.5 18L18 7.5A7.5 7.5 0 0 1 12 19.5Z" />
+                  </svg>
                 </button>
               )}
             </div>
           )}
 
           {confirmRemove && (
-            <div className="mt-3">
+            <div className="mt-3 rounded-lg border border-rail bg-rail/40 p-2.5">
               <p className="text-sm text-norm">{t.friends.removeQuestion}</p>
               <p className="mt-0.5 text-xs text-faint">{t.friends.removeKeepHistory}</p>
               <div className="mt-2 flex gap-2">
                 <button
                   type="button"
                   onClick={retirer}
-                  className="flex-1 rounded bg-red px-3 py-1.5 text-sm font-medium text-white transition-colors hover:brightness-110"
+                  className="flex-1 rounded-full bg-red px-3 py-1.5 text-sm font-medium text-white transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red"
                 >
                   {t.friends.remove}
                 </button>
                 <button
                   type="button"
                   onClick={() => setConfirmRemove(false)}
-                  className="rounded bg-rail px-3 py-1.5 text-sm font-medium text-norm transition-colors hover:bg-input"
+                  className="rounded-full bg-rail px-3 py-1.5 text-sm font-medium text-norm transition-colors hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
                 >
                   {t.app.cancel}
                 </button>

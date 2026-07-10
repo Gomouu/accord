@@ -99,6 +99,83 @@ describe('useUi — saut au message (jump)', () => {
   });
 });
 
+describe('useUi — mémoire de navigation', () => {
+  beforeEach(() => {
+    useUi.setState({
+      view: { kind: 'friends' },
+      jump: null,
+      lastChannelByServer: {},
+      lastDmPeer: null,
+    });
+  });
+
+  it('setView mémorise le dernier salon consulté par serveur et le persiste', () => {
+    useUi.getState().setView({ kind: 'group', groupId: 'g1', channelId: 'c1' });
+
+    expect(useUi.getState().lastChannelByServer).toEqual({ g1: 'c1' });
+    expect(
+      JSON.parse(window.localStorage.getItem('accord.nav.lastChannelByServer') ?? '{}'),
+    ).toEqual({ g1: 'c1' });
+
+    // Un second serveur s'ajoute sans écraser le premier.
+    useUi.getState().setView({ kind: 'group', groupId: 'g2', channelId: 'c9' });
+    expect(useUi.getState().lastChannelByServer).toEqual({ g1: 'c1', g2: 'c9' });
+  });
+
+  it('setView vers un salon null ne modifie pas la mémoire du serveur', () => {
+    useUi.getState().setView({ kind: 'group', groupId: 'g1', channelId: 'c1' });
+    useUi.getState().setView({ kind: 'group', groupId: 'g1', channelId: null });
+
+    expect(useUi.getState().lastChannelByServer).toEqual({ g1: 'c1' });
+  });
+
+  it('setView mémorise le dernier pair de conversation privée et le persiste', () => {
+    useUi.getState().setView({ kind: 'dm', peer: 'alice-pk' });
+
+    expect(useUi.getState().lastDmPeer).toBe('alice-pk');
+    expect(window.localStorage.getItem('accord.nav.lastDm')).toBe('alice-pk');
+  });
+
+  it('setView vers la vue amis ne modifie pas le dernier pair mémorisé', () => {
+    useUi.getState().setView({ kind: 'dm', peer: 'alice-pk' });
+    useUi.getState().setView({ kind: 'friends' });
+
+    expect(useUi.getState().lastDmPeer).toBe('alice-pk');
+  });
+
+  it('requestJump mémorise aussi la navigation (recherche, épingle, citation)', () => {
+    useUi.getState().requestJump({ kind: 'dm', peer: 'bob-pk' }, 'm1');
+
+    expect(useUi.getState().lastDmPeer).toBe('bob-pk');
+  });
+
+  it('restaure la mémoire de navigation persistée au démarrage', async () => {
+    window.localStorage.setItem(
+      'accord.nav.lastChannelByServer',
+      JSON.stringify({ g1: 'c1' }),
+    );
+    window.localStorage.setItem('accord.nav.lastDm', 'alice-pk');
+
+    vi.resetModules();
+    const fresh = await import('./ui');
+
+    expect(fresh.useUi.getState().lastChannelByServer).toEqual({ g1: 'c1' });
+    expect(fresh.useUi.getState().lastDmPeer).toBe('alice-pk');
+  });
+
+  it('replie sur une mémoire vide quand la valeur persistée est corrompue', async () => {
+    window.localStorage.setItem(
+      'accord.nav.lastChannelByServer',
+      '{ceci n’est pas du json',
+    );
+
+    vi.resetModules();
+    const fresh = await import('./ui');
+
+    expect(fresh.useUi.getState().lastChannelByServer).toEqual({});
+  });
+});
+
 describe('useUi — restauration au démarrage', () => {
   it('restaure les préférences persistées valides', async () => {
     window.localStorage.setItem('accord.theme', 'light');

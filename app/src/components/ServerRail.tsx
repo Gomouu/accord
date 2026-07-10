@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useFriends } from '../stores/friends';
 import { useGroups, sortChannels } from '../stores/groups';
 import { useUi, useT } from '../stores/ui';
 import { lireFichier } from '../lib/files';
@@ -15,6 +16,25 @@ function defaultChannelId(state: GroupStateJson | undefined): string | null {
   if (state === undefined) return null;
   const first = sortChannels(state.channels).find((c) => c.kind !== 'voice');
   return first?.channel_id ?? null;
+}
+
+/**
+ * Salon à ouvrir en resélectionnant un serveur : le dernier consulté s'il
+ * existe encore et n'est pas vocal (supprimé entretemps sinon), le premier
+ * salon par défaut à défaut de mémoire valide. Exportée pour être testée
+ * isolément (garde anti-id-périmé).
+ */
+export function channelToRestore(
+  state: GroupStateJson | undefined,
+  remembered: string | undefined,
+): string | null {
+  if (remembered !== undefined) {
+    const stillThere = state?.channels.some(
+      (c) => c.channel_id === remembered && c.kind !== 'voice',
+    );
+    if (stillThere === true) return remembered;
+  }
+  return defaultChannelId(state);
 }
 
 /** Icône d'un serveur : image du magasin de fichiers, initiales en repli. */
@@ -88,19 +108,33 @@ export function ServerRail() {
   const openModal = useUi((s) => s.openModal);
   const ids = useGroups((s) => s.ids);
   const states = useGroups((s) => s.states);
+  const lastChannelByServer = useUi((s) => s.lastChannelByServer);
+  const lastDmPeer = useUi((s) => s.lastDmPeer);
+  const contacts = useFriends((s) => s.contacts);
 
   const isHome = view.kind === 'friends' || view.kind === 'dm';
+
+  /**
+   * Icône accueil/MP : rouvre la dernière conversation privée si l'amitié
+   * tient toujours (pas retirée/bloquée entretemps), sinon la liste d'amis —
+   * qui reste par ailleurs toujours atteignable via le bouton « Amis » de la
+   * barre latérale.
+   */
+  const openHome = (): void => {
+    const peer = lastDmPeer;
+    if (peer !== null && contacts.some((c) => c.pubkey === peer && c.state === 'friend')) {
+      setView({ kind: 'dm', peer });
+      return;
+    }
+    setView({ kind: 'friends' });
+  };
 
   return (
     <nav
       aria-label={t.app.name}
       className="flex h-full w-[72px] flex-col items-center gap-2 overflow-y-auto bg-rail py-3"
     >
-      <RailButton
-        label={t.dm.directMessages}
-        active={isHome}
-        onClick={() => setView({ kind: 'friends' })}
-      >
+      <RailButton label={t.dm.directMessages} active={isHome} onClick={openHome}>
         {/* Marque Accord : deux bulles liées. */}
         <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
           <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h8A2.5 2.5 0 0 1 17 5.5v5a2.5 2.5 0 0 1-2.5 2.5H9l-3.6 2.7A.9.9 0 0 1 4 15V5.5Z" />
@@ -125,7 +159,7 @@ export function ServerRail() {
               setView({
                 kind: 'group',
                 groupId: id,
-                channelId: defaultChannelId(states[id]),
+                channelId: channelToRestore(states[id], lastChannelByServer[id]),
               })
             }
           >

@@ -8,6 +8,12 @@
 
 import { create } from 'zustand';
 import { detectLang, type Lang } from '../i18n';
+import {
+  loadLastChannelByServer,
+  loadLastDm,
+  saveLastChannelByServer,
+  saveLastDm,
+} from '../lib/navPersistence';
 
 export type View =
   | { kind: 'friends' }
@@ -158,6 +164,38 @@ function applyFontScale(scale: FontScale): void {
   document.documentElement.style.fontSize = `${scale}%`;
 }
 
+/**
+ * Mémoire de navigation induite par `view` : dernier salon consulté par
+ * serveur, dernier pair de conversation privée. Toujours reconstruit un
+ * objet limité à ces deux clés (jamais `s` tel quel) : `s` reçu ici est
+ * l'état complet du store, et le renvoyer directement écraserait `view`/
+ * `jump`/`profile` fraîchement calculés par l'appelant lors du spread. La
+ * validation contre l'état courant (salon supprimé, ami retiré) revient à
+ * l'appelant qui restaure la vue — ce store se contente d'enregistrer la
+ * dernière navigation réussie.
+ */
+function withNavMemory(
+  s: Pick<UiState, 'lastChannelByServer' | 'lastDmPeer'>,
+  view: View,
+): Pick<UiState, 'lastChannelByServer' | 'lastDmPeer'> {
+  if (view.kind === 'group' && view.channelId !== null) {
+    if (s.lastChannelByServer[view.groupId] === view.channelId) {
+      return { lastChannelByServer: s.lastChannelByServer, lastDmPeer: s.lastDmPeer };
+    }
+    const lastChannelByServer = {
+      ...s.lastChannelByServer,
+      [view.groupId]: view.channelId,
+    };
+    saveLastChannelByServer(lastChannelByServer);
+    return { lastChannelByServer, lastDmPeer: s.lastDmPeer };
+  }
+  if (view.kind === 'dm' && s.lastDmPeer !== view.peer) {
+    saveLastDm(view.peer);
+    return { lastChannelByServer: s.lastChannelByServer, lastDmPeer: view.peer };
+  }
+  return { lastChannelByServer: s.lastChannelByServer, lastDmPeer: s.lastDmPeer };
+}
+
 interface UiState {
   view: View;
   modal: Modal;
@@ -180,6 +218,18 @@ interface UiState {
   notifyGroups: boolean;
   /** Ne notifier que lorsque la fenêtre est en arrière-plan. */
   notifyOnlyUnfocused: boolean;
+  /**
+   * Dernier salon (texte/annonces) consulté par serveur — clé `groupId`.
+   * Restauré au reclic sur l'icône du serveur ; l'appelant valide que le
+   * salon existe encore avant de s'y fier (voir `ServerRail`).
+   */
+  lastChannelByServer: Record<string, string>;
+  /**
+   * Dernier pair de conversation privée ouvert, ou `null`. Restauré au
+   * reclic sur l'icône MP/accueil ; l'appelant valide que l'amitié tient
+   * toujours avant de s'y fier (voir `ServerRail`).
+   */
+  lastDmPeer: string | null;
   setView: (view: View) => void;
   /** Bascule vers `view` et demande le saut vers `msgId` (recherche, épingle). */
   requestJump: (view: View, msgId: string) => void;
@@ -229,13 +279,17 @@ export const useUi = create<UiState>((set) => {
     notifyDms: initialBool(STORAGE_KEYS.notifyDms, true),
     notifyGroups: initialBool(STORAGE_KEYS.notifyGroups, true),
     notifyOnlyUnfocused: initialBool(STORAGE_KEYS.notifyOnlyUnfocused, true),
+    lastChannelByServer: loadLastChannelByServer(),
+    lastDmPeer: loadLastDm(),
 
-    setView: (view) => set({ view, jump: null, profile: null }),
+    setView: (view) =>
+      set((s) => ({ view, jump: null, profile: null, ...withNavMemory(s, view) })),
     requestJump: (view, msgId) =>
       set((s) => ({
         view,
         jump: { view, msgId, nonce: (s.jump?.nonce ?? 0) + 1 },
         profile: null,
+        ...withNavMemory(s, view),
       })),
     clearJump: () => set({ jump: null }),
     openModal: (modal) => set({ modal }),

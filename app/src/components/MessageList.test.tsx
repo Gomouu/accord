@@ -12,6 +12,7 @@ import {
   type DisplayMessage,
   type MessageListActions,
 } from './MessageList';
+import type { Contact, GroupStateJson } from '../lib/api';
 import { useDms } from '../stores/dms';
 import { useFriends } from '../stores/friends';
 import { useGroups } from '../stores/groups';
@@ -572,5 +573,56 @@ describe('MessageList — saut au message', () => {
     fireEvent.click(screen.getByRole('button', { name: /citation-cible/ }));
 
     expect(useUi.getState().jump).toMatchObject({ msgId: 'orig' });
+  });
+});
+
+describe('MessageList — pseudos de serveur', () => {
+  it('affiche le pseudo de serveur au lieu du pseudo global en salon', () => {
+    useFriends.setState({
+      contacts: [{ pubkey: 'aabbccddee', display_name: 'GlobalAlice' } as unknown as Contact],
+    });
+    const state = {
+      group_id: 'g1',
+      name: 'G',
+      icon: null,
+      founder: null,
+      members: [{ pubkey: 'aabbccddee', roles: [], nickname: 'ServerAlice' }],
+      bans: [],
+      channels: [],
+      categories: [],
+      roles: [],
+      invites: [],
+      my_permissions: 0,
+    } satisfies GroupStateJson;
+    useGroups.setState({ states: { g1: state } });
+
+    render(<MessageList messages={[textMsg('m1', BASE_MS, 'coucou')]} groupId="g1" />);
+
+    expect(screen.getByText('ServerAlice')).toBeInTheDocument();
+    expect(screen.queryByText('GlobalAlice')).not.toBeInTheDocument();
+  });
+
+  it('retombe sur le pseudo global quand aucun pseudo de serveur n’est défini', () => {
+    useFriends.setState({
+      contacts: [{ pubkey: 'aabbccddee', display_name: 'GlobalAlice' } as unknown as Contact],
+    });
+    const state = {
+      group_id: 'g1',
+      name: 'G',
+      icon: null,
+      founder: null,
+      members: [{ pubkey: 'aabbccddee', roles: [] }],
+      bans: [],
+      channels: [],
+      categories: [],
+      roles: [],
+      invites: [],
+      my_permissions: 0,
+    } satisfies GroupStateJson;
+    useGroups.setState({ states: { g1: state } });
+
+    render(<MessageList messages={[textMsg('m1', BASE_MS, 'coucou')]} groupId="g1" />);
+
+    expect(screen.getByText('GlobalAlice')).toBeInTheDocument();
   });
 });

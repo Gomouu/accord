@@ -25,10 +25,15 @@ import {
   type MentionCandidate,
 } from '../lib/mentions';
 import { api } from '../lib/client';
-import { tailleLisible } from '../lib/format';
+import { formatTimestamp, tailleLisible } from '../lib/format';
 import { useTypingEmitter, type TypingTarget } from '../hooks/useTypingEmitter';
 import { useFriends, displayNameOf } from '../stores/friends';
-import { sortRoles, useGroups } from '../stores/groups';
+import {
+  isChannelReadOnly,
+  sortRoles,
+  timeoutUntil,
+  useGroups,
+} from '../stores/groups';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import { EmojiPicker } from './EmojiPicker';
@@ -201,6 +206,54 @@ export function MessageInput({
   };
 
   const publierEnCours = sending && pieces.length > 0;
+
+  // Composeur en lecture seule : sourdine active de l'utilisateur local, ou
+  // salon d'annonces sans MANAGE_CHANNELS effectif. Le fil reste consultable.
+  const channelId = typingTarget?.kind === 'group' ? typingTarget.channelId : null;
+  const selfMember =
+    self !== null && groupState !== undefined
+      ? groupState.members.find((m) => m.pubkey === self.pubkey)
+      : undefined;
+  const mutedUntil = timeoutUntil(selfMember);
+  const channel =
+    groupState !== undefined && channelId !== null
+      ? groupState.channels.find((c) => c.channel_id === channelId)
+      : undefined;
+  const readOnly =
+    groupState !== undefined && channel !== undefined
+      ? isChannelReadOnly(groupState, channel, self?.pubkey ?? null)
+      : false;
+  let notice: string | null = null;
+  if (mutedUntil !== null) {
+    notice = interpolate(t.groups.timedOutNotice, {
+      time: formatTimestamp(mutedUntil, lang),
+    });
+  } else if (readOnly) {
+    notice = t.groups.announcementReadOnly;
+  }
+
+  if (notice !== null) {
+    return (
+      <div className="px-4 pb-6">
+        <div
+          role="status"
+          className="flex items-center gap-2.5 rounded-lg bg-input px-4 py-3 text-sm text-muted"
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            aria-hidden
+            className="shrink-0"
+          >
+            <path d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5Zm3 8H9V7a3 3 0 0 1 6 0v3Z" />
+          </svg>
+          <span>{notice}</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="px-4 pb-6">

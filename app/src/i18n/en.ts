@@ -151,6 +151,9 @@ export const en: Dict = {
     channelPlaceholder: 'Message #{name}',
     noChannel: 'No channel yet — create one to get started.',
     founder: 'founder',
+    // Read-only composer.
+    timedOutNotice: 'You’re timed out — you can post again on {time}.',
+    announcementReadOnly: 'Announcement channel — only managers can post.',
   },
   serveur: {
     settingsTitle: 'Server settings',
@@ -222,6 +225,19 @@ export const en: Dict = {
     ban: 'Ban',
     kickConfirm: 'Kick {name}?',
     banConfirm: 'Ban {name}? They will not be able to rejoin.',
+    // Temporary timeout.
+    timeout: 'Timeout',
+    timeoutApply: 'Apply timeout',
+    timeoutClear: 'Remove timeout',
+    timeoutDuration: 'Timeout duration',
+    timedOutUntil: 'Timed out until {time}',
+    timeout5m: '5 minutes',
+    timeout10m: '10 minutes',
+    timeout1h: '1 hour',
+    timeout1d: '1 day',
+    timeout1w: '1 week',
+    // Server nickname (moderation).
+    clearNickname: 'Clear nickname',
     // Bans.
     unban: 'Unban',
     noBans: 'Nobody is banned.',
@@ -337,6 +353,8 @@ export const en: Dict = {
     rolesLabel: 'Roles',
     noteLabel: 'Private note',
     notePlaceholder: 'Note only you can see',
+    nicknameLabel: 'Server nickname',
+    nicknamePlaceholder: 'Nickname for this server',
     friendCode: 'Friend code',
     openProfile: 'View {name}’s profile',
     editProfile: 'Edit my profile',

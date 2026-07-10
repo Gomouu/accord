@@ -33,6 +33,9 @@ vi.mock('../../lib/client', () => ({
     groupsKick: vi.fn(),
     groupsBan: vi.fn(),
     groupsUnban: vi.fn(),
+    groupsTimeout: vi.fn(),
+    groupsTimeoutClear: vi.fn(),
+    groupsSetNickname: vi.fn(),
     groupsLeave: vi.fn(),
     groupsRoleAdd: vi.fn(),
     groupsRoleEdit: vi.fn(),
@@ -54,6 +57,9 @@ const stateMock = api.groupsState as unknown as Mock;
 const renameMock = api.groupsRename as unknown as Mock;
 const kickMock = api.groupsKick as unknown as Mock;
 const unbanMock = api.groupsUnban as unknown as Mock;
+const timeoutMock = api.groupsTimeout as unknown as Mock;
+const timeoutClearMock = api.groupsTimeoutClear as unknown as Mock;
+const nicknameMock = api.groupsSetNickname as unknown as Mock;
 const leaveMock = api.groupsLeave as unknown as Mock;
 const channelEditMock = api.groupsChannelEdit as unknown as Mock;
 const channelPermsMock = api.groupsChannelPerms as unknown as Mock;
@@ -152,6 +158,9 @@ beforeEach(() => {
     renameMock,
     kickMock,
     unbanMock,
+    timeoutMock,
+    timeoutClearMock,
+    nicknameMock,
     leaveMock,
     channelEditMock,
     channelPermsMock,
@@ -318,6 +327,111 @@ describe('ServerSettingsModal — membres', () => {
 
     expect(screen.queryByRole('button', { name: 'Expulser' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Bannir' })).not.toBeInTheDocument();
+  });
+
+  it('met un membre en sourdine avec la durée choisie (permission KICK)', async () => {
+    seed(makeState());
+    timeoutMock.mockResolvedValueOnce({ ok: true });
+    render(<ServerSettingsModal groupId="g1" />);
+    openTab('Membres');
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Durée de la sourdine' }), {
+      target: { value: '1w' },
+    });
+    const before = Date.now();
+    fireEvent.click(screen.getByRole('button', { name: 'Sourdine' }));
+
+    await waitFor(() =>
+      expect(timeoutMock).toHaveBeenCalledWith('g1', 'autre', expect.any(Number)),
+    );
+    const until = timeoutMock.mock.calls[0]?.[2] as number;
+    expect(until - before).toBeGreaterThan(6 * 24 * 60 * 60 * 1000);
+  });
+
+  it('affiche l’indicateur de sourdine et permet de la lever', async () => {
+    seed(
+      makeState({
+        members: [
+          { pubkey: 'fondateur', roles: [] },
+          { pubkey: 'moi', roles: ['modo'] },
+          { pubkey: 'autre', roles: [], timeout_until_ms: Date.now() + 60 * 60 * 1000 },
+        ],
+      }),
+    );
+    timeoutClearMock.mockResolvedValueOnce({ ok: true });
+    render(<ServerSettingsModal groupId="g1" />);
+    openTab('Membres');
+
+    expect(screen.getByText(/En sourdine/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sourdine' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Lever la sourdine' }));
+
+    await waitFor(() => expect(timeoutClearMock).toHaveBeenCalledWith('g1', 'autre'));
+  });
+
+  it('n’offre pas la sourdine sans la permission KICK', () => {
+    seed(makeState({ my_permissions: 0x3 }));
+    render(<ServerSettingsModal groupId="g1" />);
+    openTab('Membres');
+
+    expect(screen.queryByRole('button', { name: 'Sourdine' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('combobox', { name: 'Durée de la sourdine' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('affiche le pseudo de serveur d’un membre au lieu du pseudo global', () => {
+    seed(
+      makeState({
+        members: [
+          { pubkey: 'fondateur', roles: [] },
+          { pubkey: 'moi', roles: ['modo'] },
+          { pubkey: 'autre', roles: [], nickname: 'AutreServeur' },
+        ],
+      }),
+    );
+    render(<ServerSettingsModal groupId="g1" />);
+    openTab('Membres');
+
+    expect(screen.getByText('AutreServeur')).toBeInTheDocument();
+  });
+
+  it('permet à un modérateur (MANAGE_ROLES) d’effacer le pseudo d’un membre', async () => {
+    seed(
+      makeState({
+        members: [
+          { pubkey: 'fondateur', roles: [] },
+          { pubkey: 'moi', roles: ['modo'] },
+          { pubkey: 'autre', roles: [], nickname: 'AutreServeur' },
+        ],
+      }),
+    );
+    nicknameMock.mockResolvedValueOnce({ ok: true });
+    render(<ServerSettingsModal groupId="g1" />);
+    openTab('Membres');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Effacer le pseudo' }));
+
+    await waitFor(() => expect(nicknameMock).toHaveBeenCalledWith('g1', '', 'autre'));
+  });
+
+  it('masque l’effacement de pseudo sans MANAGE_ROLES', () => {
+    seed(
+      makeState({
+        my_permissions: 0x20, // KICK sans MANAGE_ROLES
+        members: [
+          { pubkey: 'fondateur', roles: [] },
+          { pubkey: 'moi', roles: ['modo'] },
+          { pubkey: 'autre', roles: [], nickname: 'AutreServeur' },
+        ],
+      }),
+    );
+    render(<ServerSettingsModal groupId="g1" />);
+    openTab('Membres');
+
+    expect(
+      screen.queryByRole('button', { name: 'Effacer le pseudo' }),
+    ).not.toBeInTheDocument();
   });
 });
 

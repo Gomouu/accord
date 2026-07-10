@@ -11,6 +11,7 @@ import {
   channelKey,
   hasPerm,
   memberColor,
+  nicknameOf,
   sortRoles,
   PERMISSIONS,
 } from '../stores/groups';
@@ -309,10 +310,13 @@ function MemberList({ groupId }: { groupId: string }) {
   const openProfile = useUi((s) => s.openProfile);
   if (!state) return null;
 
-  const nameOf = (pubkey: string): string =>
-    self && pubkey === self.pubkey
-      ? `${selfDisplayName(self)} (${t.app.you})`
-      : displayNameOf(contacts, pubkey);
+  const nameOf = (pubkey: string): string => {
+    const nick = nicknameOf(state, pubkey);
+    if (self && pubkey === self.pubkey) {
+      return `${nick ?? selfDisplayName(self)} (${t.app.you})`;
+    }
+    return nick ?? displayNameOf(contacts, pubkey);
+  };
 
   /** Noms des rôles d'un membre, du plus haut au plus bas. */
   const roleNamesOf = (roleIds: readonly string[]): string[] => {
@@ -572,10 +576,13 @@ export function GroupView({
   for (const m of state?.members ?? []) {
     knownMentions.add(displayNameOf(contacts, m.pubkey).toLowerCase());
   }
-  const nameOf = (author: string): string =>
-    self && author === self.pubkey
-      ? `${selfDisplayName(self)} (${t.app.you})`
-      : displayNameOf(contacts, author);
+  const nameOf = (author: string): string => {
+    const nick = nicknameOf(state, author);
+    if (self && author === self.pubkey) {
+      return `${nick ?? selfDisplayName(self)} (${t.app.you})`;
+    }
+    return nick ?? displayNameOf(contacts, author);
+  };
   const { resolved: resolvedPins, unresolved: unresolvedPins } = resolvePins(
     pins ?? [],
     messages,

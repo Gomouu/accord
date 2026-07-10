@@ -9,7 +9,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PresenceStatus } from '../lib/api';
 import { displayNameOf, presenceOf, useFriends } from '../stores/friends';
-import { roleColorCss, sortRoles, useGroups } from '../stores/groups';
+import { nicknameOf, roleColorCss, sortRoles, useGroups } from '../stores/groups';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT, type AncrePopover } from '../stores/ui';
 import { api } from '../lib/client';
@@ -84,10 +84,13 @@ export function ProfilePopover() {
   /** Note privée locale du contact (chargée à l'ouverture, jamais émise). */
   const [note, setNote] = useState('');
   const [noteLoaded, setNoteLoaded] = useState(false);
+  /** Brouillon du pseudo de serveur (édition de son propre pseudo). */
+  const [nick, setNick] = useState('');
   const self = useSession((s) => s.self);
   const state = useGroups((s) =>
     profile?.groupId != null ? s.states[profile.groupId] : undefined,
   );
+  const setNickname = useGroups((s) => s.setNickname);
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
 
@@ -101,6 +104,18 @@ export function ProfilePopover() {
   useEffect(() => {
     setConfirmRemove(false);
   }, [profile]);
+
+  // Brouillon du pseudo de serveur initialisé sur le pseudo courant du membre
+  // (source de vérité : `groups.state`), réinitialisé à chaque changement de
+  // cible ou d'état de groupe.
+  useEffect(() => {
+    if (profile === null) {
+      setNick('');
+      return;
+    }
+    const member = state?.members.find((m) => m.pubkey === profile.pubkey);
+    setNick(member?.nickname ?? '');
+  }, [profile, state]);
 
   // Charge la note privée locale du contact à l'ouverture (source de vérité :
   // le nœud). Purement locale — jamais envoyée au pair.
@@ -148,8 +163,10 @@ export function ProfilePopover() {
   const pubkey = profile.pubkey;
   const isSelf = self !== null && pubkey === self.pubkey;
   const contact = contacts.find((c) => c.pubkey === pubkey);
+  // Pseudo de serveur prioritaire (contexte de groupe), sinon pseudo global.
   const name =
-    isSelf && self !== null ? selfDisplayName(self) : displayNameOf(contacts, pubkey);
+    nicknameOf(state, pubkey) ??
+    (isSelf && self !== null ? selfDisplayName(self) : displayNameOf(contacts, pubkey));
   const avatarHash = isSelf && self !== null ? self.avatar : (contact?.avatar ?? null);
   const bannerHash = isSelf && self !== null ? self.banner : (contact?.banner ?? null);
   const bio = isSelf && self !== null ? self.bio : (contact?.bio ?? null);
@@ -201,6 +218,16 @@ export function ProfilePopover() {
     api
       .friendsSetNote(pubkey, note.trim())
       .catch(() => toast('error', t.errors.actionFailed));
+  };
+
+  /** Enregistre son propre pseudo de serveur (au blur/Entrée) s'il a changé. */
+  const enregistrerNick = (): void => {
+    const groupId = profile.groupId;
+    if (groupId == null || state === undefined) return;
+    const trimmed = nick.trim();
+    const current = (member?.nickname ?? '').trim();
+    if (trimmed === current) return;
+    setNickname(groupId, trimmed).catch(() => toast('error', t.errors.actionFailed));
   };
 
   const canNote = !isSelf && contact !== undefined;
@@ -285,6 +312,33 @@ export function ProfilePopover() {
                   );
                 })}
               </div>
+            </>
+          )}
+
+          {isSelf && state !== undefined && (
+            <>
+              <div className="mt-3 h-px bg-input" role="separator" />
+              <label
+                htmlFor="profil-nickname"
+                className="mt-2 block text-xs font-semibold uppercase tracking-wide text-faint"
+              >
+                {t.profil.nicknameLabel}
+              </label>
+              <input
+                id="profil-nickname"
+                value={nick}
+                onChange={(e) => setNick(e.target.value)}
+                onBlur={enregistrerNick}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    e.currentTarget.blur();
+                  }
+                }}
+                maxLength={32}
+                placeholder={t.profil.nicknamePlaceholder}
+                className="mt-1 w-full rounded bg-input px-2 py-1.5 text-sm text-norm placeholder:text-faint focus:outline-none focus:ring-1 focus:ring-blurple"
+              />
             </>
           )}
 

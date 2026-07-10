@@ -272,3 +272,88 @@ describe('MessageInput — autocomplétion de mentions', () => {
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   });
 });
+
+/** Profil local minimal pour les scénarios de composeur en salon. */
+const SELF = {
+  node_id: 'n',
+  pubkey: 'moi',
+  friend_code: 'accord-moi',
+  name: 'Moi',
+  bio: null,
+  avatar: null,
+  banner: null,
+};
+
+const GROUP_TARGET = { kind: 'group', groupId: 'g1', channelId: 'c1' } as const;
+
+/** Installe un groupe d'un seul salon `c1` avec le membre local `moi`. */
+function seedComposer(over: Partial<GroupStateJson>, channelKind: 'text' | 'announcement'): void {
+  useSession.setState({ self: SELF });
+  const state = {
+    group_id: 'g1',
+    name: 'G',
+    icon: null,
+    founder: null,
+    members: [{ pubkey: 'moi', roles: [] }],
+    bans: [],
+    channels: [
+      { channel_id: 'c1', name: 'salon', kind: channelKind, category: null, position: 0, topic: '' },
+    ],
+    categories: [],
+    roles: [],
+    invites: [],
+    my_permissions: 0x3,
+    ...over,
+  } satisfies GroupStateJson;
+  useGroups.setState({ states: { g1: state } });
+}
+
+describe('MessageInput — composeur en lecture seule', () => {
+  it('désactive le composeur quand l’utilisateur local est en sourdine', () => {
+    seedComposer(
+      { members: [{ pubkey: 'moi', roles: [], timeout_until_ms: Date.now() + 60_000 }] },
+      'text',
+    );
+    render(
+      <MessageInput
+        placeholder="Écrire dans #salon"
+        onSend={vi.fn()}
+        groupId="g1"
+        typingTarget={GROUP_TARGET}
+      />,
+    );
+
+    expect(screen.getByRole('status').textContent).toMatch(/sourdine/);
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  });
+
+  it('passe un salon d’annonces en lecture seule sans MANAGE_CHANNELS', () => {
+    seedComposer({ my_permissions: 0x3 }, 'announcement');
+    render(
+      <MessageInput
+        placeholder="Écrire dans #salon"
+        onSend={vi.fn()}
+        groupId="g1"
+        typingTarget={GROUP_TARGET}
+      />,
+    );
+
+    expect(screen.getByRole('status').textContent).toMatch(/gestionnaires/);
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  });
+
+  it('laisse écrire dans un salon d’annonces avec MANAGE_CHANNELS', () => {
+    seedComposer({ my_permissions: 0x3 | 0x8 }, 'announcement');
+    render(
+      <MessageInput
+        placeholder="Écrire dans #salon"
+        onSend={vi.fn()}
+        groupId="g1"
+        typingTarget={GROUP_TARGET}
+      />,
+    );
+
+    expect(screen.getByRole('textbox')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+});

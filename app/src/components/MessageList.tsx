@@ -281,6 +281,19 @@ export function MessageList({
     for (const role of groupRoles ?? []) map.set(role.name.toLowerCase(), role.color);
     return map;
   }, [groupRoles]);
+  // Pseudos de serveur (pubkey → pseudo) : priment sur le pseudo global dans
+  // les en-têtes et citations. Vide hors contexte de groupe (MP).
+  const groupMembers = useGroups((s) =>
+    groupId !== null ? s.states[groupId]?.members : undefined,
+  );
+  const nicknames = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const member of groupMembers ?? []) {
+      const nick = member.nickname;
+      if (nick != null && nick.trim() !== '') map.set(member.pubkey, nick);
+    }
+    return map;
+  }, [groupMembers]);
   /** Message en cours de transfert (null : aucun). */
   const [forwarding, setForwarding] = useState<DisplayMessage | null>(null);
 
@@ -386,10 +399,11 @@ export function MessageList({
   };
 
   const nameOf = (author: string): string => {
+    const nick = nicknames.get(author);
     if (self && author === self.pubkey) {
-      return `${selfDisplayName(self)} (${t.app.you})`;
+      return `${nick ?? selfDisplayName(self)} (${t.app.you})`;
     }
-    return displayNameOf(contacts, author);
+    return nick ?? displayNameOf(contacts, author);
   };
 
   /** Hash d'avatar d'un auteur : soi-même, sinon le contact ami connu. */

@@ -147,3 +147,71 @@ describe('ProfilePopover — actions', () => {
     expect(useUi.getState().profile).toBeNull();
   });
 });
+
+describe('ProfilePopover — pseudos de serveur', () => {
+  function stateWith(members: GroupStateJson['members']): GroupStateJson {
+    return { ...serverState(), members };
+  }
+
+  it('affiche le pseudo de serveur au lieu du pseudo global', () => {
+    useGroups.setState({
+      states: { g1: stateWith([{ pubkey: 'ami-pk', roles: ['r1'], nickname: 'Alicette' }]) },
+    });
+    openFor('ami-pk', 'g1');
+    render(<ProfilePopover />);
+
+    expect(screen.getByText('Alicette')).toBeInTheDocument();
+    expect(screen.queryByText('Alice')).not.toBeInTheDocument();
+  });
+
+  it('offre un champ de pseudo de serveur sur son propre profil en groupe', () => {
+    useGroups.setState({
+      states: { g1: stateWith([{ pubkey: 'moi', roles: [], nickname: 'MoiServeur' }]) },
+    });
+    openFor('moi', 'g1');
+    render(<ProfilePopover />);
+
+    expect(screen.getByLabelText('Pseudo de serveur')).toHaveValue('MoiServeur');
+  });
+
+  it('enregistre son pseudo de serveur au blur s’il a changé', () => {
+    const original = useGroups.getState().setNickname;
+    const spy = vi.fn(async () => {});
+    useGroups.setState({
+      states: { g1: stateWith([{ pubkey: 'moi', roles: [] }]) },
+      setNickname: spy,
+    });
+    openFor('moi', 'g1');
+    render(<ProfilePopover />);
+
+    const input = screen.getByLabelText('Pseudo de serveur');
+    fireEvent.change(input, { target: { value: 'Bibou' } });
+    fireEvent.blur(input);
+
+    expect(spy).toHaveBeenCalledWith('g1', 'Bibou');
+    useGroups.setState({ setNickname: original });
+  });
+
+  it('n’émet rien si le pseudo est inchangé au blur', () => {
+    const original = useGroups.getState().setNickname;
+    const spy = vi.fn(async () => {});
+    useGroups.setState({
+      states: { g1: stateWith([{ pubkey: 'moi', roles: [], nickname: 'MoiServeur' }]) },
+      setNickname: spy,
+    });
+    openFor('moi', 'g1');
+    render(<ProfilePopover />);
+
+    fireEvent.blur(screen.getByLabelText('Pseudo de serveur'));
+
+    expect(spy).not.toHaveBeenCalled();
+    useGroups.setState({ setNickname: original });
+  });
+
+  it('ne montre pas le champ de pseudo hors contexte de serveur', () => {
+    openFor('moi');
+    render(<ProfilePopover />);
+
+    expect(screen.queryByLabelText('Pseudo de serveur')).not.toBeInTheDocument();
+  });
+});

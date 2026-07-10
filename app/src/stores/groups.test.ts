@@ -31,6 +31,9 @@ vi.mock('../lib/client', () => ({
     groupsSend: vi.fn(),
     groupsEmojiAdd: vi.fn(),
     groupsEmojiDel: vi.fn(),
+    groupsTimeout: vi.fn(),
+    groupsTimeoutClear: vi.fn(),
+    groupsSetNickname: vi.fn(),
   },
 }));
 
@@ -43,13 +46,17 @@ import {
   handleMentionNodeEvent,
   hasPerm,
   highestRolePosition,
+  isChannelReadOnly,
   memberColor,
+  myChannelPermissions,
+  nicknameOf,
   overrideOf,
   planRoleMove,
   roleColorCss,
   sortCategories,
   sortChannels,
   sortRoles,
+  timeoutUntil,
   PERMISSIONS,
 } from './groups';
 
@@ -74,6 +81,9 @@ const sendMock = api.groupsSend as unknown as Mock;
 const emojiAddMock = api.groupsEmojiAdd as unknown as Mock;
 const emojiDelMock = api.groupsEmojiDel as unknown as Mock;
 const historyAroundMock = api.groupsHistoryAround as unknown as Mock;
+const timeoutMock = api.groupsTimeout as unknown as Mock;
+const timeoutClearMock = api.groupsTimeoutClear as unknown as Mock;
+const nicknameMock = api.groupsSetNickname as unknown as Mock;
 const callMock = rpc.call as unknown as Mock;
 
 function role(id: string, position: number, color = 0): GroupRole {
@@ -143,6 +153,9 @@ beforeEach(() => {
     categoryDelMock,
     roleEditMock,
     historyAroundMock,
+    timeoutMock,
+    timeoutClearMock,
+    nicknameMock,
     callMock,
   ]) {
     mock.mockReset();
@@ -662,6 +675,174 @@ describe('overrideOf', () => {
     expect(overrideOf(state, 'c1', 'r2')).toEqual({ allow: 0, deny: 0 });
     expect(overrideOf({}, 'c1', 'r1')).toEqual({ allow: 0, deny: 0 });
     expect(overrideOf(undefined, 'c1', 'r1')).toEqual({ allow: 0, deny: 0 });
+  });
+});
+
+describe('nicknameOf', () => {
+  it('rend le pseudo de serveur défini', () => {
+    const s = groupState({ members: [{ pubkey: 'moi', roles: [], nickname: 'Bibou' }] });
+    expect(nicknameOf(s, 'moi')).toBe('Bibou');
+  });
+
+  it('rend null quand absent, vide, espaces, membre ou état inconnus', () => {
+    const s = groupState({
+      members: [
+        { pubkey: 'a', roles: [] },
+        { pubkey: 'b', roles: [], nickname: '' },
+        { pubkey: 'c', roles: [], nickname: '   ' },
+      ],
+    });
+    expect(nicknameOf(s, 'a')).toBeNull();
+    expect(nicknameOf(s, 'b')).toBeNull();
+    expect(nicknameOf(s, 'c')).toBeNull();
+    expect(nicknameOf(s, 'inconnu')).toBeNull();
+    expect(nicknameOf(undefined, 'a')).toBeNull();
+  });
+});
+
+describe('timeoutUntil', () => {
+  it('rend l’échéance active, null si passée, nulle ou absente', () => {
+    expect(timeoutUntil({ timeout_until_ms: 2000 }, 1000)).toBe(2000);
+    expect(timeoutUntil({ timeout_until_ms: 500 }, 1000)).toBeNull();
+    expect(timeoutUntil({ timeout_until_ms: 1000 }, 1000)).toBeNull();
+    expect(timeoutUntil({ timeout_until_ms: 0 }, 1000)).toBeNull();
+    expect(timeoutUntil({}, 1000)).toBeNull();
+    expect(timeoutUntil(undefined, 1000)).toBeNull();
+  });
+});
+
+describe('myChannelPermissions', () => {
+  it('rend la base globale sans override applicable', () => {
+    const s = groupState({
+      my_permissions: 0x3,
+      members: [{ pubkey: 'moi', roles: ['r'] }],
+    });
+    expect(myChannelPermissions(s, 'c1', 'moi')).toBe(0x3);
+  });
+
+  it('applique allow puis deny des rôles portés dans ce salon (deny gagne)', () => {
+    const s = groupState({
+      my_permissions: PERMISSIONS.VIEW | PERMISSIONS.SEND,
+      members: [{ pubkey: 'moi', roles: ['r'] }],
+      overrides: [
+        {
+          channel_id: 'c1',
+          role_id: 'r',
+          allow: PERMISSIONS.MANAGE_CHANNELS,
+          deny: PERMISSIONS.SEND,
+        },
+        { channel_id: 'c2', role_id: 'r', allow: PERMISSIONS.BAN, deny: 0 },
+      ],
+    });
+    const eff = myChannelPermissions(s, 'c1', 'moi');
+    expect(hasPerm(eff, PERMISSIONS.MANAGE_CHANNELS)).toBe(true);
+    expect(hasPerm(eff, PERMISSIONS.VIEW)).toBe(true);
+    expect(hasPerm(eff, PERMISSIONS.SEND)).toBe(false);
+    // L'override de l'autre salon (c2) n'est pas appliqué.
+    expect(hasPerm(eff, PERMISSIONS.BAN)).toBe(false);
+  });
+
+  it('ignore les overrides des rôles non portés', () => {
+    const s = groupState({
+      my_permissions: PERMISSIONS.VIEW,
+      members: [{ pubkey: 'moi', roles: [] }],
+      overrides: [
+        { channel_id: 'c1', role_id: 'r', allow: PERMISSIONS.MANAGE_CHANNELS, deny: 0 },
+      ],
+    });
+    expect(myChannelPermissions(s, 'c1', 'moi')).toBe(PERMISSIONS.VIEW);
+  });
+
+  it('ADMIN court-circuite les overrides (deny ignoré)', () => {
+    const s = groupState({
+      my_permissions: PERMISSIONS.ADMIN,
+      members: [{ pubkey: 'moi', roles: ['r'] }],
+      overrides: [
+        { channel_id: 'c1', role_id: 'r', allow: 0, deny: PERMISSIONS.MANAGE_CHANNELS },
+      ],
+    });
+    expect(myChannelPermissions(s, 'c1', 'moi')).toBe(PERMISSIONS.ADMIN);
+  });
+});
+
+describe('isChannelReadOnly', () => {
+  it('faux hors salon d’annonces', () => {
+    const s = groupState({
+      my_permissions: PERMISSIONS.VIEW | PERMISSIONS.SEND,
+      members: [{ pubkey: 'moi', roles: [] }],
+    });
+    expect(isChannelReadOnly(s, { channel_id: 'c1', kind: 'text' }, 'moi')).toBe(false);
+  });
+
+  it('vrai en salon d’annonces sans MANAGE_CHANNELS effectif', () => {
+    const s = groupState({
+      my_permissions: PERMISSIONS.VIEW | PERMISSIONS.SEND,
+      members: [{ pubkey: 'moi', roles: [] }],
+    });
+    expect(isChannelReadOnly(s, { channel_id: 'c1', kind: 'announcement' }, 'moi')).toBe(
+      true,
+    );
+  });
+
+  it('faux en annonces avec MANAGE_CHANNELS global ou via override', () => {
+    const global = groupState({
+      my_permissions: PERMISSIONS.MANAGE_CHANNELS,
+      members: [{ pubkey: 'moi', roles: [] }],
+    });
+    expect(
+      isChannelReadOnly(global, { channel_id: 'c1', kind: 'announcement' }, 'moi'),
+    ).toBe(false);
+
+    const viaOverride = groupState({
+      my_permissions: PERMISSIONS.VIEW,
+      members: [{ pubkey: 'moi', roles: ['r'] }],
+      overrides: [
+        { channel_id: 'c1', role_id: 'r', allow: PERMISSIONS.MANAGE_CHANNELS, deny: 0 },
+      ],
+    });
+    expect(
+      isChannelReadOnly(viaOverride, { channel_id: 'c1', kind: 'announcement' }, 'moi'),
+    ).toBe(false);
+  });
+});
+
+describe('useGroups — sourdine et pseudos de serveur', () => {
+  it('timeout met en sourdine puis recharge l’état', async () => {
+    timeoutMock.mockResolvedValueOnce({ ok: true });
+    stateMock.mockResolvedValueOnce(groupState());
+
+    await useGroups.getState().timeout('g1', 'autre', 4242);
+
+    expect(timeoutMock).toHaveBeenCalledWith('g1', 'autre', 4242);
+    expect(useGroups.getState().states['g1']).toBeDefined();
+  });
+
+  it('clearTimeout lève la sourdine puis recharge l’état', async () => {
+    timeoutClearMock.mockResolvedValueOnce({ ok: true });
+    stateMock.mockResolvedValueOnce(groupState());
+
+    await useGroups.getState().clearTimeout('g1', 'autre');
+
+    expect(timeoutClearMock).toHaveBeenCalledWith('g1', 'autre');
+    expect(useGroups.getState().states['g1']).toBeDefined();
+  });
+
+  it('setNickname transmet le membre ciblé puis recharge l’état', async () => {
+    nicknameMock.mockResolvedValueOnce({ ok: true });
+    stateMock.mockResolvedValueOnce(groupState());
+
+    await useGroups.getState().setNickname('g1', 'Bibou', 'autre');
+
+    expect(nicknameMock).toHaveBeenCalledWith('g1', 'Bibou', 'autre');
+  });
+
+  it('setNickname sans membre vise soi-même (membre undefined)', async () => {
+    nicknameMock.mockResolvedValueOnce({ ok: true });
+    stateMock.mockResolvedValueOnce(groupState());
+
+    await useGroups.getState().setNickname('g1', '');
+
+    expect(nicknameMock).toHaveBeenCalledWith('g1', '', undefined);
   });
 });
 

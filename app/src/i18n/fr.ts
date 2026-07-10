@@ -151,6 +151,9 @@ export const fr = {
     channelPlaceholder: 'Écrire dans #{name}',
     noChannel: 'Aucun salon — créez-en un pour commencer.',
     founder: 'fondateur',
+    // Composeur en lecture seule.
+    timedOutNotice: 'Vous êtes en sourdine — vous pourrez écrire à nouveau le {time}.',
+    announcementReadOnly: 'Salon d’annonces — seuls les gestionnaires peuvent écrire.',
   },
   serveur: {
     settingsTitle: 'Paramètres du serveur',
@@ -222,6 +225,19 @@ export const fr = {
     ban: 'Bannir',
     kickConfirm: 'Expulser {name} ?',
     banConfirm: 'Bannir {name} ? Cette personne ne pourra plus être réadmise.',
+    // Sourdine temporaire.
+    timeout: 'Sourdine',
+    timeoutApply: 'Mettre en sourdine',
+    timeoutClear: 'Lever la sourdine',
+    timeoutDuration: 'Durée de la sourdine',
+    timedOutUntil: 'En sourdine jusqu’au {time}',
+    timeout5m: '5 minutes',
+    timeout10m: '10 minutes',
+    timeout1h: '1 heure',
+    timeout1d: '1 jour',
+    timeout1w: '1 semaine',
+    // Pseudo de serveur (modération).
+    clearNickname: 'Effacer le pseudo',
     // Bannis.
     unban: 'Débannir',
     noBans: 'Personne n’est banni.',
@@ -339,6 +355,8 @@ export const fr = {
     rolesLabel: 'Rôles',
     noteLabel: 'Note privée',
     notePlaceholder: 'Note visible seulement par vous',
+    nicknameLabel: 'Pseudo de serveur',
+    nicknamePlaceholder: 'Pseudo pour ce serveur',
     friendCode: 'Code ami',
     openProfile: 'Voir le profil de {name}',
     editProfile: 'Modifier mon profil',

@@ -91,6 +91,32 @@ export function highestRolePosition(
   return best;
 }
 
+/**
+ * Pseudo de serveur d'un membre (`state.members[].nickname`), ou `null`
+ * lorsqu'il est absent, vide ou ne contient que des espaces. Les composants
+ * l'utilisent avec un repli sur le pseudo global.
+ */
+export function nicknameOf(
+  state: Pick<GroupStateJson, 'members'> | undefined,
+  pubkey: string,
+): string | null {
+  const nickname = state?.members.find((m) => m.pubkey === pubkey)?.nickname;
+  return nickname != null && nickname.trim() !== '' ? nickname : null;
+}
+
+/**
+ * Échéance murale (ms) de la sourdine active d'un membre, ou `null` si aucune
+ * sourdine n'est active (`0`, absente ou échéance déjà passée). Comparée à
+ * `now` — une échéance passée est sans effet, comme côté nœud.
+ */
+export function timeoutUntil(
+  member: Pick<GroupMember, 'timeout_until_ms'> | undefined,
+  now: number = Date.now(),
+): number | null {
+  const until = member?.timeout_until_ms ?? 0;
+  return until > now ? until : null;
+}
+
 /** Salons triés par position croissante (départage stable par id). */
 export function sortChannels(channels: readonly GroupChannel[]): GroupChannel[] {
   return [...channels].sort(
@@ -162,6 +188,48 @@ export function overrideOf(
   return found === undefined
     ? { allow: 0, deny: 0 }
     : { allow: found.allow, deny: found.deny };
+}
+
+/**
+ * Permissions effectives de l'utilisateur local dans un salon donné : la base
+ * globale (`my_permissions`) enrichie des overrides des rôles qu'il porte dans
+ * ce salon (`deny` prioritaire sur `allow`). Reflète `GroupState::permissions_in`
+ * côté nœud. ADMIN/fondateur (bit ADMIN présent) court-circuite les overrides.
+ */
+export function myChannelPermissions(
+  state: Pick<GroupStateJson, 'my_permissions' | 'members' | 'overrides'>,
+  channelId: string,
+  selfPubkey: string | null,
+): number {
+  const base = state.my_permissions;
+  if (hasPerm(base, PERMISSIONS.ADMIN) || selfPubkey === null) return base;
+  const member = state.members.find((m) => m.pubkey === selfPubkey);
+  if (member === undefined) return base;
+  const owned = new Set(member.roles);
+  let allow = 0;
+  let deny = 0;
+  for (const o of state.overrides ?? []) {
+    if (o.channel_id !== channelId || !owned.has(o.role_id)) continue;
+    allow |= o.allow;
+    deny |= o.deny;
+  }
+  return (base | allow) & ~deny;
+}
+
+/**
+ * Vrai si `channel` est un salon d'annonces où l'utilisateur local ne peut pas
+ * écrire (pas de `MANAGE_CHANNELS` effectif) : le composeur passe en lecture
+ * seule tandis que le salon reste consultable. Symétrique de la porte
+ * d'émission côté nœud (`ChannelKind::Announcement` + `MANAGE_CHANNELS`).
+ */
+export function isChannelReadOnly(
+  state: Pick<GroupStateJson, 'my_permissions' | 'members' | 'overrides'>,
+  channel: Pick<GroupChannel, 'channel_id' | 'kind'>,
+  selfPubkey: string | null,
+): boolean {
+  if (channel.kind !== 'announcement') return false;
+  const eff = myChannelPermissions(state, channel.channel_id, selfPubkey);
+  return !hasPerm(eff, PERMISSIONS.MANAGE_CHANNELS);
 }
 
 /** Section de salons : `category` vaut `null` pour les sans-catégorie. */
@@ -283,6 +351,15 @@ interface GroupsState {
   kick: (groupId: string, pubkey: string) => Promise<void>;
   ban: (groupId: string, pubkey: string) => Promise<void>;
   unban: (groupId: string, pubkey: string) => Promise<void>;
+  /** Met un membre en sourdine jusqu'à `untilMs` (permission KICK) puis recharge. */
+  timeout: (groupId: string, pubkey: string, untilMs: number) => Promise<void>;
+  /** Lève la sourdine d'un membre puis recharge l'état. */
+  clearTimeout: (groupId: string, pubkey: string) => Promise<void>;
+  /**
+   * Fixe (ou efface avec une chaîne vide) le pseudo de serveur d'un membre —
+   * `member` absent = soi-même — puis recharge l'état.
+   */
+  setNickname: (groupId: string, name: string, member?: string) => Promise<void>;
   /** Quitte le groupe et l'efface localement (liste, état, historiques). */
   leave: (groupId: string) => Promise<void>;
   addRole: (
@@ -550,6 +627,21 @@ export const useGroups = create<GroupsState>((set, get) => ({
 
   unban: async (groupId, pubkey) => {
     await api.groupsUnban(groupId, pubkey);
+    await get().loadState(groupId);
+  },
+
+  timeout: async (groupId, pubkey, untilMs) => {
+    await api.groupsTimeout(groupId, pubkey, untilMs);
+    await get().loadState(groupId);
+  },
+
+  clearTimeout: async (groupId, pubkey) => {
+    await api.groupsTimeoutClear(groupId, pubkey);
+    await get().loadState(groupId);
+  },
+
+  setNickname: async (groupId, name, member) => {
+    await api.groupsSetNickname(groupId, name, member);
     await get().loadState(groupId);
   },
 

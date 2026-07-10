@@ -14,6 +14,7 @@ pub mod friends;
 pub mod group;
 pub mod messaging;
 pub mod offline;
+pub mod presence;
 pub mod profile;
 pub mod search;
 

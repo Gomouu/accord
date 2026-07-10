@@ -20,7 +20,7 @@ vi.mock('../lib/client', () => ({
 import { api, rpc } from '../lib/client';
 import type { DmMessage } from '../lib/api';
 import { PAGE_SIZE } from '../lib/history';
-import { useDms } from './dms';
+import { handleDmsNodeEvent, useDms } from './dms';
 
 const callMock = rpc.call as unknown as Mock;
 const sendMock = api.dmSend as unknown as Mock;
@@ -53,7 +53,7 @@ function conversation(peer: string): DmMessage[] {
 }
 
 beforeEach(() => {
-  useDms.setState({ conversations: {}, hasMore: {}, loadingOlder: {} });
+  useDms.setState({ conversations: {}, hasMore: {}, loadingOlder: {}, peerRead: {} });
   callMock.mockReset();
   sendMock.mockReset();
   editMock.mockReset();
@@ -282,5 +282,45 @@ describe('useDms.toggleReaction', () => {
     await useDms.getState().toggleReaction('pair', 'fantôme', '👍', 'moi');
 
     expect(reactMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('accusés de lecture (peerRead)', () => {
+  it('capture peer_read_lamport de la réponse dm.history', async () => {
+    callMock.mockResolvedValueOnce({
+      messages: [dmMsg('a', 1)],
+      peer_read_lamport: 4,
+    });
+
+    await useDms.getState().refresh('pair');
+
+    expect(useDms.getState().peerRead['pair']).toBe(4);
+  });
+
+  it('ignore un peer_read_lamport absent ou nul', async () => {
+    callMock.mockResolvedValueOnce({ messages: [], peer_read_lamport: null });
+
+    await useDms.getState().refresh('pair');
+
+    expect(useDms.getState().peerRead['pair']).toBeUndefined();
+  });
+
+  it('avance sans jamais reculer (applyPeerRead monotone)', () => {
+    useDms.getState().applyPeerRead('pair', 7);
+    useDms.getState().applyPeerRead('pair', 3);
+
+    expect(useDms.getState().peerRead['pair']).toBe(7);
+
+    useDms.getState().applyPeerRead('pair', 9);
+    expect(useDms.getState().peerRead['pair']).toBe(9);
+  });
+
+  it('reflète event.dm_read et ignore les autres événements', () => {
+    handleDmsNodeEvent('event.dm_read', { peer: 'pair', lamport: 12 });
+    expect(useDms.getState().peerRead['pair']).toBe(12);
+
+    handleDmsNodeEvent('event.dm', { peer: 'pair', msg_id: 'x' });
+    handleDmsNodeEvent('event.dm_read', { peer: 'pair' });
+    expect(useDms.getState().peerRead['pair']).toBe(12);
   });
 });

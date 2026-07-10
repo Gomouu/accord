@@ -120,24 +120,30 @@ pub fn startup_delay(interval: Duration) -> Duration {
     interval.min(STARTUP_DELAY)
 }
 
+/// Corps `DirectMsg` éphémères, jamais mis en file hors-ligne : indicateur de
+/// frappe (kind 5) et accusé de lecture (kind 6) — voir `MsgBody::kind`.
+const EPHEMERAL_DM_KINDS: [u8; 2] = [5, 6];
+
 /// Vrai si un `CoreMsg` non livrable doit être mis en file hors-ligne.
 ///
 /// Les messages porteurs d'état (messages, ops, clés, accusés, demandes
 /// d'ami, profils D-027) sont conservés ; les messages éphémères ou
-/// d'anti-entropie (présence, offres de synchronisation) sont simplement
-/// perdus — ils seront réémis par leurs boucles respectives.
+/// d'anti-entropie (présence, retrait d'amitié, frappe, accusés de lecture,
+/// offres de synchronisation) sont simplement perdus — ils seront réémis par
+/// leurs boucles respectives ou n'ont pas vocation à survivre.
 pub fn is_queueable_offline(msg: &CoreMsg) -> bool {
-    matches!(
-        msg,
-        CoreMsg::DirectMsg { .. }
-            | CoreMsg::MsgAck { .. }
-            | CoreMsg::FriendRequest { .. }
-            | CoreMsg::FriendResponse { .. }
-            | CoreMsg::GroupOpMsg { .. }
-            | CoreMsg::GroupMsg { .. }
-            | CoreMsg::GroupKey { .. }
-            | CoreMsg::Profile { .. }
-    )
+    match msg {
+        // Typing indicators and read receipts are ephemeral DirectMsg kinds.
+        CoreMsg::DirectMsg { kind, .. } => !EPHEMERAL_DM_KINDS.contains(kind),
+        CoreMsg::MsgAck { .. }
+        | CoreMsg::FriendRequest { .. }
+        | CoreMsg::FriendResponse { .. }
+        | CoreMsg::GroupOpMsg { .. }
+        | CoreMsg::GroupMsg { .. }
+        | CoreMsg::GroupKey { .. }
+        | CoreMsg::Profile { .. } => true,
+        _ => false,
+    }
 }
 
 /// Vrai si un élément d'outbox doit (re)déclencher un dépôt en boîte aux
@@ -374,6 +380,12 @@ const OBSERVE_PEERS: usize = 3;
 /// plusieurs observations d'adresse pour classer le NAT local (SPEC §11.1).
 async fn presence_publish_tick(rt: &Runtime, _cfg: &MaintenanceConfig) {
     let now = now_ms();
+    // Periodic presence announcement to friends (rich status + custom text,
+    // invisible broadcast as offline): ephemeral, never queued — unreachable
+    // friends simply miss it until the next pass.
+    if let Err(e) = rt.node().broadcast_presence(true) {
+        tracing::debug!(erreur = %e, "présence : annonce aux amis impossible");
+    }
     // SPEC §11.1 : interroge PLUSIEURS pairs (≥3 si connus) pour recouper les
     // adresses publiques observées ; les réponses `ObservedAddr` sont agrégées
     // par le runtime et déduisent cone (consensus) vs symétrique (divergence).
@@ -853,6 +865,19 @@ mod tests {
         assert!(is_queueable_offline(&CoreMsg::FriendResponse {
             accepted: true
         }));
+        // Text bodies are queued; typing (5) and read receipts (6) are not.
+        let dm = |kind: u8| CoreMsg::DirectMsg {
+            msg_id: [0; 16],
+            lamport: 1,
+            sent_ms: 1,
+            kind,
+            body: vec![],
+        };
+        assert!(is_queueable_offline(&dm(0)));
+        assert!(!is_queueable_offline(&dm(5)));
+        assert!(!is_queueable_offline(&dm(6)));
+        // Friendship removal is best-effort: never queued.
+        assert!(!is_queueable_offline(&CoreMsg::FriendRemove));
         assert!(is_queueable_offline(&CoreMsg::Profile {
             display_name: "Anna".into(),
             bio: String::new(),

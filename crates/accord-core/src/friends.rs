@@ -229,6 +229,33 @@ pub fn ingest_friend_response(
     }
 }
 
+/// Removes an established friendship on our side (distinct from a block: the
+/// peer is neither blocked nor prevented from sending a new friend request).
+/// DM history is untouched — only the contact entry disappears.
+pub fn remove_friend(db: &Db, peer_pubkey: &[u8; 32]) -> Result<(), CoreError> {
+    let node_id = node_id_of(peer_pubkey).0;
+    match db.contact(&node_id)?.map(|c| c.state) {
+        Some(ContactState::Friend) => db.remove_contact(&node_id),
+        Some(_) => Err(CoreError::OpRejected("contact non ami")),
+        None => Err(CoreError::NotFound("contact inconnu")),
+    }
+}
+
+/// Ingests a peer-side friendship removal (`CoreMsg::FriendRemove`, sender
+/// authenticated by the encrypted session). Returns `true` if a friendship
+/// was actually removed; any other contact state (pending, blocked, unknown)
+/// is left untouched — a stranger cannot mutate our contact list.
+pub fn ingest_friend_remove(db: &Db, peer_pubkey: &[u8; 32]) -> Result<bool, CoreError> {
+    let node_id = node_id_of(peer_pubkey).0;
+    match db.contact(&node_id)?.map(|c| c.state) {
+        Some(ContactState::Friend) => {
+            db.remove_contact(&node_id)?;
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
 /// Bloque un pair (existant ou non) : plus aucune demande ni message accepté.
 pub fn block(db: &Db, peer_pubkey: &[u8; 32], now_ms: u64) -> Result<(), CoreError> {
     let node_id = node_id_of(peer_pubkey).0;
@@ -374,6 +401,57 @@ mod tests {
             ingest_friend_request(&db, &bob.public_key(), "Bob", 4).unwrap(),
             IncomingOutcome::Pending
         );
+    }
+
+    #[test]
+    fn remove_friend_erases_contact_and_allows_new_request() {
+        let (db, _, bob) = setup();
+        request_friend(&db, &bob.public_key(), "Bob", 1).unwrap();
+        ingest_friend_response(&db, &bob.public_key(), true, 2).unwrap();
+
+        remove_friend(&db, &bob.public_key()).unwrap();
+        assert!(db
+            .contact(&node_id_of(&bob.public_key()).0)
+            .unwrap()
+            .is_none());
+        // Unlike a block, a fresh friend request stays possible.
+        assert_eq!(
+            request_friend(&db, &bob.public_key(), "Bob", 3).unwrap(),
+            OutgoingAction::SendRequest
+        );
+    }
+
+    #[test]
+    fn remove_friend_rejects_non_friend_states() {
+        let (db, _, bob) = setup();
+        assert!(matches!(
+            remove_friend(&db, &bob.public_key()),
+            Err(CoreError::NotFound(_))
+        ));
+        block(&db, &bob.public_key(), 1).unwrap();
+        assert!(matches!(
+            remove_friend(&db, &bob.public_key()),
+            Err(CoreError::OpRejected(_))
+        ));
+    }
+
+    #[test]
+    fn ingest_friend_remove_only_drops_established_friendships() {
+        let (db, _, bob) = setup();
+        // Unknown peer: nothing to remove.
+        assert!(!ingest_friend_remove(&db, &bob.public_key()).unwrap());
+        // Blocked peer: the block survives a removal attempt.
+        block(&db, &bob.public_key(), 1).unwrap();
+        assert!(!ingest_friend_remove(&db, &bob.public_key()).unwrap());
+        unblock(&db, &bob.public_key()).unwrap();
+        // Established friendship: removed on ingestion.
+        request_friend(&db, &bob.public_key(), "Bob", 2).unwrap();
+        ingest_friend_response(&db, &bob.public_key(), true, 3).unwrap();
+        assert!(ingest_friend_remove(&db, &bob.public_key()).unwrap());
+        assert!(db
+            .contact(&node_id_of(&bob.public_key()).0)
+            .unwrap()
+            .is_none());
     }
 
     #[test]

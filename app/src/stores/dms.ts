@@ -23,6 +23,13 @@ interface DmsState {
   hasMore: Record<string, boolean>;
   /** Garde anti-rafale du chargement vers le haut. */
   loadingOlder: Record<string, boolean>;
+  /**
+   * Position de lecture du pair par conversation (lamport du dernier de nos
+   * messages couvert par son accusé de lecture) ; absente = inconnue.
+   */
+  peerRead: Record<string, number>;
+  /** Avance (jamais ne recule) la position de lecture du pair. */
+  applyPeerRead: (peer: string, lamport: number) => void;
   /** Charge (ou rafraîchit) la page récente, fusionnée sans rechargement. */
   refresh: (peer: string) => Promise<void>;
   /** Charge la page précédant le plus ancien message connu. */
@@ -65,13 +72,35 @@ function patchConversation(
   };
 }
 
+/**
+ * Forme complète de la réponse `dm.history` : `fetchDmPage` (contrat gelé)
+ * ne déclare que `messages`, le nœud émet aussi `peer_read_lamport`.
+ */
+interface DmPageWithReceipt {
+  messages: DmMessage[];
+  peer_read_lamport?: number | null;
+}
+
 export const useDms = create<DmsState>((set, get) => ({
   conversations: {},
   hasMore: {},
   loadingOlder: {},
+  peerRead: {},
+
+  applyPeerRead: (peer, lamport) => {
+    set((s) => {
+      const known = s.peerRead[peer];
+      if (known !== undefined && known >= lamport) return s;
+      return { peerRead: { ...s.peerRead, [peer]: lamport } };
+    });
+  },
 
   refresh: async (peer) => {
-    const { messages } = await fetchDmPage(rpc, peer);
+    const page = (await fetchDmPage(rpc, peer)) as DmPageWithReceipt;
+    const { messages } = page;
+    if (typeof page.peer_read_lamport === 'number') {
+      get().applyPeerRead(peer, page.peer_read_lamport);
+    }
     const pageFull = messages.length === PAGE_SIZE;
     set((s) => {
       const existing = s.conversations[peer];
@@ -160,3 +189,22 @@ export const useDms = create<DmsState>((set, get) => ({
     }));
   },
 }));
+
+/**
+ * Événement `event.dm_read` : le pair a lu nos messages jusqu'à `lamport`.
+ * Exporté pour les tests ; câblé au chargement du module (client singleton).
+ */
+export function handleDmsNodeEvent(method: string, params: unknown): void {
+  if (method !== 'event.dm_read') return;
+  const p = params as { peer?: string; lamport?: number };
+  if (typeof p.peer !== 'string' || typeof p.lamport !== 'number') return;
+  useDms.getState().applyPeerRead(p.peer, p.lamport);
+}
+
+// Garde d'environnement : les tests unitaires qui simulent `../lib/client`
+// avec un `rpc` réduit à `call` doivent pouvoir importer ce module.
+try {
+  rpc.onEvent(handleDmsNodeEvent);
+} catch {
+  // Client simulé (tests) : pas d'événements à câbler.
+}

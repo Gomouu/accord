@@ -7,12 +7,14 @@
  */
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { displayNameOf, useFriends } from '../stores/friends';
+import type { PresenceStatus } from '../lib/api';
+import { displayNameOf, presenceOf, useFriends } from '../stores/friends';
 import { roleColorCss, sortRoles, useGroups } from '../stores/groups';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT, type AncrePopover } from '../stores/ui';
 import { lireFichier } from '../lib/files';
 import { Avatar } from './Avatar';
+import { PresenceDot } from './PresenceDot';
 
 /** Largeur de la carte (px, façon Discord) ; sert au calcul de position initial. */
 const CARD_WIDTH = 340;
@@ -72,7 +74,12 @@ export function ProfilePopover() {
   const toast = useUi((s) => s.toast);
   const contacts = useFriends((s) => s.contacts);
   const block = useFriends((s) => s.block);
+  const removeFriend = useFriends((s) => s.remove);
+  const ownStatus = useFriends((s) => s.ownStatus);
+  const ownStatusText = useFriends((s) => s.ownStatusText);
   const openModal = useUi((s) => s.openModal);
+  /** Confirmation en ligne du retrait d'ami (deux temps, distinct du blocage). */
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const self = useSession((s) => s.self);
   const state = useGroups((s) =>
     profile?.groupId != null ? s.states[profile.groupId] : undefined,
@@ -84,6 +91,11 @@ export function ProfilePopover() {
   useLayoutEffect(() => {
     if (profile === null || ref.current === null) return;
     setPos(calculerPosition(profile.ancre, ref.current.offsetHeight));
+  }, [profile]);
+
+  // Nouvelle cible : la confirmation de retrait en cours est abandonnée.
+  useEffect(() => {
+    setConfirmRemove(false);
   }, [profile]);
 
   useEffect(() => {
@@ -112,7 +124,16 @@ export function ProfilePopover() {
   const avatarHash = isSelf && self !== null ? self.avatar : (contact?.avatar ?? null);
   const bannerHash = isSelf && self !== null ? self.banner : (contact?.banner ?? null);
   const bio = isSelf && self !== null ? self.bio : (contact?.bio ?? null);
-  const online = isSelf ? true : contact?.online;
+  // Statut riche : le sien (invisible affiché hors ligne) ou celui annoncé
+  // par l'ami ; `null` masque la pastille (présence inconnue : non-ami).
+  const status: PresenceStatus | null = isSelf
+    ? ownStatus === 'invisible'
+      ? 'offline'
+      : ownStatus
+    : contact?.state === 'friend'
+      ? presenceOf(contact)
+      : null;
+  const statusText = isSelf ? ownStatusText : (contact?.status_text ?? null);
 
   const member = state?.members.find((m) => m.pubkey === pubkey);
   const roles =
@@ -122,6 +143,7 @@ export function ProfilePopover() {
   const isFounder = state?.founder === pubkey;
 
   const canMessage = !isSelf && contact?.state === 'friend';
+  const canRemove = !isSelf && contact?.state === 'friend';
   const canBlock = !isSelf && contact !== undefined && contact.state !== 'blocked';
 
   const envoyerMessage = (): void => {
@@ -132,6 +154,11 @@ export function ProfilePopover() {
   const modifierProfil = (): void => {
     closeProfile();
     openModal({ kind: 'settings' });
+  };
+
+  const retirer = (): void => {
+    removeFriend(pubkey).catch(() => toast('error', t.errors.actionFailed));
+    closeProfile();
   };
 
   const bloquer = (): void => {
@@ -165,13 +192,10 @@ export function ProfilePopover() {
               hint={pubkey}
             />
           </div>
-          {online !== undefined && (
+          {status !== null && (
             <span className="mb-1 flex items-center gap-1.5 text-xs text-muted">
-              <span
-                aria-hidden
-                className={`h-2.5 w-2.5 rounded-full ${online ? 'bg-green' : 'bg-faint'}`}
-              />
-              {online ? t.profil.online : t.profil.offline}
+              <PresenceDot status={status} />
+              {t.profil[status]}
             </span>
           )}
         </div>
@@ -185,6 +209,9 @@ export function ProfilePopover() {
               </span>
             )}
           </div>
+          {statusText !== null && statusText !== '' && (
+            <p className="mt-0.5 truncate text-sm text-muted">{statusText}</p>
+          )}
 
           {bio !== null && bio !== '' && (
             <>
@@ -232,7 +259,7 @@ export function ProfilePopover() {
             </button>
           )}
 
-          {(canMessage || canBlock) && (
+          {(canMessage || canBlock) && !confirmRemove && (
             <div className="mt-3 flex gap-2">
               {canMessage && (
                 <button
@@ -241,6 +268,15 @@ export function ProfilePopover() {
                   className="flex-1 rounded bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blurple-hover"
                 >
                   {t.friends.sendDm}
+                </button>
+              )}
+              {canRemove && (
+                <button
+                  type="button"
+                  onClick={() => setConfirmRemove(true)}
+                  className="rounded border border-input px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:border-red hover:text-red"
+                >
+                  {t.friends.remove}
                 </button>
               )}
               {canBlock && (
@@ -252,6 +288,29 @@ export function ProfilePopover() {
                   {t.friends.block}
                 </button>
               )}
+            </div>
+          )}
+
+          {confirmRemove && (
+            <div className="mt-3">
+              <p className="text-sm text-norm">{t.friends.removeQuestion}</p>
+              <p className="mt-0.5 text-xs text-faint">{t.friends.removeKeepHistory}</p>
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={retirer}
+                  className="flex-1 rounded bg-red px-3 py-1.5 text-sm font-medium text-white transition-colors hover:brightness-110"
+                >
+                  {t.friends.remove}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmRemove(false)}
+                  className="rounded bg-rail px-3 py-1.5 text-sm font-medium text-norm transition-colors hover:bg-input"
+                >
+                  {t.app.cancel}
+                </button>
+              </div>
             </div>
           )}
         </div>

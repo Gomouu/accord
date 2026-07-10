@@ -7,6 +7,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MessageList, type DisplayMessage, type MessageListActions } from './MessageList';
+import { useDms } from '../stores/dms';
 import { useSession } from '../stores/session';
 import { useUi } from '../stores/ui';
 
@@ -367,5 +368,68 @@ describe('MessageList — pagination vers le haut', () => {
 
     fireEvent.scroll(screen.getByRole('log'));
     expect(onLoadOlder).not.toHaveBeenCalled();
+  });
+});
+
+describe('MessageList — indicateur « Vu » (accusés de lecture)', () => {
+  /** Enveloppe du store des MP (lamport connu) pour un message affiché. */
+  function dmEntry(id: string, author: string, lamport: number) {
+    return {
+      msg_id: id,
+      author,
+      lamport,
+      sent_ms: BASE_MS + lamport,
+      acked: true,
+      deleted: false,
+      body: { type: 'text' as const, text: id, reply_to: null, attachments: 0 },
+      edited: null,
+    };
+  }
+
+  function arrangeDm(peerRead: Record<string, number>) {
+    useSession.setState({ self: SELF });
+    useUi.setState({ lang: 'fr', view: { kind: 'dm', peer: 'aabbccddee' } });
+    useDms.setState({
+      conversations: {
+        aabbccddee: [
+          dmEntry('mien-1', SELF.pubkey, 1),
+          dmEntry('pair-1', 'aabbccddee', 2),
+          dmEntry('mien-2', SELF.pubkey, 3),
+          dmEntry('mien-3', SELF.pubkey, 4),
+        ],
+      },
+      peerRead,
+    });
+    return [
+      textMsg('mien-1', BASE_MS, 'un', { author: SELF.pubkey }),
+      textMsg('pair-1', BASE_MS + 1, 'deux'),
+      textMsg('mien-2', BASE_MS + 2, 'trois', { author: SELF.pubkey }),
+      textMsg('mien-3', BASE_MS + 3, 'quatre', { author: SELF.pubkey }),
+    ];
+  }
+
+  it('marque « Vu » le dernier de ses messages couvert par l’accusé', () => {
+    const messages = arrangeDm({ aabbccddee: 3 });
+    render(<MessageList messages={messages} />);
+
+    const seen = screen.getByText('Vu');
+    expect(seen).toBeInTheDocument();
+    // Un seul indicateur, sous « trois » (lamport 3), pas sous « quatre » (4).
+    expect(screen.getAllByText('Vu')).toHaveLength(1);
+    expect(seen.parentElement?.textContent).toContain('trois');
+  });
+
+  it('reste absent tant que le pair n’a rien lu', () => {
+    const messages = arrangeDm({});
+    render(<MessageList messages={messages} />);
+
+    expect(screen.queryByText('Vu')).not.toBeInTheDocument();
+  });
+
+  it('reste absent dans les salons de groupe', () => {
+    const messages = arrangeDm({ aabbccddee: 4 });
+    render(<MessageList messages={messages} groupId="g1" />);
+
+    expect(screen.queryByText('Vu')).not.toBeInTheDocument();
   });
 });

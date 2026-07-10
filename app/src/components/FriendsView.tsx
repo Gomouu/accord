@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import type { Contact } from '../lib/api';
-import { useFriends } from '../stores/friends';
+import { presenceOf, useFriends } from '../stores/friends';
 import { useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import { Avatar } from './Avatar';
+import { PresenceDot } from './PresenceDot';
 
 type Tab = 'all' | 'pending' | 'blocked' | 'add';
 
@@ -14,22 +15,37 @@ function FriendRow({ contact }: { contact: Contact }) {
   const setView = useUi((s) => s.setView);
   const toast = useUi((s) => s.toast);
   const respond = useFriends((s) => s.respond);
+  const remove = useFriends((s) => s.remove);
   const block = useFriends((s) => s.block);
   const unblock = useFriends((s) => s.unblock);
+  /** Confirmation en ligne du retrait d'ami (remplace les actions). */
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   const act = (fn: () => Promise<void>) => {
     void fn().catch(() => toast('error', t.errors.actionFailed));
   };
 
+  const isFriend = contact.state === 'friend';
+  const status = presenceOf(contact);
+  const statusText = contact.status_text ?? null;
+
   return (
     <div className="group flex items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-chat-hover">
-      <Avatar
-        id={contact.pubkey}
-        name={contact.display_name || contact.friend_code}
-        avatarHash={contact.avatar}
-        hint={contact.pubkey}
-        online={contact.state === 'friend' ? (contact.online ?? false) : undefined}
-      />
+      <div className="relative shrink-0">
+        <Avatar
+          id={contact.pubkey}
+          name={contact.display_name || contact.friend_code}
+          avatarHash={contact.avatar}
+          hint={contact.pubkey}
+        />
+        {isFriend && (
+          <PresenceDot
+            status={status}
+            label={t.profil[status]}
+            className="absolute -bottom-0.5 -right-0.5 rounded-full ring-2 ring-chat"
+          />
+        )}
+      </div>
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium text-header">
           {contact.display_name || contact.friend_code}
@@ -39,13 +55,37 @@ function FriendRow({ contact }: { contact: Contact }) {
             ? t.friends.incoming
             : contact.state === 'pending_out'
               ? t.friends.outgoing
-              : contact.bio !== null && contact.bio !== ''
-                ? contact.bio
-                : contact.friend_code}
+              : statusText !== null && statusText !== ''
+                ? statusText
+                : contact.bio !== null && contact.bio !== ''
+                  ? contact.bio
+                  : contact.friend_code}
         </div>
       </div>
-      <div className="flex gap-2">
-        {contact.state === 'friend' && (
+      <div className="flex items-center gap-2">
+        {isFriend && confirmRemove && (
+          <>
+            <span className="text-sm text-muted">{t.friends.removeQuestion}</span>
+            <button
+              type="button"
+              onClick={() => {
+                setConfirmRemove(false);
+                act(() => remove(contact.pubkey));
+              }}
+              className="rounded bg-red px-3 py-1.5 text-sm font-medium text-white hover:brightness-110"
+            >
+              {t.friends.remove}
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmRemove(false)}
+              className="rounded bg-sidebar px-3 py-1.5 text-sm font-medium text-norm hover:bg-input"
+            >
+              {t.app.cancel}
+            </button>
+          </>
+        )}
+        {isFriend && !confirmRemove && (
           <>
             <button
               type="button"
@@ -62,6 +102,23 @@ function FriendRow({ contact }: { contact: Contact }) {
                 aria-hidden
               >
                 <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v9a2.5 2.5 0 0 1-2.5 2.5H9.4l-4 3a.9.9 0 0 1-1.4-.7V5.5Z" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              title={t.friends.remove}
+              aria-label={t.friends.remove}
+              onClick={() => setConfirmRemove(true)}
+              className="rounded-full bg-sidebar p-2.5 text-muted hover:text-red"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden
+              >
+                <path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-3.3 0-7 1.7-7 4v2a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2c0-2.3-3.7-4-7-4Zm13-5a1 1 0 0 1-1 1h-6a1 1 0 1 1 0-2h6a1 1 0 0 1 1 1Z" />
               </svg>
             </button>
             <button

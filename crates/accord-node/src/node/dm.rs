@@ -12,6 +12,9 @@ use crate::outbound::Outbound;
 
 use super::{dm_mark_key, now_ms, read_u64, Node};
 
+/// Meta key of the read-receipts privacy toggle (absent = enabled).
+const READ_RECEIPTS_KEY: &str = "dm.read_receipts";
+
 /// Rend une liste de pièces jointes en JSON (forme gelée côté UI).
 pub(super) fn attachments_json(attachments: &[FileRef]) -> Value {
     Value::Array(
@@ -112,8 +115,68 @@ impl Node {
 
     /// Marque la conversation avec `peer` lue jusqu'à `lamport` (position
     /// locale, persistée dans les métadonnées, pour le calcul des non-lus).
+    ///
+    /// Best-effort read receipt (ephemeral, like typing): when the mark
+    /// actually advances, the privacy toggle is on and the peer is presumed
+    /// online, a `ReadReceipt` targeting the peer's latest covered message is
+    /// emitted — never persisted, never queued offline.
     pub fn dm_mark_read(&self, peer_pubkey: &[u8; 32], lamport: u64) -> Result<(), NodeError> {
-        self.with_db(|db| Ok(db.set_meta(&dm_mark_key(peer_pubkey), &lamport.to_be_bytes())?))
+        let previous = self.with_db(|db| Ok(read_u64(db.meta(&dm_mark_key(peer_pubkey))?)))?;
+        self.with_db(|db| Ok(db.set_meta(&dm_mark_key(peer_pubkey), &lamport.to_be_bytes())?))?;
+        // Throttle: only marks that advance emit a receipt (re-marking the
+        // same position, e.g. on window refocus, stays silent).
+        if lamport <= previous || !self.read_receipts_enabled()? || !self.is_online(peer_pubkey) {
+            return Ok(());
+        }
+        let receipt = self.with_db(|db| {
+            let Some(up_to) = db.latest_dm_from_peer(peer_pubkey, lamport)? else {
+                return Ok(None);
+            };
+            Ok(Some(messaging::compose_read_receipt(
+                db,
+                &self.identity,
+                peer_pubkey,
+                &up_to,
+                now_ms(),
+            )?))
+        });
+        // Best-effort: a receipt that cannot be composed (e.g. the contact
+        // is not a friend anymore) is silently dropped.
+        if let Ok(Some(msg)) = receipt {
+            self.outbound.send(Outbound::Core {
+                to: *peer_pubkey,
+                msg: Box::new(msg),
+            });
+        }
+        Ok(())
+    }
+
+    /// Vrai si l'émission des accusés de lecture est activée (réglage de
+    /// confidentialité, persisté dans la table meta ; activé par défaut).
+    /// Les accusés entrants restent enregistrés quel que soit le réglage.
+    pub fn read_receipts_enabled(&self) -> Result<bool, NodeError> {
+        self.with_db(|db| {
+            Ok(db
+                .meta(READ_RECEIPTS_KEY)?
+                .map(|v| v.first() != Some(&0))
+                .unwrap_or(true))
+        })
+    }
+
+    /// Active ou coupe l'émission des accusés de lecture (persisté).
+    pub fn set_read_receipts(&self, enabled: bool) -> Result<(), NodeError> {
+        self.with_db(|db| Ok(db.set_meta(READ_RECEIPTS_KEY, &[u8::from(enabled)])?))
+    }
+
+    /// Position de lecture du pair dans la conversation (lamport du dernier
+    /// message couvert par son accusé de lecture), si connue.
+    pub fn dm_peer_read_lamport(&self, peer_pubkey: &[u8; 32]) -> Result<Option<u64>, NodeError> {
+        self.with_db(|db| {
+            let Some(msg_id) = db.read_mark(peer_pubkey)? else {
+                return Ok(None);
+            };
+            Ok(db.dm_lamport(&msg_id)?)
+        })
     }
 
     /// Nombre de messages du pair reçus après notre marque de lecture locale.
@@ -194,5 +257,161 @@ impl Node {
             msg: Box::new(msg),
         });
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use accord_core::db::Db;
+    use accord_crypto::Identity;
+    use accord_proto::core_msg::MsgBody;
+    use tokio::sync::mpsc;
+
+    use super::*;
+    use crate::outbound::OutboundSink;
+
+    /// Node wired to an outbound channel, with one established friend that
+    /// already sent us a text message (lamport of that message returned).
+    fn node_with_incoming_dm() -> (Node, [u8; 32], u64, mpsc::Receiver<Outbound>) {
+        let id = Identity::generate_with_pow_bits(1);
+        let db = Db::open_in_memory(&[1u8; 32]).unwrap();
+        let (sink, mut rx) = OutboundSink::channel(64);
+        let node = Node::new(id, db, sink);
+        let peer = Identity::generate_with_pow_bits(1);
+        node.friend_request(&peer.public_key(), "Pair").unwrap();
+        node.ingest_core(
+            &peer.public_key(),
+            CoreMsg::FriendResponse { accepted: true },
+        )
+        .unwrap();
+        let body = MsgBody::Text {
+            text: "coucou".into(),
+            reply_to: None,
+            attachments: vec![],
+        };
+        let lamport = 7;
+        node.ingest_core(
+            &peer.public_key(),
+            CoreMsg::DirectMsg {
+                msg_id: [9; 16],
+                lamport,
+                sent_ms: 1_000,
+                kind: body.kind(),
+                body: body.encode_body(),
+            },
+        )
+        .unwrap();
+        while rx.try_recv().is_ok() {}
+        (node, peer.public_key(), lamport, rx)
+    }
+
+    /// Next outgoing `DirectMsg` of the given body kind, if any.
+    fn next_dm_of_kind(rx: &mut mpsc::Receiver<Outbound>, wanted: u8) -> Option<CoreMsg> {
+        while let Ok(action) = rx.try_recv() {
+            if let Outbound::Core { msg, .. } = action {
+                if matches!(*msg, CoreMsg::DirectMsg { kind, .. } if kind == wanted) {
+                    return Some(*msg);
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn mark_read_sends_receipt_to_online_peer_once() {
+        let (node, peer, lamport, mut rx) = node_with_incoming_dm();
+        // Peer is presumed online (their message was ingested).
+        node.dm_mark_read(&peer, lamport).unwrap();
+        let msg = next_dm_of_kind(&mut rx, 6).expect("accusé de lecture attendu");
+        match msg {
+            CoreMsg::DirectMsg { kind, body, .. } => {
+                assert_eq!(kind, 6);
+                assert_eq!(
+                    MsgBody::decode_body(kind, &body).unwrap(),
+                    MsgBody::ReadReceipt { up_to: [9; 16] }
+                );
+            }
+            other => panic!("message inattendu : {other:?}"),
+        }
+        // Throttle: re-marking the same position emits nothing.
+        node.dm_mark_read(&peer, lamport).unwrap();
+        assert!(next_dm_of_kind(&mut rx, 6).is_none());
+    }
+
+    #[test]
+    fn mark_read_stays_silent_for_offline_peer() {
+        let (node, peer, lamport, mut rx) = node_with_incoming_dm();
+        node.ingest_core(
+            &peer,
+            CoreMsg::Presence {
+                status: 3,
+                custom: None,
+            },
+        )
+        .unwrap();
+        node.dm_mark_read(&peer, lamport).unwrap();
+        assert!(next_dm_of_kind(&mut rx, 6).is_none());
+        // The local read mark is persisted anyway (unread counter drops).
+        assert_eq!(node.dm_unread(&peer).unwrap(), 0);
+    }
+
+    #[test]
+    fn privacy_toggle_disables_outgoing_receipts_only() {
+        let (node, peer, lamport, mut rx) = node_with_incoming_dm();
+        assert!(node.read_receipts_enabled().unwrap());
+        node.set_read_receipts(false).unwrap();
+        assert!(!node.read_receipts_enabled().unwrap());
+
+        node.dm_mark_read(&peer, lamport).unwrap();
+        assert!(next_dm_of_kind(&mut rx, 6).is_none());
+
+        // Incoming receipts are still recorded (peer read our message).
+        let msg_id = {
+            let hex_id = node.dm_send(&peer, "lu ?", None).unwrap();
+            crate::hex::decode::<16>(&hex_id).unwrap()
+        };
+        let rr = MsgBody::ReadReceipt { up_to: msg_id };
+        node.ingest_core(
+            &peer,
+            CoreMsg::DirectMsg {
+                msg_id: [8; 16],
+                lamport: 50,
+                sent_ms: 2_000,
+                kind: rr.kind(),
+                body: rr.encode_body(),
+            },
+        )
+        .unwrap();
+        assert!(node.dm_peer_read_lamport(&peer).unwrap().is_some());
+
+        // Re-enabling restores emission on the next advance.
+        node.set_read_receipts(true).unwrap();
+        node.dm_mark_read(&peer, lamport + 100).unwrap();
+        assert!(next_dm_of_kind(&mut rx, 6).is_some());
+    }
+
+    #[test]
+    fn peer_read_lamport_maps_receipt_to_conversation_position() {
+        let (node, peer, _lamport, _rx) = node_with_incoming_dm();
+        assert_eq!(node.dm_peer_read_lamport(&peer).unwrap(), None);
+        let hex_id = node.dm_send(&peer, "à lire", None).unwrap();
+        let msg_id = crate::hex::decode::<16>(&hex_id).unwrap();
+        let sent_lamport = node.dm_history(&peer, u64::MAX, 1).unwrap()[0].lamport;
+        let rr = MsgBody::ReadReceipt { up_to: msg_id };
+        node.ingest_core(
+            &peer,
+            CoreMsg::DirectMsg {
+                msg_id: [7; 16],
+                lamport: sent_lamport + 1,
+                sent_ms: 3_000,
+                kind: rr.kind(),
+                body: rr.encode_body(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            node.dm_peer_read_lamport(&peer).unwrap(),
+            Some(sent_lamport)
+        );
     }
 }

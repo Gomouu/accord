@@ -5,11 +5,12 @@
  */
 
 import type { GroupChannel } from '../lib/api';
-import { useFriends } from '../stores/friends';
+import { presenceOf, useFriends } from '../stores/friends';
 import { useGroups, channelsByCategory, hasPerm, PERMISSIONS } from '../stores/groups';
 import { useUi, useT } from '../stores/ui';
 import { useVoice } from '../stores/voice';
 import { Avatar } from './Avatar';
+import { PresenceDot } from './PresenceDot';
 import { SearchBar } from './SearchBar';
 import { UnreadBadge } from './UnreadBadge';
 import { UserPanel } from './UserPanel';
@@ -46,6 +47,7 @@ function HomeSidebar() {
         </div>
         {friends.map((c) => {
           const active = view.kind === 'dm' && view.peer === c.pubkey;
+          const status = presenceOf(c);
           return (
             <button
               key={c.pubkey}
@@ -57,13 +59,20 @@ function HomeSidebar() {
                   : 'text-muted hover:bg-chat-hover hover:text-norm'
               }`}
             >
-              <Avatar
-                id={c.pubkey}
-                name={c.display_name || c.friend_code}
-                size={32}
-                avatarHash={c.avatar}
-                hint={c.pubkey}
-              />
+              <span className="relative shrink-0">
+                <Avatar
+                  id={c.pubkey}
+                  name={c.display_name || c.friend_code}
+                  size={32}
+                  avatarHash={c.avatar}
+                  hint={c.pubkey}
+                />
+                <PresenceDot
+                  status={status}
+                  label={t.profil[status]}
+                  className="absolute -bottom-0.5 -right-0.5 rounded-full ring-2 ring-sidebar"
+                />
+              </span>
               <span className="min-w-0 truncate font-medium">
                 {c.display_name || c.friend_code}
               </span>

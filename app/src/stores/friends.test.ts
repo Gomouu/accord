@@ -1,26 +1,45 @@
 /**
  * Tests de la logique du store contacts : nom affichable et hash d'avatar
- * d'un pair, application d'un profil annoncé (`event.profile`) et marquage
- * lu d'une conversation (`dm.mark_read` puis rechargement de la liste).
+ * d'un pair, application d'un profil annoncé (`event.profile`), marquage
+ * lu d'une conversation (`dm.mark_read` puis rechargement de la liste),
+ * retrait d'ami, présence riche et statut de présence local.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 
 vi.mock('../lib/client', () => ({
-  api: { dmMarkRead: vi.fn(), friendsList: vi.fn() },
+  api: {
+    dmMarkRead: vi.fn(),
+    friendsList: vi.fn(),
+    friendsRemove: vi.fn(),
+    friendsGetStatus: vi.fn(),
+    friendsSetStatus: vi.fn(),
+  },
 }));
 
 import { api } from '../lib/client';
 import type { Contact } from '../lib/api';
-import { avatarOf, displayNameOf, useFriends } from './friends';
+import {
+  avatarOf,
+  displayNameOf,
+  handleFriendsNodeEvent,
+  presenceOf,
+  useFriends,
+} from './friends';
 
 const dmMarkReadMock = api.dmMarkRead as unknown as Mock;
 const friendsListMock = api.friendsList as unknown as Mock;
+const friendsRemoveMock = api.friendsRemove as unknown as Mock;
+const friendsGetStatusMock = api.friendsGetStatus as unknown as Mock;
+const friendsSetStatusMock = api.friendsSetStatus as unknown as Mock;
 
 beforeEach(() => {
   dmMarkReadMock.mockReset();
   friendsListMock.mockReset();
+  friendsRemoveMock.mockReset();
+  friendsGetStatusMock.mockReset();
+  friendsSetStatusMock.mockReset();
 });
 
 function contact(pubkey: string, displayName: string): Contact {
@@ -149,5 +168,135 @@ describe('useFriends.markRead', () => {
     // Act / Assert
     await expect(useFriends.getState().markRead('alice-pk', 7)).rejects.toThrow();
     expect(friendsListMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('useFriends.remove', () => {
+  it('retire l’amitié puis recharge la liste (le contact disparaît)', async () => {
+    // Arrange
+    useFriends.setState({ contacts: [contact('alice-pk', 'Alice')] });
+    friendsRemoveMock.mockResolvedValueOnce({ ok: true });
+    friendsListMock.mockResolvedValueOnce({ contacts: [] });
+
+    // Act
+    await useFriends.getState().remove('alice-pk');
+
+    // Assert
+    expect(friendsRemoveMock).toHaveBeenCalledWith('alice-pk');
+    expect(useFriends.getState().contacts).toEqual([]);
+  });
+
+  it('propage le refus du nœud sans recharger la liste', async () => {
+    friendsRemoveMock.mockRejectedValueOnce(new Error('contact non ami'));
+
+    await expect(useFriends.getState().remove('alice-pk')).rejects.toThrow();
+    expect(friendsListMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('useFriends.applyPresence', () => {
+  it('conserve le statut riche connu sur un appel historique à deux arguments', () => {
+    useFriends.setState({
+      contacts: [
+        { ...contact('alice-pk', 'Alice'), status: 'dnd', status_text: 'focus' },
+      ],
+    });
+
+    useFriends.getState().applyPresence('alice-pk', true);
+
+    expect(useFriends.getState().contacts[0]).toMatchObject({
+      online: true,
+      status: 'dnd',
+      status_text: 'focus',
+    });
+  });
+
+  it('applique le statut riche et son texte quand ils sont fournis', () => {
+    useFriends.setState({ contacts: [contact('alice-pk', 'Alice')] });
+
+    useFriends.getState().applyPresence('alice-pk', true, 'idle', 'afk');
+
+    expect(useFriends.getState().contacts[0]).toMatchObject({
+      online: true,
+      status: 'idle',
+      status_text: 'afk',
+    });
+  });
+});
+
+describe('handleFriendsNodeEvent', () => {
+  it('reflète une présence riche (event.presence)', () => {
+    useFriends.setState({ contacts: [contact('alice-pk', 'Alice')] });
+
+    handleFriendsNodeEvent('event.presence', {
+      pubkey: 'alice-pk',
+      online: true,
+      status: 'dnd',
+      status_text: 'occupée',
+    });
+
+    expect(useFriends.getState().contacts[0]).toMatchObject({
+      status: 'dnd',
+      status_text: 'occupée',
+    });
+  });
+
+  it('recharge la liste sur event.friend_removed', () => {
+    friendsListMock.mockResolvedValueOnce({ contacts: [] });
+
+    handleFriendsNodeEvent('event.friend_removed', { peer: 'alice-pk' });
+
+    expect(friendsListMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignore les événements d’autres domaines', () => {
+    handleFriendsNodeEvent('event.dm', { peer: 'alice-pk' });
+    expect(friendsListMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('useFriends — statut de présence local', () => {
+  it('charge le statut persisté (friends.get_status)', async () => {
+    friendsGetStatusMock.mockResolvedValueOnce({ status: 'dnd', custom: 'focus' });
+
+    await useFriends.getState().loadOwnStatus();
+
+    expect(useFriends.getState().ownStatus).toBe('dnd');
+    expect(useFriends.getState().ownStatusText).toBe('focus');
+  });
+
+  it('fixe le statut : texte inchangé sans `custom`, effacé si vide', async () => {
+    friendsSetStatusMock.mockResolvedValue({ ok: true });
+    useFriends.setState({ ownStatus: 'online', ownStatusText: 'salut' });
+
+    await useFriends.getState().setOwnStatus('idle');
+    expect(friendsSetStatusMock).toHaveBeenCalledWith('idle', undefined);
+    expect(useFriends.getState()).toMatchObject({
+      ownStatus: 'idle',
+      ownStatusText: 'salut',
+    });
+
+    await useFriends.getState().setOwnStatus('invisible', '');
+    expect(useFriends.getState()).toMatchObject({
+      ownStatus: 'invisible',
+      ownStatusText: null,
+    });
+  });
+
+  it('n’applique rien localement quand le nœud refuse', async () => {
+    friendsSetStatusMock.mockRejectedValueOnce(new Error('statut inconnu'));
+    useFriends.setState({ ownStatus: 'online', ownStatusText: null });
+
+    await expect(useFriends.getState().setOwnStatus('dnd', 'x')).rejects.toThrow();
+    expect(useFriends.getState().ownStatus).toBe('online');
+  });
+});
+
+describe('presenceOf', () => {
+  it('préfère le statut riche annoncé, sinon replie sur la joignabilité', () => {
+    expect(presenceOf({ ...contact('a', 'A'), status: 'idle' })).toBe('idle');
+    expect(presenceOf({ ...contact('a', 'A'), online: true })).toBe('online');
+    expect(presenceOf({ ...contact('a', 'A'), online: false })).toBe('offline');
+    expect(presenceOf(undefined)).toBe('offline');
   });
 });

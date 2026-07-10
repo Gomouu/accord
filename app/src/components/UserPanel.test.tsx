@@ -1,13 +1,14 @@
 /**
- * Tests du panneau utilisateur : ouverture de la carte de profil (clic sur
- * l'avatar ou le pseudo), et bandeau « Vocal connecté » — n'apparaît qu'en
- * vocal, nomme le groupe, coupe le micro (icône barrée, aria-pressed) et
- * raccroche.
+ * Tests du panneau utilisateur : menu de statut (clic sur l'avatar),
+ * ouverture de la carte de profil (clic sur le pseudo), et bandeau « Vocal
+ * connecté » — n'apparaît qu'en vocal, nomme le groupe, coupe le micro
+ * (icône barrée, aria-pressed) et raccroche.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { GroupStateJson, SelfProfile } from '../lib/api';
+import { useFriends } from '../stores/friends';
 import { useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
 import { useUi } from '../stores/ui';
@@ -43,17 +44,46 @@ beforeEach(() => {
   useSession.setState({ self, phase: 'ready' });
   useGroups.setState({ states: { g1: groupState } });
   useVoice.setState({ active: null, participants: new Map() });
+  useFriends.setState({
+    ownStatus: 'online',
+    ownStatusText: null,
+    loadOwnStatus: vi.fn(async () => {}),
+  });
 });
 
-describe('UserPanel — carte de profil', () => {
-  it('ouvre la carte de profil au clic sur l’avatar', () => {
+describe('UserPanel — carte de profil et menu de statut', () => {
+  it('ouvre le menu de statut au clic sur l’avatar (pas la carte de profil)', () => {
     render(<UserPanel />);
 
-    // L'avatar (repli initiales « A » de « accord-moi ») vit dans le même
-    // bouton que le pseudo : le clic remonte jusqu'au bouton « Profil ».
-    fireEvent.click(screen.getByText('A'));
+    fireEvent.click(screen.getByRole('button', { name: 'Définir le statut' }));
 
-    expect(useUi.getState().profile?.pubkey).toBe('moi');
+    expect(screen.getByRole('menu', { name: 'Définir le statut' })).toBeInTheDocument();
+    expect(useUi.getState().profile).toBeNull();
+  });
+
+  it('applique le statut choisi puis ferme le menu', () => {
+    const setOwnStatus = vi.fn(async () => {});
+    useFriends.setState({ setOwnStatus });
+    render(<UserPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Définir le statut' }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Ne pas déranger' }));
+
+    expect(setOwnStatus).toHaveBeenCalledWith('dnd', undefined);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('enregistre le texte de statut personnalisé avec Entrée', () => {
+    const setOwnStatus = vi.fn(async () => {});
+    useFriends.setState({ ownStatus: 'idle', setOwnStatus });
+    render(<UserPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Définir le statut' }));
+    const input = screen.getByRole('textbox', { name: 'Statut personnalisé' });
+    fireEvent.change(input, { target: { value: 'en pause' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(setOwnStatus).toHaveBeenCalledWith('idle', 'en pause');
   });
 
   it('ouvre la carte de profil au clic sur le pseudo', () => {

@@ -473,6 +473,27 @@ pub enum GroupOpBody {
         /// Nom de l'émoji retiré.
         name: String,
     },
+    /// 0x1A — Category rename/reposition (SPEC §6.2).
+    EditCategory {
+        /// Target category.
+        category_id: [u8; 16],
+        /// New display name.
+        name: String,
+        /// New sort position.
+        position: u16,
+    },
+    /// 0x1B — Category deletion; its channels become uncategorized.
+    DelCategory {
+        /// Deleted category.
+        category_id: [u8; 16],
+    },
+    /// 0x1C — Move a channel into a category (`None` = uncategorized).
+    SetChannelCategory {
+        /// Target channel.
+        channel_id: [u8; 16],
+        /// New parent category, if any.
+        category: Option<[u8; 16]>,
+    },
 }
 
 impl GroupOpBody {
@@ -504,6 +525,9 @@ impl GroupOpBody {
             Self::Leave => 0x17,
             Self::AddEmoji { .. } => 0x18,
             Self::DelEmoji { .. } => 0x19,
+            Self::EditCategory { .. } => 0x1A,
+            Self::DelCategory { .. } => 0x1B,
+            Self::SetChannelCategory { .. } => 0x1C,
         }
     }
 
@@ -619,6 +643,23 @@ impl GroupOpBody {
                 w.put_arr(file);
             }
             Self::DelEmoji { name } => w.put_str(name),
+            Self::EditCategory {
+                category_id,
+                name,
+                position,
+            } => {
+                w.put_arr(category_id);
+                w.put_str(name);
+                w.put_u16(*position);
+            }
+            Self::DelCategory { category_id } => w.put_arr(category_id),
+            Self::SetChannelCategory {
+                channel_id,
+                category,
+            } => {
+                w.put_arr(channel_id);
+                w.put_opt(category.as_ref(), |w, c| w.put_arr(c));
+            }
         }
         w.into_bytes()
     }
@@ -722,6 +763,18 @@ impl GroupOpBody {
             },
             0x19 => Self::DelEmoji {
                 name: r.str(MAX_EMOJI_NAME, "op.emoji.name")?,
+            },
+            0x1A => Self::EditCategory {
+                category_id: r.arr()?,
+                name: r.str(MAX_NAME, "op.name")?,
+                position: r.u16()?,
+            },
+            0x1B => Self::DelCategory {
+                category_id: r.arr()?,
+            },
+            0x1C => Self::SetChannelCategory {
+                channel_id: r.arr()?,
+                category: r.opt(|r| r.arr())?,
             },
             _ => return Err(DecodeError::InvalidValue("groupop kind")),
         };
@@ -848,6 +901,10 @@ pub enum CoreMsg {
         /// Renvoyer les ops de lamport > ce seuil.
         since_lamport: u64,
     },
+    /// 0x0D — Friendship removal. The sender (authenticated by the encrypted
+    /// session) removed the friendship on their side; the receiver drops it
+    /// too and keeps the DM history. Best-effort: never queued offline.
+    FriendRemove,
 }
 
 impl WireEncode for CoreMsg {
@@ -968,6 +1025,9 @@ impl WireEncode for CoreMsg {
                 w.put_arr(group_id);
                 w.put_u64(*since_lamport);
             }
+            CoreMsg::FriendRemove => {
+                w.put_u8(0x0D);
+            }
         }
     }
 }
@@ -1055,6 +1115,7 @@ impl WireDecode for CoreMsg {
                 group_id: r.arr()?,
                 since_lamport: r.u64()?,
             }),
+            0x0D => Ok(CoreMsg::FriendRemove),
             _ => Err(DecodeError::InvalidValue("core kind")),
         }
     }

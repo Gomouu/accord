@@ -39,7 +39,11 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                     ))
                 })
                 .collect::<Result<Vec<_>, NodeError>>()?;
-            Ok(json!({ "messages": messages }))
+            // Peer's read position (read receipts), `null` if unknown.
+            Ok(json!({
+                "messages": messages,
+                "peer_read_lamport": node.dm_peer_read_lamport(&peer)?,
+            }))
         }
         "dm.edit" => {
             let peer = param_peer(params)?;
@@ -75,6 +79,15 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             node.dm_mark_read(&peer, lamport)?;
             Ok(json!({ "ok": true }))
         }
+        "dm.set_read_receipts" => {
+            let enabled = params
+                .get("enabled")
+                .and_then(Value::as_bool)
+                .ok_or(NodeError::Invalid("enabled booléen requis"))?;
+            node.set_read_receipts(enabled)?;
+            Ok(json!({ "ok": true }))
+        }
+        "dm.get_read_receipts" => Ok(json!({ "enabled": node.read_receipts_enabled()? })),
         _ => Err(NodeError::Invalid("méthode inconnue")),
     }
 }

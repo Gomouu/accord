@@ -879,11 +879,19 @@ impl Runtime {
             group_id,
             channel_id,
             action,
-            ..
+            media_kinds,
+            mute,
         } = &core_msg
         {
             if let Some(voice) = self.voice.get() {
-                voice.peer_signal(*static_pub, *group_id, *channel_id, *action);
+                voice.peer_signal(
+                    *static_pub,
+                    *group_id,
+                    *channel_id,
+                    *action,
+                    *media_kinds,
+                    *mute,
+                );
             }
             return;
         }

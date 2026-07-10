@@ -18,7 +18,7 @@ use std::sync::OnceLock;
 
 use accord_api::NotificationHub;
 use accord_core::db::{ContactState, Db};
-use accord_core::{friends, group, messaging, profile, search};
+use accord_core::{friends, group, messaging, presence, profile, search};
 use accord_crypto::{derive_search_key, node_id_of, Identity};
 use accord_proto::core_msg::CoreMsg;
 use serde_json::json;
@@ -85,6 +85,9 @@ pub fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// Rich presence announced by a friend: wire status (0-2) + custom text.
+type RichPresence = (u8, Option<String>);
+
 /// Nœud Accord déverrouillé.
 pub struct Node {
     identity: Arc<Identity>,
@@ -98,6 +101,10 @@ pub struct Node {
     /// Amis présumés en ligne (dernier signal reçu). Best-effort, en mémoire :
     /// l'absence d'un pair ne prouve pas qu'il est hors ligne (§6, présence).
     online: Mutex<HashSet<[u8; 32]>>,
+    /// Rich presence explicitly announced by friends (`PRESENCE` 0x08):
+    /// wire status 0-2 plus optional custom text. Best-effort, in memory,
+    /// friends only (anti-abuse); an offline announcement clears the entry.
+    peer_status: Mutex<HashMap<[u8; 32], RichPresence>>,
     /// Dernier indicateur de frappe accepté par pair (anti-abus, ms murales).
     typing_seen: Mutex<HashMap<[u8; 32], u64>>,
 }
@@ -125,6 +132,7 @@ impl Node {
             hub,
             network: OnceLock::new(),
             online: Mutex::new(HashSet::new()),
+            peer_status: Mutex::new(HashMap::new()),
             typing_seen: Mutex::new(HashMap::new()),
         }
     }
@@ -165,25 +173,95 @@ impl Node {
         .unwrap_or(false)
     }
 
+    /// Effective presence of a peer: the explicit status announced by the
+    /// peer (`PRESENCE` 0x08) when known, else plain reachability mapped to
+    /// online (0) / offline (3). Wire status byte + optional custom text.
+    fn effective_presence(&self, peer: &[u8; 32]) -> (u8, Option<String>) {
+        if let Some(explicit) = self
+            .peer_status
+            .lock()
+            .expect("verrou présence empoisonné")
+            .get(peer)
+            .cloned()
+        {
+            return explicit;
+        }
+        let reachable = self
+            .online
+            .lock()
+            .expect("verrou présence empoisonné")
+            .contains(peer);
+        (if reachable { 0 } else { 3 }, None)
+    }
+
+    /// Emits `event.presence` for a friend (rich shape: `online` kept for
+    /// backward compatibility, plus `status` and `status_text`).
+    fn emit_presence(&self, peer: &[u8; 32], status: u8, custom: &Option<String>) {
+        self.emit(
+            "event.presence",
+            json!({
+                "pubkey": hex::encode(peer),
+                "online": status != 3,
+                "status": presence::status_str(status),
+                "status_text": custom,
+            }),
+        );
+    }
+
     /// Met à jour l'accessibilité présumée d'un pair (tout pair joignable, y
     /// compris un membre de groupe non ami — la frappe s'appuie dessus) et émet
-    /// `event.presence` au seul changement d'état, réservé aux amis (la
-    /// présence n'est exposée que pour eux). Best-effort, jamais persisté.
+    /// `event.presence` au seul changement d'état effectif, réservé aux amis
+    /// (la présence n'est exposée que pour eux). Best-effort, jamais persisté.
+    /// A peer going offline also loses its explicit rich status.
     fn set_presence(&self, peer: &[u8; 32], online: bool) {
-        let changed = {
+        let before = self.effective_presence(peer);
+        {
             let mut set = self.online.lock().expect("verrou présence empoisonné");
             if online {
-                set.insert(*peer)
+                set.insert(*peer);
             } else {
-                set.remove(peer)
+                set.remove(peer);
             }
-        };
-        if changed && self.is_friend(peer) {
-            self.emit(
-                "event.presence",
-                json!({ "pubkey": hex::encode(peer), "online": online }),
-            );
         }
+        if !online {
+            self.peer_status
+                .lock()
+                .expect("verrou présence empoisonné")
+                .remove(peer);
+        }
+        let after = self.effective_presence(peer);
+        if before != after && self.is_friend(peer) {
+            self.emit_presence(peer, after.0, &after.1);
+        }
+    }
+
+    /// Applies an explicit presence announcement from a friend: reachability,
+    /// rich status (0-2) and custom text; an offline announcement (3) clears
+    /// everything. Emits `event.presence` only on effective change.
+    fn apply_peer_presence(&self, peer: &[u8; 32], status: u8, custom: Option<String>) {
+        if status == 3 {
+            self.set_presence(peer, false);
+            return;
+        }
+        let before = self.effective_presence(peer);
+        self.online
+            .lock()
+            .expect("verrou présence empoisonné")
+            .insert(*peer);
+        self.peer_status
+            .lock()
+            .expect("verrou présence empoisonné")
+            .insert(*peer, (status, custom));
+        let after = self.effective_presence(peer);
+        if before != after && self.is_friend(peer) {
+            self.emit_presence(peer, after.0, &after.1);
+        }
+    }
+
+    /// Rich presence of a peer for the API (`friends.list`): wire status byte
+    /// (0-3) plus optional custom text. Best-effort, in memory.
+    pub fn peer_presence(&self, peer: &[u8; 32]) -> (u8, Option<String>) {
+        self.effective_presence(peer)
     }
 
     /// Vrai si un pair est présumé joignable. Best-effort : un pair sans
@@ -196,14 +274,36 @@ impl Node {
             .contains(peer)
     }
 
-    /// Diffuse une annonce de présence à tous les amis (au démarrage : en
-    /// ligne ; à l'arrêt propre : hors ligne). `CoreMsg::Presence` n'est jamais
-    /// mise en file hors-ligne : les amis injoignables la perdent sans effet.
-    /// L'aiguillage effectif (démarrage/arrêt) relève du runtime.
+    /// Presence announcement carrying the local rich status: invisible is
+    /// broadcast as plain offline (no custom text leaks), any other status
+    /// travels with the persisted custom text.
+    pub(crate) fn own_presence_msg(&self) -> Result<CoreMsg, NodeError> {
+        let (status, custom) = self.own_presence()?;
+        Ok(match status {
+            presence::OwnStatus::Invisible => CoreMsg::Presence {
+                status: 3,
+                custom: None,
+            },
+            other => CoreMsg::Presence {
+                status: other.wire_status(),
+                custom,
+            },
+        })
+    }
+
+    /// Diffuse une annonce de présence à tous les amis (au démarrage et
+    /// périodiquement : le statut riche persisté ; à l'arrêt propre : hors
+    /// ligne). `CoreMsg::Presence` n'est jamais mise en file hors-ligne : les
+    /// amis injoignables la perdent sans effet. L'aiguillage effectif
+    /// (démarrage/arrêt) relève du runtime.
     pub fn broadcast_presence(&self, online: bool) -> Result<(), NodeError> {
-        let msg = CoreMsg::Presence {
-            status: if online { 0 } else { 3 },
-            custom: None,
+        let msg = if online {
+            self.own_presence_msg()?
+        } else {
+            CoreMsg::Presence {
+                status: 3,
+                custom: None,
+            }
         };
         for friend in self.friend_pubkeys()? {
             self.outbound.send(Outbound::Core {
@@ -271,6 +371,18 @@ impl Node {
                         self.emit(
                             "event.dm_typing",
                             json!({ "peer": hex::encode(peer_pubkey) }),
+                        );
+                    }
+                } else if event == messaging::DmEvent::Read {
+                    // Read receipt: the peer's read position was persisted by
+                    // the ingestion; expose it as a lamport for the UI.
+                    if let Some(read_lamport) = self.dm_peer_read_lamport(peer_pubkey)? {
+                        self.emit(
+                            "event.dm_read",
+                            json!({
+                                "peer": hex::encode(peer_pubkey),
+                                "lamport": read_lamport,
+                            }),
                         );
                     }
                 } else if !matches!(
@@ -518,11 +630,35 @@ impl Node {
                     .map(|op| CoreMsg::GroupOpMsg { op })
                     .collect())
             }
-            CoreMsg::Presence { status, .. } => {
-                // Annonce de présence d'un ami : `status` 3 = hors ligne, tout
-                // autre = en ligne. Ignorée d'un non-ami (anti-abus). L'état
-                // n'est jamais persisté (best-effort, en mémoire).
-                self.set_presence(peer_pubkey, status != 3);
+            CoreMsg::Presence { status, custom } => {
+                // Presence announcement: rich status (0-2) and custom text
+                // are tracked for friends only (anti-abuse); a non-friend
+                // only updates plain reachability. Never persisted
+                // (best-effort, in memory). Older nodes sending bare
+                // online/offline keep working (custom stays `None`).
+                if self.is_friend(peer_pubkey) {
+                    self.apply_peer_presence(peer_pubkey, status, custom);
+                } else {
+                    self.set_presence(peer_pubkey, status != 3);
+                }
+                Ok(vec![])
+            }
+            CoreMsg::FriendRemove => {
+                // The peer removed the friendship on their side: mirror it
+                // locally (DM history kept) and refresh both UIs. A stranger
+                // or a blocked peer cannot mutate our contact list.
+                let removed =
+                    self.with_db(|db| Ok(friends::ingest_friend_remove(db, peer_pubkey)?))?;
+                if removed {
+                    self.peer_status
+                        .lock()
+                        .expect("verrou présence empoisonné")
+                        .remove(peer_pubkey);
+                    self.emit(
+                        "event.friend_removed",
+                        json!({ "peer": hex::encode(peer_pubkey) }),
+                    );
+                }
                 Ok(vec![])
             }
             // Signalisation vocale et autres éphémères : non persistées ici.

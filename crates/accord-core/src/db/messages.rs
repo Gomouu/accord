@@ -288,6 +288,38 @@ impl Db {
         }
     }
 
+    /// Lamport clock of a stored direct message (`None` if unknown). Maps a
+    /// read-receipt target (`msg_id`) back to a conversation position.
+    pub fn dm_lamport(&self, msg_id: &[u8; 16]) -> Result<Option<u64>, CoreError> {
+        let mut stmt = self
+            .conn()
+            .prepare("SELECT lamport FROM dm_messages WHERE msg_id = ?1")?;
+        let mut rows = stmt.query([msg_id.as_slice()])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(row.get::<_, u64>(0)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Most recent non-deleted message authored by `peer` with a lamport at
+    /// most `up_to_lamport` — the target of an outgoing read receipt.
+    pub fn latest_dm_from_peer(
+        &self,
+        peer: &[u8; 32],
+        up_to_lamport: u64,
+    ) -> Result<Option<[u8; 16]>, CoreError> {
+        let mut stmt = self.conn().prepare(
+            "SELECT msg_id FROM dm_messages
+             WHERE peer = ?1 AND author = ?1 AND lamport <= ?2 AND deleted = 0
+             ORDER BY lamport DESC, msg_id DESC LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![peer, up_to_lamport.min(i64::MAX as u64) as i64])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(blob(row.get::<_, Vec<u8>>(0)?)?)),
+            None => Ok(None),
+        }
+    }
+
     /// Nombre de messages directs reçus de `peer` (dont il est l'auteur),
     /// strictement après `after_lamport` et non supprimés : badge de non-lus
     /// d'une conversation directe.
@@ -534,6 +566,38 @@ mod tests {
         db.set_read_mark(&[1; 32], &[4; 16]).unwrap();
         db.set_read_mark(&[1; 32], &[5; 16]).unwrap();
         assert_eq!(db.read_mark(&[1; 32]).unwrap(), Some([5; 16]));
+    }
+
+    #[test]
+    fn dm_lamport_lookup_and_latest_from_peer() {
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        // Peer [1;32]: their messages have author == peer; ours author [2;32].
+        db.insert_dm(&dm(1, 1)).unwrap(); // ours (author [2;32])
+        for (id, l) in [(2u8, 2u64), (3, 5), (4, 9)] {
+            db.insert_dm(&DmRecord {
+                msg_id: [id; 16],
+                peer: [1; 32],
+                author: [1; 32],
+                lamport: l,
+                sent_ms: 0,
+                kind: 0,
+                body: vec![id],
+                acked: true,
+                deleted: false,
+                edited: None,
+            })
+            .unwrap();
+        }
+        assert_eq!(db.dm_lamport(&[3; 16]).unwrap(), Some(5));
+        assert_eq!(db.dm_lamport(&[9; 16]).unwrap(), None);
+
+        // Latest peer message at or below the mark; our own are excluded.
+        assert_eq!(db.latest_dm_from_peer(&[1; 32], 9).unwrap(), Some([4; 16]));
+        assert_eq!(db.latest_dm_from_peer(&[1; 32], 6).unwrap(), Some([3; 16]));
+        assert_eq!(db.latest_dm_from_peer(&[1; 32], 1).unwrap(), None);
+        // A deleted message is no longer a receipt target.
+        db.delete_dm(&[4; 16], &[1; 32]).unwrap();
+        assert_eq!(db.latest_dm_from_peer(&[1; 32], 9).unwrap(), Some([3; 16]));
     }
 
     #[test]

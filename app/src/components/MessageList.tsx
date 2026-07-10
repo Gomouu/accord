@@ -16,6 +16,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { interpolate } from '../i18n';
 import type { FileAttachment, MsgBody, Reaction } from '../lib/api';
 import { formatDay, formatTimestamp } from '../lib/format';
+import { useDms } from '../stores/dms';
 import { useFriends, avatarOf, displayNameOf } from '../stores/friends';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT, type AncrePopover } from '../stores/ui';
@@ -219,9 +220,18 @@ export function MessageList({
 }: MessageListProps) {
   const lang = useUi((s) => s.lang);
   const openProfile = useUi((s) => s.openProfile);
+  const view = useUi((s) => s.view);
   const contacts = useFriends((s) => s.contacts);
   const self = useSession((s) => s.self);
   const t = useT();
+  // Accusés de lecture : uniquement en conversation directe (jamais en salon).
+  const dmPeer = groupId === null && view.kind === 'dm' ? view.peer : null;
+  const peerReadLamport = useDms((s) =>
+    dmPeer === null ? undefined : s.peerRead[dmPeer],
+  );
+  const dmMessages = useDms((s) =>
+    dmPeer === null ? undefined : s.conversations[dmPeer],
+  );
   const containerRef = useRef<HTMLDivElement>(null);
   const lastIdRef = useRef<string | null>(null);
   /** Position mémorisée avant l'insertion d'une page ancienne en tête. */
@@ -240,6 +250,23 @@ export function MessageList({
 
   const firstId = visible[0]?.msg_id ?? null;
   const lastId = visible[visible.length - 1]?.msg_id ?? null;
+
+  // « Vu » : dernier de ses propres messages couvert par l'accusé de lecture
+  // du pair (lamport lu depuis le store des MP, l'enveloppe affichée n'en a pas).
+  let seenMsgId: string | null = null;
+  if (
+    dmPeer !== null &&
+    peerReadLamport !== undefined &&
+    dmMessages !== undefined &&
+    self !== null
+  ) {
+    const lamportById = new Map(dmMessages.map((m) => [m.msg_id, m.lamport]));
+    for (const m of visible) {
+      if (m.deleted || m.author !== self.pubkey) continue;
+      const lamport = lamportById.get(m.msg_id);
+      if (lamport !== undefined && lamport <= peerReadLamport) seenMsgId = m.msg_id;
+    }
+  }
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -436,6 +463,11 @@ export function MessageList({
                     emojis={emojiMap}
                     hint={m.author}
                   />
+                )}
+                {m.msg_id === seenMsgId && (
+                  <div className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-faint">
+                    {t.dm.seen}
+                  </div>
                 )}
               </div>
             </div>

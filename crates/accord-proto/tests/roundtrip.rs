@@ -371,6 +371,22 @@ fn group_op_bodies_roundtrip() {
         GroupOpBody::DelEmoji {
             name: "party_parrot".into(),
         },
+        GroupOpBody::EditCategory {
+            category_id: [12; 16],
+            name: "Textuels".into(),
+            position: 3,
+        },
+        GroupOpBody::DelCategory {
+            category_id: [12; 16],
+        },
+        GroupOpBody::SetChannelCategory {
+            channel_id: [4; 16],
+            category: Some([12; 16]),
+        },
+        GroupOpBody::SetChannelCategory {
+            channel_id: [4; 16],
+            category: None,
+        },
     ];
     for body in bodies {
         let enc = body.encode_body();
@@ -467,6 +483,7 @@ fn core_msgs_roundtrip() {
             group_id: [2; 16],
             since_lamport: 3,
         },
+        CoreMsg::FriendRemove,
     ];
     for m in msgs {
         roundtrip_channel(&ChannelMsg::Core(m));

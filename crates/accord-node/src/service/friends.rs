@@ -1,6 +1,8 @@
 //! Méthodes `friends.*` et `search.query` : contacts, demandes d'amis,
-//! blocage, résolution de codes amis et recherche locale.
+//! retrait, blocage, statut de présence, résolution de codes amis et
+//! recherche locale.
 
+use accord_core::presence;
 use accord_crypto::FriendCode;
 use serde_json::{json, Value};
 
@@ -8,7 +10,7 @@ use crate::error::NodeError;
 use crate::hex;
 use crate::node::Node;
 
-use super::helpers::{contact_json, param_peer, param_str};
+use super::helpers::{contact_json, param_opt_str, param_peer, param_str};
 use super::NodeService;
 
 impl NodeService {
@@ -41,8 +43,13 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                     v["bio"] = json!(bio);
                     v["avatar"] = json!(avatar.map(|h| hex::encode(&h)));
                     v["banner"] = json!(banner.map(|h| hex::encode(&h)));
-                    // Présence (best-effort) et non-lus de la conversation.
-                    v["online"] = json!(node.is_online(&c.pubkey));
+                    // Presence (best-effort, rich): `online` kept for
+                    // backward compatibility, `status` + `status_text` carry
+                    // the announced rich presence. Unread counter follows.
+                    let (status, status_text) = node.peer_presence(&c.pubkey);
+                    v["online"] = json!(status != 3);
+                    v["status"] = json!(presence::status_str(status));
+                    v["status_text"] = json!(status_text);
                     v["unread"] = json!(node.dm_unread(&c.pubkey)?);
                     Ok(v)
                 })
@@ -62,6 +69,20 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                 .ok_or(NodeError::Invalid("accept booléen requis"))?;
             node.friend_respond(&peer, accept)?;
             Ok(json!({ "ok": true }))
+        }
+        "friends.remove" => {
+            node.friend_remove(&param_peer(params)?)?;
+            Ok(json!({ "ok": true }))
+        }
+        "friends.set_status" => {
+            let status = presence::OwnStatus::parse(param_str(params, "status")?)?;
+            let custom = param_opt_str(params, "custom")?;
+            node.set_own_presence(status, custom)?;
+            Ok(json!({ "ok": true }))
+        }
+        "friends.get_status" => {
+            let (status, custom) = node.own_presence()?;
+            Ok(json!({ "status": status.as_str(), "custom": custom }))
         }
         "friends.block" => {
             node.friend_block(&param_peer(params)?)?;

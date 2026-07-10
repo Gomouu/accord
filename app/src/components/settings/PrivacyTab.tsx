@@ -1,13 +1,15 @@
 /**
- * Onglet Confidentialité : liste des utilisateurs bloqués (avec déblocage) et
- * rappel du fonctionnement anti-spam des demandes d'amis.
+ * Onglet Confidentialité : accusés de lecture (émission désactivable), liste
+ * des utilisateurs bloqués (avec déblocage) et rappel du fonctionnement
+ * anti-spam des demandes d'amis.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { api } from '../../lib/client';
 import { useFriends } from '../../stores/friends';
 import { useUi, useT } from '../../stores/ui';
 import { Avatar } from '../Avatar';
-import { SettingsSection } from './controls';
+import { SettingsSection, ToggleRow } from './controls';
 
 export function PrivacyTab() {
   const t = useT();
@@ -15,15 +17,50 @@ export function PrivacyTab() {
   const contacts = useFriends((s) => s.contacts);
   const load = useFriends((s) => s.load);
   const unblock = useFriends((s) => s.unblock);
+  /** Réglage nœud (`dm.get_read_receipts`) ; `null` tant qu'il n'est pas lu. */
+  const [readReceipts, setReadReceipts] = useState<boolean | null>(null);
 
   useEffect(() => {
     load().catch(() => toast('error', t.errors.loadFailed));
   }, [load, toast, t]);
 
+  useEffect(() => {
+    let alive = true;
+    api
+      .dmGetReadReceipts()
+      .then(({ enabled }) => {
+        if (alive) setReadReceipts(enabled);
+      })
+      .catch(() => {
+        if (alive) toast('error', t.errors.loadFailed);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [toast, t]);
+
+  const toggleReadReceipts = (enabled: boolean): void => {
+    // Optimiste : reflet immédiat, retour arrière si le nœud refuse.
+    setReadReceipts(enabled);
+    api.dmSetReadReceipts(enabled).catch(() => {
+      setReadReceipts(!enabled);
+      toast('error', t.errors.actionFailed);
+    });
+  };
+
   const blocked = contacts.filter((c) => c.state === 'blocked');
 
   return (
     <div>
+      <SettingsSection title={t.settings.readReceiptsTitle}>
+        <ToggleRow
+          label={t.settings.readReceiptsLabel}
+          hint={t.settings.readReceiptsHint}
+          checked={readReceipts ?? true}
+          onChange={toggleReadReceipts}
+        />
+      </SettingsSection>
+
       <SettingsSection title={t.settings.blockedUsers}>
         {blocked.length === 0 ? (
           <p className="rounded-lg bg-sidebar px-4 py-6 text-center text-sm text-muted">

@@ -111,6 +111,58 @@ export function sortRoles(roles: readonly GroupRole[]): GroupRole[] {
   );
 }
 
+/** Maximum wire position of a role (u16). */
+const MAX_ROLE_POSITION = 0xffff;
+
+/**
+ * Position edits required to move a role one step up or down in the
+ * displayed order (descending positions). Distinct positions are swapped;
+ * on a tie (display order decided by id) the role that must end up higher
+ * is raised by one. Returns `[]` when there is no neighbor.
+ */
+export function planRoleMove(
+  roles: readonly GroupRole[],
+  roleId: string,
+  direction: 'up' | 'down',
+): Array<{ role_id: string; position: number }> {
+  const sorted = sortRoles(roles);
+  const i = sorted.findIndex((r) => r.role_id === roleId);
+  if (i === -1) return [];
+  const moving = sorted[i];
+  const neighbor = sorted[direction === 'up' ? i - 1 : i + 1];
+  if (moving === undefined || neighbor === undefined) return [];
+  if (moving.position !== neighbor.position) {
+    return [
+      { role_id: moving.role_id, position: neighbor.position },
+      { role_id: neighbor.role_id, position: moving.position },
+    ];
+  }
+  const raised = direction === 'up' ? moving : neighbor;
+  return [
+    {
+      role_id: raised.role_id,
+      position: Math.min(moving.position + 1, MAX_ROLE_POSITION),
+    },
+  ];
+}
+
+/**
+ * Override courant d'un rôle sur un salon (`{ allow: 0, deny: 0 }` si
+ * aucun) — l'état peut omettre `overrides` (nœud plus ancien).
+ */
+export function overrideOf(
+  state: Pick<GroupStateJson, 'overrides'> | undefined,
+  channelId: string,
+  roleId: string,
+): { allow: number; deny: number } {
+  const found = (state?.overrides ?? []).find(
+    (o) => o.channel_id === channelId && o.role_id === roleId,
+  );
+  return found === undefined
+    ? { allow: 0, deny: 0 }
+    : { allow: found.allow, deny: found.deny };
+}
+
 /** Section de salons : `category` vaut `null` pour les sans-catégorie. */
 export interface ChannelGroup {
   category: GroupCategory | null;
@@ -197,8 +249,28 @@ interface GroupsState {
     category?: string,
   ) => Promise<string>;
   renameChannel: (groupId: string, channelId: string, name: string) => Promise<void>;
+  /** Déplace un salon dans une catégorie (`null` = sans catégorie). */
+  setChannelCategory: (
+    groupId: string,
+    channelId: string,
+    category: string | null,
+  ) => Promise<void>;
+  /**
+   * Fixe l'override d'un rôle sur un salon (`allow`/`deny` bitfields,
+   * `deny` prioritaire) ; `allow = deny = 0` efface l'override.
+   */
+  setChannelPerms: (
+    groupId: string,
+    channelId: string,
+    roleId: string,
+    allow: number,
+    deny: number,
+  ) => Promise<void>;
   deleteChannel: (groupId: string, channelId: string) => Promise<void>;
   addCategory: (groupId: string, name: string) => Promise<string>;
+  renameCategory: (groupId: string, categoryId: string, name: string) => Promise<void>;
+  /** Supprime la catégorie ; ses salons restent, sans catégorie. */
+  deleteCategory: (groupId: string, categoryId: string) => Promise<void>;
   kick: (groupId: string, pubkey: string) => Promise<void>;
   ban: (groupId: string, pubkey: string) => Promise<void>;
   unban: (groupId: string, pubkey: string) => Promise<void>;
@@ -216,6 +288,8 @@ interface GroupsState {
     changes: { name?: string; color?: number; position?: number; permissions?: number },
   ) => Promise<void>;
   deleteRole: (groupId: string, roleId: string) => Promise<void>;
+  /** Monte ou descend un rôle d'un cran dans la hiérarchie affichée. */
+  moveRole: (groupId: string, roleId: string, direction: 'up' | 'down') => Promise<void>;
   /** Attribue (`assign: true`) ou retire un rôle à un membre. */
   setMemberRole: (
     groupId: string,
@@ -402,6 +476,16 @@ export const useGroups = create<GroupsState>((set, get) => ({
     await get().loadState(groupId);
   },
 
+  setChannelCategory: async (groupId, channelId, category) => {
+    await api.groupsChannelEdit(groupId, channelId, { category });
+    await get().loadState(groupId);
+  },
+
+  setChannelPerms: async (groupId, channelId, roleId, allow, deny) => {
+    await api.groupsChannelPerms(groupId, channelId, roleId, allow, deny);
+    await get().loadState(groupId);
+  },
+
   deleteChannel: async (groupId, channelId) => {
     await api.groupsChannelDel(groupId, channelId);
     await get().loadState(groupId);
@@ -411,6 +495,16 @@ export const useGroups = create<GroupsState>((set, get) => ({
     const { category_id } = await api.groupsCategoryAdd(groupId, name);
     await get().loadState(groupId);
     return category_id;
+  },
+
+  renameCategory: async (groupId, categoryId, name) => {
+    await api.groupsCategoryEdit(groupId, categoryId, { name });
+    await get().loadState(groupId);
+  },
+
+  deleteCategory: async (groupId, categoryId) => {
+    await api.groupsCategoryDel(groupId, categoryId);
+    await get().loadState(groupId);
   },
 
   kick: async (groupId, pubkey) => {
@@ -461,6 +555,17 @@ export const useGroups = create<GroupsState>((set, get) => ({
   deleteRole: async (groupId, roleId) => {
     await api.groupsRoleDel(groupId, roleId);
     await get().loadState(groupId);
+  },
+
+  moveRole: async (groupId, roleId, direction) => {
+    const state = get().states[groupId];
+    if (state === undefined) return;
+    const edits = planRoleMove(state.roles, roleId, direction);
+    // Sequential on purpose: the node replays each op on the current state.
+    for (const edit of edits) {
+      await api.groupsRoleEdit(groupId, edit.role_id, { position: edit.position });
+    }
+    if (edits.length > 0) await get().loadState(groupId);
   },
 
   setMemberRole: async (groupId, roleId, pubkey, assign) => {

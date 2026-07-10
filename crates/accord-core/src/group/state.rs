@@ -367,6 +367,51 @@ impl GroupState {
                 self.categories
                     .insert(category_id, Category { name, position });
             }
+            GroupOpBody::EditCategory {
+                category_id,
+                name,
+                position,
+            } => {
+                if !has(perms::MANAGE_CHANNELS) {
+                    return self.ignore("EDIT_CATEGORY refusé");
+                }
+                let Some(cat) = self.categories.get_mut(&category_id) else {
+                    return self.ignore("catégorie inconnue");
+                };
+                cat.name = name;
+                cat.position = position;
+            }
+            GroupOpBody::DelCategory { category_id } => {
+                if !has(perms::MANAGE_CHANNELS) {
+                    return self.ignore("DEL_CATEGORY refusé");
+                }
+                if self.categories.remove(&category_id).is_none() {
+                    return self.ignore("catégorie inconnue");
+                }
+                // Channels of the deleted category survive, uncategorized.
+                for channel in self.channels.values_mut() {
+                    if channel.category == Some(category_id) {
+                        channel.category = None;
+                    }
+                }
+            }
+            GroupOpBody::SetChannelCategory {
+                channel_id,
+                category,
+            } => {
+                if !has(perms::MANAGE_CHANNELS) {
+                    return self.ignore("SET_CHANNEL_CATEGORY refusé");
+                }
+                if let Some(cat) = &category {
+                    if !self.categories.contains_key(cat) {
+                        return self.ignore("catégorie inconnue");
+                    }
+                }
+                let Some(ch) = self.channels.get_mut(&channel_id) else {
+                    return self.ignore("salon inconnu");
+                };
+                ch.category = category;
+            }
             GroupOpBody::AddMember { member, invite_id } => {
                 if !has(perms::INVITE) {
                     return self.ignore("ADD_MEMBER refusé");
@@ -530,8 +575,15 @@ impl GroupState {
                 if !self.channels.contains_key(&channel_id) || !self.roles.contains_key(&role_id) {
                     return self.ignore("salon ou rôle inconnu");
                 }
-                self.overrides
-                    .insert((channel_id, role_id), PermOverride { allow, deny });
+                if allow == 0 && deny == 0 {
+                    // Empty override = inherit everything: drop the entry so
+                    // the materialized state stays minimal and the UI reads
+                    // "no override" back.
+                    self.overrides.remove(&(channel_id, role_id));
+                } else {
+                    self.overrides
+                        .insert((channel_id, role_id), PermOverride { allow, deny });
+                }
             }
             GroupOpBody::Pin { channel_id, msg_id } | GroupOpBody::Unpin { channel_id, msg_id } => {
                 if !has(perms::MANAGE_MESSAGES) {
@@ -1032,6 +1084,214 @@ mod tests {
         assert_eq!(st.emojis.len(), MAX_EMOJIS);
         assert!(!st.emojis.contains_key("one_too_many"));
         assert_eq!(st.emojis.get("e0"), Some(&[42; 32]));
+    }
+
+    /// Base ops + one category `[C; 16]` and one channel `[7; 16]` inside it.
+    fn ops_with_categorized_channel() -> Vec<GroupOp> {
+        let mut ops = base_ops();
+        ops.push(signed(
+            GroupOpBody::AddCategory {
+                category_id: [0xC; 16],
+                name: "Vocaux".into(),
+                position: 0,
+            },
+            FOUNDER,
+            4,
+        ));
+        ops.push(signed(
+            GroupOpBody::AddChannel {
+                channel_id: [7; 16],
+                name: "général".into(),
+                category: Some([0xC; 16]),
+                kind: ChannelKind::Text,
+                position: 0,
+            },
+            FOUNDER,
+            5,
+        ));
+        ops
+    }
+
+    #[test]
+    fn edit_category_renames_and_requires_manage_channels() {
+        let mut ops = ops_with_categorized_channel();
+        // Alice (plain member) cannot rename; the founder can.
+        ops.push(signed(
+            GroupOpBody::EditCategory {
+                category_id: [0xC; 16],
+                name: "Piraté".into(),
+                position: 3,
+            },
+            ALICE,
+            6,
+        ));
+        ops.push(signed(
+            GroupOpBody::EditCategory {
+                category_id: [0xC; 16],
+                name: "Textuels".into(),
+                position: 2,
+            },
+            FOUNDER,
+            7,
+        ));
+        // Unknown category: ignored.
+        ops.push(signed(
+            GroupOpBody::EditCategory {
+                category_id: [0xE; 16],
+                name: "Fantôme".into(),
+                position: 0,
+            },
+            FOUNDER,
+            8,
+        ));
+        let st = GroupState::fold(&ops);
+        let cat = st.categories.get(&[0xC; 16]).unwrap();
+        assert_eq!(cat.name, "Textuels");
+        assert_eq!(cat.position, 2);
+        assert_eq!(st.categories.len(), 1);
+    }
+
+    #[test]
+    fn del_category_keeps_channels_uncategorized() {
+        let mut ops = ops_with_categorized_channel();
+        ops.push(signed(
+            GroupOpBody::DelCategory {
+                category_id: [0xC; 16],
+            },
+            FOUNDER,
+            6,
+        ));
+        let st = GroupState::fold(&ops);
+        assert!(st.categories.is_empty());
+        let ch = st.channels.get(&[7; 16]).unwrap();
+        assert_eq!(ch.category, None, "channel survives, uncategorized");
+        assert_eq!(ch.name, "général");
+    }
+
+    #[test]
+    fn del_category_denied_to_plain_member() {
+        let mut ops = ops_with_categorized_channel();
+        ops.push(signed(
+            GroupOpBody::DelCategory {
+                category_id: [0xC; 16],
+            },
+            ALICE,
+            6,
+        ));
+        let st = GroupState::fold(&ops);
+        assert!(st.categories.contains_key(&[0xC; 16]));
+    }
+
+    #[test]
+    fn set_channel_category_moves_and_clears() {
+        let mut ops = ops_with_categorized_channel();
+        // Move out of any category…
+        ops.push(signed(
+            GroupOpBody::SetChannelCategory {
+                channel_id: [7; 16],
+                category: None,
+            },
+            FOUNDER,
+            6,
+        ));
+        let st = GroupState::fold(&ops);
+        assert_eq!(st.channels.get(&[7; 16]).unwrap().category, None);
+        // …then back in; an unknown target category is ignored.
+        let mut ops2 = ops.clone();
+        ops2.push(signed(
+            GroupOpBody::SetChannelCategory {
+                channel_id: [7; 16],
+                category: Some([0xC; 16]),
+            },
+            FOUNDER,
+            7,
+        ));
+        ops2.push(signed(
+            GroupOpBody::SetChannelCategory {
+                channel_id: [7; 16],
+                category: Some([0xE; 16]),
+            },
+            FOUNDER,
+            8,
+        ));
+        // Alice cannot move channels at all.
+        ops2.push(signed(
+            GroupOpBody::SetChannelCategory {
+                channel_id: [7; 16],
+                category: None,
+            },
+            ALICE,
+            9,
+        ));
+        let st2 = GroupState::fold(&ops2);
+        assert_eq!(
+            st2.channels.get(&[7; 16]).unwrap().category,
+            Some([0xC; 16])
+        );
+    }
+
+    #[test]
+    fn empty_channel_override_clears_the_entry() {
+        let mut ops = base_ops();
+        ops.push(signed(
+            GroupOpBody::AddChannel {
+                channel_id: [7; 16],
+                name: "général".into(),
+                category: None,
+                kind: ChannelKind::Text,
+                position: 0,
+            },
+            FOUNDER,
+            4,
+        ));
+        ops.push(signed(
+            GroupOpBody::AddRole {
+                role_id: [3; 16],
+                name: "Muet".into(),
+                color: 0,
+                position: 1,
+                permissions: 0,
+            },
+            FOUNDER,
+            5,
+        ));
+        ops.push(signed(
+            GroupOpBody::AssignRole {
+                member: ALICE,
+                role_id: [3; 16],
+            },
+            FOUNDER,
+            6,
+        ));
+        ops.push(signed(
+            GroupOpBody::SetChannelPerms {
+                channel_id: [7; 16],
+                role_id: [3; 16],
+                allow: 0,
+                deny: perms::SEND,
+            },
+            FOUNDER,
+            7,
+        ));
+        let st = GroupState::fold(&ops);
+        assert_eq!(st.overrides.len(), 1);
+        assert_eq!(st.permissions_in(&ALICE, &[7; 16]) & perms::SEND, 0);
+
+        // allow = deny = 0 removes the override: permissions are inherited.
+        let mut ops2 = ops.clone();
+        ops2.push(signed(
+            GroupOpBody::SetChannelPerms {
+                channel_id: [7; 16],
+                role_id: [3; 16],
+                allow: 0,
+                deny: 0,
+            },
+            FOUNDER,
+            8,
+        ));
+        let st2 = GroupState::fold(&ops2);
+        assert!(st2.overrides.is_empty());
+        assert_ne!(st2.permissions_in(&ALICE, &[7; 16]) & perms::SEND, 0);
     }
 
     #[test]

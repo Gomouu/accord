@@ -10,7 +10,7 @@
 
 use accord_core::group;
 use accord_core::group::GroupState;
-use accord_proto::core_msg::{ChannelKind, CoreMsg, FileRef, GroupOpBody};
+use accord_proto::core_msg::{perms, ChannelKind, CoreMsg, FileRef, GroupOp, GroupOpBody};
 use serde_json::json;
 
 use crate::error::NodeError;
@@ -222,19 +222,19 @@ impl Node {
         Ok(hex::encode(&category_id))
     }
 
-    /// Édite un salon (nom et/ou position ; champ absent = inchangé).
-    pub fn group_channel_edit(
+    /// Renomme et/ou repositionne une catégorie (champ absent = inchangé).
+    pub fn group_category_edit(
         &self,
         group_id: &[u8; 16],
-        channel_id: &[u8; 16],
+        category_id: &[u8; 16],
         name: Option<&str>,
         position: Option<u16>,
     ) -> Result<(), NodeError> {
         let state = self.group_state(group_id)?;
         let current = state
-            .channels
-            .get(channel_id)
-            .ok_or(NodeError::NotFound("salon inconnu"))?;
+            .categories
+            .get(category_id)
+            .ok_or(NodeError::NotFound("catégorie inconnue"))?;
         let name = match name {
             Some(n) => {
                 validate_label(n)?;
@@ -244,12 +244,140 @@ impl Node {
         };
         self.group_author(
             group_id,
-            GroupOpBody::EditChannel {
-                channel_id: *channel_id,
+            GroupOpBody::EditCategory {
+                category_id: *category_id,
                 name,
                 position: position.unwrap_or(current.position),
             },
         )
+    }
+
+    /// Supprime une catégorie ; ses salons deviennent « sans catégorie »
+    /// (jamais supprimés).
+    pub fn group_category_del(
+        &self,
+        group_id: &[u8; 16],
+        category_id: &[u8; 16],
+    ) -> Result<(), NodeError> {
+        self.group_author(
+            group_id,
+            GroupOpBody::DelCategory {
+                category_id: *category_id,
+            },
+        )
+    }
+
+    /// Fixe (ou efface avec `allow = deny = 0`) l'override de permissions
+    /// d'un rôle sur un salon (op `SetChannelPerms`, `MANAGE_ROLES` requis
+    /// et vérifié au rejeu).
+    pub fn group_channel_perms(
+        &self,
+        group_id: &[u8; 16],
+        channel_id: &[u8; 16],
+        role_id: &[u8; 16],
+        allow: u32,
+        deny: u32,
+    ) -> Result<(), NodeError> {
+        let all = accord_core::group::state::ALL_PERMS;
+        if allow & !all != 0 || deny & !all != 0 {
+            return Err(NodeError::Invalid("bits de permission inconnus"));
+        }
+        if allow & deny != 0 {
+            return Err(NodeError::Invalid(
+                "un bit ne peut être à la fois accordé et refusé",
+            ));
+        }
+        self.group_author(
+            group_id,
+            GroupOpBody::SetChannelPerms {
+                channel_id: *channel_id,
+                role_id: *role_id,
+                allow,
+                deny,
+            },
+        )
+    }
+
+    /// Page du journal d'audit : les ops signées du groupe dans l'ordre
+    /// total canonique, de la plus récente à la plus ancienne. `before` =
+    /// `op_id` de la plus ancienne entrée de la page précédente (curseur).
+    /// Réservé aux membres portant `ADMIN` (fondateur inclus).
+    pub fn group_audit(
+        &self,
+        group_id: &[u8; 16],
+        before: Option<[u8; 16]>,
+        limit: usize,
+    ) -> Result<Vec<GroupOp>, NodeError> {
+        let state = self.group_state(group_id)?;
+        let me = self.identity.public_key();
+        if state.base_permissions(&me) & perms::ADMIN == 0 {
+            return Err(NodeError::Core(accord_core::CoreError::OpRejected(
+                "journal d'audit réservé aux administrateurs",
+            )));
+        }
+        let mut ops = self.with_db(|db| Ok(group::ops_for_pull(db, group_id, 0)?))?;
+        ops.reverse(); // canonical order, newest first
+        let start = match before {
+            None => 0,
+            Some(cursor) => ops
+                .iter()
+                .position(|op| op.op_id == cursor)
+                .map(|i| i + 1)
+                .ok_or(NodeError::NotFound("curseur d'audit inconnu"))?,
+        };
+        Ok(ops.into_iter().skip(start).take(limit).collect())
+    }
+
+    /// Édite un salon (nom, position et/ou catégorie ; champ absent =
+    /// inchangé). `category`: `Some(None)` sort le salon de toute catégorie,
+    /// `Some(Some(id))` le déplace dans une catégorie existante.
+    pub fn group_channel_edit(
+        &self,
+        group_id: &[u8; 16],
+        channel_id: &[u8; 16],
+        name: Option<&str>,
+        position: Option<u16>,
+        category: Option<Option<[u8; 16]>>,
+    ) -> Result<(), NodeError> {
+        let state = self.group_state(group_id)?;
+        let current = state
+            .channels
+            .get(channel_id)
+            .ok_or(NodeError::NotFound("salon inconnu"))?;
+        if let Some(Some(cat)) = &category {
+            if !state.categories.contains_key(cat) {
+                return Err(NodeError::NotFound("catégorie inconnue"));
+            }
+        }
+        // Emit EditChannel only when name/position actually change; a pure
+        // category move goes through its own op below.
+        if name.is_some() || position.is_some() {
+            let name = match name {
+                Some(n) => {
+                    validate_label(n)?;
+                    n.trim().to_string()
+                }
+                None => current.name.clone(),
+            };
+            self.group_author(
+                group_id,
+                GroupOpBody::EditChannel {
+                    channel_id: *channel_id,
+                    name,
+                    position: position.unwrap_or(current.position),
+                },
+            )?;
+        }
+        if let Some(new_category) = category {
+            self.group_author(
+                group_id,
+                GroupOpBody::SetChannelCategory {
+                    channel_id: *channel_id,
+                    category: new_category,
+                },
+            )?;
+        }
+        Ok(())
     }
 
     /// Supprime un salon.
@@ -785,4 +913,146 @@ fn validate_role_fields(color: u32, permissions: u32) -> Result<(), NodeError> {
         return Err(NodeError::Invalid("bits de permission inconnus"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::outbound::OutboundSink;
+    use accord_core::db::Db;
+    use accord_crypto::Identity;
+
+    fn node() -> Node {
+        let id = Identity::generate_with_pow_bits(1);
+        let db = Db::open_in_memory(&[1u8; 32]).unwrap();
+        Node::new(id, db, OutboundSink::null())
+    }
+
+    /// Node + group + one category and one channel inside it.
+    fn node_with_categorized_channel() -> (Node, [u8; 16], [u8; 16], [u8; 16]) {
+        let n = node();
+        let gid = hex::decode::<16>(&n.group_create("Guilde").unwrap()).unwrap();
+        let cat = hex::decode::<16>(&n.group_category_add(&gid, "Vocaux", None).unwrap()).unwrap();
+        let chan = hex::decode::<16>(
+            &n.group_channel_add(&gid, "général", ChannelKind::Text, Some(cat))
+                .unwrap(),
+        )
+        .unwrap();
+        (n, gid, cat, chan)
+    }
+
+    #[test]
+    fn category_edit_renames_and_validates() {
+        let (n, gid, cat, _) = node_with_categorized_channel();
+        n.group_category_edit(&gid, &cat, Some("  Textuels "), Some(4))
+            .unwrap();
+        let state = n.group_state(&gid).unwrap();
+        let c = state.categories.get(&cat).unwrap();
+        assert_eq!(c.name, "Textuels");
+        assert_eq!(c.position, 4);
+        // Unknown category and empty name are refused at the boundary.
+        assert!(n
+            .group_category_edit(&gid, &[9; 16], Some("X"), None)
+            .is_err());
+        assert!(n
+            .group_category_edit(&gid, &cat, Some("   "), None)
+            .is_err());
+    }
+
+    #[test]
+    fn category_del_uncategorizes_channels() {
+        let (n, gid, cat, chan) = node_with_categorized_channel();
+        n.group_category_del(&gid, &cat).unwrap();
+        let state = n.group_state(&gid).unwrap();
+        assert!(state.categories.is_empty());
+        let ch = state.channels.get(&chan).unwrap();
+        assert_eq!(ch.category, None, "channel kept, uncategorized");
+    }
+
+    #[test]
+    fn channel_edit_moves_between_categories() {
+        let (n, gid, cat, chan) = node_with_categorized_channel();
+        // Out of any category (explicit null).
+        n.group_channel_edit(&gid, &chan, None, None, Some(None))
+            .unwrap();
+        assert_eq!(n.group_state(&gid).unwrap().channels[&chan].category, None);
+        // Back in, together with a rename.
+        n.group_channel_edit(&gid, &chan, Some("papote"), None, Some(Some(cat)))
+            .unwrap();
+        let state = n.group_state(&gid).unwrap();
+        assert_eq!(state.channels[&chan].category, Some(cat));
+        assert_eq!(state.channels[&chan].name, "papote");
+        // Unknown target category: explicit error, nothing changes.
+        assert!(n
+            .group_channel_edit(&gid, &chan, None, None, Some(Some([9; 16])))
+            .is_err());
+        assert_eq!(
+            n.group_state(&gid).unwrap().channels[&chan].category,
+            Some(cat)
+        );
+    }
+
+    #[test]
+    fn channel_perms_set_and_clear_override() {
+        let (n, gid, _, chan) = node_with_categorized_channel();
+        let role =
+            hex::decode::<16>(&n.group_role_add(&gid, "Muet", 0, 0, Some(1)).unwrap()).unwrap();
+        n.group_channel_perms(&gid, &chan, &role, 0, perms::SEND)
+            .unwrap();
+        let state = n.group_state(&gid).unwrap();
+        let o = state.overrides.get(&(chan, role)).unwrap();
+        assert_eq!((o.allow, o.deny), (0, perms::SEND));
+        // Clearing removes the entry entirely.
+        n.group_channel_perms(&gid, &chan, &role, 0, 0).unwrap();
+        assert!(n.group_state(&gid).unwrap().overrides.is_empty());
+        // Unknown bits or overlapping allow/deny are refused.
+        assert!(n
+            .group_channel_perms(&gid, &chan, &role, 0x8000_0000, 0)
+            .is_err());
+        assert!(n
+            .group_channel_perms(&gid, &chan, &role, perms::SEND, perms::SEND)
+            .is_err());
+    }
+
+    #[test]
+    fn audit_pages_newest_first_with_cursor() {
+        let (n, gid, _, _) = node_with_categorized_channel();
+        n.group_rename(&gid, "Renommée").unwrap();
+        // Log: CREATE, ADD_CATEGORY, ADD_CHANNEL, SET_META = 4 ops.
+        let page1 = n.group_audit(&gid, None, 3).unwrap();
+        assert_eq!(page1.len(), 3);
+        assert!(
+            page1.windows(2).all(|w| w[0].lamport >= w[1].lamport),
+            "newest first"
+        );
+        assert_eq!(page1[0].kind, 0x02, "latest op is SET_META");
+        let cursor = page1.last().unwrap().op_id;
+        let page2 = n.group_audit(&gid, Some(cursor), 3).unwrap();
+        assert_eq!(page2.len(), 1);
+        assert_eq!(page2[0].kind, 0x01, "oldest op is CREATE");
+        // Unknown cursor: explicit error.
+        assert!(n.group_audit(&gid, Some([9; 16]), 3).is_err());
+    }
+
+    #[test]
+    fn audit_requires_admin() {
+        let founder = Identity::generate_with_pow_bits(1);
+        let member = Identity::generate_with_pow_bits(1);
+        let db = Db::open_in_memory(&[2u8; 32]).unwrap();
+        let created = group::create_group(&db, &founder, "G", 0).unwrap();
+        group::author_op(
+            &db,
+            &founder,
+            &created.group_id,
+            &GroupOpBody::AddMember {
+                member: member.public_key(),
+                invite_id: None,
+            },
+            1,
+        )
+        .unwrap();
+        // The node runs as a plain member: audit access is denied.
+        let n = Node::new(member, db, OutboundSink::null());
+        assert!(n.group_audit(&created.group_id, None, 50).is_err());
+    }
 }

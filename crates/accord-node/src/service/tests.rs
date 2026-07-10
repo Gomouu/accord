@@ -644,11 +644,13 @@ async fn group_state_enriched_exact_shape() {
             "members",
             "my_permissions",
             "name",
+            "overrides",
             "roles"
         ]
     );
     assert_eq!(state["group_id"], json!(gid));
     assert!(state["icon"].is_null());
+    assert_eq!(state["overrides"], json!([]));
     // Fondateur : toutes les permissions (VIEW..ADMIN + MANAGE_EMOJIS = 0x3FF).
     assert_eq!(state["my_permissions"], json!(0x3FFu32));
     assert_eq!(state["emojis"], json!([]));
@@ -780,6 +782,168 @@ async fn group_channels_add_voice_edit_delete_and_categories() {
         .await
         .unwrap_err();
     assert!(err.message.contains("catégorie"));
+}
+
+#[tokio::test]
+async fn group_categories_edit_delete_and_channel_move() {
+    let (s, gid) = service_with_group().await;
+    let cat = s
+        .call(
+            "groups.category.add",
+            json!({"group_id": gid, "name": "Vocaux"}),
+        )
+        .await
+        .unwrap();
+    let cat_id = cat["category_id"].as_str().unwrap().to_string();
+    let chan = s
+        .call(
+            "groups.channel.add",
+            json!({"group_id": gid, "name": "général", "category": cat_id}),
+        )
+        .await
+        .unwrap();
+    let cid = chan["channel_id"].as_str().unwrap().to_string();
+
+    // Renommage de la catégorie.
+    s.call(
+        "groups.category.edit",
+        json!({"group_id": gid, "category_id": cat_id, "name": "Textuels"}),
+    )
+    .await
+    .unwrap();
+    // Déplacement du salon hors de toute catégorie (`category: null`).
+    s.call(
+        "groups.channel.edit",
+        json!({"group_id": gid, "channel_id": cid, "category": null}),
+    )
+    .await
+    .unwrap();
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(state["categories"][0]["name"], json!("Textuels"));
+    assert!(state["channels"][0]["category"].is_null());
+
+    // Retour dans la catégorie, puis suppression : le salon survit.
+    s.call(
+        "groups.channel.edit",
+        json!({"group_id": gid, "channel_id": cid, "category": cat_id}),
+    )
+    .await
+    .unwrap();
+    s.call(
+        "groups.category.del",
+        json!({"group_id": gid, "category_id": cat_id}),
+    )
+    .await
+    .unwrap();
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(state["categories"], json!([]));
+    assert_eq!(state["channels"][0]["name"], json!("général"));
+    assert!(state["channels"][0]["category"].is_null());
+}
+
+#[tokio::test]
+async fn group_channel_perms_override_and_scoped_my_permissions() {
+    let (s, gid) = service_with_group().await;
+    let chan = s
+        .call(
+            "groups.channel.add",
+            json!({"group_id": gid, "name": "général"}),
+        )
+        .await
+        .unwrap();
+    let cid = chan["channel_id"].as_str().unwrap().to_string();
+    let role = s
+        .call(
+            "groups.role.add",
+            json!({"group_id": gid, "name": "Muet", "color": 0, "permissions": 0}),
+        )
+        .await
+        .unwrap();
+    let rid = role["role_id"].as_str().unwrap().to_string();
+
+    s.call(
+        "groups.channel.perms",
+        json!({"group_id": gid, "channel_id": cid, "role_id": rid,
+               "allow": 0, "deny": 0x2}),
+    )
+    .await
+    .unwrap();
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(
+        state["overrides"],
+        json!([{ "channel_id": cid, "role_id": rid, "allow": 0, "deny": 0x2 }])
+    );
+    // Portée salon : le fondateur (ADMIN implicite) garde tout.
+    let scoped = s
+        .call("groups.state", json!({"group_id": gid, "channel_id": cid}))
+        .await
+        .unwrap();
+    assert_eq!(scoped["my_permissions"], json!(0x3FFu32));
+
+    // allow ∩ deny non vide : refusé à la frontière.
+    let err = s
+        .call(
+            "groups.channel.perms",
+            json!({"group_id": gid, "channel_id": cid, "role_id": rid,
+                   "allow": 0x2, "deny": 0x2}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+}
+
+#[tokio::test]
+async fn group_audit_lists_decoded_entries_newest_first() {
+    let (s, gid) = service_with_group().await;
+    s.call(
+        "groups.channel.add",
+        json!({"group_id": gid, "name": "général"}),
+    )
+    .await
+    .unwrap();
+    s.call(
+        "groups.rename",
+        json!({"group_id": gid, "name": "Renommée"}),
+    )
+    .await
+    .unwrap();
+
+    let page = s
+        .call("groups.audit", json!({"group_id": gid, "limit": 2}))
+        .await
+        .unwrap();
+    let entries = page["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(
+        sorted_keys(&entries[0]),
+        ["author", "kind", "lamport", "op_id", "params", "wall_ms"]
+    );
+    // Du plus récent au plus ancien : SET_META puis ADD_CHANNEL.
+    assert_eq!(entries[0]["kind"], json!("set_meta"));
+    assert_eq!(entries[0]["params"]["name"], json!("Renommée"));
+    assert_eq!(entries[1]["kind"], json!("add_channel"));
+
+    // Curseur : la page suivante remonte jusqu'au CREATE.
+    let before = entries[1]["op_id"].as_str().unwrap();
+    let page2 = s
+        .call(
+            "groups.audit",
+            json!({"group_id": gid, "before": before, "limit": 10}),
+        )
+        .await
+        .unwrap();
+    let entries2 = page2["entries"].as_array().unwrap();
+    assert_eq!(entries2.len(), 1);
+    assert_eq!(entries2[0]["kind"], json!("create"));
 }
 
 #[tokio::test]
@@ -1431,7 +1595,8 @@ async fn voice_join_status_mute_leave_exact_shapes() {
         .unwrap();
     assert_eq!(joined, json!({ "participants": [me] }));
 
-    // status : forme exacte du contrat gelé.
+    // status : forme exacte du contrat gelé (étendu de façon additive :
+    // deafen et volumes).
     let status = s.call("voice.status", json!({})).await.unwrap();
     assert_eq!(
         status,
@@ -1440,8 +1605,16 @@ async fn voice_join_status_mute_leave_exact_shapes() {
                 "group_id": gid,
                 "channel_id": gid,
                 "muted": false,
-                "participants": [{ "pubkey": me, "speaking": false }],
-            }
+                "deafened": false,
+                "participants": [{
+                    "pubkey": me,
+                    "speaking": false,
+                    "muted": false,
+                    "deafened": false,
+                    "volume": 100,
+                }],
+            },
+            "master_volume": 100,
         })
     );
 
@@ -1453,10 +1626,43 @@ async fn voice_join_status_mute_leave_exact_shapes() {
     let status = s.call("voice.status", json!({})).await.unwrap();
     assert_eq!(status["active"]["muted"], json!(true));
 
-    // leave : plus de salon actif.
+    // deafen : force le mute ; undeafen restaure l'état demandé.
+    assert_eq!(
+        s.call("voice.deafen", json!({"on": true})).await.unwrap(),
+        json!({})
+    );
+    let status = s.call("voice.status", json!({})).await.unwrap();
+    assert_eq!(status["active"]["deafened"], json!(true));
+    assert_eq!(status["active"]["muted"], json!(true));
+    assert_eq!(
+        s.call("voice.deafen", json!({"on": false})).await.unwrap(),
+        json!({})
+    );
+    let status = s.call("voice.status", json!({})).await.unwrap();
+    assert_eq!(status["active"]["deafened"], json!(false));
+    assert_eq!(status["active"]["muted"], json!(true));
+
+    // set_volume : maître (sans `peer`) puis par pair, reflétés au statut.
+    assert_eq!(
+        s.call("voice.set_volume", json!({"volume": 150}))
+            .await
+            .unwrap(),
+        json!({})
+    );
+    assert_eq!(
+        s.call("voice.set_volume", json!({"peer": me, "volume": 40}))
+            .await
+            .unwrap(),
+        json!({})
+    );
+    let status = s.call("voice.status", json!({})).await.unwrap();
+    assert_eq!(status["master_volume"], json!(150));
+    assert_eq!(status["active"]["participants"][0]["volume"], json!(40));
+
+    // leave : plus de salon actif (le volume maître reste exposé).
     assert_eq!(s.call("voice.leave", json!({})).await.unwrap(), json!({}));
     let status = s.call("voice.status", json!({})).await.unwrap();
-    assert_eq!(status, json!({ "active": null }));
+    assert_eq!(status, json!({ "active": null, "master_volume": 150 }));
 }
 
 #[tokio::test]
@@ -1468,6 +1674,20 @@ async fn voice_params_are_validated_at_boundary() {
         .unwrap_err();
     assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
     let err = s.call("voice.mute", json!({})).await.unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+    let err = s.call("voice.deafen", json!({})).await.unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+    let err = s.call("voice.set_volume", json!({})).await.unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+    let err = s
+        .call("voice.set_volume", json!({"volume": 201}))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+    let err = s
+        .call("voice.set_volume", json!({"peer": "zz", "volume": 100}))
+        .await
+        .unwrap_err();
     assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
     let err = s.call("voice.nexiste", json!({})).await.unwrap_err();
     assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);

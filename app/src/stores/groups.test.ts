@@ -16,6 +16,11 @@ vi.mock('../lib/client', () => ({
     groupsRename: vi.fn(),
     groupsLeave: vi.fn(),
     groupsChannelAdd: vi.fn(),
+    groupsChannelEdit: vi.fn(),
+    groupsChannelPerms: vi.fn(),
+    groupsCategoryEdit: vi.fn(),
+    groupsCategoryDel: vi.fn(),
+    groupsRoleEdit: vi.fn(),
     groupsPins: vi.fn(),
     groupsPin: vi.fn(),
     groupsUnpin: vi.fn(),
@@ -37,6 +42,8 @@ import {
   hasPerm,
   highestRolePosition,
   memberColor,
+  overrideOf,
+  planRoleMove,
   roleColorCss,
   sortCategories,
   sortChannels,
@@ -45,6 +52,11 @@ import {
 } from './groups';
 
 const listMock = api.groupsList as unknown as Mock;
+const channelEditMock = api.groupsChannelEdit as unknown as Mock;
+const channelPermsMock = api.groupsChannelPerms as unknown as Mock;
+const categoryEditMock = api.groupsCategoryEdit as unknown as Mock;
+const categoryDelMock = api.groupsCategoryDel as unknown as Mock;
+const roleEditMock = api.groupsRoleEdit as unknown as Mock;
 const markReadMock = api.groupsMarkRead as unknown as Mock;
 const stateMock = api.groupsState as unknown as Mock;
 const renameMock = api.groupsRename as unknown as Mock;
@@ -121,6 +133,11 @@ beforeEach(() => {
     sendMock,
     emojiAddMock,
     emojiDelMock,
+    channelEditMock,
+    channelPermsMock,
+    categoryEditMock,
+    categoryDelMock,
+    roleEditMock,
     callMock,
   ]) {
     mock.mockReset();
@@ -550,6 +567,127 @@ describe('useGroups — non-lus', () => {
 
     // Assert
     expect(useGroups.getState().unread).toEqual({ g1: { c2: 1 } });
+    expect(stateMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('planRoleMove', () => {
+  const roles = [role('haut', 9), role('milieu', 5), role('bas', 1)];
+
+  it('échange les positions avec le voisin du dessus', () => {
+    expect(planRoleMove(roles, 'milieu', 'up')).toEqual([
+      { role_id: 'milieu', position: 9 },
+      { role_id: 'haut', position: 5 },
+    ]);
+  });
+
+  it('échange les positions avec le voisin du dessous', () => {
+    expect(planRoleMove(roles, 'milieu', 'down')).toEqual([
+      { role_id: 'milieu', position: 1 },
+      { role_id: 'bas', position: 5 },
+    ]);
+  });
+
+  it('rend [] sans voisin (extrémités) ou pour un rôle inconnu', () => {
+    expect(planRoleMove(roles, 'haut', 'up')).toEqual([]);
+    expect(planRoleMove(roles, 'bas', 'down')).toEqual([]);
+    expect(planRoleMove(roles, 'fantome', 'up')).toEqual([]);
+  });
+
+  it('à égalité de position, élève celui qui doit finir au-dessus', () => {
+    // Ordre affiché (départage par id) : a(0) puis b(0).
+    const tied = [role('a', 0), role('b', 0)];
+    expect(planRoleMove(tied, 'b', 'up')).toEqual([{ role_id: 'b', position: 1 }]);
+    expect(planRoleMove(tied, 'a', 'down')).toEqual([{ role_id: 'b', position: 1 }]);
+  });
+});
+
+describe('overrideOf', () => {
+  const state = {
+    overrides: [{ channel_id: 'c1', role_id: 'r1', allow: 0x1, deny: 0x2 }],
+  };
+
+  it('rend l’override existant du couple (salon, rôle)', () => {
+    expect(overrideOf(state, 'c1', 'r1')).toEqual({ allow: 0x1, deny: 0x2 });
+  });
+
+  it('rend un override neutre sans entrée ou sans champ overrides', () => {
+    expect(overrideOf(state, 'c1', 'r2')).toEqual({ allow: 0, deny: 0 });
+    expect(overrideOf({}, 'c1', 'r1')).toEqual({ allow: 0, deny: 0 });
+    expect(overrideOf(undefined, 'c1', 'r1')).toEqual({ allow: 0, deny: 0 });
+  });
+});
+
+describe('useGroups — catégories et overrides', () => {
+  it('renameCategory édite puis recharge l’état', async () => {
+    categoryEditMock.mockResolvedValueOnce({ ok: true });
+    stateMock.mockResolvedValueOnce(groupState());
+
+    await useGroups.getState().renameCategory('g1', 'cat1', 'Papotage');
+
+    expect(categoryEditMock).toHaveBeenCalledWith('g1', 'cat1', { name: 'Papotage' });
+    expect(stateMock).toHaveBeenCalledWith('g1');
+  });
+
+  it('deleteCategory supprime puis recharge l’état', async () => {
+    categoryDelMock.mockResolvedValueOnce({ ok: true });
+    stateMock.mockResolvedValueOnce(groupState());
+
+    await useGroups.getState().deleteCategory('g1', 'cat1');
+
+    expect(categoryDelMock).toHaveBeenCalledWith('g1', 'cat1');
+    expect(stateMock).toHaveBeenCalledWith('g1');
+  });
+
+  it('setChannelCategory passe null pour « sans catégorie »', async () => {
+    channelEditMock.mockResolvedValue({ ok: true });
+    stateMock.mockResolvedValue(groupState());
+
+    await useGroups.getState().setChannelCategory('g1', 'c1', 'cat1');
+    await useGroups.getState().setChannelCategory('g1', 'c1', null);
+
+    expect(channelEditMock).toHaveBeenNthCalledWith(1, 'g1', 'c1', {
+      category: 'cat1',
+    });
+    expect(channelEditMock).toHaveBeenNthCalledWith(2, 'g1', 'c1', { category: null });
+  });
+
+  it('setChannelPerms fixe l’override puis recharge l’état', async () => {
+    channelPermsMock.mockResolvedValueOnce({ ok: true });
+    stateMock.mockResolvedValueOnce(groupState());
+
+    await useGroups.getState().setChannelPerms('g1', 'c1', 'r1', 0, PERMISSIONS.SEND);
+
+    expect(channelPermsMock).toHaveBeenCalledWith('g1', 'c1', 'r1', 0, 0x2);
+    expect(stateMock).toHaveBeenCalledWith('g1');
+  });
+});
+
+describe('useGroups — moveRole', () => {
+  it('émet un edit par rôle échangé puis recharge l’état', async () => {
+    useGroups.setState({
+      states: {
+        g1: groupState({ roles: [role('haut', 9), role('bas', 1)] }),
+      },
+    });
+    roleEditMock.mockResolvedValue({ ok: true });
+    stateMock.mockResolvedValueOnce(groupState());
+
+    await useGroups.getState().moveRole('g1', 'bas', 'up');
+
+    expect(roleEditMock).toHaveBeenNthCalledWith(1, 'g1', 'bas', { position: 9 });
+    expect(roleEditMock).toHaveBeenNthCalledWith(2, 'g1', 'haut', { position: 1 });
+    expect(stateMock).toHaveBeenCalledWith('g1');
+  });
+
+  it('sans voisin : aucune requête, aucun rechargement', async () => {
+    useGroups.setState({
+      states: { g1: groupState({ roles: [role('seul', 3)] }) },
+    });
+
+    await useGroups.getState().moveRole('g1', 'seul', 'up');
+
+    expect(roleEditMock).not.toHaveBeenCalled();
     expect(stateMock).not.toHaveBeenCalled();
   });
 });

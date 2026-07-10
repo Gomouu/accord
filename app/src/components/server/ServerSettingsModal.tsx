@@ -14,6 +14,7 @@ import { useGroups, hasPerm, PERMISSIONS } from '../../stores/groups';
 import { useSession } from '../../stores/session';
 import { useUi, useT } from '../../stores/ui';
 import { ConfirmButton, messageOf } from './controls';
+import { ServerAuditTab } from './ServerAuditTab';
 import { ServerBansTab } from './ServerBansTab';
 import { ServerChannelsTab } from './ServerChannelsTab';
 import { ServerEmojisTab } from './ServerEmojisTab';
@@ -21,7 +22,14 @@ import { ServerMembersTab } from './ServerMembersTab';
 import { ServerProfileTab } from './ServerProfileTab';
 import { ServerRolesTab } from './ServerRolesTab';
 
-type ServerTabId = 'profile' | 'channels' | 'roles' | 'emojis' | 'members' | 'bans';
+type ServerTabId =
+  | 'profile'
+  | 'channels'
+  | 'roles'
+  | 'emojis'
+  | 'members'
+  | 'bans'
+  | 'audit';
 
 interface ServerTab {
   id: ServerTabId;
@@ -43,6 +51,14 @@ const TABS: ServerTab[] = [
   },
   { id: 'members', label: (t) => t.serveur.tabMembers, Content: ServerMembersTab },
   { id: 'bans', label: (t) => t.serveur.tabBans, Content: ServerBansTab },
+  {
+    id: 'audit',
+    label: (t) => t.serveur.tabAudit,
+    Content: ServerAuditTab,
+    // Read-only view of the signed op-log: ADMIN (the founder holds it
+    // implicitly through my_permissions).
+    visible: (perms) => hasPerm(perms, PERMISSIONS.ADMIN),
+  },
 ];
 
 export function ServerSettingsModal({ groupId }: { groupId: string }) {

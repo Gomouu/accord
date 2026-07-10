@@ -46,11 +46,17 @@ function RoleEditor({
   role,
   state,
   editable,
+  canMoveUp,
+  canMoveDown,
 }: {
   groupId: string;
   role: GroupRole;
   state: GroupStateJson;
   editable: boolean;
+  /** Le voisin du dessus existe et est lui aussi gérable. */
+  canMoveUp: boolean;
+  /** Le voisin du dessous existe et est lui aussi gérable. */
+  canMoveDown: boolean;
 }) {
   const t = useT();
   const toast = useUi((s) => s.toast);
@@ -58,6 +64,7 @@ function RoleEditor({
   const self = useSession((s) => s.self);
   const editRole = useGroups((s) => s.editRole);
   const deleteRole = useGroups((s) => s.deleteRole);
+  const moveRole = useGroups((s) => s.moveRole);
   const setMemberRole = useGroups((s) => s.setMemberRole);
   const [name, setName] = useState(role.name);
   const [color, setColor] = useState(role.color);
@@ -98,6 +105,12 @@ function RoleEditor({
     );
   };
 
+  const move = (direction: 'up' | 'down'): void => {
+    moveRole(groupId, role.role_id, direction).catch((e: unknown) =>
+      toast('error', messageOf(e, t.errors.actionFailed)),
+    );
+  };
+
   return (
     <div className="mb-3 rounded-lg bg-sidebar p-4">
       <div className="flex items-center gap-3">
@@ -117,6 +130,32 @@ function RoleEditor({
           />
         ) : (
           <span className="flex-1 truncate font-medium text-header">{role.name}</span>
+        )}
+        {editable && (
+          <span className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              aria-label={interpolate(t.serveur.roleMoveUp, { name: role.name })}
+              disabled={!canMoveUp}
+              onClick={() => move('up')}
+              className="flex h-7 w-7 items-center justify-center rounded bg-rail text-norm transition-colors duration-150 hover:bg-input disabled:opacity-40"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d="M12 5.8 4.9 13l1.4 1.4 4.7-4.7V19h2v-9.3l4.7 4.7 1.4-1.4L12 5.8Z" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              aria-label={interpolate(t.serveur.roleMoveDown, { name: role.name })}
+              disabled={!canMoveDown}
+              onClick={() => move('down')}
+              className="flex h-7 w-7 items-center justify-center rounded bg-rail text-norm transition-colors duration-150 hover:bg-input disabled:opacity-40"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d="m12 18.2 7.1-7.2-1.4-1.4-4.7 4.7V5h-2v9.3L6.3 9.6 4.9 11l7.1 7.2Z" />
+              </svg>
+            </button>
+          </span>
         )}
       </div>
 
@@ -288,17 +327,27 @@ export function ServerRolesTab({ groupId }: { groupId: string }) {
       )}
 
       {roles.length === 0 && <p className="text-sm text-muted">{t.serveur.noRoles}</p>}
-      {roles.map((role) => (
-        <RoleEditor
-          key={role.role_id}
-          groupId={groupId}
-          role={role}
-          state={state}
-          // Hiérarchie du contrat : un non-ADMIN ne gère que les rôles
-          // strictement sous sa position.
-          editable={canManage && (isAdmin || role.position < myTop)}
-        />
-      ))}
+      {roles.map((role, index) => {
+        // Hiérarchie du contrat : un non-ADMIN ne gère que les rôles
+        // strictement sous sa position.
+        const isEditable = (r: GroupRole): boolean =>
+          canManage && (isAdmin || r.position < myTop);
+        const above = roles[index - 1];
+        const below = roles[index + 1];
+        return (
+          <RoleEditor
+            key={role.role_id}
+            groupId={groupId}
+            role={role}
+            state={state}
+            editable={isEditable(role)}
+            // A move swaps positions with the neighbor: both roles must be
+            // manageable by the current member.
+            canMoveUp={above !== undefined && isEditable(above)}
+            canMoveDown={below !== undefined && isEditable(below)}
+          />
+        );
+      })}
     </div>
   );
 }

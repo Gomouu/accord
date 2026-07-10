@@ -24,8 +24,12 @@ vi.mock('../../lib/client', () => ({
     groupsSetTopic: vi.fn(),
     groupsChannelAdd: vi.fn(),
     groupsChannelEdit: vi.fn(),
+    groupsChannelPerms: vi.fn(),
     groupsChannelDel: vi.fn(),
     groupsCategoryAdd: vi.fn(),
+    groupsCategoryEdit: vi.fn(),
+    groupsCategoryDel: vi.fn(),
+    groupsAudit: vi.fn(),
     groupsKick: vi.fn(),
     groupsBan: vi.fn(),
     groupsUnban: vi.fn(),
@@ -51,6 +55,12 @@ const renameMock = api.groupsRename as unknown as Mock;
 const kickMock = api.groupsKick as unknown as Mock;
 const unbanMock = api.groupsUnban as unknown as Mock;
 const leaveMock = api.groupsLeave as unknown as Mock;
+const channelEditMock = api.groupsChannelEdit as unknown as Mock;
+const channelPermsMock = api.groupsChannelPerms as unknown as Mock;
+const categoryEditMock = api.groupsCategoryEdit as unknown as Mock;
+const categoryDelMock = api.groupsCategoryDel as unknown as Mock;
+const roleEditMock = api.groupsRoleEdit as unknown as Mock;
+const auditMock = api.groupsAudit as unknown as Mock;
 
 const moi: SelfProfile = {
   node_id: 'n-moi',
@@ -137,10 +147,23 @@ function openTab(label: string): void {
 }
 
 beforeEach(() => {
-  for (const mock of [stateMock, renameMock, kickMock, unbanMock, leaveMock]) {
+  for (const mock of [
+    stateMock,
+    renameMock,
+    kickMock,
+    unbanMock,
+    leaveMock,
+    channelEditMock,
+    channelPermsMock,
+    categoryEditMock,
+    categoryDelMock,
+    roleEditMock,
+    auditMock,
+  ]) {
     mock.mockReset();
   }
   stateMock.mockResolvedValue(makeState());
+  auditMock.mockResolvedValue({ entries: [] });
 });
 
 describe('ServerSettingsModal — structure', () => {
@@ -352,5 +375,197 @@ describe('ServerSettingsModal — quitter le serveur', () => {
     render(<ServerSettingsModal groupId="g1" />);
 
     expect(screen.getByRole('button', { name: 'Quitter le serveur' })).toBeEnabled();
+  });
+});
+
+describe('ServerSettingsModal — catégories', () => {
+  it('renomme puis supprime une catégorie (salons conservés)', async () => {
+    seed(makeState());
+    categoryEditMock.mockResolvedValue({ ok: true });
+    categoryDelMock.mockResolvedValue({ ok: true });
+    render(<ServerSettingsModal groupId="g1" />);
+    openTab('Salons');
+
+    const input = screen.getByRole('textbox', {
+      name: 'Renommer la catégorie Papotage',
+    });
+    expect(input).toHaveDisplayValue('Papotage');
+    fireEvent.change(input, { target: { value: 'Discussions' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Renommer' }));
+    await waitFor(() =>
+      expect(categoryEditMock).toHaveBeenCalledWith('g1', 'cat1', {
+        name: 'Discussions',
+      }),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Supprimer la catégorie' }));
+    const dialog = screen.getByRole('alertdialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirmer' }));
+    await waitFor(() => expect(categoryDelMock).toHaveBeenCalledWith('g1', 'cat1'));
+  });
+
+  it('masque les contrôles de catégorie sans MANAGE_CHANNELS', () => {
+    seed(makeState({ my_permissions: 0x3 }));
+    render(<ServerSettingsModal groupId="g1" />);
+    openTab('Salons');
+
+    expect(screen.queryByDisplayValue('Papotage')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Supprimer la catégorie' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('déplace un salon dans une catégorie via le sélecteur', async () => {
+    seed(makeState());
+    channelEditMock.mockResolvedValue({ ok: true });
+    render(<ServerSettingsModal groupId="g1" />);
+    openTab('Salons');
+
+    // Comboboxes « Catégorie » : formulaire de création, puis un par salon
+    // (général sans catégorie d'abord, puis blabla dans Papotage).
+    const selects = screen.getAllByRole('combobox', { name: 'Catégorie' });
+    expect(selects.length).toBe(3);
+    fireEvent.change(selects[1]!, { target: { value: 'cat1' } });
+    const save = screen
+      .getAllByRole('button', { name: 'Enregistrer' })
+      .find((b) => !(b as HTMLButtonElement).disabled);
+    fireEvent.click(save!);
+
+    await waitFor(() =>
+      expect(channelEditMock).toHaveBeenCalledWith('g1', 'ch1', { category: 'cat1' }),
+    );
+  });
+});
+
+describe('ServerSettingsModal — overrides de permissions', () => {
+  it('applique un refus tri-état par rôle sur un salon', async () => {
+    seed(makeState());
+    channelPermsMock.mockResolvedValue({ ok: true });
+    render(<ServerSettingsModal groupId="g1" />);
+    openTab('Salons');
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Permissions' })[0]!);
+    const select = screen.getByRole('combobox', {
+      name: 'Modo — Envoyer des messages',
+    });
+    fireEvent.change(select, { target: { value: 'deny' } });
+
+    await waitFor(() =>
+      expect(channelPermsMock).toHaveBeenCalledWith('g1', 'ch1', 'modo', 0, 0x2),
+    );
+  });
+
+  it('reflète l’override existant et sait revenir à l’héritage', async () => {
+    seed(
+      makeState({
+        overrides: [{ channel_id: 'ch1', role_id: 'modo', allow: 0, deny: 0x2 }],
+      }),
+    );
+    channelPermsMock.mockResolvedValue({ ok: true });
+    render(<ServerSettingsModal groupId="g1" />);
+    openTab('Salons');
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Permissions' })[0]!);
+    const select = screen.getByRole('combobox', {
+      name: 'Modo — Envoyer des messages',
+    });
+    expect(select).toHaveValue('deny');
+    fireEvent.change(select, { target: { value: 'inherit' } });
+
+    await waitFor(() =>
+      expect(channelPermsMock).toHaveBeenCalledWith('g1', 'ch1', 'modo', 0, 0),
+    );
+  });
+});
+
+describe('ServerSettingsModal — réordonnancement des rôles', () => {
+  it('échange les positions avec le voisin via les flèches', async () => {
+    seed(makeState());
+    roleEditMock.mockResolvedValue({ ok: true });
+    render(<ServerSettingsModal groupId="g1" />);
+    openTab('Rôles');
+
+    // Ordre affiché : Haut (9), Modo (5), Bas (1) — le premier ne monte pas.
+    expect(screen.getByRole('button', { name: 'Monter Haut' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Descendre Haut' }));
+
+    await waitFor(() =>
+      expect(roleEditMock).toHaveBeenCalledWith('g1', 'haut', { position: 5 }),
+    );
+    expect(roleEditMock).toHaveBeenCalledWith('g1', 'modo', { position: 9 });
+  });
+
+  it('bloque tout déplacement croisant un rôle non gérable', () => {
+    // « moi » (Modo, position 5) n'a que MANAGE_ROLES : seul Bas est
+    // éditable et son voisin du dessus (Modo) ne l'est pas.
+    seed(makeState({ my_permissions: 0x80 }));
+    render(<ServerSettingsModal groupId="g1" />);
+    openTab('Rôles');
+
+    expect(screen.getByRole('button', { name: 'Monter Bas' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Descendre Bas' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Monter Haut' })).not.toBeInTheDocument();
+  });
+});
+
+describe('ServerSettingsModal — journal d’audit', () => {
+  it('cache l’onglet sans ADMIN', () => {
+    seed(makeState({ my_permissions: 0x3 }));
+    render(<ServerSettingsModal groupId="g1" />);
+
+    expect(
+      screen.queryByRole('button', { name: 'Journal d’audit' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('liste les entrées décodées avec acteur et description', async () => {
+    seed(makeState());
+    auditMock.mockResolvedValue({
+      entries: [
+        {
+          op_id: 'op2',
+          lamport: 2,
+          wall_ms: 1_000,
+          author: 'fondateur',
+          kind: 'kick',
+          params: { member: 'autre' },
+        },
+        {
+          op_id: 'op1',
+          lamport: 1,
+          wall_ms: 500,
+          author: 'fondateur',
+          kind: 'add_channel',
+          params: { channel_id: 'ch1', name: 'général', kind: 'text' },
+        },
+      ],
+    });
+    render(<ServerSettingsModal groupId="g1" />);
+    openTab('Journal d’audit');
+
+    expect(await screen.findByText(/a expulsé autre/)).toBeInTheDocument();
+    expect(screen.getByText(/a créé le salon général/)).toBeInTheDocument();
+    expect(auditMock).toHaveBeenCalledWith('g1', undefined, 50);
+  });
+
+  it('pagine avec « Charger la suite » (curseur op_id)', async () => {
+    seed(makeState());
+    const page = Array.from({ length: 50 }, (_, i) => ({
+      op_id: `op${i}`,
+      lamport: 100 - i,
+      wall_ms: 1_000,
+      author: 'fondateur',
+      kind: 'leave',
+      params: {},
+    }));
+    auditMock
+      .mockResolvedValueOnce({ entries: page })
+      .mockResolvedValueOnce({ entries: [] });
+    render(<ServerSettingsModal groupId="g1" />);
+    openTab('Journal d’audit');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Charger la suite' }));
+
+    await waitFor(() => expect(auditMock).toHaveBeenLastCalledWith('g1', 'op49', 50));
   });
 });

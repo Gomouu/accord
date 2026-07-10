@@ -57,7 +57,10 @@ fn require_send(
     if !state.channels.contains_key(channel_id) {
         return Err(CoreError::Invalid("salon inconnu"));
     }
-    if state.permissions_in(&identity.public_key(), channel_id) & perms::SEND == 0 {
+    // Writing requires both VIEW and SEND once channel overrides are folded
+    // in: a channel hidden from a role cannot be written to either.
+    let needed = perms::VIEW | perms::SEND;
+    if state.permissions_in(&identity.public_key(), channel_id) & needed != needed {
         return Err(CoreError::OpRejected("droit d'écriture refusé"));
     }
     Ok(state)
@@ -543,6 +546,120 @@ mod tests {
             .group_history(&gid, &chan, u64::MAX, 10)
             .expect("historique")
             .is_empty());
+    }
+
+    #[test]
+    #[allow(clippy::vec_init_then_push)]
+    fn channel_override_denying_send_or_view_blocks_compose() {
+        let alice = identity();
+        let bob = identity();
+        let db_a = open_db();
+        let db_b = open_db();
+        let (gid, chan) = build_group(&alice, &db_a, &[(&bob, &db_b)]);
+
+        // A "Muet" role denied SEND in the channel, assigned to Bob.
+        let mut extra = Vec::new();
+        extra.push(
+            author_op(
+                &db_a,
+                &alice,
+                &gid,
+                &GroupOpBody::AddRole {
+                    role_id: [3; 16],
+                    name: "Muet".into(),
+                    color: 0,
+                    position: 1,
+                    permissions: 0,
+                },
+                2_000,
+            )
+            .unwrap(),
+        );
+        extra.push(
+            author_op(
+                &db_a,
+                &alice,
+                &gid,
+                &GroupOpBody::AssignRole {
+                    member: bob.public_key(),
+                    role_id: [3; 16],
+                },
+                2_001,
+            )
+            .unwrap(),
+        );
+        extra.push(
+            author_op(
+                &db_a,
+                &alice,
+                &gid,
+                &GroupOpBody::SetChannelPerms {
+                    channel_id: chan,
+                    role_id: [3; 16],
+                    allow: 0,
+                    deny: perms::SEND,
+                },
+                2_002,
+            )
+            .unwrap(),
+        );
+        for op in &extra {
+            ingest_op(&db_b, op).unwrap();
+        }
+        let err = compose_group_message(
+            &db_b,
+            &bob,
+            &[2; 32],
+            &gid,
+            &chan,
+            "chut",
+            None,
+            vec![],
+            3_000,
+        );
+        assert!(matches!(err, Err(CoreError::OpRejected(_))));
+
+        // Denying VIEW alone blocks writing too.
+        let view_deny = author_op(
+            &db_a,
+            &alice,
+            &gid,
+            &GroupOpBody::SetChannelPerms {
+                channel_id: chan,
+                role_id: [3; 16],
+                allow: perms::SEND,
+                deny: perms::VIEW,
+            },
+            3_001,
+        )
+        .unwrap();
+        ingest_op(&db_b, &view_deny).unwrap();
+        let err = compose_group_message(
+            &db_b,
+            &bob,
+            &[2; 32],
+            &gid,
+            &chan,
+            "toc",
+            None,
+            vec![],
+            3_002,
+        );
+        assert!(matches!(err, Err(CoreError::OpRejected(_))));
+
+        // Alice (founder) still writes fine.
+        compose_group_message(
+            &db_a,
+            &alice,
+            &[1; 32],
+            &gid,
+            &chan,
+            "ok",
+            None,
+            vec![],
+            3_003,
+        )
+        .unwrap();
     }
 
     #[test]

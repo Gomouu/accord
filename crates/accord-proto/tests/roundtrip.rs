@@ -387,6 +387,22 @@ fn group_op_bodies_roundtrip() {
             channel_id: [4; 16],
             category: None,
         },
+        GroupOpBody::TimeoutMember {
+            member: [6; 32],
+            until_ms: 1_700_000_000_000,
+        },
+        GroupOpBody::TimeoutMember {
+            member: [6; 32],
+            until_ms: 0,
+        },
+        GroupOpBody::SetNickname {
+            member: [6; 32],
+            name: "Capitaine".into(),
+        },
+        GroupOpBody::SetNickname {
+            member: [6; 32],
+            name: String::new(),
+        },
     ];
     for body in bodies {
         let enc = body.encode_body();

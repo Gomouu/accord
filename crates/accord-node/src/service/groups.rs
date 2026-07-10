@@ -226,6 +226,14 @@ fn audit_entry_json(op: &GroupOp) -> Value {
             GroupOpBody::Leave => ("leave", json!({})),
             GroupOpBody::AddEmoji { name, .. } => ("add_emoji", json!({ "name": name })),
             GroupOpBody::DelEmoji { name } => ("del_emoji", json!({ "name": name })),
+            GroupOpBody::TimeoutMember { member, until_ms } => (
+                "timeout",
+                json!({ "member": hex::encode(&member), "until_ms": until_ms }),
+            ),
+            GroupOpBody::SetNickname { member, name } => (
+                "set_nickname",
+                json!({ "member": hex::encode(&member), "name": name }),
+            ),
         },
         Err(_) => ("unknown", json!({})),
     };
@@ -388,6 +396,31 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
         "groups.unban" => {
             let gid = param_id16(params, "group_id")?;
             node.group_unban(&gid, &param_pubkey(params, "pubkey")?)?;
+            Ok(json!({ "ok": true }))
+        }
+        "groups.timeout" => {
+            let gid = param_id16(params, "group_id")?;
+            let member = param_pubkey(params, "pubkey")?;
+            let until_ms = param_u64(params, "until_ms", 0);
+            node.group_timeout(&gid, &member, until_ms)?;
+            Ok(json!({ "ok": true }))
+        }
+        "groups.timeout_clear" => {
+            let gid = param_id16(params, "group_id")?;
+            let member = param_pubkey(params, "pubkey")?;
+            node.group_timeout_clear(&gid, &member)?;
+            Ok(json!({ "ok": true }))
+        }
+        "groups.set_nickname" => {
+            let gid = param_id16(params, "group_id")?;
+            // `member` absent = self (the local identity).
+            let member = match param_opt_str(params, "member")? {
+                Some(s) => crate::hex::decode::<32>(s)
+                    .ok_or(NodeError::Invalid("clé publique invalide"))?,
+                None => node.public_key(),
+            };
+            let name = param_opt_str(params, "name")?.unwrap_or("");
+            node.group_set_nickname(&gid, &member, name)?;
             Ok(json!({ "ok": true }))
         }
         "groups.leave" => {

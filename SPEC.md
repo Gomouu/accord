@@ -354,7 +354,9 @@ Kinds: 0x01 CREATE, 0x02 SET_META, 0x03 ADD_CHANNEL, 0x04 EDIT_CHANNEL,
 0x18 ADD_EMOJI `{ name: str, file: bytes<32> }`, 0x19 DEL_EMOJI `{ name: str }`,
 0x1A EDIT_CATEGORY `{ category_id: bytes<16>, name: str, position: u16 }`,
 0x1B DEL_CATEGORY `{ category_id: bytes<16> }`,
-0x1C SET_CHANNEL_CATEGORY `{ channel_id: bytes<16>, category: opt<bytes<16>> }`.
+0x1C SET_CHANNEL_CATEGORY `{ channel_id: bytes<16>, category: opt<bytes<16>> }`,
+0x1D TIMEOUT_MEMBER `{ member: bytes<32>, until_ms: u64 }`,
+0x1E SET_NICKNAME `{ member: bytes<32>, name: str }`.
 
 - Total order: `(lamport, author_node_id)` ascending. Deterministic application;
   an op not authorized by the current state ⇒ ignored (all honest peers converge).
@@ -374,6 +376,27 @@ Kinds: 0x01 CREATE, 0x02 SET_META, 0x03 ADD_CHANNEL, 0x04 EDIT_CHANNEL,
   `(channel, role)` pair of masks `{ allow, deny }`; `allow = deny = 0`
   clears the entry (full inherit). The op is ignored at replay if the
   channel or the role is unknown.
+- **Announcement channels** (`kind = announcement`): read-only for everyone
+  except holders of the effective `MANAGE_CHANNELS` in that channel. Enforced
+  symmetrically at compose **and** ingest of a group message (a member without
+  the right posting there is rejected on emission and ignored on reception),
+  exactly like the VIEW+SEND gate — no schema change, the channel kind alone
+  drives it.
+- **Timeouts** (`TIMEOUT_MEMBER`, `KICK`): a temporary mute. State materializes
+  `member → until_ms` (deadline, wall ms); `until_ms = 0` clears it. The member
+  stays in the group (unlike KICK/BAN) but any group message they emit is
+  rejected at compose (deadline vs the local wall clock) and ignored at ingest
+  (deadline vs the message's `sent_ms`) while `deadline > reference`; expired
+  timeouts are ignored. Same hierarchy as KICK: the founder is untouchable and
+  a moderator cannot time out a member of higher or equal role. A timeout is
+  dropped when its member is kicked/banned/leaves.
+- **Per-server nicknames** (`SET_NICKNAME`): state materializes
+  `member → nickname`, overriding the global profile name in this group only.
+  A member may set **their own** nickname; a `MANAGE_ROLES` moderator may set
+  or clear that of a member strictly below them (founder untouchable). `name`
+  is trimmed then validated: 1 to 32 characters without control characters
+  (op ignored otherwise); an empty/whitespace-only name clears the nickname.
+  Dropped when the member is kicked/banned/leaves.
 - **Server emojis**: `ADD_EMOJI` (add or replace) and `DEL_EMOJI` require
   `MANAGE_EMOJIS`. `name`: 2 to 32 `[a-z0-9_]` characters (op ignored
   otherwise); at most 50 emojis per server (an add beyond the bound is

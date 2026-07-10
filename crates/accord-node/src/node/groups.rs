@@ -473,6 +473,69 @@ impl Node {
         self.group_author(group_id, GroupOpBody::Unban { member: *member })
     }
 
+    /// Met un membre en sourdine jusqu'à l'échéance murale `until_ms`
+    /// (permission `KICK` et hiérarchie de kick vérifiées au rejeu). Le membre
+    /// reste dans le groupe mais ne peut plus écrire tant que la sourdine est
+    /// active. `until_ms = 0` lève la sourdine.
+    pub fn group_timeout(
+        &self,
+        group_id: &[u8; 16],
+        member: &[u8; 32],
+        until_ms: u64,
+    ) -> Result<(), NodeError> {
+        self.group_author(
+            group_id,
+            GroupOpBody::TimeoutMember {
+                member: *member,
+                until_ms,
+            },
+        )
+    }
+
+    /// Lève la sourdine d'un membre (équivaut à `group_timeout` avec
+    /// `until_ms = 0`).
+    pub fn group_timeout_clear(
+        &self,
+        group_id: &[u8; 16],
+        member: &[u8; 32],
+    ) -> Result<(), NodeError> {
+        self.group_author(
+            group_id,
+            GroupOpBody::TimeoutMember {
+                member: *member,
+                until_ms: 0,
+            },
+        )
+    }
+
+    /// Fixe (ou efface avec un nom vide) le pseudo de serveur d'un membre. Un
+    /// membre peut fixer le sien ; un modérateur `MANAGE_ROLES` peut fixer
+    /// celui d'un membre de rang inférieur (vérifié au rejeu). `name` est
+    /// trimmé ; 1 à 32 caractères sans caractère de contrôle (vide = efface).
+    pub fn group_set_nickname(
+        &self,
+        group_id: &[u8; 16],
+        member: &[u8; 32],
+        name: &str,
+    ) -> Result<(), NodeError> {
+        let trimmed = name.trim();
+        if trimmed.chars().count() > accord_core::group::state::MAX_NICKNAME_CHARS {
+            return Err(NodeError::Invalid("pseudo trop long (32 caractères max)"));
+        }
+        if trimmed.chars().any(|c| c.is_control()) {
+            return Err(NodeError::Invalid(
+                "pseudo : caractères de contrôle interdits",
+            ));
+        }
+        self.group_author(
+            group_id,
+            GroupOpBody::SetNickname {
+                member: *member,
+                name: trimmed.to_string(),
+            },
+        )
+    }
+
     /// Quitte le groupe (refusé au fondateur tant qu'il reste des membres).
     pub fn group_leave(&self, group_id: &[u8; 16]) -> Result<(), NodeError> {
         self.group_author(group_id, GroupOpBody::Leave)
@@ -1072,5 +1135,53 @@ mod tests {
         // The node runs as a plain member: audit access is denied.
         let n = Node::new(member, db, OutboundSink::null());
         assert!(n.group_audit(&created.group_id, None, 50).is_err());
+    }
+
+    #[test]
+    fn timeout_and_nickname_surface_and_validate() {
+        let founder = Identity::generate_with_pow_bits(1);
+        let member = Identity::generate_with_pow_bits(1);
+        let db = Db::open_in_memory(&[3u8; 32]).unwrap();
+        let created = group::create_group(&db, &founder, "G", 0).unwrap();
+        group::author_op(
+            &db,
+            &founder,
+            &created.group_id,
+            &GroupOpBody::AddMember {
+                member: member.public_key(),
+                invite_id: None,
+            },
+            1,
+        )
+        .unwrap();
+        let gid = created.group_id;
+        let mpk = member.public_key();
+        let n = Node::new(founder, db, OutboundSink::null());
+
+        // A timeout shows up in the folded state; clearing removes it.
+        n.group_timeout(&gid, &mpk, 9_000).unwrap();
+        assert_eq!(
+            n.group_state(&gid).unwrap().timeouts.get(&mpk),
+            Some(&9_000)
+        );
+        n.group_timeout_clear(&gid, &mpk).unwrap();
+        assert!(n.group_state(&gid).unwrap().timeouts.is_empty());
+
+        // Founder sets the member's nickname (trimmed); empty clears it.
+        n.group_set_nickname(&gid, &mpk, "  Recrue ").unwrap();
+        assert_eq!(
+            n.group_state(&gid)
+                .unwrap()
+                .nicknames
+                .get(&mpk)
+                .map(String::as_str),
+            Some("Recrue"),
+        );
+        n.group_set_nickname(&gid, &mpk, "   ").unwrap();
+        assert!(n.group_state(&gid).unwrap().nicknames.is_empty());
+
+        // Over-long and control-character nicknames are refused at the boundary.
+        assert!(n.group_set_nickname(&gid, &mpk, &"x".repeat(33)).is_err());
+        assert!(n.group_set_nickname(&gid, &mpk, "bad\u{7}").is_err());
     }
 }

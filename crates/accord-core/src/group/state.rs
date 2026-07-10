@@ -26,6 +26,17 @@ pub const ALL_PERMS: u32 = perms::VIEW
 /// le remplacement d'un émoji existant reste possible).
 pub const MAX_EMOJIS: usize = 50;
 
+/// Longueur maximale d'un pseudo de serveur (en caractères, après trim).
+pub const MAX_NICKNAME_CHARS: usize = 32;
+
+/// Vrai si `name` (déjà trimmé) est un pseudo de serveur valide : 1 à 32
+/// caractères sans caractère de contrôle. La chaîne vide efface le pseudo et
+/// n'est donc pas « valide » au sens de cette fonction (traitée à part).
+fn is_valid_nickname(name: &str) -> bool {
+    let len = name.chars().count();
+    (1..=MAX_NICKNAME_CHARS).contains(&len) && !name.chars().any(|c| c.is_control())
+}
+
 /// Vrai si `name` est un nom d'émoji valide : 2 à 32 caractères `[a-z0-9_]`.
 fn is_valid_emoji_name(name: &str) -> bool {
     let len = name.chars().count();
@@ -135,6 +146,14 @@ pub struct GroupState {
     pub emojis: BTreeMap<String, [u8; 32]>,
     /// Tombstones de modération à appliquer à l'historique local.
     pub moderated_deletions: BTreeSet<[u8; 16]>,
+    /// Sourdines actives `membre → échéance murale (ms)`. Un membre est
+    /// réduit au silence tant que `échéance > instant de référence` ; les
+    /// entrées expirées sont ignorées à la vérification et effacées
+    /// paresseusement (au clear ou au réécrasement).
+    pub timeouts: BTreeMap<[u8; 32], u64>,
+    /// Pseudos par serveur `membre → pseudo` (remplace le pseudo du profil
+    /// global dans ce groupe uniquement).
+    pub nicknames: BTreeMap<[u8; 32], String>,
     /// Nombre d'ops appliquées (dont ignorées : non).
     pub applied_ops: u64,
 }
@@ -230,6 +249,34 @@ impl GroupState {
     /// Vrai si `who` détient `perm` globalement.
     pub fn can(&self, who: &[u8; 32], perm: u32) -> bool {
         self.base_permissions(who) & perm != 0
+    }
+
+    /// Vrai si `who` est en sourdine à l'instant mural `when` (les sourdines
+    /// expirées — échéance ≤ `when` — sont ignorées).
+    pub fn is_timed_out(&self, who: &[u8; 32], when: u64) -> bool {
+        self.timeouts.get(who).is_some_and(|&until| until > when)
+    }
+
+    /// Vrai si `who` peut publier un message dans `channel_id` à l'instant
+    /// mural `when` : VIEW+SEND effectifs (overrides compris), non en sourdine,
+    /// et — dans un salon d'annonces — porteur de `MANAGE_CHANNELS`. Reflète
+    /// exactement la porte d'émission (`require_send`) pour que composition et
+    /// ingestion restent symétriques.
+    pub fn can_send_message(&self, who: &[u8; 32], channel_id: &[u8; 16], when: u64) -> bool {
+        let Some(channel) = self.channels.get(channel_id) else {
+            return false;
+        };
+        let eff = self.permissions_in(who, channel_id);
+        if eff & (perms::VIEW | perms::SEND) != (perms::VIEW | perms::SEND) {
+            return false;
+        }
+        if self.is_timed_out(who, when) {
+            return false;
+        }
+        if channel.kind == ChannelKind::Announcement && eff & perms::MANAGE_CHANNELS == 0 {
+            return false;
+        }
+        true
     }
 
     /// Membre désigné pour la rotation de clé (SPEC §6.4) : porteur de
@@ -461,6 +508,9 @@ impl GroupState {
                 if self.members.remove(&member).is_none() {
                     return self.ignore("cible non membre");
                 }
+                // A departed member keeps no per-group moderation state.
+                self.timeouts.remove(&member);
+                self.nicknames.remove(&member);
                 if op.kind == 0x09 {
                     self.banned.insert(member);
                 }
@@ -653,6 +703,8 @@ impl GroupState {
                     return self.ignore("le fondateur ne part pas en dernier");
                 }
                 self.members.remove(&author);
+                self.timeouts.remove(&author);
+                self.nicknames.remove(&author);
             }
             GroupOpBody::AddEmoji { name, file } => {
                 if !has(perms::MANAGE_EMOJIS) {
@@ -674,6 +726,58 @@ impl GroupState {
                 }
                 if self.emojis.remove(&name).is_none() {
                     return self.ignore("émoji inconnu");
+                }
+            }
+            GroupOpBody::TimeoutMember { member, until_ms } => {
+                // Gated on KICK with the kick hierarchy: no timing out the
+                // founder, nor a member of higher/equal role (D-015).
+                if !has(perms::KICK) {
+                    return self.ignore("TIMEOUT refusé");
+                }
+                if self.founder.as_ref() == Some(&member) {
+                    return self.ignore("le fondateur est intouchable");
+                }
+                if self.top_position(&author) <= self.top_position(&member)
+                    && self.founder.as_ref() != Some(&author)
+                {
+                    return self.ignore("hiérarchie insuffisante");
+                }
+                if !self.members.contains_key(&member) {
+                    return self.ignore("cible non membre");
+                }
+                if until_ms == 0 {
+                    self.timeouts.remove(&member);
+                } else {
+                    self.timeouts.insert(member, until_ms);
+                }
+            }
+            GroupOpBody::SetNickname { member, name } => {
+                // Self-service, or a MANAGE_ROLES moderator strictly above the
+                // target (kick-style hierarchy; the founder is untouchable).
+                let is_self = author == member;
+                if !is_self {
+                    if !has(perms::MANAGE_ROLES) {
+                        return self.ignore("SET_NICKNAME refusé");
+                    }
+                    if self.founder.as_ref() == Some(&member) {
+                        return self.ignore("le fondateur est intouchable");
+                    }
+                    if self.top_position(&author) <= self.top_position(&member)
+                        && self.founder.as_ref() != Some(&author)
+                    {
+                        return self.ignore("hiérarchie insuffisante");
+                    }
+                }
+                if !self.members.contains_key(&member) {
+                    return self.ignore("cible non membre");
+                }
+                let trimmed = name.trim();
+                if trimmed.is_empty() {
+                    self.nicknames.remove(&member);
+                } else if is_valid_nickname(trimmed) {
+                    self.nicknames.insert(member, trimmed.to_string());
+                } else {
+                    return self.ignore("pseudo invalide");
                 }
             }
         }
@@ -1318,5 +1422,248 @@ mod tests {
         ));
         let st = GroupState::fold(&ops);
         assert!(st.moderated_deletions.contains(&[0xDD; 16]));
+    }
+
+    #[test]
+    fn timeout_requires_kick_and_respects_hierarchy() {
+        let mut ops = base_ops();
+        // Alice (plain member) cannot time out Bob.
+        ops.push(signed(
+            GroupOpBody::TimeoutMember {
+                member: BOB,
+                until_ms: 5_000,
+            },
+            ALICE,
+            4,
+        ));
+        assert!(
+            !GroupState::fold(&ops).is_timed_out(&BOB, 0),
+            "plain member cannot time out"
+        );
+
+        // Give Alice a Modo role with KICK.
+        ops.push(signed(
+            GroupOpBody::AddRole {
+                role_id: [2; 16],
+                name: "Modo".into(),
+                color: 0,
+                position: 10,
+                permissions: perms::KICK,
+            },
+            FOUNDER,
+            5,
+        ));
+        ops.push(signed(
+            GroupOpBody::AssignRole {
+                member: ALICE,
+                role_id: [2; 16],
+            },
+            FOUNDER,
+            6,
+        ));
+        // Alice times out Bob (below her) but not the founder.
+        ops.push(signed(
+            GroupOpBody::TimeoutMember {
+                member: BOB,
+                until_ms: 5_000,
+            },
+            ALICE,
+            7,
+        ));
+        ops.push(signed(
+            GroupOpBody::TimeoutMember {
+                member: FOUNDER,
+                until_ms: 5_000,
+            },
+            ALICE,
+            8,
+        ));
+        let st = GroupState::fold(&ops);
+        assert!(st.is_timed_out(&BOB, 4_999));
+        assert!(!st.is_timed_out(&BOB, 5_000), "expired at the deadline");
+        assert!(!st.is_timed_out(&FOUNDER, 0), "founder untouchable");
+
+        // Clearing with until_ms = 0 removes the entry.
+        let mut cleared = ops.clone();
+        cleared.push(signed(
+            GroupOpBody::TimeoutMember {
+                member: BOB,
+                until_ms: 0,
+            },
+            FOUNDER,
+            9,
+        ));
+        assert!(!GroupState::fold(&cleared).timeouts.contains_key(&BOB));
+    }
+
+    #[test]
+    fn timeout_cleared_when_member_removed() {
+        let mut ops = base_ops();
+        ops.push(signed(
+            GroupOpBody::TimeoutMember {
+                member: BOB,
+                until_ms: 9_000,
+            },
+            FOUNDER,
+            4,
+        ));
+        ops.push(signed(GroupOpBody::Kick { member: BOB }, FOUNDER, 5));
+        let st = GroupState::fold(&ops);
+        assert!(!st.is_member(&BOB));
+        assert!(
+            !st.timeouts.contains_key(&BOB),
+            "a kick clears the member's timeout"
+        );
+    }
+
+    #[test]
+    fn nickname_self_service_moderation_and_validation() {
+        let mut ops = base_ops();
+        // Bob sets his own nickname (plain member, trimmed).
+        ops.push(signed(
+            GroupOpBody::SetNickname {
+                member: BOB,
+                name: "  Bobby  ".into(),
+            },
+            BOB,
+            4,
+        ));
+        assert_eq!(
+            GroupState::fold(&ops)
+                .nicknames
+                .get(&BOB)
+                .map(String::as_str),
+            Some("Bobby"),
+        );
+
+        // Alice (plain member, no MANAGE_ROLES) cannot rename Bob.
+        let mut denied = ops.clone();
+        denied.push(signed(
+            GroupOpBody::SetNickname {
+                member: BOB,
+                name: "Pirate".into(),
+            },
+            ALICE,
+            5,
+        ));
+        assert_eq!(
+            GroupState::fold(&denied)
+                .nicknames
+                .get(&BOB)
+                .map(String::as_str),
+            Some("Bobby"),
+        );
+
+        // A MANAGE_ROLES moderator above Bob renames him.
+        ops.push(signed(
+            GroupOpBody::AddRole {
+                role_id: [2; 16],
+                name: "Modo".into(),
+                color: 0,
+                position: 10,
+                permissions: perms::MANAGE_ROLES,
+            },
+            FOUNDER,
+            5,
+        ));
+        ops.push(signed(
+            GroupOpBody::AssignRole {
+                member: ALICE,
+                role_id: [2; 16],
+            },
+            FOUNDER,
+            6,
+        ));
+        ops.push(signed(
+            GroupOpBody::SetNickname {
+                member: BOB,
+                name: "Renommé".into(),
+            },
+            ALICE,
+            7,
+        ));
+
+        // A control character is rejected (op ignored, prior value kept).
+        let mut bad = ops.clone();
+        bad.push(signed(
+            GroupOpBody::SetNickname {
+                member: BOB,
+                name: "bad\u{7}name".into(),
+            },
+            BOB,
+            8,
+        ));
+        assert_eq!(
+            GroupState::fold(&bad)
+                .nicknames
+                .get(&BOB)
+                .map(String::as_str),
+            Some("Renommé"),
+        );
+
+        // A whitespace-only name clears the nickname.
+        ops.push(signed(
+            GroupOpBody::SetNickname {
+                member: BOB,
+                name: "   ".into(),
+            },
+            BOB,
+            8,
+        ));
+        assert!(!GroupState::fold(&ops).nicknames.contains_key(&BOB));
+    }
+
+    #[test]
+    fn can_send_message_enforces_announcement_and_timeout() {
+        let mut ops = base_ops();
+        ops.push(signed(
+            GroupOpBody::AddChannel {
+                channel_id: [7; 16],
+                name: "général".into(),
+                category: None,
+                kind: ChannelKind::Text,
+                position: 0,
+            },
+            FOUNDER,
+            4,
+        ));
+        ops.push(signed(
+            GroupOpBody::AddChannel {
+                channel_id: [8; 16],
+                name: "annonces".into(),
+                category: None,
+                kind: ChannelKind::Announcement,
+                position: 1,
+            },
+            FOUNDER,
+            5,
+        ));
+        let st = GroupState::fold(&ops);
+        // Text channel: any member may send.
+        assert!(st.can_send_message(&BOB, &[7; 16], 0));
+        // Announcement: only MANAGE_CHANNELS holders (founder here) may post.
+        assert!(st.can_send_message(&FOUNDER, &[8; 16], 0));
+        assert!(
+            !st.can_send_message(&BOB, &[8; 16], 0),
+            "announcements are read-only for plain members"
+        );
+        // Unknown channel: never sendable.
+        assert!(!st.can_send_message(&BOB, &[9; 16], 0));
+
+        // An active timeout blocks sending even in a text channel.
+        ops.push(signed(
+            GroupOpBody::TimeoutMember {
+                member: BOB,
+                until_ms: 1_000,
+            },
+            FOUNDER,
+            6,
+        ));
+        let st = GroupState::fold(&ops);
+        assert!(!st.can_send_message(&BOB, &[7; 16], 500), "timed out");
+        assert!(
+            st.can_send_message(&BOB, &[7; 16], 1_000),
+            "timeout expired at the deadline"
+        );
     }
 }

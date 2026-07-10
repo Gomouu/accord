@@ -15,6 +15,10 @@ const MAX_EMOJI: usize = 64;
 /// Borne du nom d'un émoji de serveur (2-32 caractères `[a-z0-9_]` validés à
 /// l'ingestion ; 32 octets suffisent, l'alphabet étant ASCII).
 const MAX_EMOJI_NAME: usize = 32;
+/// Borne filaire d'un pseudo de serveur : 32 caractères × 4 octets UTF-8 au
+/// plus (la validation sémantique 1-32 caractères, sans contrôle, a lieu au
+/// repli du journal et à la frontière API).
+const MAX_NICKNAME: usize = 128;
 
 /// Bitfield de permissions de groupe (SPEC §6.2).
 pub mod perms {
@@ -494,6 +498,23 @@ pub enum GroupOpBody {
         /// New parent category, if any.
         category: Option<[u8; 16]>,
     },
+    /// 0x1D — Temporary mute: silence `member` until wall time `until_ms`
+    /// (`0` clears). Gated on `KICK` and the kick hierarchy at replay; the
+    /// member stays in the group but cannot send messages while active.
+    TimeoutMember {
+        /// Silenced member.
+        member: [u8; 32],
+        /// Deadline (wall ms); `0` lifts the timeout.
+        until_ms: u64,
+    },
+    /// 0x1E — Per-group display name for `member` (empty clears). A member sets
+    /// their own; a `MANAGE_ROLES` moderator sets anyone strictly below them.
+    SetNickname {
+        /// Target member.
+        member: [u8; 32],
+        /// Nickname (1-32 characters trimmed; empty clears).
+        name: String,
+    },
 }
 
 impl GroupOpBody {
@@ -528,6 +549,8 @@ impl GroupOpBody {
             Self::EditCategory { .. } => 0x1A,
             Self::DelCategory { .. } => 0x1B,
             Self::SetChannelCategory { .. } => 0x1C,
+            Self::TimeoutMember { .. } => 0x1D,
+            Self::SetNickname { .. } => 0x1E,
         }
     }
 
@@ -660,6 +683,14 @@ impl GroupOpBody {
                 w.put_arr(channel_id);
                 w.put_opt(category.as_ref(), |w, c| w.put_arr(c));
             }
+            Self::TimeoutMember { member, until_ms } => {
+                w.put_arr(member);
+                w.put_u64(*until_ms);
+            }
+            Self::SetNickname { member, name } => {
+                w.put_arr(member);
+                w.put_str(name);
+            }
         }
         w.into_bytes()
     }
@@ -775,6 +806,14 @@ impl GroupOpBody {
             0x1C => Self::SetChannelCategory {
                 channel_id: r.arr()?,
                 category: r.opt(|r| r.arr())?,
+            },
+            0x1D => Self::TimeoutMember {
+                member: r.arr()?,
+                until_ms: r.u64()?,
+            },
+            0x1E => Self::SetNickname {
+                member: r.arr()?,
+                name: r.str(MAX_NICKNAME, "op.nickname")?,
             },
             _ => return Err(DecodeError::InvalidValue("groupop kind")),
         };
@@ -1118,5 +1157,63 @@ impl WireDecode for CoreMsg {
             0x0D => Ok(CoreMsg::FriendRemove),
             _ => Err(DecodeError::InvalidValue("core kind")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Round-trips a group op body through its wire discriminant + encoding.
+    fn roundtrip(body: &GroupOpBody) -> GroupOpBody {
+        GroupOpBody::decode_body(body.kind(), &body.encode_body()).expect("decode")
+    }
+
+    #[test]
+    fn timeout_member_roundtrips() {
+        let body = GroupOpBody::TimeoutMember {
+            member: [0xAB; 32],
+            until_ms: 1_700_000_000_000,
+        };
+        assert_eq!(body.kind(), 0x1D);
+        assert_eq!(roundtrip(&body), body);
+        // Clear form (until_ms = 0) survives the round-trip too.
+        let clear = GroupOpBody::TimeoutMember {
+            member: [0xAB; 32],
+            until_ms: 0,
+        };
+        assert_eq!(roundtrip(&clear), clear);
+    }
+
+    #[test]
+    fn set_nickname_roundtrips() {
+        let body = GroupOpBody::SetNickname {
+            member: [0x11; 32],
+            name: "Capitaine".into(),
+        };
+        assert_eq!(body.kind(), 0x1E);
+        assert_eq!(roundtrip(&body), body);
+        // Empty name (the clear form) is a valid wire value.
+        let clear = GroupOpBody::SetNickname {
+            member: [0x11; 32],
+            name: String::new(),
+        };
+        assert_eq!(roundtrip(&clear), clear);
+    }
+
+    #[test]
+    fn malformed_new_ops_are_rejected() {
+        // Truncated TimeoutMember body (member present, missing until_ms).
+        assert!(GroupOpBody::decode_body(0x1D, &[0u8; 32]).is_err());
+        // Truncated SetNickname body (missing the length-prefixed name).
+        assert!(GroupOpBody::decode_body(0x1E, &[0u8; 32]).is_err());
+        // Trailing garbage after a complete body is rejected by `finish`.
+        let mut over = GroupOpBody::TimeoutMember {
+            member: [7; 32],
+            until_ms: 5,
+        }
+        .encode_body();
+        over.push(0xFF);
+        assert!(GroupOpBody::decode_body(0x1D, &over).is_err());
     }
 }

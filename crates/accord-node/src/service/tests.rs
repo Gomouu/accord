@@ -826,7 +826,12 @@ async fn group_state_enriched_exact_shape() {
     let me = s.call("identity.self", json!({})).await.unwrap();
     assert_eq!(
         state["members"],
-        json!([{ "pubkey": me["pubkey"], "roles": [] }])
+        json!([{
+            "pubkey": me["pubkey"],
+            "roles": [],
+            "nickname": null,
+            "timeout_until_ms": 0,
+        }])
     );
     assert_eq!(state["bans"], json!([]));
     assert_eq!(state["invites"], json!([]));

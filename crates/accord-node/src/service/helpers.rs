@@ -350,6 +350,11 @@ pub(super) fn group_state_json(group_id: &[u8; 16], s: &GroupState, me: &[u8; 32
         "members": s.members.iter().map(|(pk, m)| json!({
             "pubkey": hex::encode(pk),
             "roles": m.roles.iter().map(|r| hex::encode(r)).collect::<Vec<_>>(),
+            // Per-group display name (overrides the global profile name), or null.
+            "nickname": s.nicknames.get(pk),
+            // Active timeout deadline (wall ms), or 0 when not muted. The UI
+            // compares it against the current time (expired timeouts are moot).
+            "timeout_until_ms": s.timeouts.get(pk).copied().unwrap_or(0),
         })).collect::<Vec<_>>(),
         "bans": s.banned.iter().map(|pk| hex::encode(pk)).collect::<Vec<_>>(),
         "channels": s.channels.iter().map(|(id, ch)| json!({

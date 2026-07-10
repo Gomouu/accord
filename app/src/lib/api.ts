@@ -186,6 +186,18 @@ export interface GroupRole {
 export interface GroupMember {
   pubkey: string;
   roles: string[];
+  /**
+   * Pseudo par serveur (remplace le pseudo du profil global), ou `null`.
+   * Toujours présent dans `groups.state`; optionnel ici pour rester
+   * rétrocompatible avec les fixtures antérieures.
+   */
+  nickname?: string | null;
+  /**
+   * Échéance murale (ms) de la sourdine active, ou `0` si le membre n'est pas
+   * en sourdine. L'UI la compare à l'heure courante (une échéance passée est
+   * sans effet). Toujours présent dans `groups.state`.
+   */
+  timeout_until_ms?: number;
 }
 
 export interface GroupInvite {
@@ -851,6 +863,39 @@ export class Api {
 
   groupsUnban(groupId: string, pubkey: string): Promise<{ ok: true }> {
     return this.rpc.call('groups.unban', { group_id: groupId, pubkey });
+  }
+
+  /**
+   * Met un membre en sourdine jusqu'à l'échéance murale `untilMs` (permission
+   * `KICK` et hiérarchie de kick vérifiées par le nœud). Le membre reste dans
+   * le groupe mais ne peut plus écrire tant que la sourdine est active. Voir
+   * `groupsTimeoutClear` pour la lever.
+   */
+  groupsTimeout(groupId: string, pubkey: string, untilMs: number): Promise<{ ok: true }> {
+    return this.rpc.call('groups.timeout', {
+      group_id: groupId,
+      pubkey,
+      until_ms: untilMs,
+    });
+  }
+
+  /** Lève la sourdine d'un membre. */
+  groupsTimeoutClear(groupId: string, pubkey: string): Promise<{ ok: true }> {
+    return this.rpc.call('groups.timeout_clear', { group_id: groupId, pubkey });
+  }
+
+  /**
+   * Fixe (ou efface avec une chaîne vide) le pseudo de serveur d'un membre.
+   * `member` absent = soi-même ; un membre peut fixer le sien, un modérateur
+   * `MANAGE_ROLES` celui d'un membre de rang inférieur. `name` : 1 à 32
+   * caractères après trim, sans caractère de contrôle (vide = efface).
+   */
+  groupsSetNickname(groupId: string, name: string, member?: string): Promise<{ ok: true }> {
+    return this.rpc.call('groups.set_nickname', {
+      group_id: groupId,
+      name,
+      ...(member !== undefined ? { member } : {}),
+    });
   }
 
   /** Quitte le groupe (refusé au fondateur tant qu'il reste des membres). */

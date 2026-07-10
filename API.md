@@ -265,7 +265,7 @@ After each applied op (local or remote), the node emits
 | `groups.rename` | `{ group_id, name }` | `{ ok: true }` — 1-100 characters |
 | `groups.set_icon` | `{ group_id, data_b64, mime }` | `{ icon }` — image ≤ 512 KiB decoded, published in the file store; `icon` = hex-64 Merkle root |
 | `groups.set_topic` | `{ group_id, channel_id, topic }` | `{ ok: true }` — ≤ 2048 bytes |
-| `groups.channel.add` | `{ group_id, name, kind?, category? }` | `{ channel_id }` — `kind` ∈ `"text"` (default), `"voice"`, `"announcement"`; `category` = hex id of an existing category |
+| `groups.channel.add` | `{ group_id, name, kind?, category? }` | `{ channel_id }` — `kind` ∈ `"text"` (default), `"voice"`, `"announcement"`; `category` = hex id of an existing category. An `announcement` channel is **read-only**: only members with the effective `MANAGE_CHANNELS` there may post (everyone else reads), enforced at compose and ingest |
 | `groups.channel.edit` | `{ group_id, channel_id, name?, position?, category? }` | `{ ok: true }` — absent field = unchanged; `category`: `null` moves the channel out of any category, hex id of an existing category moves it there (`SetChannelCategory` op, `MANAGE_CHANNELS`) |
 | `groups.channel.perms` | `{ group_id, channel_id, role_id, allow, deny }` | `{ ok: true }` — per-channel role override (`SetChannelPerms` op, `MANAGE_ROLES`): `allow`/`deny` permission bitfields, `deny` wins; overlapping or unknown bits = explicit error; `allow = deny = 0` clears the override (full inherit) |
 | `groups.channel.del` | `{ group_id, channel_id }` | `{ ok: true }` |
@@ -276,6 +276,9 @@ After each applied op (local or remote), the node emits
 | `groups.kick` | `{ group_id, pubkey }` | `{ ok: true }` — hierarchy: you cannot kick a member of higher or equal role; the founder is untouchable |
 | `groups.ban` | `{ group_id, pubkey }` | `{ ok: true }` — same rules; a banned member can no longer be (re)admitted |
 | `groups.unban` | `{ group_id, pubkey }` | `{ ok: true }` |
+| `groups.timeout` | `{ group_id, pubkey, until_ms }` | `{ ok: true }` — temporary mute (`KICK` permission + kick hierarchy: the founder is untouchable, you cannot time out a member of higher or equal role). The member stays in the group but cannot send messages while `until_ms` (wall ms deadline) is in the future; enforced at compose **and** ingest. `until_ms = 0` lifts it (same as `groups.timeout_clear`). Surfaced as `timeout_until_ms` per member in `groups.state` |
+| `groups.timeout_clear` | `{ group_id, pubkey }` | `{ ok: true }` — lifts a member's timeout |
+| `groups.set_nickname` | `{ group_id, name, member? }` | `{ ok: true }` — per-server display name. `member` absent = self; a member may set their own, a `MANAGE_ROLES` moderator may set/clear anyone strictly below them (founder untouchable). `name` trimmed to 1-32 characters without control characters; empty clears. Surfaced as `nickname` per member in `groups.state` |
 | `groups.leave` | `{ group_id }` | `{ ok: true }` — refused to the founder as long as other members remain |
 | `groups.role.add` | `{ group_id, name, color, permissions, position? }` | `{ role_id }` — `color` RGB (`0xRRGGBB`), `permissions` bitfield (see table) |
 | `groups.role.edit` | `{ group_id, role_id, name?, color?, position?, permissions? }` | `{ ok: true }` — absent field = unchanged; you cannot modify a role of higher or equal position than your own |
@@ -310,7 +313,9 @@ as `groups.send`; on ingestion at each member, the action is applied
   "name": "Guilde",
   "icon": "<hex64>" ,          // Merkle root of the icon, or null
   "founder": "<hex64>",        // public key, or null
-  "members": [{ "pubkey": "<hex64>", "roles": ["<role_id>"] }],
+  "members": [{ "pubkey": "<hex64>", "roles": ["<role_id>"],
+                "nickname": "Capitaine"∣null,   // per-server display name
+                "timeout_until_ms": 0 }],        // active mute deadline (wall ms), 0 = none
   "bans": ["<hex64>"],
   "channels": [{ "channel_id": "<hex32>", "name": "général", "kind": "text",
                  "category": "<hex32>"∣null, "position": 0, "topic": "" }],

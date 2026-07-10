@@ -9,7 +9,7 @@
 //! et ne peut rien usurper.
 
 use accord_crypto::Identity;
-use accord_proto::core_msg::{CoreMsg, FileRef, MsgBody};
+use accord_proto::core_msg::{ChannelKind, CoreMsg, FileRef, MsgBody};
 use accord_proto::limits::MAX_TEXT_BYTES;
 
 use crate::db::{Db, GroupMsgRecord};
@@ -45,23 +45,37 @@ pub enum GroupMsgEvent {
     Ignored,
 }
 
-/// Vérifie le contexte d'émission (salon connu, droit d'écriture effectif
-/// dans ce salon, overrides compris) et rend l'état matérialisé.
+/// Vérifie le contexte d'émission (salon connu, droit d'écriture effectif dans
+/// ce salon, non en sourdine, salon d'annonces réservé aux gestionnaires) et
+/// rend l'état matérialisé. `now_ms` = horloge murale locale, comparée à
+/// l'échéance de sourdine (les sourdines expirées sont ignorées). Reflète
+/// exactement [`GroupState::can_send_message`], utilisé à l'ingestion.
 fn require_send(
     db: &Db,
     identity: &Identity,
     group_id: &[u8; 16],
     channel_id: &[u8; 16],
+    now_ms: u64,
 ) -> Result<GroupState, CoreError> {
     let state = group_state(db, group_id)?;
-    if !state.channels.contains_key(channel_id) {
+    let me = identity.public_key();
+    let Some(channel) = state.channels.get(channel_id) else {
         return Err(CoreError::Invalid("salon inconnu"));
-    }
+    };
     // Writing requires both VIEW and SEND once channel overrides are folded
     // in: a channel hidden from a role cannot be written to either.
     let needed = perms::VIEW | perms::SEND;
-    if state.permissions_in(&identity.public_key(), channel_id) & needed != needed {
+    let eff = state.permissions_in(&me, channel_id);
+    if eff & needed != needed {
         return Err(CoreError::OpRejected("droit d'écriture refusé"));
+    }
+    // A timed-out member stays in the group but cannot send while active.
+    if state.is_timed_out(&me, now_ms) {
+        return Err(CoreError::OpRejected("membre en sourdine (timeout)"));
+    }
+    // Announcement channels are read-only for anyone without MANAGE_CHANNELS.
+    if channel.kind == ChannelKind::Announcement && eff & perms::MANAGE_CHANNELS == 0 {
+        return Err(CoreError::OpRejected("salon d'annonces en lecture seule"));
     }
     Ok(state)
 }
@@ -125,7 +139,7 @@ pub fn compose_group_message(
         return Err(CoreError::Invalid("texte trop long"));
     }
     validate_attachments(&attachments)?;
-    require_send(db, identity, group_id, channel_id)?;
+    require_send(db, identity, group_id, channel_id, now_ms)?;
 
     let body = MsgBody::Text {
         text: text.to_string(),
@@ -175,7 +189,7 @@ pub fn compose_group_edit(
     if new_text.trim().is_empty() || new_text.len() > MAX_TEXT_BYTES {
         return Err(CoreError::Invalid("texte d'édition vide ou trop long"));
     }
-    require_send(db, identity, group_id, channel_id)?;
+    require_send(db, identity, group_id, channel_id, now_ms)?;
     if !db.edit_group_msg(target, &identity.public_key(), new_text.as_bytes())? {
         return Err(CoreError::OpRejected("message inéditable"));
     }
@@ -202,7 +216,7 @@ pub fn compose_group_delete(
     target: &[u8; 16],
     now_ms: u64,
 ) -> Result<CoreMsg, CoreError> {
-    require_send(db, identity, group_id, channel_id)?;
+    require_send(db, identity, group_id, channel_id, now_ms)?;
     if !db.delete_group_msg(target, Some(&identity.public_key()))? {
         return Err(CoreError::OpRejected("message insupprimable"));
     }
@@ -231,7 +245,7 @@ pub fn compose_group_reaction(
     if emoji.is_empty() || emoji.len() > MAX_EMOJI_BYTES {
         return Err(CoreError::Invalid("emoji invalide"));
     }
-    require_send(db, identity, group_id, channel_id)?;
+    require_send(db, identity, group_id, channel_id, now_ms)?;
     db.set_reaction(target, &identity.public_key(), emoji, add)?;
     seal_body(
         db,
@@ -257,7 +271,7 @@ pub fn compose_group_typing(
     channel_id: &[u8; 16],
     now_ms: u64,
 ) -> Result<CoreMsg, CoreError> {
-    require_send(db, identity, group_id, channel_id)?;
+    require_send(db, identity, group_id, channel_id, now_ms)?;
     seal_body(db, group_id, channel_id, &MsgBody::Typing, now_ms)
 }
 
@@ -278,15 +292,13 @@ pub fn ingest_group_message(
 ) -> Result<GroupMsgEvent, CoreError> {
     let state = group_state(db, group_id)?;
     // Groupe inconnu (aucune op) ou contexte invalide : silence, pas d'oracle.
-    // Le droit d'écriture effectif exige VIEW ET SEND (overrides de salon
-    // compris) — symétrique avec `require_send` côté émission : un membre à qui
-    // le salon est masqué (deny VIEW) ne peut pas non plus y injecter via un
-    // client modifié qui aurait gardé le bit SEND.
-    let needed = perms::VIEW | perms::SEND;
-    if state.founder.is_none()
-        || !state.channels.contains_key(channel_id)
-        || state.permissions_in(sender, channel_id) & needed != needed
-    {
+    // `can_send_message` reflète exactement `require_send` côté émission : il
+    // exige VIEW ET SEND effectifs (overrides de salon compris — un membre à
+    // qui le salon est masqué ne peut pas y injecter via un client modifié qui
+    // aurait gardé le bit SEND), rejette un membre en sourdine (échéance
+    // comparée à `sent_ms`, l'horloge murale du message) et réserve les salons
+    // d'annonces aux porteurs de MANAGE_CHANNELS.
+    if state.founder.is_none() || !state.can_send_message(sender, channel_id, sent_ms) {
         return Ok(GroupMsgEvent::Ignored);
     }
     let Some(key) = db.group_key(group_id, key_epoch)? else {
@@ -1146,5 +1158,147 @@ mod tests {
             2_000
         )
         .is_err());
+    }
+
+    #[test]
+    fn timeout_blocks_compose_and_ingest() {
+        let alice = identity();
+        let bob = identity();
+        let db_a = open_db();
+        let db_b = open_db();
+        let (gid, chan) = build_group(&alice, &db_a, &[(&bob, &db_b)]);
+
+        // Bob composes a valid message while still un-muted (sent_ms = 5_000).
+        let early = compose_group_message(
+            &db_b,
+            &bob,
+            &[2; 32],
+            &gid,
+            &chan,
+            "avant",
+            None,
+            vec![],
+            5_000,
+        )
+        .expect("composition");
+
+        // Alice times Bob out until 10_000; replicate the op to Bob.
+        let timeout = author_op(
+            &db_a,
+            &alice,
+            &gid,
+            &GroupOpBody::TimeoutMember {
+                member: bob.public_key(),
+                until_ms: 10_000,
+            },
+            6_000,
+        )
+        .unwrap();
+        ingest_op(&db_b, &timeout).unwrap();
+
+        // Compose is refused while the timeout is active…
+        let err = compose_group_message(
+            &db_b,
+            &bob,
+            &[2; 32],
+            &gid,
+            &chan,
+            "pendant",
+            None,
+            vec![],
+            7_000,
+        );
+        assert!(matches!(err, Err(CoreError::OpRejected(_))));
+        // …and allowed again once it has expired (sent_ms = 10_000).
+        compose_group_message(
+            &db_b,
+            &bob,
+            &[2; 32],
+            &gid,
+            &chan,
+            "après",
+            None,
+            vec![],
+            10_000,
+        )
+        .expect("compose after expiry");
+
+        // Bob's earlier message (sent_ms = 5_000, inside the window) is ignored
+        // at ingestion on Alice's side once she holds the timeout op.
+        assert_eq!(ingest(&db_a, &bob, early), GroupMsgEvent::Ignored);
+        assert!(db_a
+            .group_history(&gid, &chan, u64::MAX, 10)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn announcement_channel_is_read_only_for_plain_members() {
+        let alice = identity();
+        let bob = identity();
+        let db_a = open_db();
+        let db_b = open_db();
+        let (gid, _text) = build_group(&alice, &db_a, &[(&bob, &db_b)]);
+
+        // Alice adds an announcement channel; replicate the op to Bob.
+        let announce = new_id16();
+        let add = author_op(
+            &db_a,
+            &alice,
+            &gid,
+            &GroupOpBody::AddChannel {
+                channel_id: announce,
+                name: "annonces".into(),
+                category: None,
+                kind: ChannelKind::Announcement,
+                position: 5,
+            },
+            2_000,
+        )
+        .unwrap();
+        ingest_op(&db_b, &add).unwrap();
+
+        // Bob (plain member) cannot post in the announcement channel…
+        let err = compose_group_message(
+            &db_b,
+            &bob,
+            &[2; 32],
+            &gid,
+            &announce,
+            "coucou",
+            None,
+            vec![],
+            3_000,
+        );
+        assert!(matches!(err, Err(CoreError::OpRejected(_))));
+        // …while Alice (MANAGE_CHANNELS via founder) posts fine.
+        compose_group_message(
+            &db_a,
+            &alice,
+            &[1; 32],
+            &gid,
+            &announce,
+            "annonce",
+            None,
+            vec![],
+            3_001,
+        )
+        .expect("founder posts to announcement");
+
+        // A message Bob forces into the announcement channel is ignored on
+        // ingestion, symmetrically with the compose-side gate.
+        let forged = seal_body(
+            &db_b,
+            &gid,
+            &announce,
+            &MsgBody::Text {
+                text: "spam".into(),
+                reply_to: None,
+                attachments: vec![],
+            },
+            3_002,
+        )
+        .expect("scellement");
+        assert_eq!(ingest(&db_a, &bob, forged), GroupMsgEvent::Ignored);
     }
 }

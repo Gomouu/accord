@@ -51,6 +51,10 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                     v["status"] = json!(presence::status_str(status));
                     v["status_text"] = json!(status_text);
                     v["unread"] = json!(node.dm_unread(&c.pubkey)?);
+                    // Unread mentions in this DM (local detection) + private,
+                    // local-only note attached to this contact.
+                    v["mention_count"] = json!(node.dm_mention_count(&c.pubkey)?);
+                    v["note"] = json!(node.contact_note(&c.pubkey)?);
                     Ok(v)
                 })
                 .collect::<Result<Vec<_>, NodeError>>()?
@@ -84,6 +88,15 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             let (status, custom) = node.own_presence()?;
             Ok(json!({ "status": status.as_str(), "custom": custom }))
         }
+        "friends.set_note" => {
+            // Private, local-only note attached to a contact by public key.
+            // Never sent anywhere; an empty note clears it (max 4096 chars).
+            let peer = param_peer(params)?;
+            let note = param_str(params, "note")?;
+            node.set_contact_note(&peer, note)?;
+            Ok(json!({ "ok": true }))
+        }
+        "friends.get_note" => Ok(json!({ "note": node.contact_note(&param_peer(params)?)? })),
         "friends.block" => {
             node.friend_block(&param_peer(params)?)?;
             Ok(json!({ "ok": true }))

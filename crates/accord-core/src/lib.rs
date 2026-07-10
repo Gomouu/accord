@@ -12,6 +12,7 @@ pub mod error;
 pub mod files;
 pub mod friends;
 pub mod group;
+pub mod mentions;
 pub mod messaging;
 pub mod offline;
 pub mod presence;

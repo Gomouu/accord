@@ -4,6 +4,7 @@
 mod contacts;
 mod files;
 mod groups;
+mod mentions;
 mod messages;
 mod outbox;
 mod search;
@@ -11,6 +12,7 @@ mod search;
 pub use contacts::{Contact, ContactState};
 pub use files::{FetchIntent, FileEntry};
 pub use groups::StoredGroupKey;
+pub use mentions::{MentionEntry, MentionScope};
 pub use messages::{DmRecord, GroupMsgRecord};
 pub use outbox::OutboxItem;
 
@@ -23,7 +25,7 @@ use std::path::Path;
 /// Le lot de création est entièrement idempotent (`IF NOT EXISTS`) : monter
 /// la version suffit pour créer les nouvelles tables sur une base existante.
 /// Modifier des colonnes existantes exigera en revanche une vraie migration.
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 /// Convertit un blob SQL en tableau de taille fixe.
 pub(crate) fn blob<const N: usize>(v: Vec<u8>) -> Result<[u8; N], CoreError> {
@@ -198,7 +200,26 @@ impl Db {
                msg_id BLOB NOT NULL,
                PRIMARY KEY (peer, msg_id)
              );
-             PRAGMA user_version = 3;
+             CREATE TABLE IF NOT EXISTS mentions (
+               msg_id  BLOB PRIMARY KEY,
+               scope   INTEGER NOT NULL,
+               conv_a  BLOB NOT NULL,
+               conv_b  BLOB,
+               author  BLOB NOT NULL,
+               ts_ms   INTEGER NOT NULL,
+               lamport INTEGER NOT NULL,
+               snippet TEXT NOT NULL,
+               read    INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE INDEX IF NOT EXISTS mentions_by_ts
+               ON mentions(ts_ms);
+             CREATE INDEX IF NOT EXISTS mentions_by_conv
+               ON mentions(scope, conv_a, read);
+             CREATE TABLE IF NOT EXISTS contact_notes (
+               pubkey BLOB PRIMARY KEY,
+               note   TEXT NOT NULL
+             );
+             PRAGMA user_version = 4;
              COMMIT;",
         )?;
         Ok(())

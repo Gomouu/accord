@@ -396,6 +396,7 @@ async fn dm_history_renders_exact_text_shape() {
             "delivery",
             "edited",
             "lamport",
+            "mentions_me",
             "msg_id",
             "pinned",
             "reactions",
@@ -695,6 +696,7 @@ async fn group_history_renders_exact_text_shape() {
             "deleted",
             "edited",
             "lamport",
+            "mentions_me",
             "msg_id",
             "reactions",
             "sent_ms"
@@ -1961,4 +1963,105 @@ async fn voice_mic_test_is_explicitly_unavailable_without_hardware() {
     // Paramètre manquant ou mal typé : refus à la frontière.
     let err = s.call("voice.mic_test", json!({})).await.unwrap_err();
     assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+}
+
+// ---- Frontière JSON : mentions (boîte locale) et notes privées ----
+
+#[tokio::test]
+async fn mentions_inbox_and_mark_read_roundtrip() {
+    let (node, peer) = node_with_friend();
+    let peer_hex = hex::encode(&peer.public_key());
+    node.profile_set_name("Anna").unwrap();
+    // Le pair nous envoie un DM qui nous mentionne.
+    let body = MsgBody::Text {
+        text: "coucou @Anna".into(),
+        reply_to: None,
+        attachments: vec![],
+    };
+    node.ingest_core(
+        &peer.public_key(),
+        CoreMsg::DirectMsg {
+            msg_id: [5; 16],
+            lamport: 3,
+            sent_ms: 1_003,
+            kind: body.kind(),
+            body: body.encode_body(),
+        },
+    )
+    .unwrap();
+    let s = NodeService::new(node);
+
+    let inbox = s.call("mentions.inbox", json!({})).await.unwrap();
+    let entries = inbox["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    let e = &entries[0];
+    // Forme exacte d'une entrée.
+    assert_eq!(
+        sorted_keys(e),
+        [
+            "author",
+            "conversation",
+            "lamport",
+            "msg_id",
+            "read",
+            "snippet",
+            "ts_ms"
+        ]
+    );
+    assert_eq!(e["conversation"]["kind"], json!("dm"));
+    assert_eq!(e["conversation"]["peer"], json!(peer_hex));
+    assert_eq!(e["msg_id"], json!(hex::encode(&[5u8; 16])));
+    assert_eq!(e["author"], json!(peer_hex));
+    assert_eq!(e["read"], json!(false));
+    assert_eq!(e["snippet"], json!("coucou @Anna"));
+
+    // Marquer tout comme lu.
+    let res = s.call("mentions.mark_read", json!({})).await.unwrap();
+    assert_eq!(res["marked"], json!(1));
+    let inbox2 = s.call("mentions.inbox", json!({})).await.unwrap();
+    assert_eq!(inbox2["entries"][0]["read"], json!(true));
+
+    // Le compteur de mentions du DM apparaît dans friends.list.
+    let list = s.call("friends.list", json!({})).await.unwrap();
+    assert_eq!(list["contacts"][0]["mention_count"], json!(0));
+}
+
+#[tokio::test]
+async fn friends_note_set_get_and_folded_in_list() {
+    let (s, peer) = service_with_friend();
+    // Aucune note au départ.
+    let got = s
+        .call("friends.get_note", json!({ "pubkey": peer }))
+        .await
+        .unwrap();
+    assert_eq!(got["note"], json!(null));
+
+    // Écriture (rognée), relecture.
+    s.call(
+        "friends.set_note",
+        json!({ "pubkey": peer, "note": "  vieil ami  " }),
+    )
+    .await
+    .unwrap();
+    let got = s
+        .call("friends.get_note", json!({ "pubkey": peer }))
+        .await
+        .unwrap();
+    assert_eq!(got["note"], json!("vieil ami"));
+
+    // friends.list replie la note et le compteur de mentions.
+    let list = s.call("friends.list", json!({})).await.unwrap();
+    let c = &list["contacts"][0];
+    assert_eq!(c["note"], json!("vieil ami"));
+    assert_eq!(c["mention_count"], json!(0));
+
+    // Une note vide efface l'entrée.
+    s.call("friends.set_note", json!({ "pubkey": peer, "note": "" }))
+        .await
+        .unwrap();
+    let got = s
+        .call("friends.get_note", json!({ "pubkey": peer }))
+        .await
+        .unwrap();
+    assert_eq!(got["note"], json!(null));
 }

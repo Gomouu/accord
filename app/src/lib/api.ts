@@ -49,6 +49,10 @@ export interface Contact {
   status_text?: string | null;
   /** Messages du pair reçus après notre `dm.mark_read` ; absent = inconnu. */
   unread?: number;
+  /** Mentions non lues dans ce MP (détection locale) ; absent = inconnu. */
+  mention_count?: number;
+  /** Note privée locale attachée au contact, ou `null` (jamais émise). */
+  note?: string | null;
 }
 
 /** Référence de pièce jointe (enveloppe des messages et `files.*`). */
@@ -87,6 +91,8 @@ export interface DmMessage {
   pinned?: boolean;
   /** Toujours émis ; optionnel par tolérance. État de livraison sortante (`sent` pour l'entrant). */
   delivery?: DeliveryState;
+  /** Toujours émis ; `true` si ce message mentionne l'utilisateur local. */
+  mentions_me?: boolean;
   body: MsgBody;
   edited: string | null;
   /** Toujours émis par le nœud (`[]` si aucune) ; optionnel par tolérance. */
@@ -102,12 +108,31 @@ export interface GroupMessage {
   lamport: number;
   sent_ms: number;
   deleted: boolean;
+  /** Toujours émis ; `true` si ce message mentionne l'utilisateur local. */
+  mentions_me?: boolean;
   body: MsgBody;
   edited: string | null;
   /** Toujours émis par le nœud (vide pour l'instant côté groupes, D-022). */
   reactions?: Reaction[];
   /** Pièces jointes de l'enveloppe (toujours émises, `[]` si aucune). */
   attachments?: FileAttachment[];
+}
+
+/** Référence de conversation d'une entrée de boîte de mentions (`mentions.inbox`). */
+export type MentionConversation =
+  | { kind: 'dm'; peer: string }
+  | { kind: 'group'; group_id: string; channel_id: string | null };
+
+/** Entrée de la boîte de mentions locale (`mentions.inbox`). */
+export interface MentionEntry {
+  msg_id: string;
+  conversation: MentionConversation;
+  author: string;
+  ts_ms: number;
+  lamport: number;
+  /** Extrait borné du texte (jamais le corps complet). */
+  snippet: string;
+  read: boolean;
 }
 
 /** Conversation d'un résultat `search.query` (métadonnées côté nœud). */
@@ -450,6 +475,19 @@ export class Api {
     return this.rpc.call('friends.respond', { pubkey, accept });
   }
 
+  /**
+   * Écrit la note privée locale d'un contact (≤ 4096 caractères, rognée ; une
+   * note vide l'efface). Purement locale : jamais émise vers le pair.
+   */
+  friendsSetNote(pubkey: string, note: string): Promise<{ ok: true }> {
+    return this.rpc.call('friends.set_note', { pubkey, note });
+  }
+
+  /** Lit la note privée locale d'un contact (`null` si aucune). */
+  friendsGetNote(pubkey: string): Promise<{ note: string | null }> {
+    return this.rpc.call('friends.get_note', { pubkey });
+  }
+
   friendsBlock(pubkey: string): Promise<{ ok: true }> {
     return this.rpc.call('friends.block', { pubkey });
   }
@@ -599,13 +637,15 @@ export class Api {
   }
 
   /**
-   * Liste des groupes et non-lus par salon (`{ group_id: { channel_id: n } }`,
-   * seuls les salons ayant au moins un non-lu figurent) — `unread` optionnel
-   * par tolérance.
+   * Liste des groupes, non-lus par salon (`{ group_id: { channel_id: n } }`,
+   * seuls les salons ayant au moins un non-lu figurent) et mentions non lues
+   * par groupe (`{ group_id: n }`, seuls les groupes en portant) — `unread` et
+   * `mentions` optionnels par tolérance.
    */
   groupsList(): Promise<{
     groups: string[];
     unread?: Record<string, Record<string, number>>;
+    mentions?: Record<string, number>;
   }> {
     return this.rpc.call('groups.list');
   }
@@ -639,6 +679,28 @@ export class Api {
 
   groupsState(groupId: string): Promise<GroupStateJson> {
     return this.rpc.call('groups.state', { group_id: groupId });
+  }
+
+  /**
+   * Boîte de mentions locale, la plus récente d'abord. `before` pagine par
+   * horloge murale (ms, entrées strictement plus anciennes) ; `limit` borné à
+   * [1, 200] (défaut 50).
+   */
+  mentionsInbox(before?: number, limit?: number): Promise<{ entries: MentionEntry[] }> {
+    return this.rpc.call('mentions.inbox', {
+      ...(before !== undefined ? { before } : {}),
+      ...(limit !== undefined ? { limit } : {}),
+    });
+  }
+
+  /**
+   * Marque des mentions comme lues. `msgIds` absent (ou omis) marque **tout**
+   * comme lu ; `marked` = nombre d'entrées effectivement basculées.
+   */
+  mentionsMarkRead(msgIds?: string[]): Promise<{ ok: true; marked: number }> {
+    return this.rpc.call('mentions.mark_read', {
+      ...(msgIds !== undefined ? { msg_ids: msgIds } : {}),
+    });
   }
 
   /** Renomme le groupe (1 à 100 caractères, le nœud refuse sinon). */

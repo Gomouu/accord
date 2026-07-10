@@ -25,6 +25,7 @@ mod files;
 mod friends;
 mod groups;
 mod helpers;
+mod mentions;
 mod network;
 mod profile;
 mod voice;
@@ -125,6 +126,9 @@ fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Value, NodeErro
     }
     if method.starts_with("groups.") {
         return groups::dispatch(node, method, params);
+    }
+    if method.starts_with("mentions.") {
+        return mentions::dispatch(node, method, params);
     }
     if method.starts_with("files.") {
         return files::dispatch(node, method, params);

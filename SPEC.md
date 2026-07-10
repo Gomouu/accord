@@ -322,6 +322,23 @@ that setting. The receiver persists the peer's read position per conversation
 and exposes it through the local API (`dm.history` → `peer_read_lamport`,
 `event.dm_read`).
 
+**Mentions** are a purely **local, passive** signal — they add **no wire
+message and no wire field**. A `DirectMsg`/`GroupMsg` text body already
+carries the literal `@…` the sender typed; on ingestion of a stored text
+message, the receiver decides whether it is itself mentioned by matching that
+text (case-insensitive, word-bounded) against its own nickname, its friend
+code, the tokens `@everyone`/`@here` (identical: effective presence is
+unknowable in a serverless P2P network, so `@here` is detected exactly like
+`@everyone`), and the names of the roles it holds in that group. A match sets
+`mentions_me` in history and records **one** entry (deduplicated on `msg_id`)
+in the local `mentions` table; a deleted message loses its entry. The inbox and
+its per-conversation counts are read through the local API (`mentions.inbox`,
+`mentions.mark_read`); nothing is ever transmitted.
+
+**Private contact notes** are a purely **local** free-text annotation attached
+to a public key (`contact_notes` table, ≤ 4096 characters). Like DM pins and
+mentions, they add **no wire message**: a note never leaves the device.
+
 ### 6.2 Group op-log
 
 ```

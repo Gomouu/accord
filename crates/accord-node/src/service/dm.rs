@@ -30,6 +30,7 @@ fn dm_messages_json(
                 &node.attachments_of(&m.msg_id)?,
                 pinned.contains(&m.msg_id),
                 node.dm_delivery(m, outbox),
+                node.msg_mentions_me(&m.msg_id)?,
             ))
         })
         .collect()

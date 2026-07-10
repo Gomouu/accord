@@ -280,12 +280,14 @@ pub(super) fn attachments_json(attachments: &[FileRef]) -> Value {
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn dm_json(
     m: &DmRecord,
     reactions: &[(String, [u8; 32])],
     attachments: &[FileRef],
     pinned: bool,
     delivery: &str,
+    mentions_me: bool,
 ) -> Value {
     json!({
         "msg_id": hex::encode(&m.msg_id),
@@ -297,6 +299,8 @@ pub(super) fn dm_json(
         "pinned": pinned,
         // Delivery state of our outgoing message: sent∣pending∣failed.
         "delivery": delivery,
+        // True when this message mentions the local user (local detection).
+        "mentions_me": mentions_me,
         "body": body_json(m.kind, &m.body),
         // Dernière édition : texte brut UTF-8, ou null.
         "edited": m.edited.as_ref().map(|b| String::from_utf8_lossy(b)),
@@ -309,6 +313,7 @@ pub(super) fn group_msg_json(
     m: &GroupMsgRecord,
     reactions: &[(String, [u8; 32])],
     attachments: &[FileRef],
+    mentions_me: bool,
 ) -> Value {
     json!({
         "msg_id": hex::encode(&m.msg_id),
@@ -317,6 +322,8 @@ pub(super) fn group_msg_json(
         "lamport": m.lamport,
         "sent_ms": m.sent_ms,
         "deleted": m.deleted,
+        // True when this message mentions the local user (local detection).
+        "mentions_me": mentions_me,
         "body": body_json(m.kind, &m.body),
         "edited": m.edited.as_ref().map(|b| String::from_utf8_lossy(b)),
         "reactions": reactions_json(reactions),

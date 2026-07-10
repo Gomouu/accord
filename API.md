@@ -143,10 +143,12 @@ from non-friends are ignored (anti-abuse).
 
 | Method | Parameters | Result |
 |---------|-----------|----------|
-| `friends.list` | — | `{ contacts: [{ node_id, pubkey, friend_code, display_name, bio, avatar, banner, state, last_seen_ms, online, status, status_text, unread }] }` — `bio` `string`∣`null`, `avatar` and `banner` hex-64 hash∣`null` (profile announced by the peer, D-027, D-032); `online` `bool` (kept for backward compatibility) plus `status` ∈ `online`∣`idle`∣`dnd`∣`offline` and `status_text` `string`∣`null` (rich presence, best-effort, see "Presence"); `unread` integer (messages from the peer received after our `dm.mark_read`) |
+| `friends.list` | — | `{ contacts: [{ node_id, pubkey, friend_code, display_name, bio, avatar, banner, state, last_seen_ms, online, status, status_text, unread, mention_count, note }] }` — `bio` `string`∣`null`, `avatar` and `banner` hex-64 hash∣`null` (profile announced by the peer, D-027, D-032); `online` `bool` (kept for backward compatibility) plus `status` ∈ `online`∣`idle`∣`dnd`∣`offline` and `status_text` `string`∣`null` (rich presence, best-effort, see "Presence"); `unread` integer (messages from the peer received after our `dm.mark_read`); `mention_count` integer (unread mentions in this DM, see "Mentions"); `note` `string`∣`null` (private local-only note, see "Private notes") |
 | `friends.resolve` | `{ friend_code }` | `{ pubkey }` — DHT lookup of the identity record, verified end-to-end |
 | `friends.request` | `{ pubkey, display_name }` | `{ ok: true }` |
 | `friends.respond` | `{ pubkey, accept }` | `{ ok: true }` |
+| `friends.set_note` | `{ pubkey, note }` | `{ ok: true }` — private, **local-only** note attached to a contact (see "Private notes"); `note` ≤ 4096 characters, trimmed; an empty note clears it. Never sent anywhere |
+| `friends.get_note` | `{ pubkey }` | `{ note }` — `string`∣`null` |
 | `friends.block` | `{ pubkey }` | `{ ok: true }` |
 | `friends.unblock` | `{ pubkey }` | `{ ok: true }` |
 | `friends.remove` | `{ pubkey }` | `{ ok: true }` — removes an **established** friendship (explicit error otherwise). Distinct from a block: the DM history is kept and a new friend request stays possible. The peer is notified best-effort (`FRIEND_REMOVE`, never queued offline) and drops the friendship on receipt; both sides receive `event.friend_removed` |
@@ -159,6 +161,15 @@ a friend by code" flow is `friends.resolve` then `friends.request`.
 `display_name` is the last nickname announced by the peer (`PROFILE` message,
 see "Profile"); failing that, the label given to `friends.request` or the name
 carried by their friend request.
+
+#### Private notes
+
+`friends.set_note` / `friends.get_note` attach a free-text note to a contact
+(keyed by public key). The note is **purely local**: it is stored in the
+encrypted local database (`contact_notes` table) and **never** travels on the
+wire — no protocol message carries it. It exists for any public key, even one
+that is not (yet) a contact. Bound: 4096 characters (trimmed); writing an empty
+note deletes it. The current note is also folded into `friends.list` (`note`).
 
 ### Direct messaging
 
@@ -181,7 +192,7 @@ carried by their friend request.
 
 `limit` bounded to [1, 200] (default 50). `messages` sorted from most recent to
 oldest: `{ msg_id, author, lamport, sent_ms, acked, deleted, pinned, delivery,
-body, edited, reactions, attachments }`. `body` is decoded on the node side into structured JSON:
+mentions_me, body, edited, reactions, attachments }`. `body` is decoded on the node side into structured JSON:
 `{ type: "text", text, reply_to, attachments }` ∣ `{ type: "edit"|"delete"|"reaction", ... }`
 ∣ `{ type: "meta" }` ∣ `{ type: "unknown" }`. Shape details:
 
@@ -208,6 +219,10 @@ body, edited, reactions, attachments }`. `body` is decoded on the node side into
   messages (`author` = the peer) always report `"sent"`. `failed` is a UI hint,
   not terminal: the offline queue keeps retrying until expiry, and `dm.retry`
   forces an immediate re-attempt.
+- `mentions_me` is a boolean: `true` when this message mentions the local user.
+  Detection is **local and passive** at ingestion (the wire carries no mention
+  metadata; see "Mentions"). Present on both `dm.history` and `groups.history`
+  messages.
 
 `dm.edit`, `dm.delete` and `dm.react` apply the action locally then
 emit it to the peer over the same path as `dm.send` (direct send or
@@ -245,7 +260,7 @@ After each applied op (local or remote), the node emits
 | Method | Parameters | Result |
 |---------|-----------|----------|
 | `groups.create` | `{ name }` | `{ group_id }` |
-| `groups.list` | — | `{ groups: [group_id], unread }` — `unread`: `{ group_id: { channel_id: n } }`, unread per channel (others' messages after the `groups.mark_read` mark); only channels with at least one unread appear |
+| `groups.list` | — | `{ groups: [group_id], unread, mentions }` — `unread`: `{ group_id: { channel_id: n } }`, unread per channel (others' messages after the `groups.mark_read` mark); only channels with at least one unread appear. `mentions`: `{ group_id: n }`, unread mentions per group (all channels combined); only groups with at least one appear |
 | `groups.state` | `{ group_id, channel_id? }` | full state, see below — with `channel_id`, `my_permissions` becomes the **effective** bitfield in that channel (overrides folded in, `deny` > `allow`) |
 | `groups.rename` | `{ group_id, name }` | `{ ok: true }` — 1-100 characters |
 | `groups.set_icon` | `{ group_id, data_b64, mime }` | `{ icon }` — image ≤ 512 KiB decoded, published in the file store; `icon` = hex-64 Merkle root |
@@ -385,6 +400,42 @@ Each entry of `hits` carries per-hit metadata (recent first, capped at 200):
 `dm.history_around` / `groups.history_around`. `msg_ids` mirrors the `hits`
 ids in the same order (backward compatibility). With filters but no plain word,
 candidates are drawn from the most recent messages (bounded).
+
+### Mentions
+
+Mention awareness is **local and passive**. A group or direct message carries
+**no** mention metadata on the wire — the text simply contains the literal
+`@…` typed by the sender. On ingestion, the node decides whether the **local**
+user is targeted by matching the message text (case-insensitive, word-bounded)
+against:
+
+- the local **nickname** (`profile.set`), if set;
+- the local **friend code**;
+- the special tokens **`@everyone`** and **`@here`** (treated identically:
+  effective presence is not knowable server-side in a P2P network, so `@here`
+  is detected exactly like `@everyone`);
+- the names of the **roles** the local user holds in that group (group
+  messages only).
+
+A matching message sets `mentions_me: true` in history (`dm.history`,
+`groups.history`) and creates **one** entry (deduplicated per message) in a
+local **mention inbox**. Detection is purely a social/UX signal: spamming
+`@everyone` is a social problem, not a permission one — no permission is
+required to be detected. Nothing here is transmitted; the inbox lives only in
+the local database.
+
+| Method | Parameters | Result |
+|---------|-----------|----------|
+| `mentions.inbox` | `{ before?, limit? }` | `{ entries: [{ msg_id, conversation, author, ts_ms, lamport, snippet, read }] }` — newest first; `before` paginates by wall-clock ms (entries strictly older), `limit` bounded to [1, 200] (default 50) |
+| `mentions.mark_read` | `{ msg_ids? }` | `{ ok: true, marked }` — marks the given messages read; **absent `msg_ids` marks all** as read. `marked` = number of entries actually flipped to read |
+
+`conversation` is `{ "kind": "dm", "peer" }` or `{ "kind": "group",
+"group_id", "channel_id" }` — enough to render and jump to the message via
+`dm.history_around` / `groups.history_around`. `snippet` is a bounded excerpt
+of the message text (never the full body). A message that is deleted (locally
+or by moderation) loses its inbox entry. Per-conversation unread mention
+counts are exposed in `friends.list` (`mention_count`) and `groups.list`
+(`mentions`).
 
 ### Files
 
@@ -583,6 +634,7 @@ Pushed to all authenticated clients, without `id`:
 | `event.group_op` | `{ group_id }` — replicated group op |
 | `event.group_state` | `{ group_id }` — the group state has changed (op applied, local or remote): reload `groups.state` |
 | `event.group_msg` | `{ group_id, channel_id, msg_id, attachments }` — channel message received (or edited/deleted/reacted); `attachments`: detailed list, `[]` outside of a new message |
+| `event.mention` | `{ msg_id, peer }` (DM) ∣ `{ msg_id, group_id, channel_id }` (group) — a newly received message mentions the local user (see "Mentions"); a fresh inbox entry was created. Fires only on a new detection, not on replay |
 | `event.group_typing` | `{ group_id, channel_id, pubkey }` — a member is typing in a channel (ephemeral; bounded to one event every 2 s per peer) |
 | `event.group_key` | `{ group_id }` — group key received (messages become decryptable) |
 | `event.voice_joined` | `{ group_id, channel_id, pubkey }` — a participant (including oneself) entered a voice channel |

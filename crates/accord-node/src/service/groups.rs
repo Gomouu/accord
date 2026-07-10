@@ -249,8 +249,10 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
         "groups.list" => {
             let ids = node.group_ids()?;
             // Non-lus par groupe : `{ group_id: { channel_id: n } }` (seuls les
-            // salons portant au moins un non-lu figurent).
+            // salons portant au moins un non-lu figurent). Mentions non lues
+            // par groupe : `{ group_id: n }` (seuls les groupes en portant).
             let mut unread = serde_json::Map::new();
+            let mut mentions = serde_json::Map::new();
             for id_hex in &ids {
                 let gid = crate::hex::decode::<16>(id_hex)
                     .ok_or(NodeError::Invalid("identifiant de groupe invalide"))?;
@@ -262,8 +264,16 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                 if !per_channel.is_empty() {
                     unread.insert(id_hex.clone(), Value::Object(per_channel));
                 }
+                let mention_count = node.group_mention_count(&gid)?;
+                if mention_count > 0 {
+                    mentions.insert(id_hex.clone(), json!(mention_count));
+                }
             }
-            Ok(json!({ "groups": ids, "unread": Value::Object(unread) }))
+            Ok(json!({
+                "groups": ids,
+                "unread": Value::Object(unread),
+                "mentions": Value::Object(mentions),
+            }))
         }
         "groups.state" => {
             let gid = param_id16(params, "group_id")?;
@@ -452,6 +462,7 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                         m,
                         &node.reactions_of(&m.msg_id)?,
                         &node.attachments_of(&m.msg_id)?,
+                        node.msg_mentions_me(&m.msg_id)?,
                     ))
                 })
                 .collect::<Result<Vec<_>, NodeError>>()?;
@@ -469,6 +480,7 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                         m,
                         &node.reactions_of(&m.msg_id)?,
                         &node.attachments_of(&m.msg_id)?,
+                        node.msg_mentions_me(&m.msg_id)?,
                     ))
                 })
                 .collect::<Result<Vec<_>, NodeError>>()?;

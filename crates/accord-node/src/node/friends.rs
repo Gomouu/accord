@@ -130,7 +130,26 @@ impl Node {
                 .collect())
         })
     }
+
+    /// Écrit la note privée locale attachée à une clé publique (au plus
+    /// [`MAX_NOTE_CHARS`] caractères ; une note vide efface l'entrée). Purement
+    /// locale : jamais émise vers le pair ni ailleurs.
+    pub fn set_contact_note(&self, pubkey: &[u8; 32], note: &str) -> Result<(), NodeError> {
+        let trimmed = note.trim();
+        if trimmed.chars().count() > MAX_NOTE_CHARS {
+            return Err(NodeError::Invalid("note trop longue (max 4096 caractères)"));
+        }
+        self.with_db(|db| Ok(db.set_contact_note(pubkey, trimmed)?))
+    }
+
+    /// Lit la note privée locale d'une clé publique (`None` si aucune).
+    pub fn contact_note(&self, pubkey: &[u8; 32]) -> Result<Option<String>, NodeError> {
+        self.with_db(|db| Ok(db.contact_note(pubkey)?))
+    }
 }
+
+/// Longueur maximale d'une note privée de contact (caractères Unicode).
+const MAX_NOTE_CHARS: usize = 4096;
 
 #[cfg(test)]
 mod tests {

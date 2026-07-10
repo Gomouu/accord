@@ -171,6 +171,38 @@ impl Db {
         )?;
         Ok(())
     }
+
+    // ---- Notes privées de contact (locales, jamais émises) ----
+
+    /// Écrit la note privée attachée à une clé publique. Une note vide efface
+    /// l'entrée. La note ne quitte jamais l'appareil (aucun message filaire).
+    pub fn set_contact_note(&self, pubkey: &[u8; 32], note: &str) -> Result<(), CoreError> {
+        if note.is_empty() {
+            self.conn().execute(
+                "DELETE FROM contact_notes WHERE pubkey = ?1",
+                [pubkey.as_slice()],
+            )?;
+        } else {
+            self.conn().execute(
+                "INSERT INTO contact_notes (pubkey, note) VALUES (?1, ?2)
+                 ON CONFLICT(pubkey) DO UPDATE SET note = excluded.note",
+                params![pubkey, note],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Lit la note privée d'une clé publique (`None` si aucune).
+    pub fn contact_note(&self, pubkey: &[u8; 32]) -> Result<Option<String>, CoreError> {
+        let mut stmt = self
+            .conn()
+            .prepare("SELECT note FROM contact_notes WHERE pubkey = ?1")?;
+        let mut rows = stmt.query([pubkey.as_slice()])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(row.get(0)?)),
+            None => Ok(None),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -235,5 +267,23 @@ mod tests {
             db.contact(&[5; 32]).unwrap().unwrap().state,
             ContactState::Blocked
         );
+    }
+
+    #[test]
+    fn contact_note_set_get_update_and_clear() {
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        // A note is keyed by pubkey, independent of contact existence.
+        assert_eq!(db.contact_note(&[9; 32]).unwrap(), None);
+        db.set_contact_note(&[9; 32], "note privée").unwrap();
+        assert_eq!(
+            db.contact_note(&[9; 32]).unwrap(),
+            Some("note privée".into())
+        );
+        // Upsert overwrites.
+        db.set_contact_note(&[9; 32], "révisée").unwrap();
+        assert_eq!(db.contact_note(&[9; 32]).unwrap(), Some("révisée".into()));
+        // An empty note deletes the row.
+        db.set_contact_note(&[9; 32], "").unwrap();
+        assert_eq!(db.contact_note(&[9; 32]).unwrap(), None);
     }
 }

@@ -307,6 +307,8 @@ impl Db {
             // Un message effacé ne reste jamais épinglé (vue locale du DM).
             self.conn()
                 .execute("DELETE FROM dm_pins WHERE msg_id = ?1", [msg_id.as_slice()])?;
+            // Ni dans la boîte de mentions (l'extrait ne doit pas survivre).
+            self.delete_mention(msg_id)?;
         }
         Ok(n > 0)
     }
@@ -759,6 +761,8 @@ impl Db {
         };
         if n > 0 {
             self.delete_msg_attachments(msg_id)?;
+            // L'extrait de mention d'un message effacé ne doit pas survivre.
+            self.delete_mention(msg_id)?;
         }
         Ok(n > 0)
     }

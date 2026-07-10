@@ -57,6 +57,7 @@ pub(crate) mod discovery;
 mod dm;
 mod files;
 mod groups;
+mod mentions;
 pub(crate) mod nat;
 pub(crate) mod network;
 pub(crate) mod relay;
@@ -407,6 +408,21 @@ impl Node {
                             "attachments": dm::attachments_json(&attachments),
                         }),
                     );
+                    // Détection de mention (meilleur effort) : une nouvelle
+                    // entrée de boîte donne lieu à `event.mention`.
+                    if event == messaging::DmEvent::Stored
+                        && self
+                            .record_dm_mention(peer_pubkey, &msg_id, sent_ms, lamport, kind, &body)
+                            .unwrap_or(false)
+                    {
+                        self.emit(
+                            "event.mention",
+                            json!({
+                                "peer": hex::encode(peer_pubkey),
+                                "msg_id": hex::encode(&msg_id),
+                            }),
+                        );
+                    }
                 }
                 Ok(event
                     .should_ack()
@@ -575,6 +591,29 @@ impl Node {
                             "attachments": dm::attachments_json(&attachments),
                         }),
                     );
+                    // Détection de mention (meilleur effort) : une nouvelle
+                    // entrée de boîte donne lieu à `event.mention`.
+                    if event == group::GroupMsgEvent::Stored
+                        && self
+                            .record_group_mention(
+                                &group_id,
+                                &channel_id,
+                                &msg_id,
+                                peer_pubkey,
+                                sent_ms,
+                                lamport,
+                            )
+                            .unwrap_or(false)
+                    {
+                        self.emit(
+                            "event.mention",
+                            json!({
+                                "group_id": hex::encode(&group_id),
+                                "channel_id": hex::encode(&channel_id),
+                                "msg_id": hex::encode(&msg_id),
+                            }),
+                        );
+                    }
                 }
                 Ok(vec![])
             }

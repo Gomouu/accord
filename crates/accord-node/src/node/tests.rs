@@ -671,3 +671,42 @@ fn group_typing_reaches_only_online_members() {
         other => panic!("attendu une frappe de salon, obtenu {other:?}"),
     }
 }
+
+#[test]
+fn group_mention_records_inbox_entry_and_purges_on_delete() {
+    let (alice, mut rx_a) = node_with_channel();
+    let (bob, mut rx_b) = node_with_channel();
+    let alice_pub = alice.public_key();
+    let bob_pub = bob.public_key();
+
+    let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
+    let chan = hex::decode::<16>(&alice.group_add_channel(&gid, "général").unwrap()).unwrap();
+    alice.group_invite(&gid, &bob_pub).unwrap();
+    deliver(&mut rx_a, &alice_pub, &bob, &bob_pub);
+
+    // Bob mentionne tout le monde ; Alice ingère et enregistre une entrée.
+    let mid =
+        hex::decode::<16>(&bob.group_send(&gid, &chan, "réunion @everyone").unwrap()).unwrap();
+    deliver(&mut rx_b, &bob_pub, &alice, &alice_pub);
+    assert!(alice.msg_mentions_me(&mid).unwrap());
+    assert_eq!(alice.group_mention_count(&gid).unwrap(), 1);
+    let inbox = alice.mention_inbox(None, 50).unwrap();
+    assert_eq!(inbox.len(), 1);
+    assert_eq!(inbox[0].msg_id, mid);
+    assert_eq!(inbox[0].author, bob_pub);
+
+    // L'émetteur ne se mentionne pas lui-même (message composé localement).
+    assert!(!bob.msg_mentions_me(&mid).unwrap());
+
+    // Un message ordinaire n'ajoute pas d'entrée.
+    let plain =
+        hex::decode::<16>(&bob.group_send(&gid, &chan, "rien de spécial").unwrap()).unwrap();
+    deliver(&mut rx_b, &bob_pub, &alice, &alice_pub);
+    assert!(!alice.msg_mentions_me(&plain).unwrap());
+    assert_eq!(alice.group_mention_count(&gid).unwrap(), 1);
+
+    // La suppression (modération) purge l'entrée de mention.
+    alice.group_delete_msg(&gid, &chan, &mid).unwrap();
+    assert!(!alice.msg_mentions_me(&mid).unwrap());
+    assert_eq!(alice.group_mention_count(&gid).unwrap(), 0);
+}

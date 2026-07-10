@@ -556,6 +556,7 @@ impl Node {
                         &msg_id,
                         lamport,
                         sent_ms,
+                        now_ms(),
                         key_epoch,
                         &body_enc,
                     )?)

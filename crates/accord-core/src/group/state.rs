@@ -29,12 +29,33 @@ pub const MAX_EMOJIS: usize = 50;
 /// Longueur maximale d'un pseudo de serveur (en caractères, après trim).
 pub const MAX_NICKNAME_CHARS: usize = 32;
 
+/// Plafond de l'échéance d'une sourdine (`until_ms`, ms murales). ~an 2248,
+/// très en deçà de 2^53 : garde une date exploitable côté UI (JS `number`).
+pub const MAX_TIMEOUT_UNTIL_MS: u64 = 1 << 43;
+
+/// Vrai si `c` est un caractère de « format » Unicode exploitable pour
+/// l'usurpation visuelle d'identité : override bidirectionnel, marques
+/// directionnelles, caractères de largeur nulle, isolats, BOM. `char::is_control`
+/// (catégorie Cc) ne les couvre pas ; on les rejette explicitement dans les
+/// pseudos de serveur pour éviter qu'un membre affiche un nom trompeur (texte
+/// inversé, caractères cachés) dans la liste des membres ou les messages.
+fn is_spoofing_char(c: char) -> bool {
+    matches!(c,
+        '\u{200B}'..='\u{200F}'   // ZWSP, ZWNJ, ZWJ, LRM, RLM
+        | '\u{202A}'..='\u{202E}' // LRE, RLE, PDF, LRO, RLO
+        | '\u{2066}'..='\u{2069}' // LRI, RLI, FSI, PDI
+        | '\u{FEFF}',             // BOM / ZWNBSP
+    )
+}
+
 /// Vrai si `name` (déjà trimmé) est un pseudo de serveur valide : 1 à 32
-/// caractères sans caractère de contrôle. La chaîne vide efface le pseudo et
-/// n'est donc pas « valide » au sens de cette fonction (traitée à part).
+/// caractères, sans caractère de contrôle ni caractère de format trompeur
+/// ([`is_spoofing_char`]). La chaîne vide efface le pseudo et n'est donc pas
+/// « valide » au sens de cette fonction (traitée à part).
 fn is_valid_nickname(name: &str) -> bool {
     let len = name.chars().count();
-    (1..=MAX_NICKNAME_CHARS).contains(&len) && !name.chars().any(|c| c.is_control())
+    (1..=MAX_NICKNAME_CHARS).contains(&len)
+        && !name.chars().any(|c| c.is_control() || is_spoofing_char(c))
 }
 
 /// Vrai si `name` est un nom d'émoji valide : 2 à 32 caractères `[a-z0-9_]`.
@@ -748,7 +769,12 @@ impl GroupState {
                 if until_ms == 0 {
                     self.timeouts.remove(&member);
                 } else {
-                    self.timeouts.insert(member, until_ms);
+                    // Borne déterministe (tous les pairs plafonnent pareil) :
+                    // évite qu'un `until_ms` absurde (p. ex. u64::MAX) perde de
+                    // la précision côté UI (JS `number` > 2^53 → date invalide).
+                    // Le porteur de KICK peut déjà exclure définitivement via
+                    // KICK/BAN, donc plafonner n'ôte aucun pouvoir.
+                    self.timeouts.insert(member, until_ms.min(MAX_TIMEOUT_UNTIL_MS));
                 }
             }
             GroupOpBody::SetNickname { member, name } => {
@@ -1600,6 +1626,25 @@ mod tests {
                 .map(String::as_str),
             Some("Renommé"),
         );
+
+        // Visual-spoofing format characters (bidi override, zero-width) are
+        // rejected too, even though they are not `char::is_control`.
+        for spoof in ["\u{202E}pirate", "z\u{200B}ero", "\u{FEFF}bom"] {
+            let mut sp = ops.clone();
+            sp.push(signed(
+                GroupOpBody::SetNickname {
+                    member: BOB,
+                    name: spoof.into(),
+                },
+                BOB,
+                8,
+            ));
+            assert_eq!(
+                GroupState::fold(&sp).nicknames.get(&BOB).map(String::as_str),
+                Some("Renommé"),
+                "spoofing nickname {spoof:?} must be rejected",
+            );
+        }
 
         // A whitespace-only name clears the nickname.
         ops.push(signed(

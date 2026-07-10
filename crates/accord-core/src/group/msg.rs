@@ -287,6 +287,7 @@ pub fn ingest_group_message(
     msg_id: &[u8; 16],
     lamport: u64,
     sent_ms: u64,
+    local_now_ms: u64,
     key_epoch: u32,
     body_enc: &[u8],
 ) -> Result<GroupMsgEvent, CoreError> {
@@ -299,6 +300,14 @@ pub fn ingest_group_message(
     // comparée à `sent_ms`, l'horloge murale du message) et réserve les salons
     // d'annonces aux porteurs de MANAGE_CHANNELS.
     if state.founder.is_none() || !state.can_send_message(sender, channel_id, sent_ms) {
+        return Ok(GroupMsgEvent::Ignored);
+    }
+    // Anti-forge : `sent_ms` est auto-déclaré par l'émetteur et non authentifié
+    // (hors AAD). Un membre en sourdine pourrait post-dater `sent_ms` au-delà de
+    // l'échéance pour contourner le mute. On exige donc aussi qu'il ne soit pas
+    // en sourdine selon l'horloge locale du RÉCEPTEUR (non contrôlable par
+    // l'attaquant). Un message honnête composé après l'échéance passe les deux.
+    if state.is_timed_out(sender, local_now_ms) {
         return Ok(GroupMsgEvent::Ignored);
     }
     let Some(key) = db.group_key(group_id, key_epoch)? else {
@@ -481,6 +490,7 @@ mod tests {
             &msg_id,
             lamport,
             sent_ms,
+            sent_ms,
             key_epoch,
             &body_enc,
         )
@@ -504,6 +514,7 @@ mod tests {
             &channel_id,
             &msg_id,
             lamport,
+            sent_ms,
             sent_ms,
             key_epoch,
             &body_enc,
@@ -553,6 +564,7 @@ mod tests {
             &chan,
             &msg_id,
             lamport,
+            sent_ms,
             sent_ms,
             key_epoch,
             &body_enc,
@@ -743,6 +755,7 @@ mod tests {
             &id,
             lam,
             ms,
+            ms,
             epoch,
             &enc,
         )
@@ -795,6 +808,7 @@ mod tests {
             &msg_id,
             lamport,
             sent_ms,
+            sent_ms,
             key_epoch + 7,
             &body_enc,
         )
@@ -809,6 +823,7 @@ mod tests {
             &chan,
             &[9u8; 16],
             lamport,
+            sent_ms,
             sent_ms,
             key_epoch,
             &body_enc,
@@ -841,6 +856,18 @@ mod tests {
 
     /// Ingère une enveloppe chez `db` au nom de `sender`.
     fn ingest(db: &Db, sender: &Identity, msg: CoreMsg) -> GroupMsgEvent {
+        // Cas honnête : l'horloge locale du récepteur coïncide avec `sent_ms`.
+        ingest_at(db, sender, msg, None)
+    }
+
+    /// Ingestion avec une horloge locale explicite du récepteur (`None` =
+    /// coïncide avec `sent_ms`). Sert à éprouver la forge de `sent_ms`.
+    fn ingest_at(
+        db: &Db,
+        sender: &Identity,
+        msg: CoreMsg,
+        local_now_ms: Option<u64>,
+    ) -> GroupMsgEvent {
         let (gid, cid, mid, lamport, sent_ms, epoch, enc) = parts(msg);
         ingest_group_message(
             db,
@@ -851,6 +878,7 @@ mod tests {
             &mid,
             lamport,
             sent_ms,
+            local_now_ms.unwrap_or(sent_ms),
             epoch,
             &enc,
         )
@@ -1230,6 +1258,27 @@ mod tests {
             .group_history(&gid, &chan, u64::MAX, 10)
             .unwrap()
             .is_empty());
+
+        // Anti-forge : Bob, toujours en sourdine (échéance 10_000), forge un
+        // message avec sent_ms = 10_001 pour paraître « après expiration ». Il
+        // est quand même ignoré car l'horloge locale d'Alice (7_500 < 10_000)
+        // le voit encore en sourdine.
+        let forged = seal_body(
+            &db_b,
+            &gid,
+            &chan,
+            &MsgBody::Text {
+                text: "contournement".into(),
+                reply_to: None,
+                attachments: vec![],
+            },
+            10_001,
+        )
+        .expect("scellement");
+        assert_eq!(
+            ingest_at(&db_a, &bob, forged, Some(7_500)),
+            GroupMsgEvent::Ignored
+        );
     }
 
     #[test]

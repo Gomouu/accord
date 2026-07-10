@@ -49,7 +49,28 @@ Version 0.2.0 (beta), **for the curious and for contributors**:
   connect yourself (ideal for testing between friends or on a local network);
 - the protocol and the code have not undergone an external security audit.
 
-## Installation (from source)
+## Download & install
+
+Grab the installer for your system from the
+[latest release](https://github.com/Anthonyvimercati/accord/releases/latest) —
+no compiling required.
+
+| System | File | How to install |
+|--------|------|----------------|
+| **macOS** (Apple Silicon) | `Accord_*_aarch64.dmg` | Open the DMG, drag Accord into Applications. First launch: **right-click the app → Open** (the app is not code-signed, so a normal double-click is blocked by Gatekeeper). |
+| **Windows** | `Accord_*_x64-setup.exe` (or the `.msi`) | Run the installer. SmartScreen may warn about an unknown publisher: click **More info → Run anyway** (the installer is not code-signed). |
+| **Linux (Debian/Ubuntu)** | `Accord_*_amd64.deb` | `sudo apt install ./Accord_*_amd64.deb` |
+| **Linux (any distro)** | `Accord_*_amd64.AppImage` | `chmod +x Accord_*.AppImage && ./Accord_*.AppImage` |
+| **Linux (Fedora/RHEL)** | `Accord-*.x86_64.rpm` | `sudo dnf install ./Accord-*.x86_64.rpm` |
+
+> The installers are **not code-signed or notarized** yet, so macOS and Windows
+> show an "unknown developer" warning on first launch — the steps above bypass it
+> once. Voice on Windows has not been validated by the team; feedback welcome.
+
+## Build from source
+
+If you prefer to build it yourself (or you are on an Intel Mac, for which no
+prebuilt binary is provided yet):
 
 ### Common prerequisites
 

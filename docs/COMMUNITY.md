@@ -31,6 +31,7 @@ Nouveaux discriminants d'op de groupe (`GroupOpBody`, prochain libre après
 | `0x29` | `PollCreate` | `VIEW`+`SEND` effectifs dans `channel_id` (comme envoyer un message — **pas** la simple appartenance) |
 | `0x2A` | `PollDelete` | `MANAGE_CHANNELS` ou auteur du sondage |
 | `0x2B` | `SetAutoModWords` | `MANAGE_CHANNELS` |
+| `0x2C` | `SetChannelSlowmode` | `MANAGE_CHANNELS` |
 
 Aucun nouveau bit de permission n'a été introduit : les événements,
 l'édition de la bannière et AutoMod réutilisent `MANAGE_CHANNELS` (même
@@ -560,7 +561,137 @@ négligeable vu la borne de 50 mots.
 
 ---
 
-## 8. Quotas et bornes (résumé)
+## 8. Mode lent par salon (`groups.channel.slowmode`)
+
+### 8.1 Investigation préalable — pourquoi ce n'est PAS repliable comme un
+`TimeoutMember`
+
+Les MESSAGES de salon (`CoreMsg::GroupMsg`, corps `MsgBody`) ne font **pas**
+partie de l'op-log signé et répliqué (`GroupOp`/`GroupOpBody`, replié par
+`GroupState::fold`) : ils voyagent comme des livraisons P2P chiffrées
+séparées, ingérées individuellement par
+`accord_core::group::msg::ingest_group_message`, qui ne consulte
+`GroupState` que pour l'autorisation (`VIEW`+`SEND` effectifs, sourdine,
+salon d'annonces) — `GroupState::apply` ne voit jamais un message. De plus,
+`accord_core::group::group_state` **recalcule** `GroupState::fold(ops)` à
+chaque appel (fonction pure de l'op-log) : aucun état mutable dérivé des
+messages (comme « dernier envoi de cet auteur ») ne peut donc vivre dans
+`GroupState`.
+
+Conséquence directe :
+- La **configuration** du mode lent (le cooldown en secondes) EST repliable
+  comme n'importe quelle autre propriété de salon — c'est
+  `GroupOpBody::SetChannelSlowmode`, stockée dans
+  `GroupState::channels[channel_id].slowmode_secs`, gated `MANAGE_CHANNELS`
+  à l'émission **et** au rejeu (comme tout op de gestion de salon).
+- L'**application** du cooldown (compter le temps écoulé depuis le dernier
+  message d'un auteur dans un salon) ne peut PAS être repliée dans
+  `GroupState` — il n'existe littéralement aucun mécanisme d'op-log qui voie
+  les messages. Elle est donc appliquée par chaque pair HONNÊTE, à la
+  composition et à l'ingestion, contre un suivi local hors `GroupState`
+  (table `group_slowmode`, non répliquée).
+
+Ce modèle reste néanmoins **robuste contre un client modifié** — bien plus
+qu'une simple convention côté envoi — car l'ingestion (pas seulement la
+composition) applique la même règle : un message trop rapide envoyé par un
+pair hostile est silencieusement ignoré (`GroupMsgEvent::Ignored`) par
+**chaque destinataire honnête**, indépendamment de ce que fait l'expéditeur.
+C'est exactement le même principe que la sourdine (`TimeoutMember`, 0x1D) :
+la permission/config est repliée, l'application au flux de messages est
+vérifiée séparément à la composition et à l'ingestion.
+
+### 8.2 Anti-forge : horloge du récepteur, jamais `sent_ms`
+
+`sent_ms` est auto-déclaré par l'expéditeur et non authentifié (hors AAD).
+Un client modifié pourrait donc mentir dessus pour prétendre que le cooldown
+est écoulé alors que ses messages arrivent en rafale en temps réel. Comme
+pour le contournement de sourdine déjà documenté
+(`accord_core::group::msg::ingest_group_message`), le suivi du mode lent
+utilise **l'horloge locale non falsifiable** :
+
+- à la composition, l'horloge locale de l'émetteur (`now_ms` de l'appelant) ;
+- à l'ingestion, l'horloge locale du RÉCEPTEUR (`local_now_ms`), jamais
+  `sent_ms`.
+
+Chaque pair honnête rejette donc un message trop rapproché du précédent
+message qu'IL a lui-même reçu de cet auteur dans ce salon, quel que soit ce
+que l'expéditeur prétend sur `sent_ms`.
+
+### 8.3 Méthode RPC
+
+| Méthode | Paramètres | Résultat | Erreurs notables |
+|---|---|---|---|
+| `groups.channel.slowmode` | `{ group_id, channel_id, seconds }` | `{ ok: true }` | `INVALID_PARAMS` (`seconds` absent/non entier, > 21600) ; `APP_ERROR` « refusé : … » (pas `MANAGE_CHANNELS`, salon inconnu) |
+
+- `seconds = 0` désactive le mode lent (valeur par défaut de tout salon
+  nouvellement créé).
+- Bornes : `0..=21600` (6 heures, plafond identique à Discord) — **rejeté au
+  décodage filaire** (contrairement à l'échéance d'une sourdine, plafonnée
+  silencieusement au repli plutôt que refusée) ; revérifié au repli en
+  défense en profondeur.
+- Exemptions : un porteur de `MANAGE_CHANNELS` **ou** `MANAGE_MESSAGES`
+  dans le salon (overrides compris) n'est jamais bridé par sa propre
+  configuration (comportement Discord) — un modérateur peut toujours
+  intervenir sans attendre son propre cooldown.
+
+### 8.4 Forme dans `groups.state`
+
+Nouveau champ par salon (0/absent = désactivé) :
+
+```json
+{
+  "channels": [
+    {
+      "channel_id": "…",
+      "name": "général",
+      "slowmode_secs": 30,
+      "...": "reste du contrat channel inchangé"
+    }
+  ]
+}
+```
+
+### 8.5 Nettoyage à la suppression du salon
+
+`slowmode_secs` vit directement sur la structure `Channel` de `GroupState` :
+supprimer le salon (`DelChannel`) retire l'entrée `Channel` tout entière, le
+mode lent disparaît donc **gratuitement** avec elle — même mécanique que les
+overrides de permissions par salon.
+
+Le suivi LOCAL (non répliqué, table `group_slowmode` : dernier envoi accepté
+par (salon, auteur)) est, lui, réélagué après chaque repli de l'op-log
+(`accord_core::group::apply_moderation`, même déclencheur que le nettoyage
+des tombstones de modération) : toute entrée dont le salon n'existe plus
+dans `GroupState.channels`, ou dont l'auteur n'est plus dans
+`GroupState.members` (départ, expulsion, bannissement), est purgée — borné
+par construction (au plus un couple salon×membre actif à tout instant, pas
+de croissance non bornée).
+
+### 8.6 Passe adversariale (bornée, sans panique)
+
+- Décodage filaire : `seconds` au-delà de 21600 rejeté intégralement (pas de
+  troncature/plafonnement silencieux) ; fuzz de troncature sur tous les
+  préfixes d'un encodage valide ; octets excédentaires en fin de structure
+  rejetés.
+- Repli (`accord-core`) : permission `MANAGE_CHANNELS` refusée pour un
+  simple membre ; salon inconnu ignoré (pas de création d'entrée fantôme) ;
+  `seconds` hors bornes ignoré en défense en profondeur (le décodage filaire
+  l'empêche déjà, le repli ne doit jamais en dépendre seul) ; repli prouvé
+  order-independent.
+- Application du cooldown : message trop rapproché ignoré silencieusement
+  (`GroupMsgEvent::Ignored`, pas d'erreur — pas d'oracle réseau) ; rôles
+  exempts (`MANAGE_CHANNELS`/`MANAGE_MESSAGES`) contournent le cooldown des
+  deux côtés (composition et ingestion) ; anti-forge par horloge du
+  récepteur (§8.2) prouvée par test (`sent_ms` mensonger loin dans le
+  « futur » sans effet sur la décision) ; suivi borné et purgé au départ
+  d'un membre ou à la suppression d'un salon (§8.5) ; réingestion d'un
+  message déjà accepté (rejeu/doublon réseau) détectée et traitée à part
+  (`GroupMsgEvent::Duplicate`) — jamais comptée contre le cooldown de son
+  propre auteur.
+
+---
+
+## 9. Quotas et bornes (résumé)
 
 | Élément | Borne | Enforcement |
 |---|---|---|
@@ -589,6 +720,11 @@ négligeable vu la borne de 50 mots.
 | Mot AutoMod | 1-32 caractères après normalisation minuscule, sans caractère de contrôle ni de format trompeur (bidi/zero-width) | frontière (bornes structurelles) + fold (`is_valid_display_label`, rejet complet de l'op sur un seul mot invalide) |
 | Mot AutoMod sur le fil (`SetAutoModWords`) | ≤ 128 octets UTF-8 (marge ×4 sur 32 caractères, même politique que `MAX_NICKNAME`) | décodage filaire |
 | `SetAutoModWords` | `MANAGE_CHANNELS` requis | fold, à l'émission **et** au rejeu |
+| Mode lent par salon (`slowmode_secs`) | 0-21600 secondes (6h, `MAX_CHANNEL_SLOWMODE_SECS`) | **décodage filaire** (rejet complet au-delà, pas de troncature) **et** fold (défense en profondeur) |
+| `SetChannelSlowmode` | `MANAGE_CHANNELS` requis, salon existant | fold, à l'émission **et** au rejeu |
+| Application du cooldown de mode lent | non repliable (les messages ne font pas partie de l'op-log — voir §8.1) : chaque pair honnête l'applique localement, horodaté par SA PROPRE horloge (jamais `sent_ms` auto-déclaré) | composition **et** ingestion (`accord_core::group::msg::check_slowmode`) |
+| Exemption de mode lent | `MANAGE_CHANNELS` ou `MANAGE_MESSAGES` effectif dans le salon | composition **et** ingestion |
+| Suivi local du mode lent (table `group_slowmode`) | un couple (salon, auteur) actif à la fois, purgé au départ d'un membre ou à la suppression d'un salon | réélagage après chaque repli de l'op-log |
 
 Toute op au-delà d'une borne de **fold** est silencieusement ignorée
 (convergence déterministe entre pairs honnêtes, indépendante de l'ordre

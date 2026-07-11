@@ -312,6 +312,13 @@ fn audit_entry_json(op: &GroupOp) -> Value {
             GroupOpBody::SetAutoModWords { words } => {
                 ("automod_set", json!({ "word_count": words.len() }))
             }
+            GroupOpBody::SetChannelSlowmode {
+                channel_id,
+                seconds,
+            } => (
+                "set_channel_slowmode",
+                json!({ "channel_id": hex::encode(&channel_id), "seconds": seconds }),
+            ),
         },
         Err(_) => ("unknown", json!({})),
     };
@@ -433,6 +440,13 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             let position = param_opt_u16(params, "position")?;
             let category = param_category(params, "category")?;
             node.group_channel_edit(&gid, &cid, name, position, category)?;
+            Ok(json!({ "ok": true }))
+        }
+        "groups.channel.slowmode" => {
+            let gid = param_id16(params, "group_id")?;
+            let cid = param_id16(params, "channel_id")?;
+            let seconds = param_u32(params, "seconds")?;
+            node.group_channel_slowmode(&gid, &cid, seconds)?;
             Ok(json!({ "ok": true }))
         }
         "groups.channel.perms" => {

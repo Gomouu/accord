@@ -4,7 +4,8 @@
 
 use accord_crypto::identity::node_id_of;
 use accord_proto::core_msg::{
-    perms, ChannelKind, GroupOp, GroupOpBody, MAX_AUTOMOD_WORDS, MAX_POLL_OPTIONS,
+    perms, ChannelKind, GroupOp, GroupOpBody, MAX_AUTOMOD_WORDS, MAX_CHANNEL_SLOWMODE_SECS,
+    MAX_POLL_OPTIONS,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -206,6 +207,16 @@ pub struct Channel {
     pub topic: String,
     /// Messages épinglés.
     pub pins: BTreeSet<[u8; 16]>,
+    /// Mode lent : délai minimal (secondes) entre deux messages d'un même
+    /// auteur non exempté dans ce salon (`0` = désactivé, plafond
+    /// [`MAX_CHANNEL_SLOWMODE_SECS`]). Config répliquée
+    /// (`GroupOpBody::SetChannelSlowmode`) ; l'application du cooldown
+    /// lui-même n'est PAS repliée ici (les messages ne font pas partie de
+    /// l'op-log signé — voir `accord_core::group::msg::check_slowmode`) :
+    /// chaque pair honnête la réévalue localement à la composition/
+    /// ingestion. Effacé gratuitement à la suppression du salon (le champ
+    /// disparaît avec l'entrée `Channel`, comme les overrides).
+    pub slowmode_secs: u32,
 }
 
 /// Catégorie de salons.
@@ -614,6 +625,7 @@ impl GroupState {
                         position,
                         topic: String::new(),
                         pins: BTreeSet::new(),
+                        slowmode_secs: 0,
                     },
                 );
             }
@@ -1360,9 +1372,37 @@ impl GroupState {
                 }
                 self.automod_words = normalized;
             }
+            GroupOpBody::SetChannelSlowmode {
+                channel_id,
+                seconds,
+            } => {
+                if !has(perms::MANAGE_CHANNELS) {
+                    return self.ignore("SET_CHANNEL_SLOWMODE refusé");
+                }
+                // Defense in depth: the wire decode already rejects
+                // `seconds` beyond the ceiling, but the fold must never
+                // rely on that alone (same policy as `MAX_AUTOMOD_WORDS`).
+                if seconds > MAX_CHANNEL_SLOWMODE_SECS {
+                    return self.ignore("mode lent hors bornes (6h max)");
+                }
+                let Some(ch) = self.channels.get_mut(&channel_id) else {
+                    return self.ignore("salon inconnu");
+                };
+                ch.slowmode_secs = seconds;
+            }
         }
         self.applied_ops += 1;
         Applied::Ok
+    }
+
+    /// Vrai si `who` est exempté du mode lent d'un salon : porteur de
+    /// `MANAGE_CHANNELS` ou `MANAGE_MESSAGES` effectif dans ce salon
+    /// (comportement Discord — un modérateur n'est jamais bridé par sa
+    /// propre configuration). Overrides de salon compris, comme
+    /// [`Self::permissions_in`].
+    pub fn slowmode_exempt(&self, who: &[u8; 32], channel_id: &[u8; 16]) -> bool {
+        self.permissions_in(who, channel_id) & (perms::MANAGE_CHANNELS | perms::MANAGE_MESSAGES)
+            != 0
     }
 
     /// Un auteur ne gère que des rôles strictement sous sa position
@@ -3895,6 +3935,153 @@ mod tests {
 
         // Order-independence: shuffled ops converge to the same state
         // (mirrors `fold_is_order_independent`).
+        let mut shuffled = at_cap.clone();
+        shuffled.reverse();
+        assert_eq!(GroupState::fold(&at_cap), GroupState::fold(&shuffled));
+    }
+
+    #[test]
+    fn channel_slowmode_requires_manage_channels_and_known_channel() {
+        let mut ops = base_ops();
+        add_poll_channel(&mut ops, 3);
+
+        // A plain member (no MANAGE_CHANNELS) cannot set it.
+        ops.push(signed(
+            GroupOpBody::SetChannelSlowmode {
+                channel_id: POLL_CHAN,
+                seconds: 10,
+            },
+            ALICE,
+            4,
+        ));
+        assert_eq!(
+            GroupState::fold(&ops)
+                .channels
+                .get(&POLL_CHAN)
+                .unwrap()
+                .slowmode_secs,
+            0
+        );
+
+        // The founder (MANAGE_CHANNELS via ALL_PERMS) can set it.
+        ops.push(signed(
+            GroupOpBody::SetChannelSlowmode {
+                channel_id: POLL_CHAN,
+                seconds: 30,
+            },
+            FOUNDER,
+            5,
+        ));
+        assert_eq!(
+            GroupState::fold(&ops)
+                .channels
+                .get(&POLL_CHAN)
+                .unwrap()
+                .slowmode_secs,
+            30
+        );
+
+        // An unknown channel is ignored rather than creating a dangling entry.
+        let mut unknown = base_ops();
+        unknown.push(signed(
+            GroupOpBody::SetChannelSlowmode {
+                channel_id: [0xEE; 16],
+                seconds: 10,
+            },
+            FOUNDER,
+            4,
+        ));
+        assert!(GroupState::fold(&unknown).channels.is_empty());
+
+        // 0 turns it back off.
+        ops.push(signed(
+            GroupOpBody::SetChannelSlowmode {
+                channel_id: POLL_CHAN,
+                seconds: 0,
+            },
+            FOUNDER,
+            6,
+        ));
+        assert_eq!(
+            GroupState::fold(&ops)
+                .channels
+                .get(&POLL_CHAN)
+                .unwrap()
+                .slowmode_secs,
+            0
+        );
+    }
+
+    /// Adversarial pass + convergence: out-of-range `seconds` ignored
+    /// (defense in depth — the wire decoder already rejects it, the fold
+    /// must not rely on that alone), slow mode cleared for free when the
+    /// channel is deleted (the whole `Channel` entry disappears), and the
+    /// fold is order-independent.
+    #[test]
+    fn channel_slowmode_rejects_out_of_range_and_clears_on_channel_delete() {
+        let mut oversized = base_ops();
+        add_poll_channel(&mut oversized, 3);
+        oversized.push(signed(
+            GroupOpBody::SetChannelSlowmode {
+                channel_id: POLL_CHAN,
+                seconds: MAX_CHANNEL_SLOWMODE_SECS + 1,
+            },
+            FOUNDER,
+            4,
+        ));
+        assert_eq!(
+            GroupState::fold(&oversized)
+                .channels
+                .get(&POLL_CHAN)
+                .unwrap()
+                .slowmode_secs,
+            0
+        );
+
+        // Exactly the ceiling is accepted.
+        let mut at_cap = base_ops();
+        add_poll_channel(&mut at_cap, 3);
+        at_cap.push(signed(
+            GroupOpBody::SetChannelSlowmode {
+                channel_id: POLL_CHAN,
+                seconds: MAX_CHANNEL_SLOWMODE_SECS,
+            },
+            FOUNDER,
+            4,
+        ));
+        assert_eq!(
+            GroupState::fold(&at_cap)
+                .channels
+                .get(&POLL_CHAN)
+                .unwrap()
+                .slowmode_secs,
+            MAX_CHANNEL_SLOWMODE_SECS
+        );
+
+        // Deleting the channel drops the whole `Channel` entry, slow mode
+        // included — mirrors how per-channel overrides are cleared on
+        // `DelChannel`. Re-adding a channel under the SAME id afterwards
+        // starts fresh at `slowmode_secs = 0`.
+        let mut deleted = at_cap.clone();
+        deleted.push(signed(
+            GroupOpBody::DelChannel {
+                channel_id: POLL_CHAN,
+            },
+            FOUNDER,
+            5,
+        ));
+        assert!(!GroupState::fold(&deleted).channels.contains_key(&POLL_CHAN));
+        add_poll_channel(&mut deleted, 6);
+        assert_eq!(
+            GroupState::fold(&deleted)
+                .channels
+                .get(&POLL_CHAN)
+                .unwrap()
+                .slowmode_secs,
+            0
+        );
+
+        // Order-independence: shuffled ops converge to the same state.
         let mut shuffled = at_cap.clone();
         shuffled.reverse();
         assert_eq!(GroupState::fold(&at_cap), GroupState::fold(&shuffled));

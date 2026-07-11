@@ -68,6 +68,15 @@ pub const MAX_AUTOMOD_WORDS: usize = 50;
 /// caractères normalisés (minuscules, anti-usurpation) est vérifiée au
 /// repli, pas ici.
 const MAX_AUTOMOD_WORD_BYTES: usize = 128;
+/// Borne haute du mode lent d'un salon (`GroupOpBody::SetChannelSlowmode`),
+/// en secondes : 6 heures, plafond identique à celui de Discord. `0` = mode
+/// lent désactivé. Rejeté **au décodage filaire** (contrairement à un
+/// timeout, dont l'échéance est plafonnée silencieusement au repli plutôt
+/// que refusée) — un cooldown n'a pas d'usage légitime au-delà de ce
+/// plafond, donc autant couper court avant même de désérialiser vers le
+/// repli. `pub` : réutilisée côté cœur (`accord_core::group::state`) pour
+/// ne pas dupliquer le nombre magique.
+pub const MAX_CHANNEL_SLOWMODE_SECS: u32 = 21_600;
 
 /// Bitfield de permissions de groupe (SPEC §6.2).
 pub mod perms {
@@ -820,6 +829,30 @@ pub enum GroupOpBody {
         /// list exceeds [`MAX_AUTOMOD_WORDS`].
         words: Vec<String>,
     },
+    /// 0x2C — Set a channel's slow mode cooldown, in seconds (`0` = off,
+    /// disabled). Gated on `MANAGE_CHANNELS`, same family as `SetTopic`/
+    /// channel management ops. Unlike a timeout's `until_ms` (silently
+    /// clamped at fold), an out-of-range `seconds` is rejected outright —
+    /// see [`MAX_CHANNEL_SLOWMODE_SECS`].
+    ///
+    /// **Enforcement model**: channel messages are NOT part of this signed
+    /// op-log (they travel as separate `CoreMsg::GroupMsg` P2P deliveries,
+    /// see `accord_core::group::msg`), so the per-author cooldown itself
+    /// cannot live in this deterministically-folded `GroupState` — only the
+    /// *configured* cooldown does. Every honest peer independently
+    /// re-applies the cooldown at message ingest, keyed off its own local
+    /// receipt clock (never the sender's self-declared `sent_ms`, which is
+    /// unauthenticated) — the same anti-forgery pattern already used for
+    /// [`GroupOpBody::TimeoutMember`]. A modified client that ignores its
+    /// own send-side cooldown still has its too-fast messages silently
+    /// dropped by every honest receiver.
+    SetChannelSlowmode {
+        /// Target channel.
+        channel_id: [u8; 16],
+        /// Cooldown between messages from the same (non-exempt) author, in
+        /// seconds. `0` disables slow mode.
+        seconds: u32,
+    },
 }
 
 impl GroupOpBody {
@@ -869,6 +902,7 @@ impl GroupOpBody {
             Self::PollCreate { .. } => 0x29,
             Self::PollDelete { .. } => 0x2A,
             Self::SetAutoModWords { .. } => 0x2B,
+            Self::SetChannelSlowmode { .. } => 0x2C,
         }
     }
 
@@ -1079,6 +1113,13 @@ impl GroupOpBody {
             Self::SetAutoModWords { words } => {
                 w.put_list(words, |w, word| w.put_str(word));
             }
+            Self::SetChannelSlowmode {
+                channel_id,
+                seconds,
+            } => {
+                w.put_arr(channel_id);
+                w.put_u32(*seconds);
+            }
         }
         w.into_bytes()
     }
@@ -1255,6 +1296,17 @@ impl GroupOpBody {
                     r.str(MAX_AUTOMOD_WORD_BYTES, "op.automod.word")
                 })?,
             },
+            0x2C => {
+                let channel_id = r.arr()?;
+                let seconds = r.u32()?;
+                if seconds > MAX_CHANNEL_SLOWMODE_SECS {
+                    return Err(DecodeError::InvalidValue("op.slowmode.seconds"));
+                }
+                Self::SetChannelSlowmode {
+                    channel_id,
+                    seconds,
+                }
+            }
             _ => return Err(DecodeError::InvalidValue("groupop kind")),
         };
         r.finish()?;
@@ -2346,6 +2398,64 @@ mod tests {
         let mut over = encoded.clone();
         over.push(0xFF);
         assert!(GroupOpBody::decode_body(0x2B, &over).is_err());
+    }
+
+    #[test]
+    fn set_channel_slowmode_roundtrips() {
+        let off = GroupOpBody::SetChannelSlowmode {
+            channel_id: [1; 16],
+            seconds: 0,
+        };
+        assert_eq!(off.kind(), 0x2C);
+        assert_eq!(roundtrip(&off), off);
+
+        let some = GroupOpBody::SetChannelSlowmode {
+            channel_id: [2; 16],
+            seconds: 30,
+        };
+        assert_eq!(roundtrip(&some), some);
+
+        // Exactly the 6h ceiling round-trips.
+        let at_cap = GroupOpBody::SetChannelSlowmode {
+            channel_id: [3; 16],
+            seconds: MAX_CHANNEL_SLOWMODE_SECS,
+        };
+        assert_eq!(roundtrip(&at_cap), at_cap);
+    }
+
+    #[test]
+    fn set_channel_slowmode_rejects_out_of_range_and_truncation() {
+        // Adversarial: one second beyond the 6h ceiling is decode-rejected
+        // outright (unlike a timeout's `until_ms`, which is silently
+        // clamped at fold instead).
+        let mut w = Writer::new();
+        w.put_arr(&[4u8; 16]);
+        w.put_u32(MAX_CHANNEL_SLOWMODE_SECS + 1);
+        assert!(GroupOpBody::decode_body(0x2C, &w.into_bytes()).is_err());
+
+        // u32::MAX is rejected the same way (not wrapped/truncated).
+        let mut w2 = Writer::new();
+        w2.put_arr(&[4u8; 16]);
+        w2.put_u32(u32::MAX);
+        assert!(GroupOpBody::decode_body(0x2C, &w2.into_bytes()).is_err());
+
+        // Truncation fuzz: every prefix of a valid encoding fails to decode.
+        let encoded = GroupOpBody::SetChannelSlowmode {
+            channel_id: [5; 16],
+            seconds: 60,
+        }
+        .encode_body();
+        for cut in 0..encoded.len() {
+            assert!(
+                GroupOpBody::decode_body(0x2C, &encoded[..cut]).is_err(),
+                "cut={cut}"
+            );
+        }
+
+        // Trailing garbage after an otherwise-complete body is rejected.
+        let mut over = encoded.clone();
+        over.push(0xFF);
+        assert!(GroupOpBody::decode_body(0x2C, &over).is_err());
     }
 
     /// Round-trips a `MsgBody::Poll` and fuzzes the wire bounds mandated by

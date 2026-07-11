@@ -24,6 +24,7 @@ use accord_crypto::{node_id_of, verify_signature, Identity};
 use accord_proto::core_msg::{GroupOp, GroupOpBody};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
+use std::collections::BTreeSet;
 
 use crate::db::Db;
 use crate::error::CoreError;
@@ -126,7 +127,7 @@ pub fn author_op(
     match state.apply(&op) {
         Applied::Ok => {
             db.insert_group_op(&op)?;
-            apply_moderation(db, &state)?;
+            apply_moderation(db, group_id, &state)?;
             Ok(op)
         }
         Applied::Ignored(reason) => Err(CoreError::OpRejected(reason)),
@@ -146,7 +147,7 @@ pub fn ingest_op(db: &Db, op: &GroupOp) -> Result<IngestOutcome, CoreError> {
         return Ok(IngestOutcome::Duplicate);
     }
     let state = group_state(db, &op.group_id)?;
-    apply_moderation(db, &state)?;
+    apply_moderation(db, &op.group_id, &state)?;
     Ok(IngestOutcome::Inserted)
 }
 
@@ -291,11 +292,17 @@ fn sign_op(
     Ok(op)
 }
 
-/// Applique les tombstones de modération du log à l'historique local.
-fn apply_moderation(db: &Db, state: &GroupState) -> Result<(), CoreError> {
+/// Applique les tombstones de modération du log à l'historique local, et
+/// réélague le suivi local du mode lent (salon supprimé ou auteur n'étant
+/// plus membre — voir [`crate::db::Db::prune_slowmode`], ce suivi vit hors
+/// de `GroupState` puisqu'il n'est pas dérivable du seul op-log).
+fn apply_moderation(db: &Db, group_id: &[u8; 16], state: &GroupState) -> Result<(), CoreError> {
     for msg_id in &state.moderated_deletions {
         db.delete_group_msg(msg_id, None)?;
     }
+    let valid_channels: BTreeSet<[u8; 16]> = state.channels.keys().copied().collect();
+    let valid_authors: BTreeSet<[u8; 32]> = state.members.keys().copied().collect();
+    db.prune_slowmode(group_id, &valid_channels, &valid_authors)?;
     Ok(())
 }
 

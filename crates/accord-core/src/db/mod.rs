@@ -27,7 +27,7 @@ use std::path::Path;
 /// Le lot de création est entièrement idempotent (`IF NOT EXISTS`) : monter
 /// la version suffit pour créer les nouvelles tables sur une base existante.
 /// Modifier des colonnes existantes exigera en revanche une vraie migration.
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 /// Convertit un blob SQL en tableau de taille fixe.
 pub(crate) fn blob<const N: usize>(v: Vec<u8>) -> Result<[u8; N], CoreError> {
@@ -244,7 +244,21 @@ impl Db {
              -- exigent, eux, une invitation acceptée localement.
              INSERT OR IGNORE INTO group_membership_local (group_id, state)
                SELECT DISTINCT group_id, 2 FROM group_ops;
-             PRAGMA user_version = 5;
+             -- Suivi LOCAL (non répliqué) du mode lent par salon : dernier
+             -- envoi ACCEPTÉ par (salon, auteur), horodaté par l'horloge
+             -- locale du nœud (jamais `sent_ms` auto-déclaré par l'auteur) —
+             -- voir accord_core::group::msg::check_slowmode. Borné par
+             -- construction (au plus un couple salon×membre actif) et
+             -- réélagué après chaque repli de l'op-log (salon supprimé ou
+             -- auteur n'étant plus membre).
+             CREATE TABLE IF NOT EXISTS group_slowmode (
+               group_id   BLOB NOT NULL,
+               channel_id BLOB NOT NULL,
+               author     BLOB NOT NULL,
+               last_ms    INTEGER NOT NULL,
+               PRIMARY KEY (group_id, channel_id, author)
+             );
+             PRAGMA user_version = 6;
              COMMIT;",
         )?;
         Ok(())

@@ -1,10 +1,12 @@
-//! Persistance des groupes : op-log répliqué, clés d'époque et appartenance
-//! locale (porte de consentement, non répliquée).
+//! Persistance des groupes : op-log répliqué, clés d'époque, appartenance
+//! locale (porte de consentement, non répliquée) et suivi local du mode
+//! lent par salon (non répliqué — voir `accord_core::group::msg`).
 
 use super::{blob, Db};
 use crate::error::CoreError;
 use accord_proto::core_msg::GroupOp;
 use rusqlite::params;
+use std::collections::BTreeSet;
 
 /// Clé de groupe persistée pour un epoch donné.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -225,6 +227,96 @@ impl Db {
             None => Ok(None),
         }
     }
+
+    // ---- Mode lent (suivi LOCAL, non répliqué) ----
+
+    /// Instant local (horloge du RÉCEPTEUR/émetteur — jamais `sent_ms`
+    /// auto-déclaré) du dernier message ACCEPTÉ pour ce triplet (groupe,
+    /// salon, auteur), le cas échéant.
+    pub fn slowmode_last_ms(
+        &self,
+        group_id: &[u8; 16],
+        channel_id: &[u8; 16],
+        author: &[u8; 32],
+    ) -> Result<Option<u64>, CoreError> {
+        let mut stmt = self.conn().prepare(
+            "SELECT last_ms FROM group_slowmode
+             WHERE group_id = ?1 AND channel_id = ?2 AND author = ?3",
+        )?;
+        let mut rows = stmt.query(params![
+            group_id.as_slice(),
+            channel_id.as_slice(),
+            author.as_slice()
+        ])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(row.get(0)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Enregistre `at_ms` comme dernier envoi accepté pour (salon, auteur).
+    /// Ne retient jamais qu'un maximum : une livraison désordonnée (P2P,
+    /// aucun ordre total entre messages) ne fait jamais reculer l'horloge
+    /// suivie.
+    pub fn bump_slowmode_last_ms(
+        &self,
+        group_id: &[u8; 16],
+        channel_id: &[u8; 16],
+        author: &[u8; 32],
+        at_ms: u64,
+    ) -> Result<(), CoreError> {
+        self.conn().execute(
+            "INSERT INTO group_slowmode (group_id, channel_id, author, last_ms)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(group_id, channel_id, author)
+             DO UPDATE SET last_ms = MAX(last_ms, excluded.last_ms)",
+            params![
+                group_id.as_slice(),
+                channel_id.as_slice(),
+                author.as_slice(),
+                at_ms
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Purge les entrées de suivi devenues obsolètes pour un groupe : salon
+    /// disparu ou auteur n'étant plus membre. Appelée après chaque repli de
+    /// l'op-log ([`crate::group::author_op`]/[`crate::group::ingest_op`])
+    /// pour borner la table (au plus un couple salon×membre actif à tout
+    /// instant) — même déclencheur que le nettoyage des overrides de salon
+    /// sur `DelChannel` et de la modération par membre sur `Kick`/`Ban`/
+    /// `Leave`, mais appliqué ici puisque ce suivi vit hors de
+    /// `GroupState` (non dérivable du seul op-log).
+    pub fn prune_slowmode(
+        &self,
+        group_id: &[u8; 16],
+        valid_channels: &BTreeSet<[u8; 16]>,
+        valid_authors: &BTreeSet<[u8; 32]>,
+    ) -> Result<(), CoreError> {
+        let mut stmt = self
+            .conn()
+            .prepare("SELECT channel_id, author FROM group_slowmode WHERE group_id = ?1")?;
+        let rows: Vec<(Vec<u8>, Vec<u8>)> = stmt
+            .query_map([group_id.as_slice()], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        for (channel_raw, author_raw) in rows {
+            let channel_id: [u8; 16] = blob(channel_raw)?;
+            let author: [u8; 32] = blob(author_raw)?;
+            if !valid_channels.contains(&channel_id) || !valid_authors.contains(&author) {
+                self.conn().execute(
+                    "DELETE FROM group_slowmode
+                     WHERE group_id = ?1 AND channel_id = ?2 AND author = ?3",
+                    params![
+                        group_id.as_slice(),
+                        channel_id.as_slice(),
+                        author.as_slice()
+                    ],
+                )?;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -305,5 +397,73 @@ mod tests {
                 key: [11; 32]
             })
         );
+    }
+
+    #[test]
+    fn slowmode_tracking_takes_the_max_and_is_scoped_per_channel_and_author() {
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        let gid = [1u8; 16];
+        let chan = [2u8; 16];
+        let other_chan = [3u8; 16];
+        let alice = [9u8; 32];
+        let bob = [8u8; 32];
+
+        assert_eq!(db.slowmode_last_ms(&gid, &chan, &alice).unwrap(), None);
+        db.bump_slowmode_last_ms(&gid, &chan, &alice, 1_000)
+            .unwrap();
+        assert_eq!(
+            db.slowmode_last_ms(&gid, &chan, &alice).unwrap(),
+            Some(1_000)
+        );
+
+        // Out-of-order (older) delivery never rewinds the tracked clock.
+        db.bump_slowmode_last_ms(&gid, &chan, &alice, 500).unwrap();
+        assert_eq!(
+            db.slowmode_last_ms(&gid, &chan, &alice).unwrap(),
+            Some(1_000)
+        );
+        db.bump_slowmode_last_ms(&gid, &chan, &alice, 1_500)
+            .unwrap();
+        assert_eq!(
+            db.slowmode_last_ms(&gid, &chan, &alice).unwrap(),
+            Some(1_500)
+        );
+
+        // Scoped per (channel, author): Bob and another channel are unaffected.
+        assert_eq!(db.slowmode_last_ms(&gid, &chan, &bob).unwrap(), None);
+        assert_eq!(
+            db.slowmode_last_ms(&gid, &other_chan, &alice).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn prune_slowmode_drops_deleted_channels_and_departed_members_only() {
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        let gid = [1u8; 16];
+        let chan_a = [2u8; 16];
+        let chan_b = [3u8; 16];
+        let alice = [9u8; 32];
+        let bob = [8u8; 32];
+
+        db.bump_slowmode_last_ms(&gid, &chan_a, &alice, 100)
+            .unwrap();
+        db.bump_slowmode_last_ms(&gid, &chan_a, &bob, 200).unwrap();
+        db.bump_slowmode_last_ms(&gid, &chan_b, &alice, 300)
+            .unwrap();
+
+        // chan_b no longer exists, Bob is no longer a member: only the
+        // (chan_a, alice) entry should survive.
+        let valid_channels: BTreeSet<[u8; 16]> = [chan_a].into_iter().collect();
+        let valid_authors: BTreeSet<[u8; 32]> = [alice].into_iter().collect();
+        db.prune_slowmode(&gid, &valid_channels, &valid_authors)
+            .unwrap();
+
+        assert_eq!(
+            db.slowmode_last_ms(&gid, &chan_a, &alice).unwrap(),
+            Some(100)
+        );
+        assert_eq!(db.slowmode_last_ms(&gid, &chan_a, &bob).unwrap(), None);
+        assert_eq!(db.slowmode_last_ms(&gid, &chan_b, &alice).unwrap(), None);
     }
 }

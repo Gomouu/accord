@@ -615,6 +615,38 @@ impl Node {
         )
     }
 
+    /// Fixe le mode lent d'un salon, en secondes (`0` = désactivé, ≤ 6h —
+    /// [`accord_proto::core_msg::MAX_CHANNEL_SLOWMODE_SECS`]). Permission
+    /// `MANAGE_CHANNELS` vérifiée à l'émission et au rejeu (op
+    /// `SetChannelSlowmode`, 0x2C). La liste courante se lit dans
+    /// `groups.state.channels[].slowmode_secs`.
+    ///
+    /// **Modèle d'application** : les messages de salon ne transitent PAS
+    /// par cet op-log signé (voir `accord_core::group::msg`), donc le
+    /// cooldown lui-même n'est pas « replié » comme une permission — chaque
+    /// pair honnête le réévalue localement à la composition et à
+    /// l'ingestion, en fonction de sa propre horloge (jamais l'horodatage
+    /// auto-déclaré de l'expéditeur). Les porteurs de `MANAGE_CHANNELS`/
+    /// `MANAGE_MESSAGES` restent toujours exemptés (comportement Discord).
+    /// Voir `docs/COMMUNITY.md`.
+    pub fn group_channel_slowmode(
+        &self,
+        group_id: &[u8; 16],
+        channel_id: &[u8; 16],
+        seconds: u32,
+    ) -> Result<(), NodeError> {
+        if seconds > accord_proto::core_msg::MAX_CHANNEL_SLOWMODE_SECS {
+            return Err(NodeError::Invalid("mode lent hors bornes (6h max)"));
+        }
+        self.group_author(
+            group_id,
+            GroupOpBody::SetChannelSlowmode {
+                channel_id: *channel_id,
+                seconds,
+            },
+        )
+    }
+
     // ---- Émojis de serveur ----
 
     /// Ajoute (ou remplace) un émoji de serveur : publie l'image dans le

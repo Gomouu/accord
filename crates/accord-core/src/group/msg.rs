@@ -93,6 +93,56 @@ fn require_send(
     Ok(state)
 }
 
+/// Vérifie le mode lent d'un salon pour un NOUVEAU message (`Text`/
+/// `Sticker`/`Poll` — jamais une édition, une réaction, une suppression ou
+/// un indicateur de frappe, qui ne consomment pas de « tour » de mode lent)
+/// et, si autorisé, enregistre `at_ms` comme dernier envoi accepté pour
+/// (salon, auteur). Rend `false` sans rien enregistrer si le cooldown n'est
+/// pas écoulé — l'appelant décide de la traduction en erreur (composition)
+/// ou en silence (`GroupMsgEvent::Ignored`, ingestion).
+///
+/// `at_ms` doit être une horloge NON falsifiable par l'auteur du message :
+/// l'horloge locale de l'ÉMETTEUR en composition (`now_ms` de l'appelant),
+/// l'horloge locale du RÉCEPTEUR en ingestion (`local_now_ms`) — jamais
+/// `sent_ms` auto-déclaré (hors AAD, non authentifié). Même défense que le
+/// contournement de sourdine anti-forge plus bas dans
+/// [`ingest_group_message`] : un pair hostile qui mentirait sur `sent_ms`
+/// ou ignorerait son propre cooldown local ne gagne rien, puisque chaque
+/// pair HONNÊTE applique indépendamment la même règle en fonction de SA
+/// PROPRE horloge de réception — c'est ce qui rend cette limite robuste
+/// contre un client modifié, alors même que les messages de salon ne font
+/// pas partie de l'op-log signé replié dans `GroupState` (voir
+/// [`GroupState::slowmode_exempt`] / `GroupOpBody::SetChannelSlowmode`).
+///
+/// Les porteurs de `MANAGE_CHANNELS`/`MANAGE_MESSAGES` sont exemptés
+/// (comportement Discord). Un salon inconnu ou sans mode lent actif
+/// n'entrave jamais rien (`true`, aucun enregistrement).
+fn check_slowmode(
+    db: &Db,
+    state: &GroupState,
+    group_id: &[u8; 16],
+    channel_id: &[u8; 16],
+    author: &[u8; 32],
+    at_ms: u64,
+) -> Result<bool, CoreError> {
+    let Some(channel) = state.channels.get(channel_id) else {
+        return Ok(true);
+    };
+    if channel.slowmode_secs == 0 {
+        return Ok(true);
+    }
+    if !state.slowmode_exempt(author, channel_id) {
+        if let Some(last) = db.slowmode_last_ms(group_id, channel_id, author)? {
+            let cooldown_ms = u64::from(channel.slowmode_secs) * 1000;
+            if at_ms.saturating_sub(last) < cooldown_ms {
+                return Ok(false);
+            }
+        }
+    }
+    db.bump_slowmode_last_ms(group_id, channel_id, author, at_ms)?;
+    Ok(true)
+}
+
 /// Chiffre un corps par la clé de groupe courante et rend le `CoreMsg` à
 /// diffuser (l'horloge de Lamport locale est avancée). `msg_id` frais généré
 /// localement ([`new_id16`]).
@@ -169,7 +219,19 @@ pub fn compose_group_message(
         return Err(CoreError::Invalid("texte trop long"));
     }
     validate_attachments(&attachments)?;
-    require_send(db, identity, group_id, channel_id, now_ms)?;
+    let state = require_send(db, identity, group_id, channel_id, now_ms)?;
+    if !check_slowmode(
+        db,
+        &state,
+        group_id,
+        channel_id,
+        &identity.public_key(),
+        now_ms,
+    )? {
+        return Err(CoreError::OpRejected(
+            "mode lent actif : patiente encore un instant",
+        ));
+    }
 
     let body = MsgBody::Text {
         text: text.to_string(),
@@ -276,6 +338,18 @@ pub fn compose_group_sticker(
     now_ms: u64,
 ) -> Result<CoreMsg, CoreError> {
     let state = require_send(db, identity, group_id, channel_id, now_ms)?;
+    if !check_slowmode(
+        db,
+        &state,
+        group_id,
+        channel_id,
+        &identity.public_key(),
+        now_ms,
+    )? {
+        return Err(CoreError::OpRejected(
+            "mode lent actif : patiente encore un instant",
+        ));
+    }
     let merkle_root = *state
         .stickers
         .get(name)
@@ -348,10 +422,22 @@ pub fn compose_group_poll(
     {
         return Err(CoreError::Invalid("option de sondage invalide"));
     }
-    // Unlike `compose_group_sticker`, no further state is needed beyond the
-    // write-permission gate: the poll's tally is registered separately by
-    // the caller via `GroupOpBody::PollCreate` (already authored by now).
-    require_send(db, identity, group_id, channel_id, now_ms)?;
+    // Beyond the write-permission gate, `state` is also needed for the slow
+    // mode check below — the poll's tally itself is registered separately
+    // by the caller via `GroupOpBody::PollCreate` (already authored by now).
+    let state = require_send(db, identity, group_id, channel_id, now_ms)?;
+    if !check_slowmode(
+        db,
+        &state,
+        group_id,
+        channel_id,
+        &identity.public_key(),
+        now_ms,
+    )? {
+        return Err(CoreError::OpRejected(
+            "mode lent actif : patiente encore un instant",
+        ));
+    }
     let body = MsgBody::Poll {
         poll_id,
         question: question.to_string(),
@@ -474,6 +560,15 @@ pub fn ingest_group_message(
             ref attachments,
             ..
         } => {
+            // Duplicate/replay check first (idempotent, unrelated to slow
+            // mode): a re-delivery of an already-accepted message must never
+            // be rejected as "too fast" nor bump the tracked cooldown again.
+            if db.group_msg(msg_id)?.is_some() {
+                return Ok(GroupMsgEvent::Duplicate);
+            }
+            if !check_slowmode(db, &state, group_id, channel_id, sender, local_now_ms)? {
+                return Ok(GroupMsgEvent::Ignored);
+            }
             let inserted = db.insert_group_msg(&GroupMsgRecord {
                 msg_id: *msg_id,
                 group_id: *group_id,
@@ -525,6 +620,12 @@ pub fn ingest_group_message(
         // sans rapport avec un sticker enregistré est affiché tel quel côté
         // UI plutôt que rejeté — dégradation gracieuse, pas d'oracle réseau).
         MsgBody::Sticker { .. } => {
+            if db.group_msg(msg_id)?.is_some() {
+                return Ok(GroupMsgEvent::Duplicate);
+            }
+            if !check_slowmode(db, &state, group_id, channel_id, sender, local_now_ms)? {
+                return Ok(GroupMsgEvent::Ignored);
+            }
             let inserted = db.insert_group_msg(&GroupMsgRecord {
                 msg_id: *msg_id,
                 group_id: *group_id,
@@ -559,6 +660,9 @@ pub fn ingest_group_message(
             if !poll_text_ok(question) || !options.iter().all(|o| poll_text_ok(o)) {
                 return Err(CoreError::Invalid("texte de sondage invalide"));
             }
+            if db.group_msg(msg_id)?.is_some() {
+                return Ok(GroupMsgEvent::Duplicate);
+            }
             // Anti-usurpation (D-048 fix HIGH-2) : `GroupOpBody::PollCreate`
             // lie `poll_id` à un unique (auteur, `msg_id`) canonique. Si
             // l'op-log local connaît déjà ce `poll_id` (un `PollCreate` a
@@ -579,6 +683,9 @@ pub fn ingest_group_message(
                 if existing.author != *sender || existing.msg_id != *msg_id {
                     return Ok(GroupMsgEvent::Ignored);
                 }
+            }
+            if !check_slowmode(db, &state, group_id, channel_id, sender, local_now_ms)? {
+                return Ok(GroupMsgEvent::Ignored);
             }
             let inserted = db.insert_group_msg(&GroupMsgRecord {
                 msg_id: *msg_id,
@@ -1750,5 +1857,264 @@ mod tests {
         )
         .expect("scellement");
         assert_eq!(ingest(&db_a, &bob, forged), GroupMsgEvent::Ignored);
+    }
+
+    /// Zero (the default, and the only value reachable without an explicit
+    /// `SetChannelSlowmode`) means slow mode is off: rapid-fire messages
+    /// from the same author are never blocked.
+    #[test]
+    fn slowmode_zero_never_blocks() {
+        let alice = identity();
+        let bob = identity();
+        let db_a = open_db();
+        let db_b = open_db();
+        let (gid, chan) = build_group(&alice, &db_a, &[(&bob, &db_b)]);
+
+        compose_group_message(
+            &db_b,
+            &bob,
+            &[2; 32],
+            &gid,
+            &chan,
+            "un",
+            None,
+            vec![],
+            1_000,
+        )
+        .expect("premier");
+        compose_group_message(
+            &db_b,
+            &bob,
+            &[2; 32],
+            &gid,
+            &chan,
+            "deux",
+            None,
+            vec![],
+            1_001,
+        )
+        .expect("immédiatement après, sans mode lent actif");
+    }
+
+    #[test]
+    fn slowmode_blocks_second_message_within_cooldown_then_allows_after() {
+        let alice = identity();
+        let bob = identity();
+        let db_a = open_db();
+        let db_b = open_db();
+        let (gid, chan) = build_group(&alice, &db_a, &[(&bob, &db_b)]);
+
+        // Alice (founder, MANAGE_CHANNELS) sets a 10s slow mode; replicated
+        // to Bob's node exactly like any other config op.
+        let set = author_op(
+            &db_a,
+            &alice,
+            &gid,
+            &GroupOpBody::SetChannelSlowmode {
+                channel_id: chan,
+                seconds: 10,
+            },
+            2_000,
+        )
+        .expect("SetChannelSlowmode");
+        ingest_op(&db_b, &set).expect("réplication du mode lent");
+
+        // Bob's first message goes through and starts the cooldown.
+        compose_group_message(
+            &db_b,
+            &bob,
+            &[2; 32],
+            &gid,
+            &chan,
+            "un",
+            None,
+            vec![],
+            3_000,
+        )
+        .expect("premier message");
+
+        // 2s later (< 10s cooldown): rejected.
+        let err = compose_group_message(
+            &db_b,
+            &bob,
+            &[2; 32],
+            &gid,
+            &chan,
+            "deux",
+            None,
+            vec![],
+            5_000,
+        );
+        assert!(matches!(err, Err(CoreError::OpRejected(_))));
+
+        // A message to a DIFFERENT channel from the same author, or a
+        // message from a DIFFERENT author in the same channel, are both
+        // unaffected by Bob's own cooldown (scoped per (channel, author)).
+        let announce = new_id16();
+        let add = author_op(
+            &db_a,
+            &alice,
+            &gid,
+            &GroupOpBody::AddChannel {
+                channel_id: announce,
+                name: "autre".into(),
+                category: None,
+                kind: ChannelKind::Text,
+                position: 1,
+            },
+            2_001,
+        )
+        .expect("second salon");
+        ingest_op(&db_b, &add).expect("réplication salon");
+        compose_group_message(
+            &db_b,
+            &bob,
+            &[2; 32],
+            &gid,
+            &announce,
+            "ailleurs",
+            None,
+            vec![],
+            5_001,
+        )
+        .expect("un autre salon n'est pas concerné par le cooldown de Bob");
+        compose_group_message(
+            &db_a,
+            &alice,
+            &[1; 32],
+            &gid,
+            &chan,
+            "alice",
+            None,
+            vec![],
+            5_002,
+        )
+        .expect("un autre auteur n'est pas concerné par le cooldown de Bob");
+
+        // Once >= 10s have elapsed since Bob's first message, he can post again.
+        compose_group_message(
+            &db_b,
+            &bob,
+            &[2; 32],
+            &gid,
+            &chan,
+            "trois",
+            None,
+            vec![],
+            13_000,
+        )
+        .expect("après expiration du cooldown");
+    }
+
+    #[test]
+    fn slowmode_exempts_manage_channels_and_manage_messages_holders() {
+        let alice = identity();
+        let db_a = open_db();
+        let (gid, chan) = build_group(&alice, &db_a, &[]);
+
+        author_op(
+            &db_a,
+            &alice,
+            &gid,
+            &GroupOpBody::SetChannelSlowmode {
+                channel_id: chan,
+                seconds: 3_600,
+            },
+            2_000,
+        )
+        .expect("SetChannelSlowmode");
+
+        // Alice (founder, MANAGE_CHANNELS+MANAGE_MESSAGES via ALL_PERMS) can
+        // post back-to-back despite the 1h slow mode (Discord behavior:
+        // moderators are never bridled by their own configuration).
+        compose_group_message(
+            &db_a,
+            &alice,
+            &[1; 32],
+            &gid,
+            &chan,
+            "un",
+            None,
+            vec![],
+            3_000,
+        )
+        .expect("premier");
+        compose_group_message(
+            &db_a,
+            &alice,
+            &[1; 32],
+            &gid,
+            &chan,
+            "deux",
+            None,
+            vec![],
+            3_001,
+        )
+        .expect("exemptée, immédiatement après");
+    }
+
+    /// Anti-forgery (mirrors `timeout_blocks_compose_and_ingest`): the
+    /// ingest-side cooldown is keyed off the RECEIVER's own local clock,
+    /// never the sender's self-declared `sent_ms` — a forged `sent_ms` far
+    /// in the future buys nothing, every honest peer independently
+    /// rate-limits based on when IT actually saw the author's messages.
+    #[test]
+    fn slowmode_ingest_ignores_too_fast_message_even_with_forged_sent_ms() {
+        let alice = identity();
+        let bob = identity();
+        let db_a = open_db();
+        let db_b = open_db();
+        let (gid, chan) = build_group(&alice, &db_a, &[(&bob, &db_b)]);
+
+        let set = author_op(
+            &db_a,
+            &alice,
+            &gid,
+            &GroupOpBody::SetChannelSlowmode {
+                channel_id: chan,
+                seconds: 10,
+            },
+            2_000,
+        )
+        .expect("SetChannelSlowmode");
+        ingest_op(&db_b, &set).expect("réplication");
+
+        // Bob composes and Alice ingests a first message honestly (receiver
+        // local clock == sent_ms == 5_000, via the `ingest` helper).
+        let first = compose_group_message(
+            &db_b,
+            &bob,
+            &[2; 32],
+            &gid,
+            &chan,
+            "un",
+            None,
+            vec![],
+            5_000,
+        )
+        .expect("premier");
+        assert_eq!(ingest(&db_a, &bob, first), GroupMsgEvent::Stored);
+
+        // Bob (or a modified client) forges a second message claiming
+        // `sent_ms` far in the "future" — as if the 10s cooldown had long
+        // elapsed — but it reaches Alice almost immediately in real time
+        // (her own local clock has only advanced 100ms).
+        let forged = seal_body(
+            &db_b,
+            &gid,
+            &chan,
+            &MsgBody::Text {
+                text: "deux".into(),
+                reply_to: None,
+                attachments: vec![],
+            },
+            999_999_000,
+        )
+        .expect("scellement forgé");
+        assert_eq!(
+            ingest_at(&db_a, &bob, forged, Some(5_100)),
+            GroupMsgEvent::Ignored,
+            "le mensonge sur sent_ms ne contourne pas le cooldown, gouverné par l'horloge locale du récepteur"
+        );
     }
 }

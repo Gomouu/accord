@@ -416,6 +416,11 @@ pub(super) fn group_state_json(group_id: &[u8; 16], s: &GroupState, me: &[u8; 32
             "category": ch.category.as_ref().map(|c| hex::encode(c)),
             "position": ch.position,
             "topic": ch.topic,
+            // Slow mode cooldown in seconds (0/absent semantics: 0 = off).
+            // Enforcement is NOT part of this replicated state — every
+            // honest peer re-applies it locally at message compose/ingest
+            // (see docs/COMMUNITY.md).
+            "slowmode_secs": ch.slowmode_secs,
         })).collect::<Vec<_>>(),
         "categories": s.categories.iter().map(|(id, c)| json!({
             "category_id": hex::encode(id),

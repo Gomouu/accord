@@ -995,6 +995,7 @@ async fn group_rename_and_topic_are_reflected_in_state() {
             "kind",
             "name",
             "position",
+            "slowmode_secs",
             "topic"
         ]
     );
@@ -2672,6 +2673,122 @@ async fn group_automod_set_validates_at_boundary() {
     )
     .await
     .unwrap();
+}
+
+#[tokio::test]
+async fn group_channel_slowmode_defaults_off_and_set_reflects_in_state() {
+    let (s, gid) = service_with_group().await;
+    let chan = s
+        .call(
+            "groups.channel.add",
+            json!({"group_id": gid, "name": "général"}),
+        )
+        .await
+        .unwrap();
+    let cid = chan["channel_id"].as_str().unwrap().to_string();
+
+    // Absent op: defaults to 0 (off).
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(state["channels"][0]["slowmode_secs"], json!(0));
+
+    s.call(
+        "groups.channel.slowmode",
+        json!({"group_id": gid, "channel_id": cid, "seconds": 30}),
+    )
+    .await
+    .unwrap();
+    let state2 = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(state2["channels"][0]["slowmode_secs"], json!(30));
+
+    // 0 turns it back off.
+    s.call(
+        "groups.channel.slowmode",
+        json!({"group_id": gid, "channel_id": cid, "seconds": 0}),
+    )
+    .await
+    .unwrap();
+    let state3 = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(state3["channels"][0]["slowmode_secs"], json!(0));
+
+    // Surfaced in the audit log too.
+    let audit = s
+        .call("groups.audit", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    let kinds: Vec<String> = audit["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["kind"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        kinds
+            .iter()
+            .filter(|k| *k == "set_channel_slowmode")
+            .count(),
+        2,
+        "the two groups.channel.slowmode calls should both be audited"
+    );
+}
+
+#[tokio::test]
+async fn group_channel_slowmode_validates_at_boundary() {
+    let (s, gid) = service_with_group().await;
+    let chan = s
+        .call(
+            "groups.channel.add",
+            json!({"group_id": gid, "name": "général"}),
+        )
+        .await
+        .unwrap();
+    let cid = chan["channel_id"].as_str().unwrap().to_string();
+
+    // `seconds` missing entirely.
+    let err = s
+        .call(
+            "groups.channel.slowmode",
+            json!({"group_id": gid, "channel_id": cid}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+
+    // Beyond the 6h ceiling (MAX_CHANNEL_SLOWMODE_SECS = 21_600).
+    let err = s
+        .call(
+            "groups.channel.slowmode",
+            json!({"group_id": gid, "channel_id": cid, "seconds": 21_601}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+
+    // Exactly at the ceiling is accepted.
+    s.call(
+        "groups.channel.slowmode",
+        json!({"group_id": gid, "channel_id": cid, "seconds": 21_600}),
+    )
+    .await
+    .unwrap();
+
+    // Unknown channel: rejected at fold, surfaced as an app error.
+    let err = s
+        .call(
+            "groups.channel.slowmode",
+            json!({"group_id": gid, "channel_id": "ee".repeat(16), "seconds": 10}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::APP_ERROR);
 }
 
 #[tokio::test]

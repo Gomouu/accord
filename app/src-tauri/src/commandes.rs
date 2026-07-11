@@ -9,10 +9,18 @@ use accord_node::{identity, NodeConfig, Unlocked};
 use tauri::State;
 
 use crate::erreur::ErreurHote;
-use crate::etat::{EtatHote, IdentiteCreee, InfoSession, StatutCoffre};
+use crate::etat::{
+    CompteCree, CompteMeta, CompteRestaure, EtatHote, IdentiteCreee, InfoSession, StatutCoffre,
+};
 
 /// Difficulté PoW des identités (SPEC §2.2).
 const POW_BITS: u32 = accord_proto::limits::IDENTITY_POW_BITS;
+
+/// Nom provisoire d'un compte fraîchement créé, avant que son pseudo public
+/// (`profile.set`) n'existe : rafraîchi automatiquement au premier
+/// déverrouillage qui suit sa définition (voir
+/// `EtatHote::rafraichir_compte_actif`).
+const NOUVEAU_COMPTE_NOM_PROVISOIRE: &str = "Nouveau compte";
 
 /// Statut du coffre d'identité : `'absent'` ou `'locked'`.
 #[tauri::command]
@@ -65,6 +73,114 @@ pub async fn unlock(
     demarrer(&etat, deverrouille).await
 }
 
+/// Liste les comptes locaux connus (contrat `AccountMeta[]`), du plus
+/// récemment utilisé au moins récent — de quoi peupler un sélecteur de
+/// comptes avant tout déverrouillage. Ne révèle jamais de secret : seules
+/// les métadonnées du registre (voir `accord_node::registry`).
+#[tauri::command]
+pub fn accounts_list(etat: State<'_, EtatHote>) -> Result<Vec<CompteMeta>, ErreurHote> {
+    Ok(etat
+        .registre()
+        .list()?
+        .into_iter()
+        .map(CompteMeta::from)
+        .collect())
+}
+
+/// Crée un compte **neuf** (répertoire de profil dédié, distinct de tout
+/// compte existant), démarre son nœud et rend la session ainsi que la
+/// phrase de récupération à faire noter. Symétrique de `create_identity`,
+/// mais jamais sur le profil actif courant : le compte n'est enregistré
+/// dans le registre qu'après succès du scellement de l'identité, pour ne
+/// jamais y référencer un répertoire vide en cas d'échec.
+#[tauri::command]
+pub async fn account_create(
+    etat: State<'_, EtatHote>,
+    passphrase: String,
+) -> Result<CompteCree, ErreurHote> {
+    let (brouillon, chemins) = etat.registre().new_entry(NOUVEAU_COMPTE_NOM_PROVISOIRE);
+    let id = brouillon.id.clone();
+    let (deverrouille, phrase) = en_arriere_plan({
+        let chemins = chemins.clone();
+        move || identity::create_with_phrase(&chemins, &passphrase, POW_BITS)
+    })
+    .await?;
+    etat.registre().register(brouillon)?;
+    etat.activer(id.clone(), chemins);
+    let session = demarrer(&etat, deverrouille).await?;
+    Ok(CompteCree {
+        session,
+        recovery_phrase: (*phrase).clone(),
+        account_id: id,
+    })
+}
+
+/// Restaure un compte **neuf** depuis sa phrase de récupération (jamais sur
+/// le profil actif courant), le scelle sous la nouvelle phrase de passe
+/// locale, puis démarre son nœud. Même discipline d'enregistrement tardif
+/// que `account_create` : le compte n'existe dans le registre qu'une fois
+/// son identité effectivement scellée sur disque.
+#[tauri::command]
+pub async fn account_restore(
+    etat: State<'_, EtatHote>,
+    phrase: String,
+    passphrase: String,
+) -> Result<CompteRestaure, ErreurHote> {
+    let (brouillon, chemins) = etat.registre().new_entry(NOUVEAU_COMPTE_NOM_PROVISOIRE);
+    let id = brouillon.id.clone();
+    let deverrouille = en_arriere_plan({
+        let chemins = chemins.clone();
+        move || identity::restore_from_phrase(&chemins, &phrase, &passphrase, POW_BITS)
+    })
+    .await?;
+    etat.registre().register(brouillon)?;
+    etat.activer(id.clone(), chemins);
+    let session = demarrer(&etat, deverrouille).await?;
+    Ok(CompteRestaure {
+        session,
+        account_id: id,
+    })
+}
+
+/// Déverrouille un compte existant du registre et bascule dessus : arrête
+/// l'éventuel nœud actif (autre compte) avant de démarrer celui-ci — même
+/// primitive que `demarrer` utilise déjà pour le profil fixe historique, il
+/// n'existe pas de chemin de bascule séparé. Le profil actif n'est changé
+/// qu'après succès du déverrouillage : une phrase de passe incorrecte ne
+/// perturbe jamais la session en cours.
+#[tauri::command]
+pub async fn account_unlock(
+    etat: State<'_, EtatHote>,
+    account_id: String,
+    passphrase: String,
+) -> Result<InfoSession, ErreurHote> {
+    let compte = etat
+        .registre()
+        .get(&account_id)?
+        .ok_or(accord_node::NodeError::NotFound("compte"))?;
+    let chemins = etat.registre().paths_of(&compte);
+    let deverrouille = en_arriere_plan({
+        let chemins = chemins.clone();
+        move || identity::unlock(&chemins, &passphrase)
+    })
+    .await?;
+    etat.activer(compte.id, chemins);
+    demarrer(&etat, deverrouille).await
+}
+
+/// Ferme la session courante : arrête le nœud actif et ramène l'UI à
+/// l'écran d'accueil (sélecteur de comptes), sans changer le profil actif
+/// ni rien effacer sur disque. Distinct de `lock` seulement par intention —
+/// `lock` verrouille *ce* compte, `session_close` quitte vers le
+/// sélecteur ; les deux se résument aujourd'hui à `arreter_noeud`, la
+/// distinction sert de point d'extension si leurs comportements divergent
+/// plus tard.
+#[tauri::command]
+pub async fn session_close(etat: State<'_, EtatHote>) -> Result<StatutCoffre, ErreurHote> {
+    etat.arreter_noeud();
+    Ok(etat.statut_coffre())
+}
+
 /// Locks the vault without quitting the app: the exact inverse of `unlock`.
 ///
 /// Stops the running node (network, API, database) and drops it; the
@@ -106,5 +222,12 @@ async fn demarrer(etat: &EtatHote, deverrouille: Unlocked) -> Result<InfoSession
         ..NodeConfig::default()
     };
     let noeud = accord_node::run(deverrouille, config).await?;
-    Ok(etat.installer_noeud(noeud))
+    let session = etat.installer_noeud(noeud);
+    // Rafraîchit le nom affiché et `last_used_ms` du compte actif dans le
+    // registre — s'applique uniformément aux commandes historiques
+    // (`create_identity`, `restore_identity`, `unlock`) et aux nouvelles
+    // (`account_create`, `account_restore`, `account_unlock`) puisqu'elles
+    // passent toutes par ce même point de démarrage.
+    etat.rafraichir_compte_actif();
+    Ok(session)
 }

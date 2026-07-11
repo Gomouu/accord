@@ -11,6 +11,7 @@ pub mod identity;
 pub mod maintenance;
 pub mod node;
 pub mod outbound;
+pub mod registry;
 pub mod runtime;
 pub mod service;
 pub mod voice;
@@ -28,6 +29,7 @@ pub use error::NodeError;
 pub use identity::{Paths, Unlocked};
 pub use maintenance::MaintenanceConfig;
 pub use node::Node;
+pub use registry::{AccountEntry, Registry};
 pub use service::NodeService;
 pub use voice::{VoiceBackend, VoiceDevices, VoiceHandle, VoiceParticipant, VoiceStatus};
 

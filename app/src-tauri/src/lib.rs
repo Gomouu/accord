@@ -19,9 +19,6 @@ use tauri::Manager;
 
 use etat::EtatHote;
 
-/// Sous-répertoire du profil dans le répertoire de données de l'application.
-const DOSSIER_PROFIL: &str = "profil";
-
 /// Construit puis lance l'application Tauri. Rend un code de sortie explicite
 /// au lieu de paniquer en cas d'échec de démarrage.
 pub fn executer() -> ExitCode {
@@ -37,10 +34,14 @@ pub fn executer() -> ExitCode {
         // webview via @tauri-apps/plugin-notification.
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
-            // Profil dans le répertoire de données par plateforme
-            // (ex. ~/Library/Application Support/fr.accord.desktop/profil).
-            let profil = app.path().app_data_dir()?.join(DOSSIER_PROFIL);
-            app.manage(EtatHote::new(profil));
+            // Répertoire de données par plateforme (ex. ~/Library/Application
+            // Support/fr.accord.desktop) : racine du registre multi-comptes
+            // (D-046) et du profil historique (`profil/`, jamais déplacé).
+            // Charge/migre le registre puis active le compte le plus
+            // récemment utilisé (voir `EtatHote::depuis_repertoire_app`).
+            let app_data_dir = app.path().app_data_dir()?;
+            let etat = EtatHote::depuis_repertoire_app(app_data_dir)?;
+            app.manage(etat);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -48,7 +49,12 @@ pub fn executer() -> ExitCode {
             commandes::create_identity,
             commandes::restore_identity,
             commandes::unlock,
-            commandes::lock
+            commandes::lock,
+            commandes::accounts_list,
+            commandes::account_create,
+            commandes::account_restore,
+            commandes::account_unlock,
+            commandes::session_close
         ])
         .build(tauri::generate_context!());
 

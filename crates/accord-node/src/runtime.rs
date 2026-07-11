@@ -1138,11 +1138,30 @@ impl Runtime {
     /// Envoie un message FILE à un pair dont l'adresse est connue (sinon
     /// silence : la relance périodique réessaiera).
     async fn send_file(&self, to: &[u8; 32], msg: FileMsg) {
-        let Some(addr) = self.addr_of(to) else {
-            return;
-        };
-        if let Err(e) = self.endpoint.send(addr, &ChannelMsg::File(msg)).await {
-            tracing::debug!(erreur = %e, "fichiers : envoi impossible");
+        let channel_msg = ChannelMsg::File(msg);
+        // Liaison d'identité comme `deliver_core` : si le carnet pointe sur
+        // l'adresse d'un relais, l'envoi direct échoue proprement au lieu de
+        // sceller la requête sous la session du relais, et on bascule sur le
+        // circuit.
+        if let Some(addr) = self.addr_of(to) {
+            if self
+                .endpoint
+                .send_to(addr, Some(*to), &channel_msg)
+                .await
+                .is_ok()
+            {
+                return;
+            }
+        }
+        // Repli relais (SPEC §11.3) : sans ce chemin, aucun transfert de
+        // fichier (émojis, stickers, avatars, pièces jointes) n'aboutit entre
+        // deux pairs joignables uniquement via un circuit tunnelé (NAT).
+        if let Some(circuit) = self.endpoint.circuit_for_peer(node_id_of(to)) {
+            if let Err(e) = self.endpoint.send_via_relay(circuit, &channel_msg).await {
+                tracing::debug!(erreur = %e, "fichiers : envoi via relais impossible");
+            }
+        } else {
+            tracing::debug!("fichiers : pair injoignable (ni adresse ni circuit)");
         }
     }
 

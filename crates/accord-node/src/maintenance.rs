@@ -141,12 +141,19 @@ pub fn is_queueable_offline(msg: &CoreMsg) -> bool {
     match msg {
         // Typing indicators and read receipts are ephemeral DirectMsg kinds.
         CoreMsg::DirectMsg { kind, .. } => !EPHEMERAL_DM_KINDS.contains(kind),
+        // Invitations de groupe : doivent survivre à un destinataire
+        // injoignable (hors ligne, NAT sans circuit) — file locale puis
+        // boîte aux lettres DHT. L'expiration du ticket reste vérifiée à
+        // l'ingestion côté invité, un ticket périmé livré tard est ignoré.
         CoreMsg::MsgAck { .. }
         | CoreMsg::FriendRequest { .. }
         | CoreMsg::FriendResponse { .. }
         | CoreMsg::GroupOpMsg { .. }
         | CoreMsg::GroupMsg { .. }
         | CoreMsg::GroupKey { .. }
+        | CoreMsg::InviteTicket { .. }
+        | CoreMsg::InviteAccept { .. }
+        | CoreMsg::InviteDecline { .. }
         | CoreMsg::Profile { .. } => true,
         _ => false,
     }
@@ -916,6 +923,26 @@ mod tests {
             pronouns: None,
             accent_color: None,
             banner_color: None,
+        }));
+        // Invitations de groupe : mises en file (régression — un invité hors
+        // ligne ou derrière un NAT ne recevait jamais le ticket).
+        assert!(is_queueable_offline(&CoreMsg::InviteTicket {
+            group_id: [0; 16],
+            invite_id: [0; 16],
+            group_name: "Serveur".into(),
+            inviter: [0; 32],
+            secret: [0; 32],
+            expires_ms: 0,
+            sig: [0; 64],
+        }));
+        assert!(is_queueable_offline(&CoreMsg::InviteAccept {
+            group_id: [0; 16],
+            invite_id: [0; 16],
+            secret: [0; 32],
+        }));
+        assert!(is_queueable_offline(&CoreMsg::InviteDecline {
+            group_id: [0; 16],
+            invite_id: [0; 16],
         }));
         assert!(!is_queueable_offline(&CoreMsg::Presence {
             status: 0,

@@ -23,16 +23,27 @@ vi.mock('../lib/client', () => ({
 }));
 
 vi.mock('../lib/bridge', () => ({
-  vaultStatus: vi.fn(),
   createIdentity: vi.fn(),
   restoreIdentity: vi.fn(),
   unlockIdentity: vi.fn(),
   lockIdentity: vi.fn(),
+  accountsList: vi.fn(),
+  accountCreate: vi.fn(),
+  accountRestore: vi.fn(),
+  accountUnlock: vi.fn(),
+  sessionClose: vi.fn(),
 }));
 
 import { api, rpc } from '../lib/client';
 import type { SelfProfile } from '../lib/api';
-import { lockIdentity, unlockIdentity } from '../lib/bridge';
+import type { AccountMeta } from '../lib/bridge';
+import {
+  accountsList,
+  accountUnlock,
+  lockIdentity,
+  sessionClose,
+  unlockIdentity,
+} from '../lib/bridge';
 import {
   rememberNotifiedConversation,
   takePendingConversation,
@@ -41,9 +52,23 @@ import { useSession } from './session';
 
 const lockIdentityMock = lockIdentity as unknown as Mock;
 const unlockIdentityMock = unlockIdentity as unknown as Mock;
+const accountsListMock = accountsList as unknown as Mock;
+const accountUnlockMock = accountUnlock as unknown as Mock;
+const sessionCloseMock = sessionClose as unknown as Mock;
 const identitySelfMock = api.identitySelf as unknown as Mock;
 const closeMock = rpc.close as unknown as Mock;
 const connectMock = rpc.connect as unknown as Mock;
+
+function account(id: string): AccountMeta {
+  return {
+    id,
+    name: `Compte ${id}`,
+    created_ms: 1,
+    last_used_ms: 1,
+    is_legacy: false,
+    pubkey_short: null,
+  };
+}
 
 const self: SelfProfile = {
   node_id: 'n-moi',
@@ -62,15 +87,19 @@ const self: SelfProfile = {
  * RPC status callback registered once at store creation — captured before
  * `vi.clearAllMocks()` wipes the recorded call.
  */
-const statusCallback = (rpc.onStatus as unknown as Mock).mock
-  .calls[0]?.[0] as (status: string) => void;
+const statusCallback = (rpc.onStatus as unknown as Mock).mock.calls[0]?.[0] as (
+  status: string,
+) => void;
 
 beforeEach(() => {
   vi.clearAllMocks();
   lockIdentityMock.mockResolvedValue('locked');
+  accountsListMock.mockResolvedValue([]);
+  sessionCloseMock.mockResolvedValue('locked');
   useSession.setState({
     phase: 'ready',
     self,
+    accounts: [],
     recoveryPhrase: null,
     askName: false,
     error: null,
@@ -139,5 +168,98 @@ describe('useSession.lock', () => {
     expect(s.self).toEqual(self);
     expect(s.askName).toBe(false);
     expect(connectMock).toHaveBeenCalledWith(4242, 'jeton');
+  });
+});
+
+describe('useSession.init — routing by account count', () => {
+  it('routes to setup when no local account is known', async () => {
+    accountsListMock.mockResolvedValue([]);
+
+    await useSession.getState().init();
+
+    const s = useSession.getState();
+    expect(s.phase).toBe('setup');
+    expect(s.accounts).toEqual([]);
+  });
+
+  it('routes to locked (direct unlock) with exactly one local account', async () => {
+    accountsListMock.mockResolvedValue([account('a1')]);
+
+    await useSession.getState().init();
+
+    const s = useSession.getState();
+    expect(s.phase).toBe('locked');
+    expect(s.accounts).toHaveLength(1);
+  });
+
+  it('routes to the welcome account picker with two or more local accounts', async () => {
+    accountsListMock.mockResolvedValue([account('a1'), account('a2')]);
+
+    await useSession.getState().init();
+
+    const s = useSession.getState();
+    expect(s.phase).toBe('welcome');
+    expect(s.accounts).toHaveLength(2);
+  });
+
+  it('falls back to setup with the error surfaced when the registry cannot be read', async () => {
+    accountsListMock.mockRejectedValue(new Error('boom'));
+
+    await useSession.getState().init();
+
+    const s = useSession.getState();
+    expect(s.phase).toBe('setup');
+    expect(s.error).toBe('boom');
+  });
+});
+
+describe('useSession.switchAccount', () => {
+  it('closes the session, lands on welcome and refreshes the account list', async () => {
+    accountsListMock.mockResolvedValue([account('a1'), account('a2')]);
+
+    await useSession.getState().switchAccount();
+
+    const s = useSession.getState();
+    expect(sessionCloseMock).toHaveBeenCalledTimes(1);
+    expect(closeMock).toHaveBeenCalledTimes(1);
+    expect(s.phase).toBe('welcome');
+    expect(s.self).toBeNull();
+    expect(s.accounts).toHaveLength(2);
+  });
+
+  it('still lands on welcome with the error surfaced when closing the session fails', async () => {
+    sessionCloseMock.mockRejectedValue(new Error('boom'));
+
+    await useSession.getState().switchAccount();
+
+    const s = useSession.getState();
+    expect(s.phase).toBe('welcome');
+    expect(s.error).toBe('boom');
+  });
+});
+
+describe('useSession.unlockAccount', () => {
+  it('unlocks the selected account and lands on ready', async () => {
+    accountUnlockMock.mockResolvedValue({ port: 4242, token: 'jeton' });
+    identitySelfMock.mockResolvedValue(self);
+    useSession.setState({ phase: 'welcome' });
+
+    await useSession.getState().unlockAccount('a1', 'phrase-de-passe');
+
+    const s = useSession.getState();
+    expect(accountUnlockMock).toHaveBeenCalledWith('a1', 'phrase-de-passe');
+    expect(s.phase).toBe('ready');
+    expect(s.self).toEqual(self);
+  });
+
+  it('stays on welcome with the error surfaced on a wrong passphrase', async () => {
+    accountUnlockMock.mockRejectedValue(new Error('phrase de passe incorrecte'));
+    useSession.setState({ phase: 'welcome' });
+
+    await useSession.getState().unlockAccount('a1', 'mauvaise-phrase');
+
+    const s = useSession.getState();
+    expect(s.phase).toBe('welcome');
+    expect(s.error).toBe('phrase de passe incorrecte');
   });
 });

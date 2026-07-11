@@ -48,14 +48,24 @@ fn is_spoofing_char(c: char) -> bool {
     )
 }
 
+/// Vrai si `name` est un libellé affiché valide : `1..=max_chars` caractères,
+/// sans caractère de contrôle ni caractère de format trompeur
+/// ([`is_spoofing_char`]). Base commune à [`is_valid_nickname`] (pseudos de
+/// serveur) et réutilisée par `accord-node` pour tout autre libellé montré à
+/// l'utilisateur avant qu'il ait pu vérifier son origine — notamment le
+/// `group_name` d'un ticket d'invitation, intégralement contrôlé par
+/// l'émetteur et affiché à l'invité avant toute décision de rejoindre.
+pub fn is_valid_display_label(name: &str, max_chars: usize) -> bool {
+    let len = name.chars().count();
+    (1..=max_chars).contains(&len) && !name.chars().any(|c| c.is_control() || is_spoofing_char(c))
+}
+
 /// Vrai si `name` (déjà trimmé) est un pseudo de serveur valide : 1 à 32
 /// caractères, sans caractère de contrôle ni caractère de format trompeur
 /// ([`is_spoofing_char`]). La chaîne vide efface le pseudo et n'est donc pas
 /// « valide » au sens de cette fonction (traitée à part).
 fn is_valid_nickname(name: &str) -> bool {
-    let len = name.chars().count();
-    (1..=MAX_NICKNAME_CHARS).contains(&len)
-        && !name.chars().any(|c| c.is_control() || is_spoofing_char(c))
+    is_valid_display_label(name, MAX_NICKNAME_CHARS)
 }
 
 /// Vrai si `name` est un nom d'émoji valide : 2 à 32 caractères `[a-z0-9_]`.
@@ -774,7 +784,8 @@ impl GroupState {
                     // la précision côté UI (JS `number` > 2^53 → date invalide).
                     // Le porteur de KICK peut déjà exclure définitivement via
                     // KICK/BAN, donc plafonner n'ôte aucun pouvoir.
-                    self.timeouts.insert(member, until_ms.min(MAX_TIMEOUT_UNTIL_MS));
+                    self.timeouts
+                        .insert(member, until_ms.min(MAX_TIMEOUT_UNTIL_MS));
                 }
             }
             GroupOpBody::SetNickname { member, name } => {
@@ -1640,7 +1651,10 @@ mod tests {
                 8,
             ));
             assert_eq!(
-                GroupState::fold(&sp).nicknames.get(&BOB).map(String::as_str),
+                GroupState::fold(&sp)
+                    .nicknames
+                    .get(&BOB)
+                    .map(String::as_str),
                 Some("Renommé"),
                 "spoofing nickname {spoof:?} must be rejected",
             );
@@ -1656,6 +1670,28 @@ mod tests {
             8,
         ));
         assert!(!GroupState::fold(&ops).nicknames.contains_key(&BOB));
+    }
+
+    #[test]
+    fn is_valid_display_label_rejects_control_spoofing_empty_and_overlong() {
+        assert!(is_valid_display_label("Guilde", 100));
+        assert!(!is_valid_display_label("", 100), "empty is not valid");
+        assert!(
+            !is_valid_display_label(&"x".repeat(101), 100),
+            "over the max_chars bound is rejected"
+        );
+        assert!(is_valid_display_label(&"x".repeat(100), 100));
+        for bad in [
+            "bad\u{7}name",
+            "\u{202E}pirate",
+            "z\u{200B}ero",
+            "\u{FEFF}bom",
+        ] {
+            assert!(
+                !is_valid_display_label(bad, 100),
+                "{bad:?} must be rejected"
+            );
+        }
     }
 
     #[test]

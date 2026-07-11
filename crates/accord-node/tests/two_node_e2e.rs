@@ -115,9 +115,20 @@ async fn two_nodes_befriend_and_exchange_dm() {
     let chan_hex = alice.node.group_add_channel(&gid, "général").unwrap();
     let chan: [u8; 16] = accord_node::hex::decode(&chan_hex).unwrap();
 
-    // Alice invite Bob : l'op-log rejoué et la clé scellée traversent le
-    // réseau ; Bob matérialise l'état du groupe.
-    alice.node.group_invite(&gid, &bob_pub).unwrap();
+    // Alice invite Bob : un ticket signé traverse le réseau, Bob l'accepte
+    // explicitement (consentement en deux temps, D-045), ce qui déclenche
+    // chez Alice la poussée de l'op-log complet et de la clé scellée.
+    let invite_id_hex = alice.node.group_invite_create(&gid, &bob_pub).unwrap();
+    let invite_id: [u8; 16] = accord_node::hex::decode(&invite_id_hex).unwrap();
+    let bob_saw_ticket = eventually(|| {
+        bob.node
+            .group_invites_list()
+            .map(|invites| invites.iter().any(|i| i.invite_id == invite_id))
+            .unwrap_or(false)
+    })
+    .await;
+    assert!(bob_saw_ticket, "Bob n'a pas reçu le ticket d'invitation");
+    bob.node.group_invite_accept(&gid, &invite_id).unwrap();
     let bob_joined = eventually(|| {
         bob.node
             .group_state(&gid)

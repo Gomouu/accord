@@ -6,6 +6,7 @@
 //! (l'op est rejouée sur l'état matérialisé du groupe côté cœur) ; une action
 //! refusée rend une erreur applicative « refusé : … » explicite.
 
+use accord_core::db::IncomingInvite;
 use accord_core::group::GroupState;
 use accord_proto::core_msg::{ChannelKind, GroupOp, GroupOpBody};
 use serde_json::{json, Value};
@@ -244,6 +245,18 @@ fn audit_entry_json(op: &GroupOp) -> Value {
         "author": hex::encode(&op.author),
         "kind": kind,
         "params": params,
+    })
+}
+
+/// Forme API d'une invitation entrante en attente (`groups.invites_list`).
+fn incoming_invite_json(inv: &IncomingInvite) -> Value {
+    json!({
+        "group_id": hex::encode(&inv.group_id),
+        "invite_id": hex::encode(&inv.invite_id),
+        "group_name": inv.group_name,
+        "inviter": hex::encode(&inv.inviter),
+        "expires_ms": inv.expires_ms,
+        "received_ms": inv.received_ms,
     })
 }
 
@@ -555,10 +568,40 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             node.group_react(&gid, &cid, &mid, emoji, add)?;
             Ok(json!({ "ok": true }))
         }
+        // Conservée pour compatibilité (l'UI existante l'appelle) mais ne
+        // force plus rien : route désormais vers `invite_create`, qui exige
+        // un consentement explicite côté invité avant toute matérialisation
+        // (D-045). Aucun chemin de force-join n'est plus exposé.
         "groups.invite" => {
             let gid = param_id16(params, "group_id")?;
             let member = param_pubkey(params, "pubkey")?;
-            node.group_invite(&gid, &member)?;
+            Ok(json!({
+                "ok": true,
+                "invite_id": node.group_invite_create(&gid, &member)?
+            }))
+        }
+        "groups.invite_create" => {
+            let gid = param_id16(params, "group_id")?;
+            let member = param_pubkey(params, "pubkey")?;
+            Ok(json!({ "invite_id": node.group_invite_create(&gid, &member)? }))
+        }
+        "groups.invites_list" => Ok(json!({
+            "invites": node
+                .group_invites_list()?
+                .iter()
+                .map(incoming_invite_json)
+                .collect::<Vec<_>>()
+        })),
+        "groups.invite_accept" => {
+            let gid = param_id16(params, "group_id")?;
+            let iid = param_id16(params, "invite_id")?;
+            node.group_invite_accept(&gid, &iid)?;
+            Ok(json!({ "ok": true }))
+        }
+        "groups.invite_decline" => {
+            let gid = param_id16(params, "group_id")?;
+            let iid = param_id16(params, "invite_id")?;
+            node.group_invite_decline(&gid, &iid)?;
             Ok(json!({ "ok": true }))
         }
         "groups.emoji.add" => {

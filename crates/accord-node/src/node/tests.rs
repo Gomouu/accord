@@ -485,6 +485,36 @@ fn deliver(
     }
 }
 
+/// Fait rejoindre `bob` à un groupe déjà créé par `alice`, comme un pair
+/// réseau le ferait réellement : ticket signé -> acceptation explicite ->
+/// op-log complet + clé (consentement en deux temps, D-045). Remplace
+/// l'ancien `alice.group_invite(...)` à un coup, qui forçait l'adhésion.
+fn invite_and_join(
+    alice: &Node,
+    rx_a: &mut tokio::sync::mpsc::Receiver<crate::outbound::Outbound>,
+    alice_pub: &[u8; 32],
+    bob: &Node,
+    rx_b: &mut tokio::sync::mpsc::Receiver<crate::outbound::Outbound>,
+    bob_pub: &[u8; 32],
+    gid: &[u8; 16],
+) {
+    let invite_id = hex::decode::<16>(&alice.group_invite_create(gid, bob_pub).unwrap()).unwrap();
+    // Le ticket (et l'op InviteCreate, ignorée par Bob tant qu'il n'a pas
+    // consenti) traverse le « réseau ».
+    deliver(rx_a, alice_pub, bob, bob_pub);
+    assert!(
+        bob.group_invites_list()
+            .unwrap()
+            .iter()
+            .any(|i| i.invite_id == invite_id),
+        "Bob doit avoir reçu le ticket avant de pouvoir l'accepter"
+    );
+    bob.group_invite_accept(gid, &invite_id).unwrap();
+    // L'acceptation revient à Alice, qui pousse l'op-log complet et la clé.
+    deliver(rx_b, bob_pub, alice, alice_pub);
+    deliver(rx_a, alice_pub, bob, bob_pub);
+}
+
 #[test]
 fn group_replication_hierarchy_and_moderation_between_nodes() {
     let (alice, mut rx_a) = node_with_channel();
@@ -495,8 +525,9 @@ fn group_replication_hierarchy_and_moderation_between_nodes() {
     // Alice monte le serveur et invite Bob ; tout transite par le « réseau ».
     let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
     let chan = hex::decode::<16>(&alice.group_add_channel(&gid, "général").unwrap()).unwrap();
-    alice.group_invite(&gid, &bob_pub).unwrap();
-    deliver(&mut rx_a, &alice_pub, &bob, &bob_pub);
+    invite_and_join(
+        &alice, &mut rx_a, &alice_pub, &bob, &mut rx_b, &bob_pub, &gid,
+    );
 
     // Bob a matérialisé l'état et reçu la clé : il peut écrire.
     let state_bob = bob.group_state(&gid).unwrap();
@@ -539,8 +570,9 @@ fn group_edit_and_reaction_replicate_between_nodes() {
 
     let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
     let chan = hex::decode::<16>(&alice.group_add_channel(&gid, "général").unwrap()).unwrap();
-    alice.group_invite(&gid, &bob_pub).unwrap();
-    deliver(&mut rx_a, &alice_pub, &bob, &bob_pub);
+    invite_and_join(
+        &alice, &mut rx_a, &alice_pub, &bob, &mut rx_b, &bob_pub, &gid,
+    );
 
     // Alice écrit ; Bob reçoit, réagit, Alice voit la réaction.
     let mid = hex::decode::<16>(&alice.group_send(&gid, &chan, "v1").unwrap()).unwrap();
@@ -581,8 +613,9 @@ fn group_emojis_replicate_between_nodes() {
     let bob_pub = bob.public_key();
 
     let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
-    alice.group_invite(&gid, &bob_pub).unwrap();
-    deliver(&mut rx_a, &alice_pub, &bob, &bob_pub);
+    invite_and_join(
+        &alice, &mut rx_a, &alice_pub, &bob, &mut rx_b, &bob_pub, &gid,
+    );
 
     // Alice ajoute un émoji : l'image est publiée localement et l'op AddEmoji
     // est diffusée à Bob.
@@ -616,8 +649,9 @@ fn group_unread_tracks_others_messages_until_mark_read() {
 
     let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
     let chan = hex::decode::<16>(&alice.group_add_channel(&gid, "général").unwrap()).unwrap();
-    alice.group_invite(&gid, &bob_pub).unwrap();
-    deliver(&mut rx_a, &alice_pub, &bob, &bob_pub);
+    invite_and_join(
+        &alice, &mut rx_a, &alice_pub, &bob, &mut rx_b, &bob_pub, &gid,
+    );
 
     // Bob écrit deux messages ; Alice les reçoit.
     bob.group_send(&gid, &chan, "un").unwrap();
@@ -644,9 +678,14 @@ fn group_typing_reaches_only_online_members() {
 
     let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
     let chan = hex::decode::<16>(&alice.group_add_channel(&gid, "général").unwrap()).unwrap();
-    alice.group_invite(&gid, &bob_pub).unwrap();
-    deliver(&mut rx_a, &alice_pub, &bob, &bob_pub);
+    invite_and_join(
+        &alice, &mut rx_a, &alice_pub, &bob, &mut rx_b, &bob_pub, &gid,
+    );
     while rx_a.try_recv().is_ok() {}
+    // Le consentement en deux temps (D-045) fait transiter `InviteAccept` de
+    // Bob vers Alice : elle le sait donc déjà joignable à ce stade. On
+    // réinitialise pour isoler le scénario « Bob hors ligne » qui suit.
+    alice.set_presence(&bob_pub, false);
 
     // Bob hors ligne du point de vue d'Alice : la frappe ne part vers personne.
     alice.group_typing(&gid, &chan).unwrap();
@@ -681,8 +720,9 @@ fn group_mention_records_inbox_entry_and_purges_on_delete() {
 
     let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
     let chan = hex::decode::<16>(&alice.group_add_channel(&gid, "général").unwrap()).unwrap();
-    alice.group_invite(&gid, &bob_pub).unwrap();
-    deliver(&mut rx_a, &alice_pub, &bob, &bob_pub);
+    invite_and_join(
+        &alice, &mut rx_a, &alice_pub, &bob, &mut rx_b, &bob_pub, &gid,
+    );
 
     // Bob mentionne tout le monde ; Alice ingère et enregistre une entrée.
     let mid =
@@ -709,4 +749,258 @@ fn group_mention_records_inbox_entry_and_purges_on_delete() {
     alice.group_delete_msg(&gid, &chan, &mid).unwrap();
     assert!(!alice.msg_mentions_me(&mid).unwrap());
     assert_eq!(alice.group_mention_count(&gid).unwrap(), 0);
+}
+
+// ---- Consentement d'invitation (D-045) : régression du force-join ----
+
+#[test]
+fn unsolicited_group_push_never_surfaces_as_joined() {
+    let (alice, mut rx_a) = node_with_channel();
+    let bob = node();
+    let alice_pub = alice.public_key();
+
+    // Alice monte un serveur complet mais n'invite jamais Bob.
+    let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
+    alice.group_add_channel(&gid, "général").unwrap();
+
+    // Un pair malveillant qui rejouerait l'op-log complet d'Alice vers Bob
+    // (l'ancien comportement de `group_invite`, sans ticket ni acceptation)
+    // ne doit plus faire apparaître le groupe : chaque op est ignorée en
+    // silence tant qu'aucune intention locale de rejoindre n'existe.
+    let mut forced_ops = 0;
+    while let Ok(action) = rx_a.try_recv() {
+        if let crate::outbound::Outbound::GroupOp { op } = action {
+            forced_ops += 1;
+            let replies = bob
+                .ingest_core(&alice_pub, CoreMsg::GroupOpMsg { op: *op })
+                .unwrap();
+            assert!(replies.is_empty());
+        }
+    }
+    assert!(forced_ops >= 2, "au moins CREATE et ADD_CHANNEL attendus");
+    assert!(
+        bob.group_ids().unwrap().is_empty(),
+        "aucun groupe ne doit apparaître sans consentement local"
+    );
+    assert!(
+        bob.group_state(&gid).is_err(),
+        "l'op-log ne doit jamais être matérialisé sans consentement"
+    );
+
+    // Une clé de groupe poussée seule (même appel) est ignorée de la même
+    // façon — jamais de tentative d'ouverture pour un groupe non consenti.
+    assert!(bob
+        .ingest_core(
+            &alice_pub,
+            CoreMsg::GroupKey {
+                group_id: gid,
+                key_epoch: 1,
+                sealed_key: [0u8; 80],
+            },
+        )
+        .unwrap()
+        .is_empty());
+    assert!(bob.group_ids().unwrap().is_empty());
+}
+
+#[test]
+fn invite_ticket_accept_then_finalize_makes_group_joined_and_functional() {
+    let (alice, mut rx_a) = node_with_channel();
+    let (bob, mut rx_b) = node_with_channel();
+    let alice_pub = alice.public_key();
+    let bob_pub = bob.public_key();
+
+    let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
+    let chan = hex::decode::<16>(&alice.group_add_channel(&gid, "général").unwrap()).unwrap();
+
+    // 1. Alice autorise une invitation et envoie un ticket signé à Bob seul.
+    let invite_id = hex::decode::<16>(&alice.group_invite_create(&gid, &bob_pub).unwrap()).unwrap();
+    deliver(&mut rx_a, &alice_pub, &bob, &bob_pub);
+
+    // 2. Bob voit l'invitation en attente ; le groupe n'est pas encore visible.
+    let pending = bob.group_invites_list().unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].invite_id, invite_id);
+    assert_eq!(pending[0].group_name, "Guilde");
+    assert!(bob.group_ids().unwrap().is_empty());
+
+    // 3. Bob accepte explicitement : Alice reçoit la preuve de consentement
+    //    et pousse l'op-log complet plus la clé de groupe.
+    bob.group_invite_accept(&gid, &invite_id).unwrap();
+    assert!(
+        bob.group_invites_list().unwrap().is_empty(),
+        "l'invitation acceptée n'est plus en attente"
+    );
+    deliver(&mut rx_b, &bob_pub, &alice, &alice_pub);
+    deliver(&mut rx_a, &alice_pub, &bob, &bob_pub);
+
+    // 4. Le groupe est désormais rejoint et pleinement fonctionnel.
+    assert_eq!(bob.group_ids().unwrap(), vec![hex::encode(&gid)]);
+    let state = bob.group_state(&gid).unwrap();
+    assert!(state.is_member(&bob_pub));
+    assert!(state.channels.contains_key(&chan));
+
+    let mid = hex::decode::<16>(&bob.group_send(&gid, &chan, "salut !").unwrap()).unwrap();
+    deliver(&mut rx_b, &bob_pub, &alice, &alice_pub);
+    let hist = alice.group_history(&gid, &chan, u64::MAX, 10).unwrap();
+    assert!(hist.iter().any(|m| m.msg_id == mid && m.author == bob_pub));
+}
+
+#[test]
+fn forged_invite_ticket_signature_is_rejected_before_any_storage() {
+    let alice = node();
+    let bob = node();
+    let alice_pub = alice.public_key();
+
+    let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
+    let invite_id = accord_core::group::new_id16();
+    // Ticket signé par une IDENTITÉ TIERCE mais prétendant venir d'Alice
+    // (`inviter` usurpé) : la vérification de signature doit échouer.
+    let forger = Identity::generate_with_pow_bits(1);
+    let forged = accord_core::group::invite::build_invite_ticket(
+        &forger, &gid, &invite_id, "Guilde", &[9u8; 32], 0,
+    );
+    let CoreMsg::InviteTicket {
+        invite_id,
+        group_name,
+        secret,
+        expires_ms,
+        sig,
+        ..
+    } = forged
+    else {
+        unreachable!()
+    };
+    // Le message prétend venir d'Alice (usurpation du champ `inviter`) mais
+    // porte la signature du forgeur : rejeté avant tout stockage.
+    let replies = bob
+        .ingest_core(
+            &alice_pub,
+            CoreMsg::InviteTicket {
+                group_id: gid,
+                invite_id,
+                group_name,
+                inviter: alice_pub,
+                secret,
+                expires_ms,
+                sig,
+            },
+        )
+        .unwrap();
+    assert!(replies.is_empty());
+    assert!(
+        bob.group_invites_list().unwrap().is_empty(),
+        "un ticket à la signature invalide ne doit jamais être stocké"
+    );
+}
+
+#[test]
+fn invite_ticket_with_spoofed_group_name_is_dropped_before_storage() {
+    let bob = node();
+    let attacker = Identity::generate_with_pow_bits(1);
+    let attacker_pub = attacker.public_key();
+
+    // Chaque variante est signature-valide (le ticket est authentique du
+    // point de vue cryptographique) mais porte un `group_name` usurpateur
+    // (MEDIUM-1) : aucune ne doit jamais atteindre la table des invitations
+    // entrantes ni pouvoir déclencher `event.group_invite_pending`.
+    for (i, spoofed_name) in [
+        "bad\u{7}name",   // caractère de contrôle
+        "\u{202E}pirate", // RLO (texte visuellement inversé)
+        "z\u{200B}ero",   // espace de largeur nulle
+        "\u{FEFF}bom",    // BOM / ZWNBSP
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let gid = [i as u8; 16];
+        let invite_id = [i as u8; 16];
+        let ticket = accord_core::group::invite::build_invite_ticket(
+            &attacker,
+            &gid,
+            &invite_id,
+            spoofed_name,
+            &[9u8; 32],
+            0,
+        );
+        let replies = bob.ingest_core(&attacker_pub, ticket).unwrap();
+        assert!(replies.is_empty());
+    }
+    assert!(
+        bob.group_invites_list().unwrap().is_empty(),
+        "un ticket au group_name usurpateur ne doit jamais être stocké"
+    );
+}
+
+#[test]
+fn invite_ticket_with_overlong_group_name_is_dropped_before_storage() {
+    let bob = node();
+    let attacker = Identity::generate_with_pow_bits(1);
+    let attacker_pub = attacker.public_key();
+
+    // MAX_LABEL_CHARS (borne des noms de groupe authorés localement) vaut
+    // 100 : 101 caractères doit être rejeté.
+    let overlong_name = "x".repeat(101);
+    let ticket = accord_core::group::invite::build_invite_ticket(
+        &attacker,
+        &[1; 16],
+        &[1; 16],
+        &overlong_name,
+        &[9u8; 32],
+        0,
+    );
+    bob.ingest_core(&attacker_pub, ticket).unwrap();
+    assert!(
+        bob.group_invites_list().unwrap().is_empty(),
+        "un group_name au-delà de MAX_LABEL_CHARS ne doit jamais être stocké"
+    );
+}
+
+#[test]
+fn twenty_first_incoming_invite_from_same_inviter_is_dropped_but_other_inviters_are_unaffected() {
+    let bob = node();
+    let attacker = Identity::generate_with_pow_bits(1);
+    let attacker_pub = attacker.public_key();
+    let other = Identity::generate_with_pow_bits(1);
+    let other_pub = other.public_key();
+
+    // Les 20 premiers tickets auto-signés par l'attaquant (inviter = sa
+    // propre clé, donc toujours signature-valide), groupes/secrets
+    // distincts, sont tous conservés.
+    for i in 0..20u8 {
+        let ticket = accord_core::group::invite::build_invite_ticket(
+            &attacker, &[i; 16], &[i; 16], "Guilde", &[i; 32], 0,
+        );
+        bob.ingest_core(&attacker_pub, ticket).unwrap();
+    }
+    assert_eq!(bob.group_invites_list().unwrap().len(), 20);
+
+    // Le 21e ticket du MÊME inviteur (nouvelle paire group_id/invite_id)
+    // est abandonné (MEDIUM-2) : ni stockage ni événement.
+    let ticket21 = accord_core::group::invite::build_invite_ticket(
+        &attacker,
+        &[21; 16],
+        &[21; 16],
+        "Guilde",
+        &[21u8; 32],
+        0,
+    );
+    bob.ingest_core(&attacker_pub, ticket21).unwrap();
+    assert_eq!(
+        bob.group_invites_list().unwrap().len(),
+        20,
+        "le 21e ticket du même inviteur doit être abandonné"
+    );
+
+    // Un ticket d'un inviteur DIFFÉRENT n'est pas soumis au plafond de
+    // l'attaquant et est accepté normalement.
+    let ticket_other = accord_core::group::invite::build_invite_ticket(
+        &other, &[99; 16], &[99; 16], "Guilde", &[7u8; 32], 0,
+    );
+    bob.ingest_core(&other_pub, ticket_other).unwrap();
+    assert_eq!(
+        bob.group_invites_list().unwrap().len(),
+        21,
+        "un inviteur différent n'est pas soumis au plafond de l'attaquant"
+    );
 }

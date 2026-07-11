@@ -500,6 +500,24 @@ fn core_msgs_roundtrip() {
             since_lamport: 3,
         },
         CoreMsg::FriendRemove,
+        CoreMsg::InviteTicket {
+            group_id: [2; 16],
+            invite_id: [9; 16],
+            group_name: "Guilde".into(),
+            inviter: [5; 32],
+            secret: [11; 32],
+            expires_ms: 123_456,
+            sig: [6; 64],
+        },
+        CoreMsg::InviteAccept {
+            group_id: [2; 16],
+            invite_id: [9; 16],
+            secret: [11; 32],
+        },
+        CoreMsg::InviteDecline {
+            group_id: [2; 16],
+            invite_id: [9; 16],
+        },
     ];
     for m in msgs {
         roundtrip_channel(&ChannelMsg::Core(m));
@@ -674,4 +692,25 @@ fn truncation_fuzz_channel_msgs() {
     for cut in 0..bytes.len() {
         assert!(ChannelMsg::from_bytes(&bytes[..cut]).is_err());
     }
+}
+
+#[test]
+fn invite_ticket_truncation_never_panics_and_is_rejected() {
+    // Le message d'invitation est le plus riche des nouveaux variants
+    // (chaîne + plusieurs tableaux fixes + borne sur `expires_ms`) : chaque
+    // troncature doit être rejetée proprement, jamais paniquer.
+    let m = ChannelMsg::Core(CoreMsg::InviteTicket {
+        group_id: [1; 16],
+        invite_id: [2; 16],
+        group_name: "Guilde des porteurs d'octets".into(),
+        inviter: [3; 32],
+        secret: [4; 32],
+        expires_ms: 1_700_000_000_000,
+        sig: [5; 64],
+    });
+    let bytes = m.to_bytes();
+    for cut in 0..bytes.len() {
+        assert!(ChannelMsg::from_bytes(&bytes[..cut]).is_err());
+    }
+    assert_eq!(ChannelMsg::from_bytes(&bytes).unwrap(), m);
 }

@@ -1126,12 +1126,10 @@ async fn group_roles_lifecycle_and_membership() {
     let s = NodeService::new(Arc::clone(&node));
     let gid = node.group_create("Guilde").unwrap();
     let peer_hex = hex::encode(&peer.public_key());
-    s.call(
-        "groups.invite",
-        json!({"group_id": gid, "pubkey": peer_hex}),
-    )
-    .await
-    .unwrap();
+    // Fixture de test : le pair n'a pas de `Node` propre pour consentir à une
+    // invitation réelle (D-045) ; on l'admet directement au niveau cœur.
+    node.test_force_add_member(&hex::decode::<16>(&gid).unwrap(), &peer.public_key())
+        .unwrap();
 
     // Création d'un rôle Modo (KICK|BAN = 0x60).
     let role = s
@@ -1227,12 +1225,11 @@ async fn group_kick_ban_unban_and_leave() {
     // Le fondateur ne part pas tant qu'il reste des membres… enfin, tant
     // qu'il n'est pas le dernier : ici il est seul, le départ est permis mais
     // on teste d'abord la modération.
-    s.call(
-        "groups.invite",
-        json!({"group_id": gid, "pubkey": peer_hex}),
-    )
-    .await
-    .unwrap();
+    // Fixture de test : le pair n'a pas de `Node` propre pour consentir à une
+    // invitation réelle (D-045) ; on l'admet directement au niveau cœur.
+    let gid_bytes = hex::decode::<16>(&gid).unwrap();
+    node.test_force_add_member(&gid_bytes, &peer.public_key())
+        .unwrap();
     // Fondateur avec un membre : départ refusé.
     let err = s
         .call("groups.leave", json!({"group_id": gid}))
@@ -1251,12 +1248,8 @@ async fn group_kick_ban_unban_and_leave() {
     assert_eq!(state["members"].as_array().unwrap().len(), 1);
 
     // Réadmission puis bannissement : membres -1, bans +1.
-    s.call(
-        "groups.invite",
-        json!({"group_id": gid, "pubkey": peer_hex}),
-    )
-    .await
-    .unwrap();
+    node.test_force_add_member(&gid_bytes, &peer.public_key())
+        .unwrap();
     s.call("groups.ban", json!({"group_id": gid, "pubkey": peer_hex}))
         .await
         .unwrap();
@@ -1267,15 +1260,17 @@ async fn group_kick_ban_unban_and_leave() {
     assert_eq!(state["members"].as_array().unwrap().len(), 1);
     assert_eq!(state["bans"], json!([peer_hex]));
 
-    // Un banni ne se réinvite pas.
-    let err = s
-        .call(
-            "groups.invite",
-            json!({"group_id": gid, "pubkey": peer_hex}),
-        )
-        .await
+    // Un banni ne se réadmet pas (vérifié au niveau cœur : `groups.invite`
+    // se contente désormais d'autoriser une invitation, l'admission
+    // effective — où le bannissement est vérifié — n'a lieu qu'à
+    // l'acceptation prouvée par l'invité, D-045).
+    let err = node
+        .test_force_add_member(&gid_bytes, &peer.public_key())
         .unwrap_err();
-    assert!(err.message.contains("refusé"));
+    assert!(matches!(
+        err,
+        NodeError::Core(accord_core::CoreError::OpRejected(_))
+    ));
 
     // Levée du bannissement.
     s.call("groups.unban", json!({"group_id": gid, "pubkey": peer_hex}))

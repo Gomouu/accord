@@ -1119,7 +1119,7 @@ mod tests {
         let n = node();
         let gid: [u8; 16] = hex::decode(&n.group_create("Guilde").unwrap()).unwrap();
         let peer = Identity::generate_with_pow_bits(1).public_key();
-        n.group_invite(&gid, &peer).unwrap();
+        n.test_force_add_member(&gid, &peer).unwrap();
         let (handle, _) = spawn_engine(Arc::clone(&n));
         handle.join(gid, gid).await.unwrap();
 
@@ -1156,7 +1156,7 @@ mod tests {
         let n = node();
         let gid: [u8; 16] = hex::decode(&n.group_create("Guilde").unwrap()).unwrap();
         let peer = Identity::generate_with_pow_bits(1).public_key();
-        n.group_invite(&gid, &peer).unwrap();
+        n.test_force_add_member(&gid, &peer).unwrap();
         let (handle, _) = spawn_engine(Arc::clone(&n));
 
         // Defaults: 100 % everywhere.
@@ -1195,7 +1195,7 @@ mod tests {
         let gid: [u8; 16] = hex::decode(&n.group_create("Guilde").unwrap()).unwrap();
         // Un pair membre du groupe rejoint le salon (signal simulé).
         let peer = Identity::generate_with_pow_bits(1).public_key();
-        n.group_invite(&gid, &peer).unwrap();
+        n.test_force_add_member(&gid, &peer).unwrap();
         let (handle, sender) = spawn_engine(Arc::clone(&n));
 
         handle.join(gid, gid).await.unwrap();
@@ -1251,7 +1251,7 @@ mod tests {
         let n = node();
         let gid: [u8; 16] = hex::decode(&n.group_create("Guilde").unwrap()).unwrap();
         let peer = Identity::generate_with_pow_bits(1).public_key();
-        n.group_invite(&gid, &peer).unwrap();
+        n.test_force_add_member(&gid, &peer).unwrap();
         let (handle, _) = spawn_engine(Arc::clone(&n));
         handle.join(gid, gid).await.unwrap();
         handle.peer_signal(peer, gid, gid, ACTION_JOIN, MEDIA_AUDIO, false);
@@ -1313,7 +1313,7 @@ mod tests {
         let mut members = Vec::new();
         for _ in 0..VOICE_MAX_PARTICIPANTS {
             let pk = Identity::generate_with_pow_bits(1).public_key();
-            n.group_invite(&gid, &pk).unwrap();
+            n.test_force_add_member(&gid, &pk).unwrap();
             members.push(pk);
         }
         let (handle, _) = spawn_engine(Arc::clone(&n));

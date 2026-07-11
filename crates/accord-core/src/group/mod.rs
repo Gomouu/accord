@@ -8,6 +8,7 @@
 //! convergent vers le même état quel que soit l'ordre d'arrivée.
 
 pub mod crypt;
+pub mod invite;
 pub mod msg;
 pub mod state;
 

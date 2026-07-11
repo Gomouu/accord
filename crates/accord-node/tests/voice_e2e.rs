@@ -120,7 +120,19 @@ async fn two_nodes_join_voice_exchange_frames_and_respect_cap() {
     // Groupe partagé ; le salon vocal par défaut a channel_id == group_id.
     let gid_hex = alice.node.group_create("Guilde").unwrap();
     let gid: [u8; 16] = accord_node::hex::decode(&gid_hex).unwrap();
-    alice.node.group_invite(&gid, &bob_pub).unwrap();
+    let invite_id_hex = alice.node.group_invite_create(&gid, &bob_pub).unwrap();
+    let invite_id: [u8; 16] = accord_node::hex::decode(&invite_id_hex).unwrap();
+    assert!(
+        eventually(|| async {
+            bob.node
+                .group_invites_list()
+                .map(|invites| invites.iter().any(|i| i.invite_id == invite_id))
+                .unwrap_or(false)
+        })
+        .await,
+        "Bob n'a pas reçu le ticket d'invitation"
+    );
+    bob.node.group_invite_accept(&gid, &invite_id).unwrap();
     assert!(
         eventually(|| async {
             bob.node
@@ -219,25 +231,46 @@ async fn two_nodes_join_voice_exchange_frames_and_respect_cap() {
     );
     let _ = alice_hex;
 
-    // Plafond full mesh : 9 membres fantômes (invités par Alice, seule à
-    // détenir INVITE) remplissent le salon vu de Bob — Alice y est toujours ;
-    // sa jointure déborde et échoue explicitement.
+    // Plafond full mesh : 9 membres fantômes remplissent le salon vu de Bob —
+    // Alice y est toujours ; sa jointure déborde et échoue explicitement.
+    // Chaque fantôme est un nœud complet qui consent réellement à
+    // l'invitation (D-045) : le force-join n'existe plus, même ici.
     let mut ghosts = Vec::new();
-    for _ in 0..9 {
-        let ghost = accord_crypto::Identity::generate_with_pow_bits(1).public_key();
-        alice.node.group_invite(&gid, &ghost).unwrap();
-        ghosts.push(ghost);
+    let mut ghost_nodes = Vec::new();
+    for i in 0..9 {
+        let dir = tempfile::tempdir().unwrap();
+        let ghost = boot(dir.path()).await;
+        let ghost_pub = ghost.node.public_key();
+        alice.register_peer(ghost_pub, ghost.p2p_addr());
+        ghost.register_peer(alice_pub, alice.p2p_addr());
+
+        let invite_id_hex = alice.node.group_invite_create(&gid, &ghost_pub).unwrap();
+        let invite_id: [u8; 16] = accord_node::hex::decode(&invite_id_hex).unwrap();
+        assert!(
+            eventually(|| async {
+                ghost
+                    .node
+                    .group_invites_list()
+                    .map(|invites| invites.iter().any(|iv| iv.invite_id == invite_id))
+                    .unwrap_or(false)
+            })
+            .await,
+            "le fantôme {i} n'a pas reçu le ticket d'invitation"
+        );
+        ghost.node.group_invite_accept(&gid, &invite_id).unwrap();
+        assert!(
+            eventually(|| async {
+                bob.node
+                    .group_state(&gid)
+                    .map(|s| s.is_member(&ghost_pub))
+                    .unwrap_or(false)
+            })
+            .await,
+            "Bob n'a pas vu le fantôme {i} rejoindre"
+        );
+        ghosts.push(ghost_pub);
+        ghost_nodes.push((dir, ghost));
     }
-    assert!(
-        eventually(|| async {
-            bob.node
-                .group_state(&gid)
-                .map(|s| ghosts.iter().all(|g| s.is_member(g)))
-                .unwrap_or(false)
-        })
-        .await,
-        "les ops d'invitation ne sont pas arrivées chez Bob"
-    );
     for ghost in &ghosts {
         bob.voice().peer_signal(*ghost, gid, gid, 0, 0x01, false);
     }
@@ -249,4 +282,7 @@ async fn two_nodes_join_voice_exchange_frames_and_respect_cap() {
 
     alice.shutdown();
     bob.shutdown();
+    for (_dir, ghost) in ghost_nodes {
+        ghost.shutdown();
+    }
 }

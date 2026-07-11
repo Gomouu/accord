@@ -382,7 +382,19 @@ async fn bench_latence_voix() {
     // Groupe partagé ; salon vocal par défaut (channel_id == group_id).
     let gid_hex = alice.node.group_create("Bench").unwrap();
     let gid: [u8; 16] = accord_node::hex::decode(&gid_hex).unwrap();
-    alice.node.group_invite(&gid, &bob_pub).unwrap();
+    let invite_id_hex = alice.node.group_invite_create(&gid, &bob_pub).unwrap();
+    let invite_id: [u8; 16] = accord_node::hex::decode(&invite_id_hex).unwrap();
+    assert!(
+        eventually(SECONDES_10, POLL_COURT, || async {
+            bob.node
+                .group_invites_list()
+                .map(|invites| invites.iter().any(|i| i.invite_id == invite_id))
+                .unwrap_or(false)
+        })
+        .await,
+        "Bob n'a pas reçu le ticket d'invitation"
+    );
+    bob.node.group_invite_accept(&gid, &invite_id).unwrap();
     assert!(
         eventually(SECONDES_10, POLL_COURT, || async {
             bob.node

@@ -7,8 +7,17 @@
 //! rôle de position supérieure ou égale à la sienne) sont donc vérifiées à
 //! l'émission comme à l'ingestion. Après chaque op appliquée, l'événement
 //! `event.group_state { group_id }` invite l'UI à recharger `groups.state`.
+//!
+//! Rejoindre un groupe exige un consentement explicite en deux temps
+//! (D-045) : `group_invite_create` autorise une invitation et envoie un
+//! ticket signé point-à-point (jamais de poussée d'op-log/clé sans
+//! acceptation) ; `group_invite_accept` prouve le consentement de l'invité,
+//! ce qui déclenche côté inviteur `ingest_invite_accept` — l'admission
+//! effective (`AddMember` + op-log complet + clé scellée).
 
+use accord_core::db::{IncomingInvite, LocalMembership};
 use accord_core::group;
+use accord_core::group::invite as group_invite;
 use accord_core::group::GroupState;
 use accord_proto::core_msg::{perms, ChannelKind, CoreMsg, FileRef, GroupOp, GroupOpBody};
 use serde_json::json;
@@ -86,10 +95,15 @@ impl Node {
         );
     }
 
-    /// Crée un groupe et diffuse l'op CREATE.
+    /// Crée un groupe et diffuse l'op CREATE. Le fondateur est évidemment
+    /// « rejoint » : la porte de consentement locale est ouverte
+    /// immédiatement (aucune invitation à accepter pour son propre groupe).
     pub fn group_create(&self, name: &str) -> Result<String, NodeError> {
-        let created =
-            self.with_db(|db| Ok(group::create_group(db, &self.identity, name, now_ms())?))?;
+        let created = self.with_db(|db| {
+            let created = group::create_group(db, &self.identity, name, now_ms())?;
+            db.set_group_membership(&created.group_id, LocalMembership::Joined)?;
+            Ok(created)
+        })?;
         self.outbound.send(Outbound::GroupOp {
             op: Box::new(created.op),
         });
@@ -843,14 +857,247 @@ impl Node {
         Ok(())
     }
 
-    // ---- Invitations et synchronisation ----
+    // ---- Invitations (consentement explicite, D-045) et synchronisation ----
 
-    /// Invite un pair dans un groupe : op `AddMember` diffusée à tous, puis
-    /// rejeu de l'op-log complet et clé de groupe scellée envoyés au nouvel
-    /// arrivant pour qu'il matérialise l'état et déchiffre les messages.
-    pub fn group_invite(&self, group_id: &[u8; 16], member: &[u8; 32]) -> Result<(), NodeError> {
-        let (add_op, ops, key_epoch, sealed_key) = self.with_db(|db| {
-            let add_op = group::author_op(
+    /// Autorise une invitation à usage unique (op `InviteCreate`, réplique
+    /// habituelle) et envoie un ticket signé point-à-point à `invitee` seul.
+    /// Ne pousse ni op-log ni clé : l'invité doit explicitement accepter
+    /// (`group_invite_accept` côté invité, `ingest_invite_accept` ici en
+    /// retour) avant toute matérialisation. Rend l'identifiant de
+    /// l'invitation (hex).
+    pub fn group_invite_create(
+        &self,
+        group_id: &[u8; 16],
+        invitee: &[u8; 32],
+    ) -> Result<String, NodeError> {
+        let group_name = self.group_state(group_id)?.name;
+        // Défense en profondeur (MEDIUM-1) : n'émet jamais de ticket portant
+        // un nom de groupe usurpateur, même si le nom répliqué du groupe
+        // (hors périmètre de ce correctif) en contenait un.
+        if !accord_core::group::state::is_valid_display_label(&group_name, MAX_LABEL_CHARS) {
+            return Err(NodeError::Invalid(
+                "nom de groupe invalide pour un ticket d'invitation",
+            ));
+        }
+        let authored = self.with_db(|db| {
+            Ok(group_invite::author_invite_create(
+                db,
+                &self.identity,
+                group_id,
+                now_ms(),
+                group_invite::DEFAULT_INVITE_TTL_MS,
+            )?)
+        })?;
+        self.outbound.send(Outbound::GroupOp {
+            op: Box::new(authored.op),
+        });
+        let ticket = group_invite::build_invite_ticket(
+            &self.identity,
+            group_id,
+            &authored.invite_id,
+            &group_name,
+            &authored.secret,
+            authored.expires_ms,
+        );
+        self.outbound.send(Outbound::Core {
+            to: *invitee,
+            msg: Box::new(ticket),
+        });
+        self.emit_group_state(group_id);
+        Ok(hex::encode(&authored.invite_id))
+    }
+
+    /// Invitations entrantes en attente (reçues, ni acceptées ni refusées).
+    pub fn group_invites_list(&self) -> Result<Vec<IncomingInvite>, NodeError> {
+        self.with_db(|db| Ok(db.incoming_invites()?))
+    }
+
+    /// Accepte une invitation reçue : marque l'intention locale de rejoindre
+    /// (porte de consentement, [`LocalMembership::Accepted`]) puis notifie
+    /// l'inviteur (`CoreMsg::InviteAccept`) pour qu'il pousse l'op-log et la
+    /// clé. Le groupe n'apparaît dans `groups.list` qu'une fois cet op-log
+    /// effectivement reçu (voir l'ingestion de `CoreMsg::GroupOpMsg`).
+    pub fn group_invite_accept(
+        &self,
+        group_id: &[u8; 16],
+        invite_id: &[u8; 16],
+    ) -> Result<(), NodeError> {
+        let invite = self.with_db(|db| {
+            let invite = db
+                .incoming_invite(group_id, invite_id)?
+                .ok_or(NodeError::NotFound("invitation inconnue"))?;
+            db.set_group_membership(group_id, LocalMembership::Accepted)?;
+            db.remove_incoming_invite(group_id, invite_id)?;
+            Ok(invite)
+        })?;
+        self.outbound.send(Outbound::Core {
+            to: invite.inviter,
+            msg: Box::new(CoreMsg::InviteAccept {
+                group_id: *group_id,
+                invite_id: *invite_id,
+                secret: invite.secret,
+            }),
+        });
+        Ok(())
+    }
+
+    /// Refuse une invitation reçue (best-effort ; l'inviteur n'a aujourd'hui
+    /// aucun suivi local à effacer, mais reçoit l'annonce).
+    pub fn group_invite_decline(
+        &self,
+        group_id: &[u8; 16],
+        invite_id: &[u8; 16],
+    ) -> Result<(), NodeError> {
+        let invite = self.with_db(|db| {
+            let invite = db
+                .incoming_invite(group_id, invite_id)?
+                .ok_or(NodeError::NotFound("invitation inconnue"))?;
+            db.remove_incoming_invite(group_id, invite_id)?;
+            Ok(invite)
+        })?;
+        self.outbound.send(Outbound::Core {
+            to: invite.inviter,
+            msg: Box::new(CoreMsg::InviteDecline {
+                group_id: *group_id,
+                invite_id: *invite_id,
+            }),
+        });
+        Ok(())
+    }
+
+    /// Ingère un `CoreMsg::InviteTicket` reçu (appelé depuis
+    /// [`super::Node::ingest_core`]) : vérifie la signature et l'expiration
+    /// de transport, valide `group_name` (anti-usurpation, MEDIUM-1) puis
+    /// stocke l'invitation en attente sous réserve du plafond par inviteur
+    /// (anti-abus, MEDIUM-2) et notifie l'UI. N'adhère jamais au groupe
+    /// elle-même — signature invalide, ticket déjà expiré, nom de groupe
+    /// usurpateur ou plafond atteint sont tous ignorés silencieusement
+    /// (entrée attaquant-contrôlée) : ni stockage ni événement.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn ingest_invite_ticket(
+        &self,
+        group_id: [u8; 16],
+        invite_id: [u8; 16],
+        group_name: String,
+        inviter: [u8; 32],
+        secret: [u8; 32],
+        expires_ms: u64,
+        sig: [u8; 64],
+    ) {
+        if group_invite::verify_invite_ticket(
+            &group_id,
+            &invite_id,
+            &group_name,
+            &inviter,
+            &secret,
+            expires_ms,
+            &sig,
+            now_ms(),
+        )
+        .is_err()
+        {
+            return;
+        }
+        // MEDIUM-1 : `group_name` est intégralement contrôlé par
+        // l'émetteur et affiché à l'invité avant toute décision de
+        // rejoindre — mêmes règles que les pseudos de serveur, bornées à
+        // MAX_LABEL_CHARS (borne des noms de groupe authorés localement).
+        if !accord_core::group::state::is_valid_display_label(&group_name, MAX_LABEL_CHARS) {
+            return;
+        }
+        let stored = IncomingInvite {
+            group_id,
+            invite_id,
+            group_name,
+            inviter,
+            secret,
+            expires_ms,
+            received_ms: now_ms(),
+        };
+        // MEDIUM-2 : plafond anti-abus par inviteur — un ticket dont
+        // l'insertion a été abandonnée (plafond atteint) ne déclenche
+        // jamais l'événement ci-dessous.
+        let inserted = match self.with_db(|db| Ok(db.insert_incoming_invite(&stored)?)) {
+            Ok(inserted) => inserted,
+            Err(_) => return,
+        };
+        if !inserted {
+            return;
+        }
+        self.emit(
+            "event.group_invite_pending",
+            json!({
+                "group_id": hex::encode(&group_id),
+                "invite_id": hex::encode(&invite_id),
+                "group_name": stored.group_name,
+                "inviter": hex::encode(&inviter),
+                "expires_ms": expires_ms,
+            }),
+        );
+    }
+
+    /// Ingère un `CoreMsg::InviteAccept` reçu (appelé depuis
+    /// [`super::Node::ingest_core`]) : ré-vérifie les droits et la validité
+    /// de l'invitation puis, seulement si tout concorde, admet le membre et
+    /// lui pousse l'op-log complet et la clé de groupe courante. Toute
+    /// invitation invalide, expirée, épuisée ou secret erroné est ignorée
+    /// silencieusement (aucun canal d'erreur vers un pair non authentifié
+    /// pour cette invitation précise).
+    pub(super) fn ingest_invite_accept(
+        &self,
+        invitee: [u8; 32],
+        group_id: [u8; 16],
+        invite_id: [u8; 16],
+        secret: [u8; 32],
+    ) {
+        let result = self.with_db(|db| {
+            Ok(group_invite::finalize_invite_accept(
+                db,
+                &self.identity,
+                &group_id,
+                &invite_id,
+                &secret,
+                &invitee,
+                now_ms(),
+            )?)
+        });
+        let Ok(finalized) = result else {
+            return;
+        };
+        self.outbound.send(Outbound::GroupOp {
+            op: Box::new(finalized.add_op),
+        });
+        for op in finalized.ops {
+            self.outbound.send(Outbound::Core {
+                to: invitee,
+                msg: Box::new(CoreMsg::GroupOpMsg { op }),
+            });
+        }
+        self.outbound.send(Outbound::Core {
+            to: invitee,
+            msg: Box::new(CoreMsg::GroupKey {
+                group_id,
+                key_epoch: finalized.key_epoch,
+                sealed_key: finalized.sealed_key,
+            }),
+        });
+        self.emit_group_state(&group_id);
+    }
+
+    /// Fixture de test : ajoute directement un membre en contournant le
+    /// protocole d'invitation à consentement (D-045). Compilée uniquement en
+    /// `#[cfg(test)]` — absente de tout binaire réel, elle ne réintroduit
+    /// donc aucun chemin de force-join exploitable. Réservée aux scénarios
+    /// où le membre distant n'a pas de `Node` propre à faire consentir (ex :
+    /// tests de la boucle vocale).
+    #[cfg(test)]
+    pub(crate) fn test_force_add_member(
+        &self,
+        group_id: &[u8; 16],
+        member: &[u8; 32],
+    ) -> Result<(), NodeError> {
+        self.with_db(|db| {
+            group::author_op(
                 db,
                 &self.identity,
                 group_id,
@@ -860,29 +1107,9 @@ impl Node {
                 },
                 now_ms(),
             )?;
-            let ops = group::ops_for_pull(db, group_id, 0)?;
-            let (key_epoch, sealed_key) = group::seal_current_key_for(db, group_id, member)?;
-            Ok((add_op, ops, key_epoch, sealed_key))
-        })?;
-        self.outbound.send(Outbound::GroupOp {
-            op: Box::new(add_op),
-        });
-        for op in ops {
-            self.outbound.send(Outbound::Core {
-                to: *member,
-                msg: Box::new(CoreMsg::GroupOpMsg { op }),
-            });
-        }
-        self.outbound.send(Outbound::Core {
-            to: *member,
-            msg: Box::new(CoreMsg::GroupKey {
-                group_id: *group_id,
-                key_epoch,
-                sealed_key,
-            }),
-        });
-        self.emit_group_state(group_id);
-        Ok(())
+            db.set_group_membership(group_id, LocalMembership::Joined)?;
+            Ok(())
+        })
     }
 
     /// Historique d'un salon de groupe.

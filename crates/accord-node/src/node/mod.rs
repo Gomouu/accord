@@ -17,7 +17,7 @@ use std::sync::Mutex;
 use std::sync::OnceLock;
 
 use accord_api::NotificationHub;
-use accord_core::db::{ContactState, Db};
+use accord_core::db::{ContactState, Db, LocalMembership};
 use accord_core::{friends, group, messaging, presence, profile, search};
 use accord_crypto::{derive_search_key, node_id_of, Identity};
 use accord_proto::core_msg::CoreMsg;
@@ -525,6 +525,14 @@ impl Node {
             }
             CoreMsg::GroupOpMsg { op } => {
                 let group_id = op.group_id;
+                // Porte de consentement (D-045) : un op-log poussé sans
+                // intention locale de rejoindre (ni fondateur, ni invitation
+                // acceptée) est ignoré en silence — un pair malveillant ne
+                // peut plus forcer l'affichage d'un groupe (ex force-join).
+                let membership = self.with_db(|db| Ok(db.group_membership(&group_id)?))?;
+                if membership == LocalMembership::None {
+                    return Ok(vec![]);
+                }
                 let outcome = self.with_db(|db| Ok(group::ingest_op(db, &op)?))?;
                 self.emit(
                     "event.group_op",
@@ -533,6 +541,13 @@ impl Node {
                 // Op nouvelle appliquée : l'UI recharge `groups.state`
                 // (rejouer un doublon ne change pas l'état).
                 if outcome == group::IngestOutcome::Inserted {
+                    // Première op reçue après acceptation : le groupe est
+                    // désormais matérialisé et visible (`groups.list`).
+                    if membership == LocalMembership::Accepted {
+                        self.with_db(|db| {
+                            Ok(db.set_group_membership(&group_id, LocalMembership::Joined)?)
+                        })?;
+                    }
                     self.emit_group_state(&group_id);
                 }
                 Ok(vec![])
@@ -623,6 +638,13 @@ impl Node {
                 key_epoch,
                 sealed_key,
             } => {
+                // Même porte de consentement que `GroupOpMsg` : une clé
+                // poussée pour un groupe sans intention locale de rejoindre
+                // est ignorée (ni stockage inutile, ni signal exploitable).
+                let membership = self.with_db(|db| Ok(db.group_membership(&group_id)?))?;
+                if membership == LocalMembership::None {
+                    return Ok(vec![]);
+                }
                 // La clé n'est acceptée que si elle s'ouvre avec notre clé
                 // privée ; un tiers ne peut pas nous en imposer une fausse.
                 self.with_db(|db| {
@@ -707,6 +729,33 @@ impl Node {
                         json!({ "peer": hex::encode(peer_pubkey) }),
                     );
                 }
+                Ok(vec![])
+            }
+            CoreMsg::InviteTicket {
+                group_id,
+                invite_id,
+                group_name,
+                inviter,
+                secret,
+                expires_ms,
+                sig,
+            } => {
+                self.ingest_invite_ticket(
+                    group_id, invite_id, group_name, inviter, secret, expires_ms, sig,
+                );
+                Ok(vec![])
+            }
+            CoreMsg::InviteAccept {
+                group_id,
+                invite_id,
+                secret,
+            } => {
+                self.ingest_invite_accept(*peer_pubkey, group_id, invite_id, secret);
+                Ok(vec![])
+            }
+            CoreMsg::InviteDecline { .. } => {
+                // Best-effort : aucun suivi local des invitations sortantes
+                // aujourd'hui, rien à effacer côté inviteur.
                 Ok(vec![])
             }
             // Signalisation vocale et autres éphémères : non persistées ici.

@@ -19,6 +19,10 @@ const MAX_EMOJI_NAME: usize = 32;
 /// plus (la validation sémantique 1-32 caractères, sans contrôle, a lieu au
 /// repli du journal et à la frontière API).
 const MAX_NICKNAME: usize = 128;
+/// Borne haute de l'expiration d'un ticket d'invitation (ms muraux absolus,
+/// ~an 2248, alignée sur `MAX_TIMEOUT_UNTIL_MS` côté cœur) : rejette au
+/// décodage une valeur absurde plutôt que de la laisser transiter (D-045).
+const MAX_TICKET_EXPIRES_MS: u64 = 1 << 43;
 
 /// Bitfield de permissions de groupe (SPEC §6.2).
 pub mod perms {
@@ -944,6 +948,71 @@ pub enum CoreMsg {
     /// session) removed the friendship on their side; the receiver drops it
     /// too and keeps the DM history. Best-effort: never queued offline.
     FriendRemove,
+    /// 0x0E — Invitation signée envoyée par l'inviteur à UN invité précis
+    /// (consentement explicite requis avant toute matérialisation, D-045).
+    /// Transporte la préimage de l'op `InviteCreate` répliquée : seul le
+    /// destinataire de ce message peut ensuite prouver son consentement via
+    /// `InviteAccept`.
+    InviteTicket {
+        /// Groupe concerné.
+        group_id: [u8; 16],
+        /// Invitation correspondant à l'op `InviteCreate` répliquée.
+        invite_id: [u8; 16],
+        /// Nom du groupe au moment de l'invitation (affichage avant adhésion,
+        /// l'invité n'a pas encore l'état matérialisé pour le lire lui-même).
+        group_name: String,
+        /// Clé publique Ed25519 de l'inviteur (signataire).
+        inviter: [u8; 32],
+        /// Secret d'invitation (préimage de `code_hash` porté par l'op
+        /// `InviteCreate` correspondante).
+        secret: [u8; 32],
+        /// Expiration murale ms du ticket (0 = jamais).
+        expires_ms: u64,
+        /// Signature Ed25519 de l'inviteur sur les autres champs
+        /// ([`invite_ticket_signable_bytes`]).
+        sig: [u8; 64],
+    },
+    /// 0x0F — Acceptation d'une invitation par l'invité : preuve de
+    /// consentement explicite envoyée à l'inviteur, qui peut alors admettre
+    /// le membre (op `AddMember`) et lui pousser l'op-log et la clé de
+    /// groupe. Ne matérialise rien à elle seule côté réseau.
+    InviteAccept {
+        /// Groupe concerné.
+        group_id: [u8; 16],
+        /// Invitation acceptée.
+        invite_id: [u8; 16],
+        /// Secret reçu dans le `InviteTicket` correspondant.
+        secret: [u8; 32],
+    },
+    /// 0x10 — Refus d'une invitation par l'invité (best-effort, informatif ;
+    /// l'inviteur efface son suivi local le cas échéant).
+    InviteDecline {
+        /// Groupe concerné.
+        group_id: [u8; 16],
+        /// Invitation refusée.
+        invite_id: [u8; 16],
+    },
+}
+
+/// Octets couverts par la signature d'un `CoreMsg::InviteTicket` (hors
+/// `sig`) : domaine séparé du reste du protocole, encodage canonique stable.
+pub fn invite_ticket_signable_bytes(
+    group_id: &[u8; 16],
+    invite_id: &[u8; 16],
+    group_name: &str,
+    inviter: &[u8; 32],
+    secret: &[u8; 32],
+    expires_ms: u64,
+) -> Vec<u8> {
+    let mut w = Writer::with_capacity(16 + 16 + group_name.len() + 32 + 32 + 8 + 24);
+    w.put_raw(b"accord-invite-ticket-v1");
+    w.put_arr(group_id);
+    w.put_arr(invite_id);
+    w.put_str(group_name);
+    w.put_arr(inviter);
+    w.put_arr(secret);
+    w.put_u64(expires_ms);
+    w.into_bytes()
 }
 
 impl WireEncode for CoreMsg {
@@ -1067,6 +1136,42 @@ impl WireEncode for CoreMsg {
             CoreMsg::FriendRemove => {
                 w.put_u8(0x0D);
             }
+            CoreMsg::InviteTicket {
+                group_id,
+                invite_id,
+                group_name,
+                inviter,
+                secret,
+                expires_ms,
+                sig,
+            } => {
+                w.put_u8(0x0E);
+                w.put_arr(group_id);
+                w.put_arr(invite_id);
+                w.put_str(group_name);
+                w.put_arr(inviter);
+                w.put_arr(secret);
+                w.put_u64(*expires_ms);
+                w.put_arr(sig);
+            }
+            CoreMsg::InviteAccept {
+                group_id,
+                invite_id,
+                secret,
+            } => {
+                w.put_u8(0x0F);
+                w.put_arr(group_id);
+                w.put_arr(invite_id);
+                w.put_arr(secret);
+            }
+            CoreMsg::InviteDecline {
+                group_id,
+                invite_id,
+            } => {
+                w.put_u8(0x10);
+                w.put_arr(group_id);
+                w.put_arr(invite_id);
+            }
         }
     }
 }
@@ -1155,6 +1260,36 @@ impl WireDecode for CoreMsg {
                 since_lamport: r.u64()?,
             }),
             0x0D => Ok(CoreMsg::FriendRemove),
+            0x0E => {
+                let group_id = r.arr()?;
+                let invite_id = r.arr()?;
+                let group_name = r.str(MAX_NAME, "invite.group_name")?;
+                let inviter = r.arr()?;
+                let secret = r.arr()?;
+                let expires_ms = r.u64()?;
+                if expires_ms > MAX_TICKET_EXPIRES_MS {
+                    return Err(DecodeError::InvalidValue("invite.expires_ms"));
+                }
+                let sig = r.arr()?;
+                Ok(CoreMsg::InviteTicket {
+                    group_id,
+                    invite_id,
+                    group_name,
+                    inviter,
+                    secret,
+                    expires_ms,
+                    sig,
+                })
+            }
+            0x0F => Ok(CoreMsg::InviteAccept {
+                group_id: r.arr()?,
+                invite_id: r.arr()?,
+                secret: r.arr()?,
+            }),
+            0x10 => Ok(CoreMsg::InviteDecline {
+                group_id: r.arr()?,
+                invite_id: r.arr()?,
+            }),
             _ => Err(DecodeError::InvalidValue("core kind")),
         }
     }
@@ -1199,6 +1334,53 @@ mod tests {
             name: String::new(),
         };
         assert_eq!(roundtrip(&clear), clear);
+    }
+
+    #[test]
+    fn invite_ticket_expires_ms_bound_is_enforced_at_decode() {
+        let msg = CoreMsg::InviteTicket {
+            group_id: [1; 16],
+            invite_id: [2; 16],
+            group_name: "Guilde".into(),
+            inviter: [3; 32],
+            secret: [4; 32],
+            expires_ms: MAX_TICKET_EXPIRES_MS,
+            sig: [5; 64],
+        };
+        let mut w = Writer::new();
+        msg.encode(&mut w);
+        let bytes = w.into_bytes();
+        let mut r = Reader::new(&bytes);
+        assert_eq!(CoreMsg::decode(&mut r).unwrap(), msg);
+
+        // Une valeur au-delà de la borne est rejetée au décodage (jamais de
+        // panique, même sur une entrée entièrement attaquant-contrôlée).
+        let too_far = CoreMsg::InviteTicket {
+            group_id: [1; 16],
+            invite_id: [2; 16],
+            group_name: "Guilde".into(),
+            inviter: [3; 32],
+            secret: [4; 32],
+            expires_ms: MAX_TICKET_EXPIRES_MS + 1,
+            sig: [5; 64],
+        };
+        let mut w2 = Writer::new();
+        too_far.encode(&mut w2);
+        let bytes2 = w2.into_bytes();
+        let mut r2 = Reader::new(&bytes2);
+        assert!(CoreMsg::decode(&mut r2).is_err());
+    }
+
+    #[test]
+    fn invite_ticket_signable_bytes_are_stable_and_domain_separated() {
+        let a = invite_ticket_signable_bytes(&[1; 16], &[2; 16], "Guilde", &[3; 32], &[4; 32], 5);
+        let b = invite_ticket_signable_bytes(&[1; 16], &[2; 16], "Guilde", &[3; 32], &[4; 32], 5);
+        assert_eq!(a, b);
+        assert!(a.starts_with(b"accord-invite-ticket-v1"));
+        // Un champ différent change les octets signables (pas de collision
+        // triviale entre un nom de groupe et un secret par ex.).
+        let c = invite_ticket_signable_bytes(&[1; 16], &[2; 16], "Autre", &[3; 32], &[4; 32], 5);
+        assert_ne!(a, c);
     }
 
     #[test]

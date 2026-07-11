@@ -4,6 +4,7 @@
 mod contacts;
 mod files;
 mod groups;
+mod invites;
 mod mentions;
 mod messages;
 mod outbox;
@@ -11,7 +12,8 @@ mod search;
 
 pub use contacts::{Contact, ContactState};
 pub use files::{FetchIntent, FileEntry};
-pub use groups::StoredGroupKey;
+pub use groups::{LocalMembership, StoredGroupKey};
+pub use invites::IncomingInvite;
 pub use mentions::{MentionEntry, MentionScope};
 pub use messages::{DmRecord, GroupMsgRecord};
 pub use outbox::OutboxItem;
@@ -25,7 +27,7 @@ use std::path::Path;
 /// Le lot de création est entièrement idempotent (`IF NOT EXISTS`) : monter
 /// la version suffit pour créer les nouvelles tables sur une base existante.
 /// Modifier des colonnes existantes exigera en revanche une vraie migration.
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 /// Convertit un blob SQL en tableau de taille fixe.
 pub(crate) fn blob<const N: usize>(v: Vec<u8>) -> Result<[u8; N], CoreError> {
@@ -219,7 +221,30 @@ impl Db {
                pubkey BLOB PRIMARY KEY,
                note   TEXT NOT NULL
              );
-             PRAGMA user_version = 4;
+             CREATE TABLE IF NOT EXISTS group_membership_local (
+               group_id BLOB PRIMARY KEY,
+               state    INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE TABLE IF NOT EXISTS group_invites_incoming (
+               group_id    BLOB NOT NULL,
+               invite_id   BLOB NOT NULL,
+               group_name  TEXT NOT NULL,
+               inviter     BLOB NOT NULL,
+               secret      BLOB NOT NULL,
+               expires_ms  INTEGER NOT NULL,
+               received_ms INTEGER NOT NULL,
+               PRIMARY KEY (group_id, invite_id)
+             );
+             -- Porte de consentement (D-045) : avant cette version, un
+             -- op-log de groupe présent en base signifiait déjà « rejoint »
+             -- (l'ancien flux d'invitation poussait tout sans consentement).
+             -- Migration ascendante : tout groupe déjà connu à cette date
+             -- reste visible (aucune régression pour les utilisateurs
+             -- existants) ; les groupes découverts après cette migration
+             -- exigent, eux, une invitation acceptée localement.
+             INSERT OR IGNORE INTO group_membership_local (group_id, state)
+               SELECT DISTINCT group_id, 2 FROM group_ops;
+             PRAGMA user_version = 5;
              COMMIT;",
         )?;
         Ok(())
@@ -294,6 +319,56 @@ mod tests {
         assert_eq!(db.bump_lamport(0).unwrap(), 2);
         assert_eq!(db.bump_lamport(100).unwrap(), 101);
         assert_eq!(db.bump_lamport(0).unwrap(), 102);
+    }
+
+    #[test]
+    fn migration_marks_pre_existing_groups_as_joined() {
+        // Simule une base au schéma v4 (pré-consentement) : la table
+        // `group_ops` existe et porte un groupe déjà matérialisé par
+        // l'ancien flux de force-join, mais `group_membership_local`
+        // n'existe pas encore.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("core.db");
+        let db_key = key(9);
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key(&db_key)))
+                .unwrap();
+            conn.query_row("SELECT count(*) FROM sqlite_master", [], |_| Ok(()))
+                .unwrap();
+            conn.execute_batch(
+                "BEGIN;
+                 CREATE TABLE group_ops (
+                   op_id    BLOB PRIMARY KEY,
+                   group_id BLOB NOT NULL,
+                   lamport  INTEGER NOT NULL,
+                   wall_ms  INTEGER NOT NULL,
+                   author   BLOB NOT NULL,
+                   kind     INTEGER NOT NULL,
+                   body     BLOB NOT NULL,
+                   sig      BLOB NOT NULL
+                 );
+                 PRAGMA user_version = 4;
+                 COMMIT;",
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO group_ops (op_id, group_id, lamport, wall_ms, author, kind, body, sig)
+                 VALUES (?1, ?2, 1, 0, ?3, 1, x'', ?4)",
+                rusqlite::params![[1u8; 16], [2u8; 16], [3u8; 32], [0u8; 64]],
+            )
+            .unwrap();
+        }
+        // Réouverture avec le binaire courant : la migration ascendante vers
+        // SCHEMA_VERSION doit créer les nouvelles tables et marquer le
+        // groupe préexistant comme rejoint (aucune régression pour un
+        // utilisateur existant).
+        let db = Db::open(&path, &db_key).unwrap();
+        assert_eq!(db.group_ids().unwrap(), vec![[2u8; 16]]);
+        assert_eq!(
+            db.group_membership(&[2u8; 16]).unwrap(),
+            LocalMembership::Joined
+        );
     }
 
     #[test]

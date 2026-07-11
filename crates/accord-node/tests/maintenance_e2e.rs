@@ -191,7 +191,19 @@ async fn group_sync_converge_apres_redemarrage() {
     let gid_hex = alice.node.group_create("Guilde").unwrap();
     let gid: [u8; 16] = accord_node::hex::decode(&gid_hex).unwrap();
     alice.node.group_add_channel(&gid, "général").unwrap();
-    alice.node.group_invite(&gid, &bob_pub).unwrap();
+    let invite_id_hex = alice.node.group_invite_create(&gid, &bob_pub).unwrap();
+    let invite_id: [u8; 16] = accord_node::hex::decode(&invite_id_hex).unwrap();
+    assert!(
+        eventually(|| {
+            bob.node
+                .group_invites_list()
+                .map(|invites| invites.iter().any(|i| i.invite_id == invite_id))
+                .unwrap_or(false)
+        })
+        .await,
+        "Bob n'a pas reçu le ticket d'invitation"
+    );
+    bob.node.group_invite_accept(&gid, &invite_id).unwrap();
     assert!(
         eventually(|| {
             bob.node

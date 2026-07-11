@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { interpolate } from '../i18n';
 import type { GroupChannel } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
+import { useCalls } from '../stores/calls';
 import { presenceOf, useFriends } from '../stores/friends';
 import {
   useGroups,
@@ -20,7 +21,13 @@ import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 import { useUi, useT } from '../stores/ui';
 import { useVoice } from '../stores/voice';
 import { Avatar } from './Avatar';
-import { CheckMenuIcon, CopyMenuIcon, DeleteMenuIcon, EditMenuIcon } from './ContextMenu';
+import {
+  CheckMenuIcon,
+  CopyMenuIcon,
+  DeleteMenuIcon,
+  EditMenuIcon,
+  PhoneOffIcon,
+} from './ContextMenu';
 import { MentionInbox } from './MentionInbox';
 import { PresenceDot } from './PresenceDot';
 import { SearchBar } from './SearchBar';
@@ -103,6 +110,7 @@ function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
   const view = useUi((s) => s.view);
   const setView = useUi((s) => s.setView);
   const contacts = useFriends((s) => s.contacts);
+  const missedPeers = useCalls((s) => s.missedPeers);
   const friends = contacts.filter((c) => c.state === 'friend');
 
   return (
@@ -177,12 +185,28 @@ function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
               <span className="min-w-0 truncate font-medium">
                 {c.display_name || c.friend_code}
               </span>
-              {/* Une mention prime sur le simple non-lu (pastille distincte). */}
-              {mentionCount > 0 ? (
-                <MentionBadge count={mentionCount} />
-              ) : (
-                <UnreadBadge count={c.unread ?? 0} />
-              )}
+              <span className="ml-auto flex shrink-0 items-center gap-1">
+                {missedPeers.has(c.pubkey) && (
+                  <span
+                    role="img"
+                    aria-label={interpolate(t.calls.missedFrom, {
+                      name: c.display_name || c.friend_code,
+                    })}
+                    title={interpolate(t.calls.missedFrom, {
+                      name: c.display_name || c.friend_code,
+                    })}
+                    className="text-red"
+                  >
+                    <PhoneOffIcon size={13} />
+                  </span>
+                )}
+                {/* Une mention prime sur le simple non-lu (pastille distincte). */}
+                {mentionCount > 0 ? (
+                  <MentionBadge count={mentionCount} />
+                ) : (
+                  <UnreadBadge count={c.unread ?? 0} />
+                )}
+              </span>
             </button>
           );
         })}

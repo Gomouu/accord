@@ -448,7 +448,7 @@ export function MessageList({
   const nameOf = (author: string): string => {
     const nick = nicknames.get(author);
     if (self && author === self.pubkey) {
-      return `${nick ?? selfDisplayName(self)} (${t.app.you})`;
+      return `${nick ?? selfDisplayName(self)}`;
     }
     return nick ?? displayNameOf(contacts, author);
   };

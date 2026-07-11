@@ -7,7 +7,8 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import type { GroupStateJson, SelfProfile } from '../lib/api';
+import type { Contact, GroupStateJson, SelfProfile } from '../lib/api';
+import { useCalls } from '../stores/calls';
 import { useFriends } from '../stores/friends';
 import { useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
@@ -26,6 +27,18 @@ const self: SelfProfile = {
   pronouns: null,
   accent_color: null,
   banner_color: null,
+};
+
+const alice: Contact = {
+  node_id: 'n-alice',
+  pubkey: 'alice',
+  friend_code: 'accord-alice',
+  display_name: 'Alice',
+  bio: null,
+  avatar: null,
+  banner: null,
+  state: 'friend',
+  last_seen_ms: 0,
 };
 
 const groupState: GroupStateJson = {
@@ -47,7 +60,9 @@ beforeEach(() => {
   useSession.setState({ self, phase: 'ready' });
   useGroups.setState({ states: { g1: groupState } });
   useVoice.setState({ active: null, participants: new Map() });
+  useCalls.setState({ phase: 'idle', peer: null, callId: null, sincePhaseMs: null });
   useFriends.setState({
+    contacts: [alice],
     ownStatus: 'online',
     ownStatusText: null,
     loadOwnStatus: vi.fn(async () => {}),
@@ -148,7 +163,7 @@ describe('UserPanel — bandeau vocal', () => {
   });
 
   it('affiche l’état connecté et le nom du groupe', () => {
-    useVoice.setState({ active: { groupId: 'g1', channelId: 'g1', muted: false } });
+    useVoice.setState({ active: { groupId: 'g1', channelId: 'g1', muted: false, isCall: false } });
     render(<UserPanel />);
 
     expect(screen.getByText('Vocal connecté')).toBeInTheDocument();
@@ -158,7 +173,7 @@ describe('UserPanel — bandeau vocal', () => {
   it('coupe le micro au clic et reflète l’état muet', () => {
     const toggleMute = vi.fn(async () => {});
     useVoice.setState({
-      active: { groupId: 'g1', channelId: 'g1', muted: false },
+      active: { groupId: 'g1', channelId: 'g1', muted: false, isCall: false },
       toggleMute,
     });
     render(<UserPanel />);
@@ -171,7 +186,7 @@ describe('UserPanel — bandeau vocal', () => {
   });
 
   it('présente le bouton de rétablissement quand le micro est coupé', () => {
-    useVoice.setState({ active: { groupId: 'g1', channelId: 'g1', muted: true } });
+    useVoice.setState({ active: { groupId: 'g1', channelId: 'g1', muted: true, isCall: false } });
     render(<UserPanel />);
 
     const muteButton = screen.getByRole('button', { name: 'Rétablir le micro' });
@@ -181,7 +196,7 @@ describe('UserPanel — bandeau vocal', () => {
   it('raccroche via le bouton rouge', () => {
     const leave = vi.fn(async () => {});
     useVoice.setState({
-      active: { groupId: 'g1', channelId: 'g1', muted: false },
+      active: { groupId: 'g1', channelId: 'g1', muted: false, isCall: false },
       leave,
     });
     render(<UserPanel />);
@@ -189,5 +204,69 @@ describe('UserPanel — bandeau vocal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Raccrocher' }));
 
     expect(leave).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('UserPanel — bandeau d’appel 1-à-1', () => {
+  it('prime sur le bandeau de salon vocal de groupe (jamais les deux)', () => {
+    useVoice.setState({ active: { groupId: 'g1', channelId: 'g1', muted: false, isCall: false } });
+    useCalls.setState({ phase: 'active', peer: 'alice', callId: 'c1', sincePhaseMs: Date.now() });
+    render(<UserPanel />);
+
+    expect(screen.getByText('Alice')).toBeInTheDocument();
+    expect(screen.queryByText('Les copains')).not.toBeInTheDocument();
+  });
+
+  it('affiche « Sonnerie… » en sonnerie sortante, sans contrôles mute/deafen', () => {
+    useCalls.setState({
+      phase: 'outgoing_ringing',
+      peer: 'alice',
+      callId: 'c1',
+      sincePhaseMs: Date.now(),
+    });
+    render(<UserPanel />);
+
+    expect(screen.getByText('Alice')).toBeInTheDocument();
+    expect(screen.getByText('Sonnerie…')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Couper le micro' })).not.toBeInTheDocument();
+  });
+
+  it('annule via le bouton rouge en sonnerie sortante', () => {
+    const hangup = vi.fn(async () => {});
+    useCalls.setState({
+      phase: 'outgoing_ringing',
+      peer: 'alice',
+      callId: 'c1',
+      sincePhaseMs: Date.now(),
+      hangup,
+    });
+    render(<UserPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Annuler l’appel' }));
+
+    expect(hangup).toHaveBeenCalledTimes(1);
+  });
+
+  it('affiche les contrôles mute/deafen une fois la session vocale de l’appel synchronisée', () => {
+    useCalls.setState({
+      phase: 'active',
+      peer: 'alice',
+      callId: 'c1',
+      sincePhaseMs: Date.now(),
+    });
+    useVoice.setState({
+      active: { groupId: '0'.repeat(32), channelId: 'c1', muted: false, isCall: true },
+    });
+    render(<UserPanel />);
+
+    expect(screen.getByRole('button', { name: 'Couper le micro' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Raccrocher' })).toBeInTheDocument();
+  });
+
+  it('reste absent hors appel', () => {
+    render(<UserPanel />);
+
+    expect(screen.queryByText('Sonnerie…')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Annuler l’appel' })).not.toBeInTheDocument();
   });
 });

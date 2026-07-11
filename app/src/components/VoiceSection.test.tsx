@@ -66,7 +66,16 @@ const alice: Contact = {
 
 /** Participant sans état particulier (volume neutre, rien de coupé). */
 function idle(overrides: Partial<ParticipantState> = {}): ParticipantState {
-  return { speaking: false, muted: false, deafened: false, volume: 100, ...overrides };
+  return {
+    speaking: false,
+    muted: false,
+    deafened: false,
+    volume: 100,
+    serverMuted: false,
+    serverDeafened: false,
+    prioritySpeaker: false,
+    ...overrides,
+  };
 }
 
 /** Connecte le salon vocal du groupe donné avec ces participants. */
@@ -75,7 +84,7 @@ function seedVoice(
   participants: Array<[string, Partial<ParticipantState>]>,
 ): void {
   useVoice.setState({
-    active: { groupId, channelId: groupId, muted: false },
+    active: { groupId, channelId: groupId, muted: false, isCall: false },
     participants: new Map(participants.map(([pk, state]) => [pk, idle(state)])),
   });
 }

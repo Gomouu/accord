@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 import { dictionaries, interpolate } from '../i18n';
-import type { AccordEvent } from '../lib/api';
+import type { AccordEvent, CallEndedReason } from '../lib/api';
+import { callEndedToast } from '../lib/callToast';
 import { rpc } from '../lib/client';
 import {
   isNotificationEligible,
@@ -14,6 +15,7 @@ import {
 } from '../lib/notifications';
 import { playNotificationSound } from '../lib/notificationSound';
 import { usePushToTalk } from '../hooks/usePushToTalk';
+import { useCalls } from '../stores/calls';
 import { isEditableTarget } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
 import { useFriends, displayNameOf } from '../stores/friends';
@@ -32,6 +34,7 @@ import { useVoice } from '../stores/voice';
 import { DmView, GroupView } from './ChatView';
 import { ContextMenu } from './ContextMenu';
 import { FriendsView } from './FriendsView';
+import { IncomingCall } from './IncomingCall';
 import { Modals } from './Modals';
 import { ProfilePopover } from './ProfilePopover';
 import { ResizeHandle } from './ResizeHandle';
@@ -116,6 +119,33 @@ function maybePlaySound(ref: ConversationRef, author: string, isMention: boolean
 function maybePlayInviteSound(): void {
   if (useFriends.getState().ownStatus === 'dnd') return;
   playNotificationSound('message');
+}
+
+/**
+ * Traite `event.call_ended` : applique la transition (idle) au store d'appel
+ * puis, seulement si elle a bien eu lieu (pas un événement tardif déjà résolu
+ * localement par `decline`/`hangup` — voir `stores/calls.ts`), notifie
+ * (`missed` marque aussi un badge sur le contact) et resynchronise le salon
+ * vocal (la session d'appel se termine avec le moteur vocal existant).
+ */
+function handleCallEnded(params: {
+  peer: string;
+  call_id: string;
+  reason: CallEndedReason;
+}): void {
+  const applied = useCalls.getState().applyEnded(params);
+  if (!applied) return;
+  if (params.reason === 'missed') useCalls.getState().markMissed(params.peer);
+  const dict = dictionaries[useUi.getState().lang];
+  const name = displayNameOf(useFriends.getState().contacts, params.peer);
+  const toast = callEndedToast(dict, params.reason, name);
+  if (toast !== null) useUi.getState().toast(toast.kind, toast.text);
+  useVoice
+    .getState()
+    .sync()
+    .catch(() => {
+      // Best effort : l'état vocal se corrigera au prochain événement.
+    });
 }
 
 /**
@@ -286,6 +316,30 @@ function useNodeEvents() {
         case 'event.voice_mute':
           useVoice.getState().applyMuteState(event.params);
           break;
+        case 'event.voice_moderate':
+          useVoice.getState().applyVoiceModerate(event.params);
+          break;
+        case 'event.call_outgoing':
+          useCalls.getState().applyOutgoing(event.params);
+          break;
+        case 'event.call_incoming':
+          useCalls.getState().applyIncoming(event.params);
+          break;
+        case 'event.call_accepted':
+          useCalls.getState().applyAccepted(event.params);
+          // La session d'appel réutilise le moteur vocal existant (sentinelle
+          // group_id) : on la fait apparaître via le flux normal voice.status,
+          // plutôt que de dupliquer sa forme dans le store d'appel.
+          useVoice
+            .getState()
+            .sync()
+            .catch(() => {
+              // Best effort : l'état vocal se corrigera au prochain événement.
+            });
+          break;
+        case 'event.call_ended':
+          handleCallEnded(event.params);
+          break;
         case 'event.desynchronise': {
           void useFriends.getState().load();
           void useGroups.getState().loadList();
@@ -332,6 +386,7 @@ export function AppShell() {
   const loadFriends = useFriends((s) => s.load);
   const loadGroups = useGroups((s) => s.loadList);
   const syncVoice = useVoice((s) => s.sync);
+  const syncCalls = useCalls((s) => s.sync);
   useNodeEvents();
   useNotificationNavigation();
   useSuppressNativeContextMenu();
@@ -348,7 +403,11 @@ export function AppShell() {
     syncVoice().catch(() => {
       // Best effort : sans réponse du nœud, l'état vocal local reste vide.
     });
-  }, [loadFriends, loadGroups, syncVoice]);
+    // Reprise d'appel : resynchronise la phase courante (calls.status).
+    syncCalls().catch(() => {
+      // Best effort : sans réponse du nœud, l'état d'appel local reste idle.
+    });
+  }, [loadFriends, loadGroups, syncVoice, syncCalls]);
 
   return (
     <div className="app-ambient flex h-full">
@@ -374,6 +433,7 @@ export function AppShell() {
       <Modals />
       <ProfilePopover />
       <ContextMenu />
+      <IncomingCall />
     </div>
   );
 }

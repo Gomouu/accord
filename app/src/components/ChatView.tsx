@@ -5,12 +5,14 @@ import { interpolate } from '../i18n';
 import type { Contact, PresenceStatus, SelfProfile } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
 import { formatTimestamp } from '../lib/format';
+import { useCalls } from '../stores/calls';
 import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
 import { useFriends, avatarOf, displayNameOf, presenceOf } from '../stores/friends';
 import {
   useGroups,
   aggregateEmojiMap,
+  canModerateVoice,
   channelKey,
   hasPerm,
   memberColor,
@@ -34,7 +36,10 @@ import {
   CopyMenuIcon,
   EnvelopeMenuIcon,
   MentionMenuIcon,
+  PhoneIcon,
   ProfileMenuIcon,
+  VoiceDeafenMenuIcon,
+  VoiceMuteMenuIcon,
 } from './ContextMenu';
 import { MessageInput } from './MessageInput';
 import { MessageList, type DisplayMessage } from './MessageList';
@@ -116,12 +121,14 @@ function HeaderIconButton({
   active,
   onClick,
   ariaExpanded,
+  disabled = false,
   children,
 }: {
   label: string;
   active: boolean;
   onClick: () => void;
   ariaExpanded?: boolean;
+  disabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -130,8 +137,9 @@ function HeaderIconButton({
       aria-label={label}
       title={label}
       aria-expanded={ariaExpanded}
+      disabled={disabled}
       onClick={onClick}
-      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat active:scale-95 ${
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent ${
         active ? 'text-header' : 'text-muted hover:text-norm'
       }`}
     >
@@ -170,6 +178,10 @@ export function DmView({ peer }: { peer: string }) {
   const toast = useUi((s) => s.toast);
   const contacts = useFriends((s) => s.contacts);
   const self = useSession((s) => s.self);
+  const callPhase = useCalls((s) => s.phase);
+  const callPeer = useCalls((s) => s.peer);
+  const startCall = useCalls((s) => s.start);
+  const clearMissed = useCalls((s) => s.clearMissed);
   const messages = useDms((s) => s.conversations[peer]) ?? [];
   const hasMore = useDms((s) => s.hasMore[peer]) === true;
   const refresh = useDms((s) => s.refresh);
@@ -214,6 +226,12 @@ export function DmView({ peer }: { peer: string }) {
     loadPins(peer).catch(() => {});
   }, [peer, refresh, loadPins, toast, t]);
 
+  // Conversation ouverte : efface le badge d'appel manqué de ce pair, le cas
+  // échéant (voir `stores/calls.ts`).
+  useEffect(() => {
+    clearMissed(peer);
+  }, [peer, clearMissed]);
+
   // Conversation affichée : marquée lue jusqu'au dernier message connu, à
   // l'ouverture comme à chaque arrivée — le badge de non-lus retombe. Seule
   // la conversation montrée est concernée (le composant est démonté sinon).
@@ -229,7 +247,7 @@ export function DmView({ peer }: { peer: string }) {
   const pinnedIds = new Set(pins);
   const nameOf = (author: string): string =>
     self && author === self.pubkey
-      ? `${selfDisplayName(self)} (${t.app.you})`
+      ? `${selfDisplayName(self)}`
       : displayNameOf(contacts, author);
   const { resolved: resolvedPins, unresolved: unresolvedPins } = resolvePins(
     pins,
@@ -249,6 +267,16 @@ export function DmView({ peer }: { peer: string }) {
       bottom: r.bottom,
       right: r.right,
     });
+  };
+
+  // Appel 1-à-1 : réservé aux amis confirmés (contrat calls.start) ; le
+  // bouton est simplement absent sinon plutôt qu'un état désactivé confus.
+  const isFriend = contacts.some((c) => c.pubkey === peer && c.state === 'friend');
+  const callOngoing = callPhase !== 'idle';
+  const inCallWithPeer = callPhase === 'active' && callPeer === peer;
+  const onStartCall = (): void => {
+    if (callOngoing) return;
+    startCall(peer).catch(onActionError);
   };
 
   return (
@@ -273,8 +301,23 @@ export function DmView({ peer }: { peer: string }) {
             }
           />
           <span className="font-semibold text-header">{name}</span>
+          {inCallWithPeer && (
+            <span className="rounded-full bg-green/15 px-2 py-0.5 text-xs font-medium text-green">
+              {t.calls.inCall}
+            </span>
+          )}
         </button>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-1">
+          {isFriend && (
+            <HeaderIconButton
+              label={callOngoing ? t.calls.callAlreadyOngoing : t.calls.startCall}
+              active={false}
+              disabled={callOngoing}
+              onClick={onStartCall}
+            >
+              <PhoneIcon />
+            </HeaderIconButton>
+          )}
           <HeaderIconButton
             label={t.serveur.pinnedTitle}
             active={pinsOpen}
@@ -349,7 +392,7 @@ export function DmView({ peer }: { peer: string }) {
         <ReplyBanner
           name={
             self && replyTo.author === self.pubkey
-              ? `${selfDisplayName(self)} (${t.app.you})`
+              ? `${selfDisplayName(self)}`
               : displayNameOf(contacts, replyTo.author)
           }
           onCancel={() => setReplyTo(null)}
@@ -392,7 +435,7 @@ function MemberList({ groupId }: { groupId: string }) {
   const nameOf = (pubkey: string): string => {
     const nick = nicknameOf(state, pubkey);
     if (self && pubkey === self.pubkey) {
-      return `${nick ?? selfDisplayName(self)} (${t.app.you})`;
+      return `${nick ?? selfDisplayName(self)}`;
     }
     return nick ?? displayNameOf(contacts, pubkey);
   };
@@ -430,6 +473,38 @@ function MemberList({ groupId }: { groupId: string }) {
         label: t.friends.sendDm,
         icon: <EnvelopeMenuIcon />,
         onClick: () => useUi.getState().setView({ kind: 'dm', peer: pubkey }),
+      });
+    }
+    // Modération vocale serveur (op 0x1F) : permission KICK requise, fondateur
+    // et soi-même intouchables côté UI (même convention que kick/ban/timeout
+    // dans ServerMembersTab — le nœud revérifie la hiérarchie de toute façon).
+    if (canModerateVoice(state, self?.pubkey ?? null, pubkey)) {
+      const targetMember = state.members.find((m) => m.pubkey === pubkey);
+      const serverMuted = targetMember?.voice_muted === true;
+      const serverDeafened = targetMember?.voice_deafened === true;
+      const onModerateError = (): void => toast('error', t.errors.actionFailed);
+      items.push({
+        label: serverMuted ? t.contextMenu.voiceUnmuteServer : t.contextMenu.voiceMuteServer,
+        icon: <VoiceMuteMenuIcon />,
+        separatorBefore: true,
+        onClick: () => {
+          useGroups
+            .getState()
+            .voiceModerate(groupId, pubkey, !serverMuted, serverDeafened)
+            .catch(onModerateError);
+        },
+      });
+      items.push({
+        label: serverDeafened
+          ? t.contextMenu.voiceUndeafenServer
+          : t.contextMenu.voiceDeafenServer,
+        icon: <VoiceDeafenMenuIcon />,
+        onClick: () => {
+          useGroups
+            .getState()
+            .voiceModerate(groupId, pubkey, serverMuted, !serverDeafened)
+            .catch(onModerateError);
+        },
       });
     }
     items.push({
@@ -764,7 +839,7 @@ export function GroupView({
   const nameOf = (author: string): string => {
     const nick = nicknameOf(state, author);
     if (self && author === self.pubkey) {
-      return `${nick ?? selfDisplayName(self)} (${t.app.you})`;
+      return `${nick ?? selfDisplayName(self)}`;
     }
     return nick ?? displayNameOf(contacts, author);
   };
@@ -881,7 +956,7 @@ export function GroupView({
           <ReplyBanner
             name={
               self && replyTo.author === self.pubkey
-                ? `${selfDisplayName(self)} (${t.app.you})`
+                ? `${selfDisplayName(self)}`
                 : displayNameOf(contacts, replyTo.author)
             }
             onCancel={() => setReplyTo(null)}

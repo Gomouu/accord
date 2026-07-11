@@ -115,6 +115,26 @@ function ParticipantRow({
         </div>
         {state.speaking && <span className="sr-only">{t.voice.speaking}</span>}
         <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
+        {state.serverMuted && (
+          <span
+            role="img"
+            aria-label={t.voice.serverMutedBadge}
+            title={t.voice.serverMutedBadge}
+            className="shrink-0 text-yellow"
+          >
+            <MicOffIcon />
+          </span>
+        )}
+        {state.serverDeafened && (
+          <span
+            role="img"
+            aria-label={t.voice.serverDeafenedBadge}
+            title={t.voice.serverDeafenedBadge}
+            className="shrink-0 text-yellow"
+          >
+            <HeadphonesOffIcon />
+          </span>
+        )}
         {state.muted && (
           <span role="img" aria-label={t.voice.mutedBadge} className="shrink-0 text-red">
             <MicOffIcon />

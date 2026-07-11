@@ -15,6 +15,8 @@ vi.mock('../lib/client', () => ({
     voiceDeafen: vi.fn(),
     voiceSetVolume: vi.fn(),
     voiceStatus: vi.fn(),
+    voiceSetNoiseSuppression: vi.fn(),
+    voiceSetAgc: vi.fn(),
   },
 }));
 
@@ -27,10 +29,21 @@ const muteMock = api.voiceMute as unknown as Mock;
 const deafenMock = api.voiceDeafen as unknown as Mock;
 const setVolumeMock = api.voiceSetVolume as unknown as Mock;
 const statusMock = api.voiceStatus as unknown as Mock;
+const setNoiseSuppressionMock = api.voiceSetNoiseSuppression as unknown as Mock;
+const setAgcMock = api.voiceSetAgc as unknown as Mock;
 
 /** Participant sans état particulier (personne ne parle, volume neutre). */
 function idle(overrides: Partial<ParticipantState> = {}): ParticipantState {
-  return { speaking: false, muted: false, deafened: false, volume: 100, ...overrides };
+  return {
+    speaking: false,
+    muted: false,
+    deafened: false,
+    volume: 100,
+    serverMuted: false,
+    serverDeafened: false,
+    prioritySpeaker: false,
+    ...overrides,
+  };
 }
 
 /** Pose un salon actif avec des participants, sans passer par l'API. */
@@ -42,7 +55,7 @@ function seedActive(
   ],
 ): void {
   useVoice.setState({
-    active: { groupId, channelId: groupId, muted: false },
+    active: { groupId, channelId: groupId, muted: false, isCall: false },
     selfDeafened: false,
     participants: new Map(participants.map(([pk, state]) => [pk, idle(state)])),
   });
@@ -58,6 +71,7 @@ beforeEach(() => {
     selfDeafened: false,
     masterVolume: 100,
     participants: new Map(),
+    dsp: { noiseSuppression: false, agc: false },
   });
   joinMock.mockReset();
   leaveMock.mockReset();
@@ -65,6 +79,8 @@ beforeEach(() => {
   deafenMock.mockReset();
   setVolumeMock.mockReset();
   statusMock.mockReset();
+  setNoiseSuppressionMock.mockReset();
+  setAgcMock.mockReset();
 });
 
 describe('useVoice.join', () => {
@@ -78,6 +94,7 @@ describe('useVoice.join', () => {
       groupId: 'g1',
       channelId: 'g1',
       muted: false,
+      isCall: false,
     });
     expect(participantKeys()).toEqual(['moi', 'alice']);
     expect(useVoice.getState().participants.get('alice')).toEqual(idle());
@@ -160,7 +177,7 @@ describe('useVoice.toggleMute', () => {
   it('garde le micro coupé tant que le deafen est actif (état demandé mémorisé au nœud)', async () => {
     seedActive();
     useVoice.setState({
-      active: { groupId: 'g1', channelId: 'g1', muted: true },
+      active: { groupId: 'g1', channelId: 'g1', muted: true, isCall: false },
       selfDeafened: true,
     });
     muteMock.mockResolvedValue({});
@@ -188,7 +205,7 @@ describe('useVoice.setDeafened', () => {
   it('rétablit via une resynchronisation (le nœud restaure le micro demandé)', async () => {
     seedActive();
     useVoice.setState({
-      active: { groupId: 'g1', channelId: 'g1', muted: true },
+      active: { groupId: 'g1', channelId: 'g1', muted: true, isCall: false },
       selfDeafened: true,
     });
     deafenMock.mockResolvedValue({});
@@ -417,6 +434,7 @@ describe('useVoice.sync', () => {
       groupId: 'g1',
       channelId: 'g1',
       muted: true,
+      isCall: false,
     });
     expect(useVoice.getState().selfDeafened).toBe(true);
     expect(useVoice.getState().masterVolume).toBe(130);
@@ -451,5 +469,150 @@ describe('useVoice.loadMasterVolume', () => {
 
     expect(useVoice.getState().masterVolume).toBe(175);
     expect(useVoice.getState().active?.groupId).toBe('g1');
+  });
+
+  it('recharge aussi les réglages DSP persistés', async () => {
+    statusMock.mockResolvedValueOnce({
+      master_volume: 100,
+      active: null,
+      dsp: { noise_suppression: true, agc: true },
+    });
+
+    await useVoice.getState().loadMasterVolume();
+
+    expect(useVoice.getState().dsp).toEqual({ noiseSuppression: true, agc: true });
+  });
+
+  it('retombe sur des DSP désactivés si le nœud ne les émet pas (tolérance)', async () => {
+    statusMock.mockResolvedValueOnce({ master_volume: 100, active: null });
+
+    await useVoice.getState().loadMasterVolume();
+
+    expect(useVoice.getState().dsp).toEqual({ noiseSuppression: false, agc: false });
+  });
+});
+
+describe('useVoice DSP (voice.set_noise_suppression / voice.set_agc)', () => {
+  it('setNoiseSuppression appelle le nœud et mémorise localement', async () => {
+    setNoiseSuppressionMock.mockResolvedValue({});
+
+    await useVoice.getState().setNoiseSuppression(true);
+
+    expect(setNoiseSuppressionMock).toHaveBeenLastCalledWith(true);
+    expect(useVoice.getState().dsp.noiseSuppression).toBe(true);
+  });
+
+  it('setAgc appelle le nœud et mémorise localement', async () => {
+    setAgcMock.mockResolvedValue({});
+
+    await useVoice.getState().setAgc(true);
+
+    expect(setAgcMock).toHaveBeenLastCalledWith(true);
+    expect(useVoice.getState().dsp.agc).toBe(true);
+  });
+
+  it('ne mémorise rien quand le nœud refuse', async () => {
+    setNoiseSuppressionMock.mockRejectedValueOnce(new Error('hors ligne'));
+
+    await expect(useVoice.getState().setNoiseSuppression(true)).rejects.toThrow();
+
+    expect(useVoice.getState().dsp.noiseSuppression).toBe(false);
+  });
+});
+
+describe('useVoice.sync avec un appel 1-à-1 (sentinelle)', () => {
+  const SENTINEL = '0'.repeat(32);
+
+  it('reflète is_call et les champs de modération (toujours false en appel)', async () => {
+    statusMock.mockResolvedValueOnce({
+      master_volume: 100,
+      active: {
+        group_id: SENTINEL,
+        channel_id: 'callid',
+        muted: false,
+        deafened: false,
+        is_call: true,
+        participants: [
+          {
+            pubkey: 'moi',
+            speaking: false,
+            muted: false,
+            deafened: false,
+            volume: 100,
+            server_muted: false,
+            server_deafened: false,
+            priority_speaker: false,
+          },
+        ],
+      },
+    });
+
+    await useVoice.getState().sync();
+
+    expect(useVoice.getState().active).toEqual({
+      groupId: SENTINEL,
+      channelId: 'callid',
+      muted: false,
+      isCall: true,
+    });
+  });
+});
+
+describe('événement voice_moderate', () => {
+  it('applique la modération sur un participant du salon de groupe actif', () => {
+    seedActive('g1', [['alice', {}]]);
+
+    useVoice.getState().applyVoiceModerate({
+      group_id: 'g1',
+      pubkey: 'alice',
+      server_muted: true,
+      server_deafened: false,
+      priority_speaker: false,
+    });
+
+    expect(useVoice.getState().participants.get('alice')).toEqual(
+      idle({ serverMuted: true }),
+    );
+  });
+
+  it('ignore un autre salon et un participant inconnu, reste idempotent', () => {
+    seedActive('g1', [['moi', {}]]);
+    const before = useVoice.getState().participants;
+
+    useVoice.getState().applyVoiceModerate({
+      group_id: 'g2',
+      pubkey: 'moi',
+      server_muted: true,
+      server_deafened: false,
+      priority_speaker: false,
+    });
+    useVoice.getState().applyVoiceModerate({
+      group_id: 'g1',
+      pubkey: 'fantôme',
+      server_muted: true,
+      server_deafened: false,
+      priority_speaker: false,
+    });
+    useVoice.getState().applyVoiceModerate({
+      group_id: 'g1',
+      pubkey: 'moi',
+      server_muted: false,
+      server_deafened: false,
+      priority_speaker: false,
+    });
+
+    expect(useVoice.getState().participants).toBe(before);
+  });
+
+  it('est ignoré hors salon vocal (jamais émis pour une session d’appel)', () => {
+    useVoice.getState().applyVoiceModerate({
+      group_id: 'g1',
+      pubkey: 'moi',
+      server_muted: true,
+      server_deafened: false,
+      priority_speaker: false,
+    });
+
+    expect(useVoice.getState().participants.size).toBe(0);
   });
 });

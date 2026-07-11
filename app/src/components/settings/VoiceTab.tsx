@@ -100,6 +100,9 @@ export function VoiceTab() {
   const setPttKey = useUi((s) => s.setPttKey);
   const masterVolume = useVoice((s) => s.masterVolume);
   const setVolume = useVoice((s) => s.setVolume);
+  const dsp = useVoice((s) => s.dsp);
+  const setNoiseSuppression = useVoice((s) => s.setNoiseSuppression);
+  const setAgc = useVoice((s) => s.setAgc);
 
   const [devices, setDevices] = useState<VoiceDevices | null>(null);
   const [testing, setTesting] = useState(false);
@@ -254,6 +257,25 @@ export function VoiceTab() {
           </button>
           <MicMeter level={mic.level} speaking={mic.speaking} />
         </div>
+      </SettingsSection>
+
+      <SettingsSection title={t.settings.dspTitle} hint={t.settings.dspHint}>
+        <ToggleRow
+          label={t.settings.noiseSuppression}
+          hint={t.settings.noiseSuppressionHint}
+          checked={dsp.noiseSuppression}
+          onChange={(enabled) => {
+            setNoiseSuppression(enabled).catch(() => toast('error', t.errors.actionFailed));
+          }}
+        />
+        <ToggleRow
+          label={t.settings.agc}
+          hint={t.settings.agcHint}
+          checked={dsp.agc}
+          onChange={(enabled) => {
+            setAgc(enabled).catch(() => toast('error', t.errors.actionFailed));
+          }}
+        />
       </SettingsSection>
 
       <SettingsSection title={t.settings.pttTitle}>

@@ -33,6 +33,7 @@ vi.mock('../lib/client', () => ({
     groupsEmojiDel: vi.fn(),
     groupsTimeout: vi.fn(),
     groupsTimeoutClear: vi.fn(),
+    groupsVoiceModerate: vi.fn(),
     groupsSetNickname: vi.fn(),
     groupsInviteCreate: vi.fn(),
     groupsInvitesList: vi.fn(),
@@ -45,6 +46,7 @@ import { api, rpc } from '../lib/client';
 import type { GroupMessage, GroupRole, GroupStateJson, PendingInvite } from '../lib/api';
 import {
   useGroups,
+  canModerateVoice,
   channelKey,
   channelsByCategory,
   handleMentionNodeEvent,
@@ -87,6 +89,7 @@ const emojiDelMock = api.groupsEmojiDel as unknown as Mock;
 const historyAroundMock = api.groupsHistoryAround as unknown as Mock;
 const timeoutMock = api.groupsTimeout as unknown as Mock;
 const timeoutClearMock = api.groupsTimeoutClear as unknown as Mock;
+const voiceModerateMock = api.groupsVoiceModerate as unknown as Mock;
 const nicknameMock = api.groupsSetNickname as unknown as Mock;
 const inviteCreateMock = api.groupsInviteCreate as unknown as Mock;
 const invitesListMock = api.groupsInvitesList as unknown as Mock;
@@ -164,6 +167,7 @@ beforeEach(() => {
     historyAroundMock,
     timeoutMock,
     timeoutClearMock,
+    voiceModerateMock,
     nicknameMock,
     inviteCreateMock,
     invitesListMock,
@@ -233,6 +237,36 @@ describe('highestRolePosition', () => {
     expect(highestRolePosition({ pubkey: 'x', roles: ['a', 'c'] }, roles)).toBe(4);
     expect(highestRolePosition({ pubkey: 'x', roles: [] }, roles)).toBe(-1);
     expect(highestRolePosition(undefined, roles)).toBe(-1);
+  });
+});
+
+describe('canModerateVoice', () => {
+  const withKick = { my_permissions: PERMISSIONS.KICK, founder: 'fondateur' };
+  const withoutKick = { my_permissions: PERMISSIONS.VIEW, founder: 'fondateur' };
+  const admin = { my_permissions: PERMISSIONS.ADMIN, founder: 'fondateur' };
+
+  it('autorise avec la permission KICK, cible ni soi ni le fondateur', () => {
+    expect(canModerateVoice(withKick, 'moi', 'autre')).toBe(true);
+  });
+
+  it('ADMIN implique KICK', () => {
+    expect(canModerateVoice(admin, 'moi', 'autre')).toBe(true);
+  });
+
+  it('refuse sans la permission KICK', () => {
+    expect(canModerateVoice(withoutKick, 'moi', 'autre')).toBe(false);
+  });
+
+  it('refuse sur soi-même', () => {
+    expect(canModerateVoice(withKick, 'moi', 'moi')).toBe(false);
+  });
+
+  it('refuse sur le fondateur (intouchable)', () => {
+    expect(canModerateVoice(withKick, 'moi', 'fondateur')).toBe(false);
+  });
+
+  it('refuse sans identité locale connue', () => {
+    expect(canModerateVoice(withKick, null, 'autre')).toBe(false);
   });
 });
 
@@ -945,6 +979,37 @@ describe('useGroups — sourdine et pseudos de serveur', () => {
     await useGroups.getState().setNickname('g1', '');
 
     expect(nicknameMock).toHaveBeenCalledWith('g1', '', undefined);
+  });
+});
+
+describe('useGroups — modération vocale (groups.voice_moderate)', () => {
+  it('voiceModerate transmet mute/deafen puis recharge l’état', async () => {
+    voiceModerateMock.mockResolvedValueOnce({ ok: true });
+    stateMock.mockResolvedValueOnce(groupState());
+
+    await useGroups.getState().voiceModerate('g1', 'autre', true, false);
+
+    expect(voiceModerateMock).toHaveBeenCalledWith('g1', 'autre', true, false);
+    expect(useGroups.getState().states['g1']).toBeDefined();
+  });
+
+  it('voiceModerate(false, false) lève la modération', async () => {
+    voiceModerateMock.mockResolvedValueOnce({ ok: true });
+    stateMock.mockResolvedValueOnce(groupState());
+
+    await useGroups.getState().voiceModerate('g1', 'autre', false, false);
+
+    expect(voiceModerateMock).toHaveBeenCalledWith('g1', 'autre', false, false);
+  });
+
+  it('ne recharge pas l’état quand le nœud refuse', async () => {
+    voiceModerateMock.mockRejectedValueOnce(new Error('refusé : hiérarchie'));
+
+    await expect(
+      useGroups.getState().voiceModerate('g1', 'autre', true, false),
+    ).rejects.toThrow();
+
+    expect(stateMock).not.toHaveBeenCalled();
   });
 });
 

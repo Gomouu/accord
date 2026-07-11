@@ -10,12 +10,15 @@
 
 import { useEffect, useState } from 'react';
 import type { PresenceStatus } from '../lib/api';
-import { useFriends } from '../stores/friends';
+import { formatDuration } from '../lib/format';
+import { useCalls } from '../stores/calls';
+import { avatarOf, displayNameOf, useFriends } from '../stores/friends';
 import { useGroups } from '../stores/groups';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import { useVoice } from '../stores/voice';
 import { Avatar } from './Avatar';
+import { PhoneOffIcon } from './ContextMenu';
 import { PresenceDot } from './PresenceDot';
 import { ownDotStatus, UserMenu } from './UserMenu';
 
@@ -62,6 +65,10 @@ function MicIcon({ muted }: { muted: boolean }) {
   );
 }
 
+/** Bouton d'action carré du bandeau vocal (icon spec, 32 px). */
+const ICON_BUTTON_CLASS =
+  'flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-rail active:scale-95';
+
 /** Bandeau « Vocal connecté » : nom du groupe, mute micro, raccrocher. */
 function VoiceBanner() {
   const t = useT();
@@ -81,9 +88,6 @@ function VoiceBanner() {
   const muteLabel = active.muted ? t.voice.unmute : t.voice.mute;
   const deafenLabel = selfDeafened ? t.voice.undeafen : t.voice.deafen;
 
-  const iconButton =
-    'flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-rail active:scale-95';
-
   return (
     <div className="flex items-center justify-between gap-2 border-b border-[color:var(--glass-border)] bg-rail/60 px-2 py-2">
       <div className="min-w-0">
@@ -99,7 +103,7 @@ function VoiceBanner() {
           title={muteLabel}
           aria-pressed={active.muted}
           onClick={() => toggleMute().catch(onActionError)}
-          className={`${iconButton} ${active.muted ? 'text-red' : 'text-muted hover:text-norm'}`}
+          className={`${ICON_BUTTON_CLASS} ${active.muted ? 'text-red' : 'text-muted hover:text-norm'}`}
         >
           <MicIcon muted={active.muted} />
         </button>
@@ -109,7 +113,7 @@ function VoiceBanner() {
           title={deafenLabel}
           aria-pressed={selfDeafened}
           onClick={() => toggleDeafen().catch(onActionError)}
-          className={`${iconButton} ${selfDeafened ? 'text-red' : 'text-muted hover:text-norm'}`}
+          className={`${ICON_BUTTON_CLASS} ${selfDeafened ? 'text-red' : 'text-muted hover:text-norm'}`}
         >
           <HeadphonesIcon deafened={selfDeafened} />
         </button>
@@ -118,22 +122,114 @@ function VoiceBanner() {
           aria-label={t.voice.disconnect}
           title={t.voice.disconnect}
           onClick={() => leave().catch(onActionError)}
-          className={`${iconButton} text-red`}
+          className={`${ICON_BUTTON_CLASS} text-red`}
         >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91" />
-            <line x1="22" x2="2" y1="2" y2="22" />
-          </svg>
+          <PhoneOffIcon />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Bandeau d'appel 1-à-1 : sonnerie sortante (annuler) ou appel actif (pair,
+ * durée, mute/deafen/raccrocher — la session réutilise le moteur vocal
+ * existant une fois `event.call_accepted` traité, voir `AppShell`). Un appel
+ * et un salon de groupe ne coexistent jamais (contrat voix, voir
+ * VOICE_CALLS.md §1.3) : `UserPanel` n'affiche celui-ci qu'à la place de
+ * `VoiceBanner`, jamais les deux.
+ */
+function CallBanner() {
+  const t = useT();
+  const toast = useUi((s) => s.toast);
+  const phase = useCalls((s) => s.phase);
+  const peer = useCalls((s) => s.peer);
+  const sincePhaseMs = useCalls((s) => s.sincePhaseMs);
+  const hangup = useCalls((s) => s.hangup);
+  const contacts = useFriends((s) => s.contacts);
+  const voiceActive = useVoice((s) => s.active);
+  const toggleMute = useVoice((s) => s.toggleMute);
+  const selfDeafened = useVoice((s) => s.selfDeafened);
+  const toggleDeafen = useVoice((s) => s.toggleDeafen);
+
+  // Fait vivre le chronomètre de l'appel actif (aucun intérêt à re-rendre
+  // pendant la sonnerie : le libellé ne change pas).
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    if (phase !== 'active') return undefined;
+    const id = setInterval(() => forceTick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [phase]);
+
+  if (peer === null || (phase !== 'outgoing_ringing' && phase !== 'active')) return null;
+
+  const name = displayNameOf(contacts, peer);
+  const onActionError = (): void => toast('error', t.errors.actionFailed);
+  const voiceReady = phase === 'active' && voiceActive !== null && voiceActive.isCall;
+  const elapsed =
+    phase === 'active' && sincePhaseMs !== null
+      ? formatDuration((Date.now() - sincePhaseMs) / 1000)
+      : null;
+  const muteLabel = voiceActive?.muted === true ? t.voice.unmute : t.voice.mute;
+  const deafenLabel = selfDeafened ? t.voice.undeafen : t.voice.deafen;
+  const hangupLabel = phase === 'outgoing_ringing' ? t.calls.cancel : t.calls.hangup;
+
+  return (
+    <div className="flex items-center justify-between gap-2 border-b border-[color:var(--glass-border)] bg-rail/60 px-2 py-2">
+      <div className="flex min-w-0 items-center gap-2">
+        <Avatar
+          id={peer}
+          name={name}
+          size={28}
+          avatarHash={avatarOf(contacts, peer)}
+          hint={peer}
+        />
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium text-green">{name}</div>
+          <div className="truncate text-xs text-muted">
+            {phase === 'outgoing_ringing'
+              ? t.calls.outgoingRinging
+              : (elapsed ?? t.voice.connected)}
+          </div>
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-0.5">
+        {voiceReady && (
+          <>
+            <button
+              type="button"
+              aria-label={muteLabel}
+              title={muteLabel}
+              aria-pressed={voiceActive?.muted === true}
+              onClick={() => toggleMute().catch(onActionError)}
+              className={`${ICON_BUTTON_CLASS} ${
+                voiceActive?.muted === true ? 'text-red' : 'text-muted hover:text-norm'
+              }`}
+            >
+              <MicIcon muted={voiceActive?.muted === true} />
+            </button>
+            <button
+              type="button"
+              aria-label={deafenLabel}
+              title={deafenLabel}
+              aria-pressed={selfDeafened}
+              onClick={() => toggleDeafen().catch(onActionError)}
+              className={`${ICON_BUTTON_CLASS} ${
+                selfDeafened ? 'text-red' : 'text-muted hover:text-norm'
+              }`}
+            >
+              <HeadphonesIcon deafened={selfDeafened} />
+            </button>
+          </>
+        )}
+        <button
+          type="button"
+          aria-label={hangupLabel}
+          title={hangupLabel}
+          onClick={() => hangup().catch(onActionError)}
+          className={`${ICON_BUTTON_CLASS} text-red`}
+        >
+          <PhoneOffIcon />
         </button>
       </div>
     </div>
@@ -148,6 +244,7 @@ export function UserPanel() {
   const ownStatus = useFriends((s) => s.ownStatus);
   const ownStatusText = useFriends((s) => s.ownStatusText);
   const loadOwnStatus = useFriends((s) => s.loadOwnStatus);
+  const callPhase = useCalls((s) => s.phase);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -161,10 +258,13 @@ export function UserPanel() {
   const displayName = selfDisplayName(self);
   const dotStatus: PresenceStatus =
     phase === 'ready' ? ownDotStatus(ownStatus) : 'offline';
+  // Un appel et un salon de groupe ne coexistent jamais (voir CallBanner) :
+  // le bandeau d'appel prime, jamais les deux affichés ensemble.
+  const inCallPhase = callPhase === 'outgoing_ringing' || callPhase === 'active';
 
   return (
     <div className="relative border-t border-[color:var(--glass-border)]">
-      <VoiceBanner />
+      {inCallPhase ? <CallBanner /> : <VoiceBanner />}
       {userMenuOpen && <UserMenu onClose={() => setUserMenuOpen(false)} />}
       <div className="flex items-center gap-2 bg-rail/60 px-2 py-2">
         <button

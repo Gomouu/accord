@@ -217,6 +217,13 @@ export interface GroupMember {
    * sans effet). Toujours présent dans `groups.state`.
    */
   timeout_until_ms?: number;
+  /**
+   * Modération vocale serveur (`groups.voice_moderate`, op 0x1F) : micro/sortie
+   * forcés coupés dans tous les salons vocaux du groupe. Toujours présents
+   * dans `groups.state` ; optionnels par tolérance (nœud plus ancien).
+   */
+  voice_muted?: boolean;
+  voice_deafened?: boolean;
 }
 
 export interface GroupInvite {
@@ -326,6 +333,16 @@ export interface VoiceParticipant {
   deafened: boolean;
   /** Volume de sortie local pour ce participant (0-200 %, persisté). */
   volume: number;
+  /**
+   * Micro forcé coupé par un modérateur de groupe (`groups.voice_moderate`) ;
+   * toujours `false` dans une session d'appel 1-à-1. Toujours émis ;
+   * optionnel par tolérance (nœud plus ancien).
+   */
+  server_muted?: boolean;
+  /** Sortie forcée coupée par un modérateur ; mêmes remarques que `server_muted`. */
+  server_deafened?: boolean;
+  /** Porteur de la permission `PRIORITY_SPEAKER` en train de parler. */
+  priority_speaker?: boolean;
 }
 
 /** Salon vocal actif tel que rendu par voice.status (`null` si aucun). */
@@ -336,6 +353,17 @@ export interface VoiceActive {
   /** Sortie locale coupée (deafen force le micro coupé, jamais persisté). */
   deafened: boolean;
   participants: VoiceParticipant[];
+  /**
+   * Distingue une session d'appel 1-à-1 (`group_id` sentinelle, 32 zéros) d'un
+   * salon de groupe. Toujours émis ; optionnel par tolérance (nœud plus ancien).
+   */
+  is_call?: boolean;
+}
+
+/** Réglages DSP de capture (voice.status, champ additif `dsp`). */
+export interface VoiceDsp {
+  noise_suppression: boolean;
+  agc: boolean;
 }
 
 /**
@@ -376,6 +404,33 @@ export interface NetworkStatus {
   /** Nombre de pairs Accord découverts sur le réseau local (mDNS). */
   lan_peers: number;
 }
+
+/** Phase de l'appel 1-à-1 courant (`calls.status`, voir VOICE_CALLS.md §1.3). */
+export type CallState = 'idle' | 'outgoing_ringing' | 'incoming_ringing' | 'active';
+
+/** État de l'appel 1-à-1 courant (`calls.status`). */
+export interface CallStatus {
+  state: CallState;
+  peer: string | null;
+  call_id: string | null;
+  /**
+   * Début de la phase courante sur l'horloge interne du moteur (ms depuis son
+   * démarrage) — sert de repère pour une durée relative, jamais un temps mural
+   * (voir VOICE_CALLS.md §1.1). `null` au repos.
+   */
+  since_ms: number | null;
+}
+
+/** Motif stable de fin d'appel (`event.call_ended.reason`, voir VOICE_CALLS.md §1.2). */
+export type CallEndedReason =
+  | 'hangup'
+  | 'declined'
+  | 'busy'
+  | 'timeout'
+  | 'missed'
+  | 'canceled'
+  | 'lost'
+  | 'superseded';
 
 /** Événements poussés par le nœud (API.md §Événements). */
 export type AccordEvent =
@@ -426,6 +481,23 @@ export type AccordEvent =
       params: { pubkey: string; muted: boolean; deafened: boolean };
     }
   | { method: 'event.voice_level'; params: { level: number; speaking: boolean } }
+  | {
+      method: 'event.voice_moderate';
+      params: {
+        group_id: string;
+        pubkey: string;
+        server_muted: boolean;
+        server_deafened: boolean;
+        priority_speaker: boolean;
+      };
+    }
+  | { method: 'event.call_outgoing'; params: { peer: string; call_id: string } }
+  | { method: 'event.call_incoming'; params: { peer: string; call_id: string } }
+  | { method: 'event.call_accepted'; params: { peer: string; call_id: string } }
+  | {
+      method: 'event.call_ended';
+      params: { peer: string; call_id: string; reason: CallEndedReason };
+    }
   | {
       method: 'event.profile';
       params: {
@@ -1285,9 +1357,27 @@ export class Api {
     );
   }
 
-  /** État vocal courant (`active: null` hors salon), pour resynchronisation. */
-  voiceStatus(): Promise<{ active: VoiceActive | null; master_volume: number }> {
+  /**
+   * État vocal courant (`active: null` hors salon), pour resynchronisation.
+   * `dsp` : réglages de suppression de bruit / AGC persistés, toujours émis ;
+   * optionnel par tolérance (nœud plus ancien).
+   */
+  voiceStatus(): Promise<{
+    active: VoiceActive | null;
+    master_volume: number;
+    dsp?: VoiceDsp;
+  }> {
     return this.rpc.call('voice.status');
+  }
+
+  /** Active/désactive la suppression de bruit (RNNoise) sur la capture locale, à chaud. */
+  voiceSetNoiseSuppression(enabled: boolean): Promise<Record<string, never>> {
+    return this.rpc.call('voice.set_noise_suppression', { enabled });
+  }
+
+  /** Active/désactive le contrôle automatique de gain sur la capture locale, à chaud. */
+  voiceSetAgc(enabled: boolean): Promise<Record<string, never>> {
+    return this.rpc.call('voice.set_agc', { enabled });
   }
 
   /** Périphériques audio disponibles et sélection courante. */
@@ -1313,6 +1403,59 @@ export class Api {
    */
   voiceMicTest(enabled: boolean): Promise<Record<string, never>> {
     return this.rpc.call('voice.mic_test', { enabled });
+  }
+
+  /**
+   * Démarre un appel 1-à-1 vers `peer` (ami confirmé requis) ; rend son
+   * identifiant. Refusé si un appel est déjà en cours (toute phase confondue,
+   * `calls.start` rend une erreur) — voir VOICE_CALLS.md §1.
+   */
+  callsStart(peer: string): Promise<{ call_id: string }> {
+    return this.rpc.call('calls.start', { peer });
+  }
+
+  /** Accepte l'appel entrant en sonnerie (`call_id` doit correspondre). */
+  callsAccept(callId: string): Promise<{ ok: true }> {
+    return this.rpc.call('calls.accept', { call_id: callId });
+  }
+
+  /** Refuse l'appel entrant en sonnerie. */
+  callsDecline(callId: string): Promise<{ ok: true }> {
+    return this.rpc.call('calls.decline', { call_id: callId });
+  }
+
+  /**
+   * Raccroche : couvre les trois phases (annule une sonnerie sortante,
+   * refuse une sonnerie entrante, raccroche un appel actif). Idempotent au
+   * repos.
+   */
+  callsHangup(): Promise<{ ok: true }> {
+    return this.rpc.call('calls.hangup');
+  }
+
+  /** État de l'appel 1-à-1 courant, pour resynchronisation (connexion/reprise). */
+  callsStatus(): Promise<CallStatus> {
+    return this.rpc.call('calls.status');
+  }
+
+  /**
+   * Force la sourdine (`mute`) et/ou la surdité (`deafen`) d'un membre dans
+   * tous les salons vocaux du groupe (permission `KICK`, hiérarchie de rôles,
+   * fondateur intouchable — vérifié côté nœud). Absents = `false` ;
+   * `{ mute: false, deafen: false }` lève la modération du membre.
+   */
+  groupsVoiceModerate(
+    groupId: string,
+    pubkey: string,
+    mute: boolean,
+    deafen: boolean,
+  ): Promise<{ ok: true }> {
+    return this.rpc.call('groups.voice_moderate', {
+      group_id: groupId,
+      pubkey,
+      mute,
+      deafen,
+    });
   }
 
   /**

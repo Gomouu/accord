@@ -18,6 +18,8 @@ vi.mock('../../lib/client', () => {
       voiceMicTest: vi.fn(),
       voiceStatus: vi.fn(),
       voiceSetVolume: vi.fn(),
+      voiceSetNoiseSuppression: vi.fn(),
+      voiceSetAgc: vi.fn(),
     },
     rpc: {
       onEvent: (handler: (method: string, params: unknown) => void) => {
@@ -42,6 +44,8 @@ const setDevicesMock = api.voiceSetDevices as unknown as Mock;
 const micTestMock = api.voiceMicTest as unknown as Mock;
 const statusMock = api.voiceStatus as unknown as Mock;
 const setVolumeMock = api.voiceSetVolume as unknown as Mock;
+const setNoiseSuppressionMock = api.voiceSetNoiseSuppression as unknown as Mock;
+const setAgcMock = api.voiceSetAgc as unknown as Mock;
 const fakeRpc = rpc as unknown as {
   emitEvent: (method: string, params: unknown) => void;
 };
@@ -63,17 +67,21 @@ async function renderVoiceTab(): Promise<ReturnType<typeof render>> {
 beforeEach(() => {
   window.localStorage.clear();
   useUi.setState({ lang: 'fr', toasts: [], pttEnabled: false, pttKey: 'Space' });
-  useVoice.setState({ masterVolume: 100 });
+  useVoice.setState({ masterVolume: 100, dsp: { noiseSuppression: false, agc: false } });
   devicesMock.mockReset();
   setDevicesMock.mockReset();
   micTestMock.mockReset();
   statusMock.mockReset();
   setVolumeMock.mockReset();
+  setNoiseSuppressionMock.mockReset();
+  setAgcMock.mockReset();
   devicesMock.mockResolvedValue(NO_DEVICES);
   setDevicesMock.mockResolvedValue({});
   micTestMock.mockResolvedValue({});
   statusMock.mockResolvedValue({ master_volume: 100, active: null });
   setVolumeMock.mockResolvedValue({});
+  setNoiseSuppressionMock.mockResolvedValue({});
+  setAgcMock.mockResolvedValue({});
 });
 
 describe('MicMeter — vumètre', () => {
@@ -237,6 +245,52 @@ describe('VoiceTab — volume de sortie', () => {
     expect(useUi.getState().toasts[0]?.kind).toBe('error');
     // Rien n'est mémorisé localement quand le nœud refuse.
     expect(useVoice.getState().masterVolume).toBe(100);
+  });
+});
+
+describe('VoiceTab — qualité audio (DSP)', () => {
+  it('reflète l’état DSP initial et bascule la suppression de bruit', async () => {
+    // Chargé via voice.status au montage (loadMasterVolume) — un seed direct
+    // du store serait écrasé par cet effet, contrairement au mock ici.
+    statusMock.mockResolvedValue({
+      master_volume: 100,
+      active: null,
+      dsp: { noise_suppression: false, agc: true },
+    });
+    await renderVoiceTab();
+
+    const noiseToggle = screen.getByRole('switch', {
+      name: 'Suppression de bruit (RNNoise)',
+    });
+    const agcToggle = screen.getByRole('switch', { name: 'Gain automatique (AGC)' });
+    expect(noiseToggle).toHaveAttribute('aria-checked', 'false');
+    expect(agcToggle).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(noiseToggle);
+
+    await waitFor(() => expect(setNoiseSuppressionMock).toHaveBeenCalledWith(true));
+    expect(useVoice.getState().dsp.noiseSuppression).toBe(true);
+  });
+
+  it('bascule le gain automatique via voice.set_agc', async () => {
+    await renderVoiceTab();
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Gain automatique (AGC)' }));
+
+    await waitFor(() => expect(setAgcMock).toHaveBeenCalledWith(true));
+    expect(useVoice.getState().dsp.agc).toBe(true);
+  });
+
+  it('signale l’échec par un toast et ne mémorise rien localement', async () => {
+    setAgcMock.mockRejectedValueOnce(new Error('hors ligne'));
+    await renderVoiceTab();
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Gain automatique (AGC)' }));
+
+    await waitFor(() => {
+      expect(useUi.getState().toasts.some((t) => t.kind === 'error')).toBe(true);
+    });
+    expect(useVoice.getState().dsp.agc).toBe(false);
   });
 });
 

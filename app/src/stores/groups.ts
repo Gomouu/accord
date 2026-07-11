@@ -94,6 +94,24 @@ export function highestRolePosition(
 }
 
 /**
+ * Vrai si l'utilisateur local peut forcer la modération vocale
+ * (`groups.voice_moderate`) de `targetPubkey` dans ce groupe : permission
+ * `KICK`, cible ni le fondateur ni soi-même. Même convention côté UI que
+ * kick/ban/timeout dans `ServerMembersTab` (pas de hiérarchie de rôles
+ * calculée côté client) — le nœud revérifie la hiérarchie complète de toute
+ * façon (permission vérifiée au rejeu ET à l'émission, voir VOICE_CALLS.md §3).
+ */
+export function canModerateVoice(
+  state: Pick<GroupStateJson, 'my_permissions' | 'founder'>,
+  selfPubkey: string | null,
+  targetPubkey: string,
+): boolean {
+  if (selfPubkey === null || targetPubkey === selfPubkey) return false;
+  if (state.founder === targetPubkey) return false;
+  return hasPerm(state.my_permissions, PERMISSIONS.KICK);
+}
+
+/**
  * Pseudo de serveur d'un membre (`state.members[].nickname`), ou `null`
  * lorsqu'il est absent, vide ou ne contient que des espaces. Les composants
  * l'utilisent avec un repli sur le pseudo global.
@@ -414,6 +432,17 @@ interface GroupsState {
   timeout: (groupId: string, pubkey: string, untilMs: number) => Promise<void>;
   /** Lève la sourdine d'un membre puis recharge l'état. */
   clearTimeout: (groupId: string, pubkey: string) => Promise<void>;
+  /**
+   * Force (ou lève avec `mute: false, deafen: false`) la modération vocale
+   * d'un membre dans tous les salons vocaux du groupe (permission `KICK`,
+   * vérifiée côté nœud) puis recharge l'état.
+   */
+  voiceModerate: (
+    groupId: string,
+    pubkey: string,
+    mute: boolean,
+    deafen: boolean,
+  ) => Promise<void>;
   /**
    * Fixe (ou efface avec une chaîne vide) le pseudo de serveur d'un membre —
    * `member` absent = soi-même — puis recharge l'état.
@@ -744,6 +773,11 @@ export const useGroups = create<GroupsState>((set, get) => ({
 
   clearTimeout: async (groupId, pubkey) => {
     await api.groupsTimeoutClear(groupId, pubkey);
+    await get().loadState(groupId);
+  },
+
+  voiceModerate: async (groupId, pubkey, mute, deafen) => {
+    await api.groupsVoiceModerate(groupId, pubkey, mute, deafen);
     await get().loadState(groupId);
   },
 

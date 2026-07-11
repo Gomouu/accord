@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   avatarColor,
   formatDay,
+  formatDuration,
   formatTimestamp,
   formatTimestampCompact,
   initials,
@@ -118,5 +119,24 @@ describe('formatTimestampCompact', () => {
 
   it('ne change rien en 24 h', () => {
     expect(formatTimestampCompact(noon, 'en', now, '24h')).toBe('00:05');
+  });
+});
+
+describe('formatDuration', () => {
+  it('formate en mm:ss sous l’heure', () => {
+    expect(formatDuration(0)).toBe('0:00');
+    expect(formatDuration(5)).toBe('0:05');
+    expect(formatDuration(65)).toBe('1:05');
+    expect(formatDuration(599)).toBe('9:59');
+  });
+
+  it('bascule en h:mm:ss au-delà d’une heure', () => {
+    expect(formatDuration(3600)).toBe('1:00:00');
+    expect(formatDuration(3665)).toBe('1:01:05');
+  });
+
+  it('tronque les fractions de seconde et borne les durées négatives à 0', () => {
+    expect(formatDuration(59.9)).toBe('0:59');
+    expect(formatDuration(-10)).toBe('0:00');
   });
 });

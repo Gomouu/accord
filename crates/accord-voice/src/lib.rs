@@ -14,6 +14,7 @@
 pub mod bitrate;
 pub mod codec;
 pub mod convert;
+pub mod dsp;
 pub mod gain;
 #[cfg(feature = "hardware")]
 pub mod io;

@@ -12,6 +12,7 @@ use accord_proto::plaintext::VoiceMsg;
 
 use crate::bitrate;
 use crate::codec::{AudioCodec, CodecError};
+use crate::dsp::CaptureDsp;
 use crate::gain;
 use crate::jitter::{JitterBuffer, Playout};
 use crate::loss::LossEstimator;
@@ -31,6 +32,9 @@ struct Peer {
     decoder: Box<dyn AudioCodec>,
     /// Linear output gain for this participant (1.0 = unity).
     gain: f32,
+    /// Transient attenuation (0.0..=1.0, 1.0 = none) applied on top of the
+    /// gains — priority-speaker ducking, never persisted.
+    duck: f32,
 }
 
 /// Erreur d'opération de salon.
@@ -61,6 +65,8 @@ pub struct VoiceRoom {
     master_gain: f32,
     /// Deafened: incoming frames are drained without decoding or playback.
     deafened: bool,
+    /// Capture DSP chain (noise suppression + AGC), applied before the VAD.
+    dsp: CaptureDsp,
 }
 
 impl VoiceRoom {
@@ -78,6 +84,7 @@ impl VoiceRoom {
             peers: BTreeMap::new(),
             master_gain: 1.0,
             deafened: false,
+            dsp: CaptureDsp::default(),
         }
     }
 
@@ -111,6 +118,7 @@ impl VoiceRoom {
                 loss: LossEstimator::new(),
                 decoder: (self.make_codec)(),
                 gain: 1.0,
+                duck: 1.0,
             },
         );
         Ok(())
@@ -135,6 +143,25 @@ impl VoiceRoom {
         }
     }
 
+    /// Sets the transient ducking attenuation of one participant (clamped to
+    /// 0.0..=1.0, 1.0 = none) — priority-speaker attenuation, applied on top
+    /// of the peer and master gains. Unknown participants are ignored.
+    pub fn set_peer_duck(&mut self, pubkey: &[u8; 32], duck: f32) {
+        if let Some(peer) = self.peers.get_mut(pubkey) {
+            peer.duck = duck.clamp(0.0, 1.0);
+        }
+    }
+
+    /// Enables/disables capture noise suppression (RNNoise) at runtime.
+    pub fn set_noise_suppression(&mut self, enabled: bool) {
+        self.dsp.set_noise_suppression(enabled);
+    }
+
+    /// Enables/disables the capture automatic gain control at runtime.
+    pub fn set_agc(&mut self, enabled: bool) {
+        self.dsp.set_agc(enabled);
+    }
+
     /// Deafens (`true`) or restores (`false`) the local output: while
     /// deafened, [`Self::play`] drains jitter buffers without decoding so no
     /// stale audio accumulates for later playback.
@@ -142,16 +169,19 @@ impl VoiceRoom {
         self.deafened = deafened;
     }
 
-    /// Capture une trame PCM locale : renvoie la trame à diffuser à tous les
-    /// participants, ou `None` si la VAD la juge silencieuse. L'horloge média
-    /// avance à chaque appel (cadence de 20 ms côté hôte).
+    /// Capture une trame PCM locale : applique la chaîne DSP (suppression de
+    /// bruit puis AGC, si actives) puis renvoie la trame à diffuser à tous
+    /// les participants, ou `None` si la VAD la juge silencieuse. L'horloge
+    /// média avance à chaque appel (cadence de 20 ms côté hôte).
     pub fn capture(&mut self, pcm: &[i16]) -> Result<Option<VoiceMsg>, RoomError> {
-        let active = self.vad.is_active(pcm);
+        let mut pcm = pcm.to_vec();
+        self.dsp.process(&mut pcm);
+        let active = self.vad.is_active(&pcm);
         self.ts_ms = self.ts_ms.wrapping_add(FRAME_MS);
         if !active {
             return Ok(None);
         }
-        let payload = self.encoder.encode(pcm)?;
+        let payload = self.encoder.encode(&pcm)?;
         let frame = VoiceMsg::AudioFrame {
             room: self.room_id,
             media_type: MEDIA_AUDIO_OPUS,
@@ -198,7 +228,7 @@ impl VoiceRoom {
             Playout::Conceal => peer.decoder.decode(None)?,
             Playout::Starved => return Ok(None),
         };
-        gain::apply_gain(&mut pcm, peer.gain * master_gain);
+        gain::apply_gain(&mut pcm, peer.gain * master_gain * peer.duck);
         Ok(Some(pcm))
     }
 
@@ -434,6 +464,54 @@ mod tests {
             }
         }
         None
+    }
+
+    #[test]
+    fn ducking_attenuates_playback_and_is_bounded() {
+        let mut r = room();
+        let spk = [8u8; 32];
+        r.add_participant(spk).unwrap();
+        r.set_peer_duck(&spk, 0.4);
+        feed_frames(&mut r, &spk, 6);
+        let pcm = play_until_audio(&mut r, &spk).expect("no frame played");
+        // tone(15_000) × 0.4 = 6_000 : bien sous l'amplitude d'origine.
+        assert!(pcm.iter().all(|&s| s.unsigned_abs() <= 6_200));
+        assert!(pcm.iter().any(|&s| s != 0));
+
+        // Le duck est borné à 0..=1 (jamais un boost).
+        r.set_peer_duck(&spk, 5.0);
+        feed_frames(&mut r, &spk, 6);
+        let pcm = play_until_audio(&mut r, &spk).expect("no frame played");
+        assert!(pcm.iter().all(|&s| s.unsigned_abs() <= 15_000));
+    }
+
+    #[test]
+    fn capture_dsp_agc_applies_before_vad_and_encoding() {
+        let mut r = room();
+        r.set_agc(true);
+        // Une source forte est ramenée vers la cible AGC après quelques
+        // trames : l'amplitude encodée chute sous l'amplitude brute.
+        let mut last: Option<Vec<i16>> = None;
+        for _ in 0..30 {
+            if let Some(VoiceMsg::AudioFrame { payload, .. }) = r.capture(&tone(20_000)).unwrap() {
+                let mut codec = PassthroughCodec;
+                last = Some(codec.decode(Some(&payload)).unwrap());
+            }
+        }
+        let pcm = last.expect("aucune trame capturée");
+        assert!(
+            pcm.iter().all(|&s| s.unsigned_abs() < 10_000),
+            "l'AGC n'a pas atténué la capture"
+        );
+        // Désactivation à chaud : la trame repart brute.
+        r.set_agc(false);
+        let frame = r.capture(&tone(20_000)).unwrap().expect("trame attendue");
+        let VoiceMsg::AudioFrame { payload, .. } = frame else {
+            panic!("trame audio attendue");
+        };
+        let mut codec = PassthroughCodec;
+        let pcm = codec.decode(Some(&payload)).unwrap();
+        assert!(pcm.iter().any(|&s| s.unsigned_abs() == 20_000));
     }
 
     #[test]

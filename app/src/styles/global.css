@@ -212,6 +212,30 @@ textarea {
   user-select: text;
 }
 
+/*
+ * Aucun anneau de focus natif sur les champs texte : le webview macOS
+ * (WKWebView) dessine son gros halo bleu système sur les contrôles de
+ * formulaire même quand `outline` est neutralisé côté CSS — il est lié à
+ * `-webkit-appearance`, pas à l'outline. L'état actif d'un champ est rendu
+ * par notre convention (léger éclaircissement de bordure), jamais par le
+ * halo système.
+ */
+input,
+textarea,
+select {
+  -webkit-appearance: none;
+  appearance: none;
+}
+input:focus,
+input:focus-visible,
+textarea:focus,
+textarea:focus-visible,
+select:focus,
+select:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
 /* Barres de défilement fines, calées sur le thème. */
 * {
   scrollbar-width: thin;

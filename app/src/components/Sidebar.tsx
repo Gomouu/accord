@@ -383,13 +383,8 @@ function GroupSidebar({
   return (
     <>
       <div className="flex h-12 items-center gap-1 border-b border-rail bg-sidebar px-4 shadow-1">
-        <span className="flex min-w-0 flex-1 items-center gap-1">
-          <span className="min-w-0 truncate text-[15px] font-semibold text-header">
-            {state?.name ?? '…'}
-          </span>
-          <span aria-hidden className="flex h-4 w-4 shrink-0 items-center justify-center text-faint">
-            <Chevron open />
-          </span>
+        <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-header">
+          {state?.name ?? '…'}
         </span>
         {mentionCount > 0 && <MentionBadge count={mentionCount} />}
         <InboxButton onOpen={onOpenInbox} />

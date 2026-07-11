@@ -5,6 +5,7 @@ import {
   avatarColor,
   formatDay,
   formatTimestamp,
+  formatTimestampCompact,
   initials,
   shortId,
   tailleLisible,
@@ -104,5 +105,18 @@ describe('tailleLisible', () => {
   it('plafonne à l’unité la plus grande et tolère les négatifs', () => {
     expect(tailleLisible(5 * 1024 ** 4, 'fr')).toBe('5120 Go');
     expect(tailleLisible(-42, 'fr')).toBe('0 o');
+  });
+});
+
+describe('formatTimestampCompact', () => {
+  const noon = new Date('2026-07-11T00:05:00').getTime();
+  const now = new Date('2026-07-11T15:00:00').getTime();
+
+  it('colle et minusculise le méridien en 12 h (tient dans la gouttière)', () => {
+    expect(formatTimestampCompact(noon, 'en', now, '12h')).toBe('12:05am');
+  });
+
+  it('ne change rien en 24 h', () => {
+    expect(formatTimestampCompact(noon, 'en', now, '24h')).toBe('00:05');
   });
 });

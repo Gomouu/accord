@@ -97,3 +97,21 @@ export function tailleLisible(octets: number, lang: Lang): string {
   const texte = lang === 'fr' ? arrondi.replace('.', ',') : arrondi;
   return `${texte} ${unites[rang] ?? ''}`;
 }
+
+/**
+ * Horodatage compact pour la gouttière des messages groupés (40 px) : même
+ * heure que [`formatTimestamp`], mais le méridien 12 h est collé et en
+ * minuscules (« 12:05am ») pour tenir sans retour à la ligne. Sans effet en
+ * format 24 h ou pour les dates (jours précédents).
+ */
+export function formatTimestampCompact(
+  ms: number,
+  lang: Lang,
+  now = Date.now(),
+  hourFormat: HourFormat = 'auto',
+): string {
+  return formatTimestamp(ms, lang, now, hourFormat).replace(
+    /\s*([AP]M)$/i,
+    (_, meridiem: string) => meridiem.toLowerCase(),
+  );
+}

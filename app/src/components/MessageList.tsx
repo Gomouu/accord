@@ -16,7 +16,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { interpolate } from '../i18n';
 import type { DeliveryState, FileAttachment, MsgBody, Reaction } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
-import { formatDay, formatTimestamp } from '../lib/format';
+import { formatDay, formatTimestamp, formatTimestampCompact } from '../lib/format';
 import { isEditableTarget, useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
 import { useFriends, avatarOf, displayNameOf } from '../stores/friends';
@@ -679,8 +679,8 @@ export function MessageList({
                 />
               )}
               {grouped ? (
-                <div className="w-10 shrink-0 pt-1 text-right text-[10px] leading-5 text-faint opacity-0 group-hover:opacity-100">
-                  {formatTimestamp(m.sent_ms, lang, undefined, timeFormat)}
+                <div className="w-10 shrink-0 overflow-hidden whitespace-nowrap pt-1 text-right text-[10px] leading-5 tracking-tight text-faint opacity-0 group-hover:opacity-100">
+                  {formatTimestampCompact(m.sent_ms, lang, undefined, timeFormat)}
                 </div>
               ) : (
                 <button

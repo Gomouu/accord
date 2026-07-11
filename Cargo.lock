@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "accord-api"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "futures-util",
  "rand 0.8.6",
@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "accord-app"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "accord-node",
  "accord-proto",
@@ -37,7 +37,7 @@ dependencies = [
 
 [[package]]
 name = "accord-core"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "accord-crypto",
  "accord-proto",
@@ -55,7 +55,7 @@ dependencies = [
 
 [[package]]
 name = "accord-crypto"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "accord-proto",
  "argon2",
@@ -75,7 +75,7 @@ dependencies = [
 
 [[package]]
 name = "accord-dht"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "accord-crypto",
  "accord-proto",
@@ -90,7 +90,7 @@ dependencies = [
 
 [[package]]
 name = "accord-node"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "accord-api",
  "accord-core",
@@ -119,7 +119,7 @@ dependencies = [
 
 [[package]]
 name = "accord-proto"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "rand 0.8.6",
  "thiserror 2.0.18",
@@ -127,7 +127,7 @@ dependencies = [
 
 [[package]]
 name = "accord-transport"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "accord-crypto",
  "accord-proto",
@@ -142,7 +142,7 @@ dependencies = [
 
 [[package]]
 name = "accord-voice"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "accord-proto",
  "cpal",

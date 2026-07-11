@@ -244,7 +244,7 @@ export function ProfilePopover() {
         width: CARD_WIDTH,
         visibility: pos === null ? 'hidden' : 'visible',
       }}
-      className="z-50 overflow-hidden rounded-lg bg-modal shadow-modal"
+      className="popover-enter z-50 origin-top overflow-hidden rounded-lg bg-modal shadow-modal"
     >
       <BanniereProfil hash={bannerHash} hint={pubkey} />
       <div className="-mt-8 px-4 pb-4">
@@ -368,7 +368,7 @@ export function ProfilePopover() {
             <button
               type="button"
               onClick={modifierProfil}
-              className="mt-3 w-full rounded bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blurple-hover"
+              className="mt-3 w-full rounded bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover active:scale-[0.98]"
             >
               {t.profil.editProfile}
             </button>
@@ -380,7 +380,7 @@ export function ProfilePopover() {
                 <button
                   type="button"
                   onClick={envoyerMessage}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-[0.97]"
                 >
                   <svg
                     width="15"
@@ -400,7 +400,7 @@ export function ProfilePopover() {
                   title={t.friends.remove}
                   aria-label={t.friends.remove}
                   onClick={() => setConfirmRemove(true)}
-                  className="shrink-0 rounded-full p-2 text-muted transition-colors hover:bg-chat-hover hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+                  className="shrink-0 rounded-full p-2 text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-95"
                 >
                   <svg
                     width="16"
@@ -419,7 +419,7 @@ export function ProfilePopover() {
                   title={t.friends.block}
                   aria-label={t.friends.block}
                   onClick={bloquer}
-                  className="shrink-0 rounded-full p-2 text-muted transition-colors hover:bg-chat-hover hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+                  className="shrink-0 rounded-full p-2 text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-95"
                 >
                   <svg
                     width="16"

@@ -37,7 +37,7 @@ function InboxButton({ onOpen }: { onOpen: () => void }) {
       aria-label={t.mentions.open}
       title={t.mentions.open}
       onClick={onOpen}
-      className="shrink-0 rounded p-1.5 text-muted hover:bg-chat-hover hover:text-norm"
+      className="shrink-0 rounded p-1.5 text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm active:scale-95"
     >
       <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
         <path d="M12 2a10 10 0 0 0 0 20 9.9 9.9 0 0 0 5-1.3 1 1 0 1 0-1-1.7A7.9 7.9 0 0 1 12 20a8 8 0 1 1 8-8v1a1.5 1.5 0 0 1-3 0V8a1 1 0 1 0-2 0v.5A4 4 0 1 0 16 14a3.5 3.5 0 0 0 6-2v-.9A10 10 0 0 0 12 2Zm0 12a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z" />
@@ -60,7 +60,7 @@ function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
         <button
           type="button"
           onClick={() => setView({ kind: 'friends' })}
-          className={`flex w-full items-center gap-3 rounded px-2 py-2 font-medium ${
+          className={`flex w-full items-center gap-3 rounded px-2 py-2 font-medium transition-colors duration-fast ${
             view.kind === 'friends'
               ? 'bg-chat-hover text-header'
               : 'text-muted hover:bg-chat-hover hover:text-norm'
@@ -87,7 +87,7 @@ function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
               key={c.pubkey}
               type="button"
               onClick={() => setView({ kind: 'dm', peer: c.pubkey })}
-              className={`flex w-full items-center gap-2.5 rounded px-2 py-1.5 ${
+              className={`flex w-full items-center gap-2.5 rounded px-2 py-1.5 transition-colors duration-fast ${
                 active
                   ? 'bg-chat-hover text-header'
                   : 'text-muted hover:bg-chat-hover hover:text-norm'
@@ -239,7 +239,7 @@ function ChannelRow({
         e.preventDefault();
         useContextMenu.getState().openMenu(e.clientX, e.clientY, buildItems());
       }}
-      className={`flex w-full items-center gap-1.5 rounded px-2 py-1.5 font-medium ${
+      className={`flex w-full items-center gap-1.5 rounded px-2 py-1.5 font-medium transition-colors duration-fast ${
         active
           ? 'bg-chat-hover text-header'
           : 'text-muted hover:bg-chat-hover hover:text-norm'
@@ -301,7 +301,7 @@ function GroupSidebar({
             aria-label={t.groups.invite}
             title={t.groups.invite}
             onClick={() => openModal({ kind: 'invite', groupId })}
-            className="rounded p-1 text-muted hover:text-norm"
+            className="rounded p-1 text-muted transition-colors duration-fast hover:text-norm active:scale-95"
           >
             <svg
               width="18"
@@ -319,7 +319,7 @@ function GroupSidebar({
           aria-label={t.serveur.settingsTitle}
           title={t.serveur.settingsTitle}
           onClick={() => openModal({ kind: 'serverSettings', groupId })}
-          className="rounded p-1 text-muted hover:text-norm"
+          className="rounded p-1 text-muted transition-colors duration-fast hover:text-norm active:scale-95"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
             <path d="M10.3 3.6a2 2 0 0 1 3.4 0l.6 1a2 2 0 0 0 2.2.9l1.1-.3a2 2 0 0 1 2.4 2.4l-.3 1.1a2 2 0 0 0 .9 2.2l1 .6a2 2 0 0 1 0 3.4l-1 .6a2 2 0 0 0-.9 2.2l.3 1.1a2 2 0 0 1-2.4 2.4l-1.1-.3a2 2 0 0 0-2.2.9l-.6 1a2 2 0 0 1-3.4 0l-.6-1a2 2 0 0 0-2.2-.9l-1.1.3a2 2 0 0 1-2.4-2.4l.3-1.1a2 2 0 0 0-.9-2.2l-1-.6a2 2 0 0 1 0-3.4l1-.6a2 2 0 0 0 .9-2.2l-.3-1.1a2 2 0 0 1 2.4-2.4l1.1.3a2 2 0 0 0 2.2-.9l.6-1ZM12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
@@ -337,7 +337,7 @@ function GroupSidebar({
               aria-label={t.groups.addChannel}
               title={t.groups.addChannel}
               onClick={() => openModal({ kind: 'createChannel', groupId })}
-              className="text-faint hover:text-norm"
+              className="text-faint transition-colors duration-fast hover:text-norm active:scale-95"
             >
               <svg
                 width="16"

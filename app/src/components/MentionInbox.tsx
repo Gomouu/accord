@@ -86,14 +86,14 @@ export function MentionInbox({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-16"
+      className="modal-overlay-enter fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-16"
       onClick={onClose}
     >
       <div
         role="dialog"
         aria-label={t.mentions.inboxTitle}
         onClick={(e) => e.stopPropagation()}
-        className="max-h-[70vh] w-[26rem] max-w-[90vw] overflow-hidden rounded-lg border border-rail bg-modal shadow-modal"
+        className="modal-panel-enter max-h-[70vh] w-[26rem] max-w-[90vw] overflow-hidden rounded-lg border border-rail bg-modal shadow-modal"
       >
         <div className="flex items-center justify-between border-b border-rail px-4 py-3">
           <span className="text-sm font-semibold text-header">
@@ -104,7 +104,7 @@ export function MentionInbox({ onClose }: { onClose: () => void }) {
               <button
                 type="button"
                 onClick={markAllRead}
-                className="rounded px-2 py-1 text-xs font-medium text-muted hover:text-norm"
+                className="rounded px-2 py-1 text-xs font-medium text-muted transition-colors duration-fast hover:text-norm"
               >
                 {t.mentions.markAllRead}
               </button>
@@ -113,7 +113,7 @@ export function MentionInbox({ onClose }: { onClose: () => void }) {
               type="button"
               aria-label={t.app.close}
               onClick={onClose}
-              className="rounded p-1 text-faint hover:text-norm"
+              className="rounded p-1 text-faint transition-colors duration-fast hover:text-norm active:scale-95"
             >
               <svg
                 width="16"
@@ -139,7 +139,7 @@ export function MentionInbox({ onClose }: { onClose: () => void }) {
               key={entry.msg_id}
               type="button"
               onClick={() => openEntry(entry)}
-              className="mb-1 block w-full rounded px-3 py-2 text-left hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none"
+              className="mb-1 block w-full rounded px-3 py-2 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none"
             >
               <div className="flex items-baseline gap-2">
                 {!entry.read && (

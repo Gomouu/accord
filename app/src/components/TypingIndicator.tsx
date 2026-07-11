@@ -31,7 +31,7 @@ export function TypingIndicator({ typingKey }: { typingKey: string }) {
   return (
     <div
       role="status"
-      className="-mt-5 flex h-5 items-center gap-1.5 px-6 text-xs text-muted"
+      className="view-enter -mt-5 flex h-5 items-center gap-1.5 px-6 text-xs text-muted"
     >
       <span aria-hidden className="animate-pulse font-bold tracking-widest">
         …

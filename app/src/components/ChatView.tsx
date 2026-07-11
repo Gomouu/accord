@@ -111,7 +111,7 @@ function ReplyBanner({ name, onCancel }: { name: string; onCancel: () => void })
         aria-label={t.dm.cancelReply}
         title={t.dm.cancelReply}
         onClick={onCancel}
-        className="ml-2 shrink-0 rounded-full text-faint transition-colors hover:text-norm focus-visible:text-norm focus-visible:outline-none"
+        className="ml-2 shrink-0 rounded-full text-faint transition-colors duration-fast hover:text-norm focus-visible:text-norm focus-visible:outline-none active:scale-90"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
           <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm3.6 12.2-1.4 1.4L12 13.4l-2.2 2.2-1.4-1.4 2.2-2.2-2.2-2.2 1.4-1.4 2.2 2.2 2.2-2.2 1.4 1.4-2.2 2.2 2.2 2.2Z" />
@@ -237,7 +237,7 @@ export function DmView({ peer }: { peer: string }) {
             title={t.serveur.pinnedTitle}
             aria-expanded={pinsOpen}
             onClick={() => setPinsOpen((open) => !open)}
-            className={`rounded p-1.5 hover:bg-chat-hover ${
+            className={`rounded p-1.5 transition-colors duration-fast hover:bg-chat-hover active:scale-95 ${
               pinsOpen ? 'text-header' : 'text-muted hover:text-norm'
             }`}
           >
@@ -264,6 +264,7 @@ export function DmView({ peer }: { peer: string }) {
         />
       )}
       <MessageList
+        key={peer}
         messages={messages}
         hasMore={hasMore}
         scrollTarget={scrollTarget}
@@ -426,7 +427,7 @@ function MemberList({ groupId }: { groupId: string }) {
                 .getState()
                 .openMenu(e.clientX, e.clientY, buildMemberItems(member.pubkey, e.currentTarget));
             }}
-            className="flex w-full items-center gap-2.5 rounded px-1.5 py-1.5 text-left hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+            className="flex w-full items-center gap-2.5 rounded px-1.5 py-1.5 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
           >
             <Avatar
               id={member.pubkey}
@@ -497,7 +498,7 @@ function PinnedPanel({
           type="button"
           aria-label={t.app.close}
           onClick={onClose}
-          className="rounded p-1 text-faint hover:text-norm"
+          className="rounded p-1 text-faint transition-colors duration-fast hover:text-norm active:scale-95"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
             <path d="M6.3 5 12 10.6 17.7 5 19 6.3 13.4 12l5.6 5.7-1.3 1.3-5.7-5.6L6.3 19 5 17.7l5.6-5.7L5 6.3 6.3 5Z" />
@@ -530,7 +531,7 @@ function PinnedPanel({
             <button
               type="button"
               onClick={() => onUnpin(m.msg_id)}
-              className="mt-1 text-xs font-medium text-muted hover:text-red"
+              className="mt-1 text-xs font-medium text-muted transition-colors duration-fast hover:text-red"
             >
               {t.serveur.unpin}
             </button>
@@ -682,7 +683,7 @@ export function GroupView({
               title={t.serveur.pinnedTitle}
               aria-expanded={pinsOpen}
               onClick={() => setPinsOpen((open) => !open)}
-              className={`rounded p-1.5 hover:bg-chat-hover ${
+              className={`rounded p-1.5 transition-colors duration-fast hover:bg-chat-hover active:scale-95 ${
                 pinsOpen ? 'text-header' : 'text-muted hover:text-norm'
               }`}
             >
@@ -718,6 +719,7 @@ export function GroupView({
           />
         )}
         <MessageList
+          key={key ?? undefined}
           messages={messages}
           hasMore={hasMore}
           scrollTarget={scrollTarget}

@@ -28,7 +28,7 @@ function InviteRow({ invite }: { invite: PendingInvite }) {
   };
 
   return (
-    <div className="flex items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-chat-hover">
+    <div className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors duration-fast hover:bg-chat-hover">
       <Avatar
         id={invite.inviter}
         name={inviterName}
@@ -45,14 +45,14 @@ function InviteRow({ invite }: { invite: PendingInvite }) {
         <button
           type="button"
           onClick={() => act(() => acceptInvite(invite.group_id, invite.invite_id))}
-          className="rounded bg-green px-3 py-1.5 text-sm font-medium text-white hover:brightness-110"
+          className="rounded bg-green px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:brightness-110 active:scale-95"
         >
           {t.invitations.accept}
         </button>
         <button
           type="button"
           onClick={() => act(() => declineInvite(invite.group_id, invite.invite_id))}
-          className="rounded bg-sidebar px-3 py-1.5 text-sm font-medium text-norm hover:bg-input"
+          className="rounded bg-sidebar px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input active:scale-95"
         >
           {t.invitations.decline}
         </button>

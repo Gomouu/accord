@@ -87,7 +87,7 @@ function HitRow({
     <button
       type="button"
       onClick={() => onOpen(hit)}
-      className="block w-full rounded px-2 py-1.5 text-left hover:bg-chat-hover"
+      className="block w-full rounded px-2 py-1.5 text-left transition-colors duration-fast hover:bg-chat-hover"
     >
       <div className="flex items-baseline justify-between gap-2">
         <span className="truncate text-xs font-semibold text-muted">{label}</span>
@@ -171,7 +171,7 @@ export function SearchBar() {
             aria-label={t.search.clear}
             title={t.search.clear}
             onClick={clear}
-            className="shrink-0 text-faint hover:text-norm"
+            className="shrink-0 text-faint transition-colors duration-fast hover:text-norm active:scale-90"
           >
             <svg
               width="14"
@@ -188,7 +188,7 @@ export function SearchBar() {
       {chips.length > 0 && <ChipRow chips={chips} />}
       {busy && <p className="px-1 pt-2 text-xs text-faint">{t.app.loading}</p>}
       {rows !== null && !busy && (
-        <div className="absolute inset-x-2 top-full z-10 mt-1 max-h-96 overflow-y-auto rounded-lg bg-tooltip p-2 shadow-elevation">
+        <div className="popover-enter absolute inset-x-2 top-full z-10 mt-1 max-h-96 overflow-y-auto rounded-lg bg-tooltip p-2 shadow-elevation">
           <div className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-faint">
             {t.search.results} — {rows.length}
           </div>

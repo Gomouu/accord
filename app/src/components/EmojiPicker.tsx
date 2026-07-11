@@ -104,7 +104,7 @@ export function EmojiPicker({
       ref={ref}
       role="dialog"
       aria-label={t.emoji.pickerLabel}
-      className={`absolute z-30 flex max-h-80 w-72 max-w-[90vw] flex-col rounded-lg border border-rail bg-modal shadow-elevation ${positionClass}`}
+      className={`popover-enter absolute z-30 flex max-h-80 w-72 max-w-[90vw] flex-col rounded-lg border border-rail bg-modal shadow-elevation ${positionClass}`}
     >
       <div className="border-b border-rail p-2">
         <input
@@ -141,7 +141,7 @@ export function EmojiPicker({
                       merkleRoot: emoji.merkle_root,
                     })
                   }
-                  className="flex h-9 w-9 items-center justify-center rounded transition-colors hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none"
+                  className="flex h-9 w-9 items-center justify-center rounded transition-colors duration-fast hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none active:scale-90"
                 >
                   <CustomEmoji
                     name={emoji.name}
@@ -168,7 +168,7 @@ export function EmojiPicker({
                   aria-label={interpolate(t.emoji.insert, { emoji: emoji.char })}
                   title={emoji.char}
                   onClick={() => onSelect({ kind: 'unicode', char: emoji.char })}
-                  className="flex h-9 w-9 items-center justify-center rounded text-xl leading-none transition-transform hover:scale-110 hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none"
+                  className="flex h-9 w-9 items-center justify-center rounded text-xl leading-none transition-transform duration-fast ease-spring hover:scale-110 hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none active:scale-90"
                 >
                   {emoji.char}
                 </button>

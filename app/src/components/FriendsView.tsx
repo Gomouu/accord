@@ -35,7 +35,7 @@ function FriendRow({ contact }: { contact: Contact }) {
   const statusText = contact.status_text ?? null;
 
   return (
-    <div className="group flex items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-chat-hover">
+    <div className="group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors duration-fast hover:bg-chat-hover">
       <div className="relative shrink-0">
         <Avatar
           id={contact.pubkey}
@@ -77,14 +77,14 @@ function FriendRow({ contact }: { contact: Contact }) {
                 setConfirmRemove(false);
                 act(() => remove(contact.pubkey));
               }}
-              className="rounded bg-red px-3 py-1.5 text-sm font-medium text-white hover:brightness-110"
+              className="rounded bg-red px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:brightness-110 active:scale-95"
             >
               {t.friends.remove}
             </button>
             <button
               type="button"
               onClick={() => setConfirmRemove(false)}
-              className="rounded bg-sidebar px-3 py-1.5 text-sm font-medium text-norm hover:bg-input"
+              className="rounded bg-sidebar px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input active:scale-95"
             >
               {t.app.cancel}
             </button>
@@ -97,7 +97,7 @@ function FriendRow({ contact }: { contact: Contact }) {
               title={t.friends.sendDm}
               aria-label={t.friends.sendDm}
               onClick={() => setView({ kind: 'dm', peer: contact.pubkey })}
-              className="rounded-full bg-sidebar p-2.5 text-muted hover:text-header"
+              className="rounded-full bg-sidebar p-2.5 text-muted transition-colors duration-fast hover:text-header active:scale-95"
             >
               <svg
                 width="18"
@@ -114,7 +114,7 @@ function FriendRow({ contact }: { contact: Contact }) {
               title={t.friends.remove}
               aria-label={t.friends.remove}
               onClick={() => setConfirmRemove(true)}
-              className="rounded-full bg-sidebar p-2.5 text-muted hover:text-red"
+              className="rounded-full bg-sidebar p-2.5 text-muted transition-colors duration-fast hover:text-red active:scale-95"
             >
               <svg
                 width="18"
@@ -131,7 +131,7 @@ function FriendRow({ contact }: { contact: Contact }) {
               title={t.friends.block}
               aria-label={t.friends.block}
               onClick={() => act(() => block(contact.pubkey))}
-              className="rounded-full bg-sidebar p-2.5 text-muted hover:text-red"
+              className="rounded-full bg-sidebar p-2.5 text-muted transition-colors duration-fast hover:text-red active:scale-95"
             >
               <svg
                 width="18"
@@ -150,14 +150,14 @@ function FriendRow({ contact }: { contact: Contact }) {
             <button
               type="button"
               onClick={() => act(() => respond(contact.pubkey, true))}
-              className="rounded bg-green px-3 py-1.5 text-sm font-medium text-white hover:brightness-110"
+              className="rounded bg-green px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:brightness-110 active:scale-95"
             >
               {t.friends.accept}
             </button>
             <button
               type="button"
               onClick={() => act(() => respond(contact.pubkey, false))}
-              className="rounded bg-sidebar px-3 py-1.5 text-sm font-medium text-norm hover:bg-input"
+              className="rounded bg-sidebar px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input active:scale-95"
             >
               {t.friends.decline}
             </button>
@@ -167,7 +167,7 @@ function FriendRow({ contact }: { contact: Contact }) {
           <button
             type="button"
             onClick={() => act(() => unblock(contact.pubkey))}
-            className="rounded bg-sidebar px-3 py-1.5 text-sm font-medium text-norm hover:bg-input"
+            className="rounded bg-sidebar px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input active:scale-95"
           >
             {t.friends.unblock}
           </button>
@@ -218,7 +218,7 @@ function AddFriend() {
           type="button"
           disabled={code.trim() === '' || status === 'busy'}
           onClick={() => void submit()}
-          className="rounded bg-blurple px-4 py-1.5 text-sm font-medium text-white hover:bg-blurple-hover disabled:opacity-50"
+          className="rounded bg-blurple px-4 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover disabled:opacity-50 active:scale-95"
         >
           {t.friends.addSend}
         </button>
@@ -302,7 +302,7 @@ export function FriendsView() {
                   ? `${label} — ${interpolate(t.invitations.badge, { count: String(badge) })}`
                   : undefined
               }
-              className={`flex items-center rounded px-2.5 py-0.5 text-sm font-medium ${
+              className={`flex items-center rounded px-2.5 py-0.5 text-sm font-medium transition-colors duration-fast ${
                 tab === id
                   ? 'bg-chat-hover text-header'
                   : 'text-muted hover:bg-chat-hover hover:text-norm'

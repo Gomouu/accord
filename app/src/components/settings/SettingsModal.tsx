@@ -32,7 +32,7 @@ export function SettingsModal() {
       role="dialog"
       aria-modal="true"
       aria-label={t.settings.title}
-      className="fixed inset-0 z-40 flex bg-chat"
+      className="modal-overlay-enter fixed inset-0 z-40 flex bg-chat"
     >
       <nav
         ref={navRef}

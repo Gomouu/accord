@@ -11,9 +11,17 @@
  * `data-theme="light"` sur la racine, posé par le store d'interface.
  */
 :root {
+  /*
+   * Tokens de mouvement — seule source de vérité pour durées/courbes.
+   * `--ease-out` (expo) anime les entrées de surfaces (menus, popovers,
+   * modales, changements de vue) ; `--ease-spring` ajoute un léger
+   * dépassement aux pastilles qui « pop » (badges de non-lu/mention).
+   */
+  --duration-instant: 100ms;
   --duration-fast: 150ms;
   --duration-normal: 250ms;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
   /* Surfaces, de la plus profonde à la plus claire. */
   --color-rail: 30 31 34;
@@ -141,8 +149,12 @@ textarea {
   animation: msg-flash 1.6s var(--ease-out);
 }
 
-/* Apparition du menu contextuel : échelle + fondu (transform/opacity, compositor). */
-@keyframes context-menu-in {
+/*
+ * Apparition d'une surface ancrée (menu contextuel, popover) : léger zoom +
+ * fondu (transform/opacity, compositor). Partagée par `ContextMenu` et les
+ * popovers (`ProfilePopover`, `EmojiPicker`) plutôt que dupliquée par site.
+ */
+@keyframes scale-fade-in {
   from {
     opacity: 0;
     transform: scale(0.96);
@@ -152,8 +164,81 @@ textarea {
     transform: scale(1);
   }
 }
-.context-menu-enter {
-  animation: context-menu-in var(--duration-fast) var(--ease-out);
+.context-menu-enter,
+.popover-enter {
+  animation: scale-fade-in var(--duration-fast) var(--ease-out);
+}
+
+/* Fondu simple (rideau de modale). */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.modal-overlay-enter {
+  animation: fade-in var(--duration-normal) var(--ease-out);
+}
+
+/* Panneau de modale : zoom + légère montée + fondu. */
+@keyframes modal-panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+.modal-panel-enter {
+  animation: modal-panel-in var(--duration-normal) var(--ease-out);
+}
+
+/*
+ * Fondu + légère montée : changement de vue (salon/conversation) et
+ * apparition d'un message nouvellement reçu — même geste, à des échelles
+ * différentes (voir usages : `.view-enter`, `.msg-append`, `.toast-enter`).
+ */
+@keyframes fade-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.view-enter {
+  animation: fade-rise-in var(--duration-fast) var(--ease-out);
+}
+.msg-append {
+  animation: fade-rise-in var(--duration-fast) var(--ease-out);
+}
+.toast-enter {
+  animation: fade-rise-in var(--duration-fast) var(--ease-out);
+}
+
+/* Pastille (badge de non-lu/mention) : léger dépassement à l'apparition. */
+@keyframes badge-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.badge-pop {
+  animation: badge-pop var(--duration-fast) var(--ease-spring);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -161,6 +246,7 @@ textarea {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
 }

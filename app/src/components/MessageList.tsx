@@ -344,6 +344,10 @@ export function MessageList({
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
   /** Message en surbrillance après un saut (null : aucun). */
   const [highlightId, setHighlightId] = useState<string | null>(null);
+  /** Dernier message dont l'apparition doit être animée (voir `.msg-append`). */
+  const [appendedId, setAppendedId] = useState<string | null>(null);
+  const prevConversationRef = useRef<string | null>(null);
+  const prevAppendLastIdRef = useRef<string | null>(null);
 
   // Saut vers un message : défilement centré puis surbrillance brève. Le
   // `nonce` rejoue l'animation même pour une cible identique.
@@ -373,6 +377,17 @@ export function MessageList({
 
   const firstId = visible[0]?.msg_id ?? null;
   const lastId = visible[visible.length - 1]?.msg_id ?? null;
+
+  // Identité de la conversation affichée (MP ou salon), pour distinguer un
+  // véritable message entrant en fin de fil (à animer, voir `.msg-append`
+  // dans global.css) d'un changement de salon/MP ou d'un chargement
+  // d'historique — jamais animés.
+  const conversationKey =
+    view.kind === 'dm'
+      ? `dm:${view.peer}`
+      : view.kind === 'group'
+        ? `group:${view.groupId}:${view.channelId ?? ''}`
+        : 'autre';
 
   // « Vu » : dernier de ses propres messages couvert par l'accusé de lecture
   // du pair (lamport lu depuis le store des MP, l'enveloppe affichée n'en a pas).
@@ -405,6 +420,21 @@ export function MessageList({
     }
     lastIdRef.current = lastId;
   }, [firstId, lastId]);
+
+  // Message dont l'arrivée doit jouer l'entrée `.msg-append` : uniquement un
+  // nouveau dernier message dans la même conversation (jamais le premier
+  // rendu, un changement de salon/MP, ni une page d'historique chargée).
+  useLayoutEffect(() => {
+    const sameConversation = prevConversationRef.current === conversationKey;
+    const genuineAppend =
+      sameConversation &&
+      prevAppendLastIdRef.current !== null &&
+      lastId !== null &&
+      lastId !== prevAppendLastIdRef.current;
+    if (genuineAppend) setAppendedId(lastId);
+    prevConversationRef.current = conversationKey;
+    prevAppendLastIdRef.current = lastId;
+  }, [conversationKey, lastId]);
 
   const handleScroll = (): void => {
     const el = containerRef.current;
@@ -564,7 +594,7 @@ export function MessageList({
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className="flex-1 overflow-y-auto pb-4"
+      className="view-enter flex-1 overflow-y-auto pb-4"
       role="log"
       aria-live="polite"
     >
@@ -613,7 +643,9 @@ export function MessageList({
                 grouped
                   ? 'py-[var(--message-pad-y-grouped)]'
                   : 'mt-[var(--message-gap)] py-[var(--message-pad-y)]'
-              } ${highlightId === m.msg_id ? 'msg-flash' : ''}`}
+              } ${highlightId === m.msg_id ? 'msg-flash' : ''} ${
+                appendedId === m.msg_id ? 'msg-append' : ''
+              }`}
               onContextMenu={(e) => {
                 // Édition en place (textarea) : laisse le clic droit natif
                 // (copier/coller) plutôt que d'ouvrir le menu du message.

@@ -88,7 +88,7 @@ function RailBadge({ badge }: { badge: RailBadgeInfo }) {
   return (
     <span
       aria-hidden
-      className="absolute right-1.5 top-0 z-10 flex min-w-[18px] items-center justify-center gap-0.5 rounded-full bg-red px-1 text-[11px] font-semibold leading-[18px] text-white ring-2 ring-rail"
+      className="badge-pop absolute right-1.5 top-0 z-10 flex min-w-[18px] items-center justify-center gap-0.5 rounded-full bg-red px-1 text-[11px] font-semibold leading-[18px] text-white ring-2 ring-rail"
     >
       {badge.mention && (
         <span aria-hidden className="font-bold leading-none">
@@ -119,10 +119,15 @@ function RailButton({
 }) {
   return (
     <div className="group relative flex w-full justify-center">
-      {/* Pastille d'état à gauche, comme Discord. */}
+      {/*
+       * Pastille d'état à gauche, comme Discord : hauteur fixe (40px),
+       * seule sa mise à l'échelle verticale (transform, compositor) anime
+       * l'apparition/l'extension — jamais `height` directement.
+       */}
       <span
-        className={`absolute -left-0 top-1/2 w-1 -translate-y-1/2 rounded-r bg-white transition-all duration-200 ${
-          active ? 'h-10' : 'h-2 scale-0 group-hover:scale-100 group-hover:h-5'
+        aria-hidden
+        className={`absolute -left-0 top-1/2 h-10 w-1 -translate-y-1/2 rounded-r bg-white transition-transform duration-normal ease-spring ${
+          active ? 'scale-y-100' : 'scale-y-0 group-hover:scale-y-50'
         }`}
       />
       <button
@@ -131,7 +136,7 @@ function RailButton({
         title={label}
         onClick={onClick}
         onContextMenu={onContextMenu}
-        className={`flex h-12 w-12 items-center justify-center overflow-hidden font-medium transition-all duration-200 ${
+        className={`flex h-12 w-12 items-center justify-center overflow-hidden font-medium transition-[color,background-color,border-radius,transform] duration-normal active:scale-95 ${
           active
             ? 'rounded-server bg-blurple text-white'
             : accent

@@ -51,7 +51,7 @@ function ModalFrame({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/70"
+      className="modal-overlay-enter fixed inset-0 z-40 flex items-center justify-center bg-black/70"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) closeModal();
       }}
@@ -61,7 +61,7 @@ function ModalFrame({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="w-[440px] max-w-[92vw] rounded-lg bg-modal shadow-modal"
+        className="modal-panel-enter w-[440px] max-w-[92vw] rounded-lg bg-modal shadow-modal"
       >
         <div className="p-5">
           <div className="flex items-start justify-between">
@@ -70,7 +70,7 @@ function ModalFrame({
               type="button"
               aria-label={t.app.close}
               onClick={closeModal}
-              className="text-faint hover:text-norm"
+              className="rounded text-faint transition-colors duration-fast hover:text-norm active:scale-95"
             >
               <svg
                 width="20"

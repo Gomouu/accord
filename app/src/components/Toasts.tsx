@@ -19,7 +19,7 @@ export function Toasts() {
           key={toast.id}
           type="button"
           onClick={() => dismiss(toast.id)}
-          className={`pointer-events-auto rounded-lg px-4 py-2.5 text-sm font-medium text-white shadow-elevation ${
+          className={`toast-enter pointer-events-auto rounded-lg px-4 py-2.5 text-sm font-medium text-white shadow-elevation transition-transform duration-fast active:scale-95 ${
             toast.kind === 'error' ? 'bg-red' : 'bg-blurple'
           }`}
         >

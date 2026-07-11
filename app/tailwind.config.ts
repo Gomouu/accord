@@ -56,6 +56,17 @@ export default {
         elevation: 'var(--shadow-elevation)',
         modal: 'var(--shadow-modal)',
       },
+      // Tokens de mouvement (styles/global.css) : mêmes valeurs partout,
+      // jamais de durée/courbe codée en dur dans un composant.
+      transitionDuration: {
+        instant: 'var(--duration-instant)',
+        fast: 'var(--duration-fast)',
+        normal: 'var(--duration-normal)',
+      },
+      transitionTimingFunction: {
+        expo: 'var(--ease-out)',
+        spring: 'var(--ease-spring)',
+      },
     },
   },
   plugins: [],

@@ -107,7 +107,7 @@ export function ServerSettingsModal({ groupId }: { groupId: string }) {
       role="dialog"
       aria-modal="true"
       aria-label={t.serveur.settingsTitle}
-      className="fixed inset-0 z-40 flex bg-chat"
+      className="modal-overlay-enter fixed inset-0 z-40 flex bg-chat"
     >
       <nav
         aria-label={t.serveur.settingsTitle}

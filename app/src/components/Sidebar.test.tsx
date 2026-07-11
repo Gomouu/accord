@@ -34,6 +34,19 @@ function contact(
   };
 }
 
+const SELF = {
+  node_id: 'n',
+  pubkey: 'moi',
+  friend_code: 'accord-moi',
+  name: 'Moi',
+  bio: null,
+  avatar: null,
+  banner: null,
+  pronouns: null,
+  accent_color: null,
+  banner_color: null,
+};
+
 function groupState(over: Partial<GroupStateJson> = {}): GroupStateJson {
   return {
     group_id: 'g1',
@@ -63,7 +76,11 @@ function groupState(over: Partial<GroupStateJson> = {}): GroupStateJson {
     categories: [],
     roles: [],
     invites: [],
-    my_permissions: 0,
+    // Base réaliste (D-015) : tout membre porte VIEW+SEND par défaut côté
+    // nœud (`GroupState::base_permissions`) — un `my_permissions` à 0 ne
+    // reflète aucun membre réel et masquerait à tort tous les salons du
+    // filtre de visibilité (`isChannelVisible`).
+    my_permissions: PERMISSIONS.VIEW | PERMISSIONS.SEND,
     ...over,
   };
 }
@@ -121,6 +138,95 @@ describe('Sidebar — non-lus des salons', () => {
     const badge = screen.getByLabelText('5 message(s) non lu(s)');
     expect(badge).toHaveTextContent('5');
     expect(screen.getAllByLabelText(/non lu/)).toHaveLength(1);
+  });
+});
+
+describe('Sidebar — salons restreints et masqués', () => {
+  beforeEach(() => {
+    useUi.setState({ view: { kind: 'group', groupId: 'g1', channelId: 'c1' } });
+  });
+
+  it('affiche un cadenas sur un salon portant un override refusant VIEW ou SEND', () => {
+    useSession.setState({ self: SELF });
+    useGroups.setState({
+      ids: ['g1'],
+      states: {
+        g1: groupState({
+          my_permissions: PERMISSIONS.VIEW | PERMISSIONS.SEND,
+          members: [{ pubkey: 'moi', roles: [] }],
+          overrides: [
+            { channel_id: 'c2', role_id: 'r', allow: 0, deny: PERMISSIONS.SEND },
+          ],
+        }),
+      },
+    });
+
+    render(<Sidebar />);
+
+    expect(
+      screen.getByLabelText('Salon restreint : accès limité selon les rôles'),
+    ).toBeInTheDocument();
+  });
+
+  it("n'affiche aucun cadenas sans override refusant VIEW ou SEND", () => {
+    useSession.setState({ self: SELF });
+    useGroups.setState({
+      ids: ['g1'],
+      states: {
+        g1: groupState({
+          my_permissions: PERMISSIONS.VIEW | PERMISSIONS.SEND,
+          members: [{ pubkey: 'moi', roles: [] }],
+        }),
+      },
+    });
+
+    render(<Sidebar />);
+
+    expect(
+      screen.queryByLabelText('Salon restreint : accès limité selon les rôles'),
+    ).not.toBeInTheDocument();
+  });
+
+  it("masque un salon où VIEW est effectivement refusé à l'utilisateur local", () => {
+    useSession.setState({ self: SELF });
+    useGroups.setState({
+      ids: ['g1'],
+      states: {
+        g1: groupState({
+          my_permissions: PERMISSIONS.VIEW | PERMISSIONS.SEND,
+          members: [{ pubkey: 'moi', roles: ['r'] }],
+          overrides: [
+            { channel_id: 'c2', role_id: 'r', allow: 0, deny: PERMISSIONS.VIEW },
+          ],
+        }),
+      },
+    });
+
+    render(<Sidebar />);
+
+    expect(screen.getByText('général')).toBeInTheDocument();
+    expect(screen.queryByText('projets')).not.toBeInTheDocument();
+  });
+
+  it('garde le salon visible si ADMIN court-circuite l’override VIEW refusé', () => {
+    useSession.setState({ self: SELF });
+    useGroups.setState({
+      ids: ['g1'],
+      states: {
+        g1: groupState({
+          my_permissions: PERMISSIONS.ADMIN,
+          members: [{ pubkey: 'moi', roles: ['r'] }],
+          overrides: [
+            { channel_id: 'c2', role_id: 'r', allow: 0, deny: PERMISSIONS.VIEW },
+          ],
+        }),
+      },
+    });
+
+    render(<Sidebar />);
+
+    expect(screen.getByText('général')).toBeInTheDocument();
+    expect(screen.getByText('projets')).toBeInTheDocument();
   });
 });
 

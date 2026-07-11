@@ -53,6 +53,8 @@ import {
   hasPerm,
   highestRolePosition,
   isChannelReadOnly,
+  isChannelRestricted,
+  isChannelVisible,
   memberColor,
   myChannelPermissions,
   nicknameOf,
@@ -939,6 +941,82 @@ describe('isChannelReadOnly', () => {
     expect(
       isChannelReadOnly(viaOverride, { channel_id: 'c1', kind: 'announcement' }, 'moi'),
     ).toBe(false);
+  });
+});
+
+describe('isChannelRestricted', () => {
+  it('faux sans override sur ce salon', () => {
+    const s = groupState({
+      overrides: [{ channel_id: 'autre', role_id: 'r', allow: 0, deny: PERMISSIONS.VIEW }],
+    });
+    expect(isChannelRestricted(s, 'c1')).toBe(false);
+  });
+
+  it('faux sans champ overrides ou état indéfini', () => {
+    expect(isChannelRestricted(groupState(), 'c1')).toBe(false);
+    expect(isChannelRestricted(undefined, 'c1')).toBe(false);
+  });
+
+  it('vrai si un rôle se voit refuser VIEW sur ce salon', () => {
+    const s = groupState({
+      overrides: [{ channel_id: 'c1', role_id: 'r', allow: 0, deny: PERMISSIONS.VIEW }],
+    });
+    expect(isChannelRestricted(s, 'c1')).toBe(true);
+  });
+
+  it('vrai si un rôle se voit refuser SEND sur ce salon', () => {
+    const s = groupState({
+      overrides: [{ channel_id: 'c1', role_id: 'r', allow: 0, deny: PERMISSIONS.SEND }],
+    });
+    expect(isChannelRestricted(s, 'c1')).toBe(true);
+  });
+
+  it('faux quand seule une autre permission est refusée (ex. MANAGE_MESSAGES)', () => {
+    const s = groupState({
+      overrides: [
+        { channel_id: 'c1', role_id: 'r', allow: 0, deny: PERMISSIONS.MANAGE_MESSAGES },
+      ],
+    });
+    expect(isChannelRestricted(s, 'c1')).toBe(false);
+  });
+
+  it('faux quand le rôle est seulement autorisé (allow), pas refusé', () => {
+    const s = groupState({
+      overrides: [{ channel_id: 'c1', role_id: 'r', allow: PERMISSIONS.VIEW, deny: 0 }],
+    });
+    expect(isChannelRestricted(s, 'c1')).toBe(false);
+  });
+});
+
+describe('isChannelVisible', () => {
+  it('vrai avec VIEW effectif (base sans override)', () => {
+    const s = groupState({
+      my_permissions: PERMISSIONS.VIEW | PERMISSIONS.SEND,
+      members: [{ pubkey: 'moi', roles: [] }],
+    });
+    expect(isChannelVisible(s, 'c1', 'moi')).toBe(true);
+  });
+
+  it('faux quand un rôle porté se voit refuser VIEW sur ce salon', () => {
+    const s = groupState({
+      my_permissions: PERMISSIONS.VIEW | PERMISSIONS.SEND,
+      members: [{ pubkey: 'moi', roles: ['r'] }],
+      overrides: [{ channel_id: 'c1', role_id: 'r', allow: 0, deny: PERMISSIONS.VIEW }],
+    });
+    expect(isChannelVisible(s, 'c1', 'moi')).toBe(false);
+  });
+
+  it('vrai pour ADMIN même avec un override VIEW refusé', () => {
+    const s = groupState({
+      my_permissions: PERMISSIONS.ADMIN,
+      members: [{ pubkey: 'moi', roles: ['r'] }],
+      overrides: [{ channel_id: 'c1', role_id: 'r', allow: 0, deny: PERMISSIONS.VIEW }],
+    });
+    expect(isChannelVisible(s, 'c1', 'moi')).toBe(true);
+  });
+
+  it('vrai par défaut sans état matérialisé', () => {
+    expect(isChannelVisible(undefined, 'c1', 'moi')).toBe(true);
   });
 });
 

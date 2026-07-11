@@ -314,6 +314,7 @@ export const fr = {
     permInherit: 'Hériter',
     permAllow: 'Autoriser',
     permDeny: 'Refuser',
+    channelRestrictedLabel: 'Salon restreint : accès limité selon les rôles',
     // Journal d'audit.
     auditEmpty: 'Aucune action enregistrée.',
     auditLoadMore: 'Charger la suite',

@@ -252,6 +252,43 @@ export function isChannelReadOnly(
   return !hasPerm(eff, PERMISSIONS.MANAGE_CHANNELS);
 }
 
+/**
+ * Vrai si `channelId` porte au moins un override de rôle qui refuse VIEW ou
+ * SEND (`overrides[].deny`, prioritaire sur `allow` — `GroupState::apply`
+ * côté nœud). Accord n'a pas de rôle « @everyone » implicite : VIEW+SEND sont
+ * accordés à tout membre par défaut (D-015) et un override ne s'applique
+ * qu'aux membres portant le rôle concerné ([`myChannelPermissions`]). Ce
+ * drapeau signale donc un salon dont l'accès n'est pas uniforme pour tous les
+ * rôles (au moins une exception existe), pas un refus opposable à tout le
+ * monde — c'est l'information la plus proche que l'état matérialisé expose
+ * pour un indicateur « salon restreint » dans la barre latérale.
+ */
+export function isChannelRestricted(
+  state: Pick<GroupStateJson, 'overrides'> | undefined,
+  channelId: string,
+): boolean {
+  const restrictedBits = PERMISSIONS.VIEW | PERMISSIONS.SEND;
+  return (state?.overrides ?? []).some(
+    (o) => o.channel_id === channelId && (o.deny & restrictedBits) !== 0,
+  );
+}
+
+/**
+ * Vrai si l'utilisateur local voit `channelId` (VIEW effectif via
+ * [`myChannelPermissions`]). Le nœud envoie tous les salons du groupe à tout
+ * membre (`groups.state` ne filtre pas par permission) : ce filtre reproduit
+ * côté UI la visibilité que `GroupState::permissions_in` calcule côté nœud,
+ * pour que la barre latérale masque les salons où VIEW est refusé.
+ */
+export function isChannelVisible(
+  state: Pick<GroupStateJson, 'my_permissions' | 'members' | 'overrides'> | undefined,
+  channelId: string,
+  selfPubkey: string | null,
+): boolean {
+  if (state === undefined) return true;
+  return hasPerm(myChannelPermissions(state, channelId, selfPubkey), PERMISSIONS.VIEW);
+}
+
 /** Section de salons : `category` vaut `null` pour les sans-catégorie. */
 export interface ChannelGroup {
   category: GroupCategory | null;

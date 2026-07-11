@@ -15,6 +15,8 @@ import {
   channelKey,
   channelsByCategory,
   hasPerm,
+  isChannelRestricted,
+  isChannelVisible,
   PERMISSIONS,
 } from '../stores/groups';
 import { useSession } from '../stores/session';
@@ -273,12 +275,33 @@ export function ChannelIcon({ kind }: { kind: GroupChannel['kind'] }) {
   );
 }
 
+/** Icône de cadenas (salon restreint par au moins un override de rôle), icon spec 14 px. */
+function LockIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+  );
+}
+
 function ChannelRow({
   channel,
   active,
   unread,
   groupId,
   canManage,
+  restricted,
   onOpen,
 }: {
   channel: GroupChannel;
@@ -288,6 +311,8 @@ function ChannelRow({
   groupId: string;
   /** Renommage/suppression permis (MANAGE_CHANNELS). */
   canManage: boolean;
+  /** Au moins un override de rôle refuse VIEW ou SEND sur ce salon. */
+  restricted: boolean;
   onOpen: (channel: GroupChannel) => void;
 }) {
   const t = useT();
@@ -383,6 +408,16 @@ function ChannelRow({
         <ChannelIcon kind={channel.kind} />
       </span>
       <span className="min-w-0 truncate">{channel.name}</span>
+      {restricted && (
+        <span
+          role="img"
+          aria-label={t.serveur.channelRestrictedLabel}
+          title={t.serveur.channelRestrictedLabel}
+          className="shrink-0 text-faint"
+        >
+          <LockIcon />
+        </span>
+      )}
       <UnreadBadge count={unread ?? 0} />
     </button>
   );
@@ -607,6 +642,7 @@ function GroupSidebar({ groupId }: { groupId: string }) {
   const unread = useGroups((s) => s.unread[groupId]);
   const mentionCount = useGroups((s) => s.mentions[groupId]) ?? 0;
   const joinVoice = useVoice((s) => s.join);
+  const self = useSession((s) => s.self);
   /** Menu déroulant du nom de serveur (ouvert/fermé). */
   const [serverMenuOpen, setServerMenuOpen] = useState(false);
   /** Catégories repliées (état d'affichage local, propre à ce panneau). */
@@ -615,7 +651,14 @@ function GroupSidebar({ groupId }: { groupId: string }) {
     setCollapsed((prev) => ({ ...prev, [categoryId]: !(prev[categoryId] ?? false) }));
 
   const myPerms = state?.my_permissions ?? 0;
-  const sections = channelsByCategory(state?.channels ?? [], state?.categories ?? []);
+  // Le nœud envoie tous les salons du groupe (`groups.state` ne filtre pas
+  // par VIEW) : on masque ici ceux que l'utilisateur local ne peut pas voir,
+  // que l'onglet Salons des paramètres continue lui d'afficher intégralement
+  // aux porteurs de MANAGE_CHANNELS (`ServerChannelsTab`, non filtré).
+  const visibleChannels = (state?.channels ?? []).filter((c) =>
+    isChannelVisible(state, c.channel_id, self?.pubkey ?? null),
+  );
+  const sections = channelsByCategory(visibleChannels, state?.categories ?? []);
   const hasChannels = sections.some((section) => section.channels.length > 0);
   const activeChannel = view.kind === 'group' ? view.channelId : null;
 
@@ -754,6 +797,7 @@ function GroupSidebar({ groupId }: { groupId: string }) {
                     unread={unread?.[ch.channel_id]}
                     groupId={groupId}
                     canManage={hasPerm(myPerms, PERMISSIONS.MANAGE_CHANNELS)}
+                    restricted={isChannelRestricted(state, ch.channel_id)}
                     onOpen={openChannel}
                   />
                 ))}

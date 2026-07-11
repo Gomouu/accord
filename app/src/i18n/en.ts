@@ -312,6 +312,7 @@ export const en: Dict = {
     permInherit: 'Inherit',
     permAllow: 'Allow',
     permDeny: 'Deny',
+    channelRestrictedLabel: 'Restricted channel: role-based access limits',
     // Audit log.
     auditEmpty: 'No recorded action.',
     auditLoadMore: 'Load more',

@@ -15,7 +15,7 @@ pub mod state;
 pub use crypt::SEALED_KEY_LEN;
 pub use msg::{
     compose_group_delete, compose_group_edit, compose_group_message, compose_group_reaction,
-    compose_group_typing, ingest_group_message, GroupMsgEvent,
+    compose_group_sticker, compose_group_typing, ingest_group_message, GroupMsgEvent,
 };
 pub use state::{Applied, GroupState, DEFAULT_MEMBER_PERMS};
 
@@ -355,6 +355,7 @@ mod tests {
             &GroupOpBody::SetMeta {
                 name: "piraté".into(),
                 icon: None,
+                banner_color: None,
             },
             1,
         );
@@ -411,6 +412,7 @@ mod tests {
             &GroupOpBody::SetMeta {
                 name: "G2".into(),
                 icon: None,
+                banner_color: None,
             },
             1,
         )

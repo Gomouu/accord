@@ -909,10 +909,12 @@ async fn group_state_enriched_exact_shape() {
     assert_eq!(
         sorted_keys(&state),
         [
+            "banner_color",
             "bans",
             "categories",
             "channels",
             "emojis",
+            "events",
             "founder",
             "group_id",
             "icon",
@@ -921,15 +923,19 @@ async fn group_state_enriched_exact_shape() {
             "my_permissions",
             "name",
             "overrides",
-            "roles"
+            "roles",
+            "stickers"
         ]
     );
     assert_eq!(state["group_id"], json!(gid));
     assert!(state["icon"].is_null());
+    assert!(state["banner_color"].is_null());
     assert_eq!(state["overrides"], json!([]));
     // Fondateur : toutes les permissions (VIEW..ADMIN + MANAGE_EMOJIS = 0x3FF).
     assert_eq!(state["my_permissions"], json!(0x3FFu32));
     assert_eq!(state["emojis"], json!([]));
+    assert_eq!(state["stickers"], json!([]));
+    assert_eq!(state["events"], json!([]));
     let me = s.call("identity.self", json!({})).await.unwrap();
     assert_eq!(
         state["members"],
@@ -937,6 +943,7 @@ async fn group_state_enriched_exact_shape() {
             "pubkey": me["pubkey"],
             "roles": [],
             "nickname": null,
+            "avatar": null,
             "timeout_until_ms": 0,
             "voice_muted": false,
             "voice_deafened": false,
@@ -1751,6 +1758,397 @@ async fn group_emoji_add_validates_at_boundary() {
         .call(
             "groups.emoji.add",
             json!({"group_id": gid, "name": "big", "mime": "image/png", "data_b64": big}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+}
+
+// ---- Stickers de serveur (D-047) ----
+
+#[tokio::test]
+async fn group_stickers_add_del_list_and_state_shape() {
+    let (s, gid, _dir) = service_on_disk_with_group().await;
+    let added = s
+        .call(
+            "groups.stickers.add",
+            json!({"group_id": gid, "name": "wave", "mime": "image/png", "data_b64": "QUJD"}),
+        )
+        .await
+        .unwrap();
+    let root = added["merkle_root"].as_str().unwrap().to_string();
+    assert_eq!(root.len(), 64);
+
+    let listed = s
+        .call("groups.stickers.list", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(
+        listed["stickers"],
+        json!([{ "name": "wave", "merkle_root": root }])
+    );
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(
+        state["stickers"],
+        json!([{ "name": "wave", "merkle_root": root }])
+    );
+
+    s.call(
+        "groups.stickers.remove",
+        json!({"group_id": gid, "name": "wave"}),
+    )
+    .await
+    .unwrap();
+    let listed = s
+        .call("groups.stickers.list", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(listed["stickers"], json!([]));
+}
+
+#[tokio::test]
+async fn group_stickers_add_validates_at_boundary() {
+    let (s, gid, _dir) = service_on_disk_with_group().await;
+    // Nom invalide (majuscule) — même règle qu'un émoji.
+    let err = s
+        .call(
+            "groups.stickers.add",
+            json!({"group_id": gid, "name": "Bad", "mime": "image/png", "data_b64": "QUJD"}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+    // MIME non pris en charge.
+    let err = s
+        .call(
+            "groups.stickers.add",
+            json!({"group_id": gid, "name": "ok", "mime": "image/svg+xml", "data_b64": "QUJD"}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+    // Décodé trop lourd (> 512 Kio).
+    let big = "A".repeat(700 * 1024);
+    let err = s
+        .call(
+            "groups.stickers.add",
+            json!({"group_id": gid, "name": "big", "mime": "image/png", "data_b64": big}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+    // Sending a sticker name absent from the group's registry is rejected
+    // (channel unknown too, in this minimal fixture — either way, an
+    // explicit `CoreError::Invalid`, never silently accepted).
+    let err = s
+        .call(
+            "groups.send",
+            json!({"group_id": gid, "channel_id": "00".repeat(16), "sticker": "unknown"}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+}
+
+#[tokio::test]
+async fn group_send_sticker_via_groups_send_uses_registered_merkle_root() {
+    let (s, gid, _dir) = service_on_disk_with_group().await;
+    let chan = s
+        .call(
+            "groups.channel.add",
+            json!({"group_id": gid, "name": "général"}),
+        )
+        .await
+        .unwrap();
+    let cid = chan["channel_id"].as_str().unwrap().to_string();
+    let added = s
+        .call(
+            "groups.stickers.add",
+            json!({"group_id": gid, "name": "wave", "mime": "image/png", "data_b64": "QUJD"}),
+        )
+        .await
+        .unwrap();
+    let root = added["merkle_root"].as_str().unwrap().to_string();
+
+    let sent = s
+        .call(
+            "groups.send",
+            json!({"group_id": gid, "channel_id": cid, "sticker": "wave"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(sent["msg_id"].as_str().unwrap().len(), 32);
+
+    let hist = s
+        .call(
+            "groups.history",
+            json!({"group_id": gid, "channel_id": cid}),
+        )
+        .await
+        .unwrap();
+    let messages = hist["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 1);
+    assert_eq!(
+        messages[0]["body"],
+        json!({ "type": "sticker", "name": "wave", "merkle_root": root })
+    );
+}
+
+// ---- Événements planifiés (D-047) ----
+
+#[tokio::test]
+async fn group_events_create_edit_delete_rsvp_and_state_shape() {
+    let (s, gid) = service_with_group().await;
+    let created = s
+        .call(
+            "groups.events.create",
+            json!({
+                "group_id": gid,
+                "title": "Soirée jeux",
+                "description": "Amenez vos manettes.",
+                "start_ms": 1_700_000_000_000u64,
+            }),
+        )
+        .await
+        .unwrap();
+    let eid = created["event_id"].as_str().unwrap().to_string();
+    assert_eq!(eid.len(), 32);
+
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    let events = state["events"].as_array().unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["event_id"], json!(eid));
+    assert_eq!(events[0]["title"], json!("Soirée jeux"));
+    assert_eq!(events[0]["description"], json!("Amenez vos manettes."));
+    assert_eq!(events[0]["start_ms"], json!(1_700_000_000_000u64));
+    assert!(events[0]["channel_id"].is_null());
+    assert_eq!(events[0]["rsvp_count"], json!(0));
+    assert_eq!(events[0]["rsvped"], json!(false));
+
+    // RSVP: local user marks interested, then withdraws.
+    s.call(
+        "groups.events.rsvp",
+        json!({"group_id": gid, "event_id": eid, "interested": true}),
+    )
+    .await
+    .unwrap();
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    let events = state["events"].as_array().unwrap();
+    assert_eq!(events[0]["rsvp_count"], json!(1));
+    assert_eq!(events[0]["rsvped"], json!(true));
+
+    s.call(
+        "groups.events.rsvp",
+        json!({"group_id": gid, "event_id": eid, "interested": false}),
+    )
+    .await
+    .unwrap();
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(state["events"][0]["rsvp_count"], json!(0));
+
+    // Edit.
+    s.call(
+        "groups.events.edit",
+        json!({
+            "group_id": gid,
+            "event_id": eid,
+            "title": "Soirée jeux (reportée)",
+            "start_ms": 1_700_100_000_000u64,
+        }),
+    )
+    .await
+    .unwrap();
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(state["events"][0]["title"], json!("Soirée jeux (reportée)"));
+    assert_eq!(state["events"][0]["description"], json!(""));
+
+    // Delete.
+    s.call(
+        "groups.events.delete",
+        json!({"group_id": gid, "event_id": eid}),
+    )
+    .await
+    .unwrap();
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(state["events"], json!([]));
+}
+
+#[tokio::test]
+async fn group_events_create_validates_at_boundary() {
+    let (s, gid) = service_with_group().await;
+    // Title too short.
+    let err = s
+        .call(
+            "groups.events.create",
+            json!({"group_id": gid, "title": "X", "start_ms": 0}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+
+    // Unknown channel_id: rejected at fold, surfaced as an app error.
+    let err = s
+        .call(
+            "groups.events.create",
+            json!({
+                "group_id": gid,
+                "title": "Valide",
+                "start_ms": 0,
+                "channel_id": "ee".repeat(16),
+            }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::APP_ERROR);
+
+    // A text (non-voice) channel is rejected as the event's channel.
+    let chan = s
+        .call(
+            "groups.channel.add",
+            json!({"group_id": gid, "name": "texte"}),
+        )
+        .await
+        .unwrap();
+    let cid = chan["channel_id"].as_str().unwrap().to_string();
+    let err = s
+        .call(
+            "groups.events.create",
+            json!({"group_id": gid, "title": "Valide", "start_ms": 0, "channel_id": cid}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::APP_ERROR);
+
+    // A voice channel is accepted.
+    let voice = s
+        .call(
+            "groups.channel.add",
+            json!({"group_id": gid, "name": "vocal", "kind": "voice"}),
+        )
+        .await
+        .unwrap();
+    let vcid = voice["channel_id"].as_str().unwrap().to_string();
+    let created = s
+        .call(
+            "groups.events.create",
+            json!({"group_id": gid, "title": "Valide", "start_ms": 0, "channel_id": vcid}),
+        )
+        .await
+        .unwrap();
+    assert!(created["event_id"].as_str().is_some());
+}
+
+// ---- Avatar de serveur (D-047, self-service uniquement) ----
+
+#[tokio::test]
+async fn group_set_member_avatar_set_and_clear() {
+    let (s, gid, _dir) = service_on_disk_with_group().await;
+    let set = s
+        .call(
+            "groups.set_member_avatar",
+            json!({"group_id": gid, "mime": "image/png", "data_b64": "QUJD"}),
+        )
+        .await
+        .unwrap();
+    let root = set["avatar"].as_str().unwrap().to_string();
+    assert_eq!(root.len(), 64);
+
+    let me = s.call("identity.self", json!({})).await.unwrap();
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    let members = state["members"].as_array().unwrap();
+    assert_eq!(members.len(), 1);
+    assert_eq!(members[0]["pubkey"], me["pubkey"]);
+    assert_eq!(members[0]["avatar"], json!(root));
+
+    // Clear (no data_b64 param).
+    let cleared = s
+        .call("groups.set_member_avatar", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert!(cleared["avatar"].is_null());
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert!(state["members"][0]["avatar"].is_null());
+}
+
+// ---- Couleur de bannière de serveur (D-047) ----
+
+#[tokio::test]
+async fn group_set_banner_color_set_clear_and_bounds() {
+    let (s, gid) = service_with_group().await;
+    s.call(
+        "groups.set_banner_color",
+        json!({"group_id": gid, "color": 0x5865F2}),
+    )
+    .await
+    .unwrap();
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(state["banner_color"], json!(0x5865F2));
+
+    // Rename must not wipe the banner color out (SetMeta preserves it).
+    s.call(
+        "groups.rename",
+        json!({"group_id": gid, "name": "Renommée"}),
+    )
+    .await
+    .unwrap();
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert_eq!(state["banner_color"], json!(0x5865F2));
+
+    // Explicit null clears it.
+    s.call(
+        "groups.set_banner_color",
+        json!({"group_id": gid, "color": null}),
+    )
+    .await
+    .unwrap();
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    assert!(state["banner_color"].is_null());
+
+    // Missing `color` key entirely is rejected (explicit intent required).
+    let err = s
+        .call("groups.set_banner_color", json!({"group_id": gid}))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+
+    // Out-of-range color (> 24 bits) is rejected.
+    let err = s
+        .call(
+            "groups.set_banner_color",
+            json!({"group_id": gid, "color": 0x0100_0000u32}),
         )
         .await
         .unwrap_err();

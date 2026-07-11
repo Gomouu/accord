@@ -653,6 +653,140 @@ fn group_emojis_replicate_between_nodes() {
 }
 
 #[test]
+fn group_stickers_replicate_and_sticker_message_decodes_on_receipt() {
+    let (alice, _dir_a, mut rx_a) = node_on_disk_with_channel();
+    let (bob, _dir_b, mut rx_b) = node_on_disk_with_channel();
+    let alice_pub = alice.public_key();
+    let bob_pub = bob.public_key();
+
+    let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
+    let chan = hex::decode::<16>(&alice.group_add_channel(&gid, "général").unwrap()).unwrap();
+    invite_and_join(
+        &alice, &mut rx_a, &alice_pub, &bob, &mut rx_b, &bob_pub, &gid,
+    );
+
+    // Alice registers a sticker: the image is published locally and the
+    // StickerAdd op replicates to Bob.
+    let root = alice
+        .group_sticker_add(&gid, "wave", "image/png", vec![1, 2, 3, 4])
+        .unwrap();
+    deliver(&mut rx_a, &alice_pub, &bob, &bob_pub);
+    assert_eq!(
+        bob.group_state(&gid).unwrap().stickers.get("wave"),
+        Some(&hex::decode::<32>(&root).unwrap())
+    );
+
+    // Bob, a plain member, cannot register stickers himself.
+    assert!(bob
+        .group_sticker_add(&gid, "boom", "image/png", vec![9])
+        .is_err());
+
+    // Bob sends the registered sticker; Alice receives and can decode it
+    // back to the same (name, merkle_root) pair Alice registered.
+    let mid = hex::decode::<16>(&bob.group_send_sticker(&gid, &chan, "wave").unwrap()).unwrap();
+    deliver(&mut rx_b, &bob_pub, &alice, &alice_pub);
+    let hist = alice.group_history(&gid, &chan, u64::MAX, 10).unwrap();
+    assert_eq!(hist.len(), 1);
+    assert_eq!(hist[0].msg_id, mid);
+    let body = accord_proto::core_msg::MsgBody::decode_body(hist[0].kind, &hist[0].body).unwrap();
+    assert_eq!(
+        body,
+        accord_proto::core_msg::MsgBody::Sticker {
+            name: "wave".into(),
+            merkle_root: hex::decode::<32>(&root).unwrap(),
+        }
+    );
+
+    // Sending an unregistered sticker name is refused (no cross-registry
+    // forgery): nothing is queued to Bob.
+    assert!(alice.group_send_sticker(&gid, &chan, "ghost").is_err());
+
+    // Removal by Alice replicates to Bob.
+    alice.group_sticker_remove(&gid, "wave").unwrap();
+    deliver(&mut rx_a, &alice_pub, &bob, &bob_pub);
+    assert!(bob.group_state(&gid).unwrap().stickers.is_empty());
+}
+
+#[test]
+fn group_events_rsvp_and_avatar_replicate_between_nodes() {
+    let (alice, _dir_a, mut rx_a) = node_on_disk_with_channel();
+    let (bob, _dir_b, mut rx_b) = node_on_disk_with_channel();
+    let alice_pub = alice.public_key();
+    let bob_pub = bob.public_key();
+
+    let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
+    invite_and_join(
+        &alice, &mut rx_a, &alice_pub, &bob, &mut rx_b, &bob_pub, &gid,
+    );
+
+    // Alice (MANAGE_CHANNELS via founder) creates an event; it replicates.
+    let eid = hex::decode::<16>(
+        &alice
+            .group_event_create(&gid, "Soirée", "", 1_000, None)
+            .unwrap(),
+    )
+    .unwrap();
+    deliver(&mut rx_a, &alice_pub, &bob, &bob_pub);
+    let ev = bob
+        .group_state(&gid)
+        .unwrap()
+        .events
+        .get(&eid)
+        .cloned()
+        .unwrap();
+    assert_eq!(ev.title, "Soirée");
+    assert_eq!(ev.author, alice_pub);
+
+    // Bob, a plain member, cannot create events himself…
+    assert!(bob
+        .group_event_create(&gid, "Piraté", "", 1_000, None)
+        .is_err());
+    // …nor edit or delete Alice's event.
+    assert!(bob
+        .group_event_edit(&gid, &eid, "Piraté", "", 1_000, None)
+        .is_err());
+    assert!(bob.group_event_delete(&gid, &eid).is_err());
+
+    // Bob can RSVP to Alice's event; the RSVP replicates to Alice.
+    bob.group_event_rsvp(&gid, &eid, true).unwrap();
+    deliver(&mut rx_b, &bob_pub, &alice, &alice_pub);
+    assert!(alice
+        .group_state(&gid)
+        .unwrap()
+        .events
+        .get(&eid)
+        .unwrap()
+        .rsvps
+        .contains(&bob_pub));
+
+    // Bob sets his own per-server avatar (self-service); it replicates.
+    bob.group_set_member_avatar(&gid, None).unwrap(); // clearing an unset avatar is a no-op
+    let set = bob
+        .group_set_member_avatar(&gid, Some(("image/png", vec![9, 9, 9])))
+        .unwrap()
+        .unwrap();
+    deliver(&mut rx_b, &bob_pub, &alice, &alice_pub);
+    assert_eq!(
+        alice
+            .group_state(&gid)
+            .unwrap()
+            .member_avatars
+            .get(&bob_pub)
+            .map(|h| hex::encode(h)),
+        Some(set)
+    );
+
+    // A departed member's avatar is cleared from the replicated state too.
+    bob.group_leave(&gid).unwrap();
+    deliver(&mut rx_b, &bob_pub, &alice, &alice_pub);
+    assert!(!alice
+        .group_state(&gid)
+        .unwrap()
+        .member_avatars
+        .contains_key(&bob_pub));
+}
+
+#[test]
 fn group_unread_tracks_others_messages_until_mark_read() {
     let (alice, mut rx_a) = node_with_channel();
     let (bob, mut rx_b) = node_with_channel();

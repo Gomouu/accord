@@ -230,6 +230,52 @@ pub fn compose_group_delete(
     )
 }
 
+/// Compose l'envoi d'un sticker de serveur pour un salon (D-047). Le nom
+/// doit référencer un sticker enregistré dans l'état courant du groupe : la
+/// racine Merkle est dérivée localement de cet état, **jamais fournie par
+/// l'appelant** — un client ne peut donc pas forger un couple
+/// `(nom, racine)` sans rapport avec un sticker réellement enregistré.
+/// Persisté comme tout message de salon (voir [`compose_group_message`]
+/// pour le cas `Text`), sans indexation recherche (pas de texte).
+pub fn compose_group_sticker(
+    db: &Db,
+    identity: &Identity,
+    group_id: &[u8; 16],
+    channel_id: &[u8; 16],
+    name: &str,
+    now_ms: u64,
+) -> Result<CoreMsg, CoreError> {
+    let state = require_send(db, identity, group_id, channel_id, now_ms)?;
+    let merkle_root = *state
+        .stickers
+        .get(name)
+        .ok_or(CoreError::Invalid("sticker inconnu"))?;
+    let body = MsgBody::Sticker {
+        name: name.to_string(),
+        merkle_root,
+    };
+    let msg = seal_body(db, group_id, channel_id, &body, now_ms)?;
+    let CoreMsg::GroupMsg {
+        msg_id, lamport, ..
+    } = &msg
+    else {
+        return Err(CoreError::Invalid("enveloppe de groupe inattendue"));
+    };
+    db.insert_group_msg(&GroupMsgRecord {
+        msg_id: *msg_id,
+        group_id: *group_id,
+        channel_id: *channel_id,
+        author: identity.public_key(),
+        lamport: *lamport,
+        sent_ms: now_ms,
+        kind: body.kind(),
+        body: body.encode_body(),
+        deleted: false,
+        edited: None,
+    })?;
+    Ok(msg)
+}
+
 /// Compose l'ajout ou le retrait d'une réaction (appliquée localement).
 #[allow(clippy::too_many_arguments)]
 pub fn compose_group_reaction(
@@ -373,6 +419,28 @@ pub fn ingest_group_message(
         MsgBody::Reaction { target, emoji, add } => {
             db.set_reaction(&target, sender, &emoji, add)?;
             Ok(GroupMsgEvent::Reacted)
+        }
+        // Sticker (D-047) : pas de validation croisée contre le registre de
+        // stickers à l'ingestion (comme les émojis de réaction, un nom/racine
+        // sans rapport avec un sticker enregistré est affiché tel quel côté
+        // UI plutôt que rejeté — dégradation gracieuse, pas d'oracle réseau).
+        MsgBody::Sticker { .. } => {
+            let inserted = db.insert_group_msg(&GroupMsgRecord {
+                msg_id: *msg_id,
+                group_id: *group_id,
+                channel_id: *channel_id,
+                author: *sender,
+                lamport,
+                sent_ms,
+                kind: *kind,
+                body: encoded.to_vec(),
+                deleted: false,
+                edited: None,
+            })?;
+            if !inserted {
+                return Ok(GroupMsgEvent::Duplicate);
+            }
+            Ok(GroupMsgEvent::Stored)
         }
         // Saisie : éphémère, signalée à l'UI mais jamais persistée.
         MsgBody::Typing => Ok(GroupMsgEvent::Typing),

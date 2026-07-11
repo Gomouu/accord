@@ -30,6 +30,13 @@ const MAX_NICKNAME: usize = 128;
 /// ~an 2248, alignée sur `MAX_TIMEOUT_UNTIL_MS` côté cœur) : rejette au
 /// décodage une valeur absurde plutôt que de la laisser transiter (D-045).
 const MAX_TICKET_EXPIRES_MS: u64 = 1 << 43;
+/// Borne filaire d'un titre d'événement planifié : 100 caractères × 4 octets
+/// UTF-8 au plus (validation sémantique 2-100 caractères au repli, D-047).
+const MAX_EVENT_TITLE: usize = 400;
+/// Borne filaire d'une description d'événement : 1024 caractères × 4 octets
+/// UTF-8 au plus (validation sémantique au repli, mêmes règles que la bio —
+/// voir `accord_core::profile::validate_bio`).
+const MAX_EVENT_DESC: usize = 4096;
 
 /// Bitfield de permissions de groupe (SPEC §6.2).
 pub mod perms {
@@ -149,6 +156,16 @@ pub enum MsgBody {
         /// Dernier `msg_id` lu.
         up_to: [u8; 16],
     },
+    /// Envoi d'un sticker de serveur (D-047) : référence par nom + racine
+    /// Merkle de l'image, exactement comme un émoji de serveur. Discriminant
+    /// 4 (jamais utilisé jusqu'ici, entre `Reaction` et `Typing`).
+    Sticker {
+        /// Nom du sticker (2-32 caractères `[a-z0-9_]`, mêmes règles qu'un
+        /// nom d'émoji).
+        name: String,
+        /// Racine Merkle de l'image (publiée dans le magasin de fichiers).
+        merkle_root: [u8; 32],
+    },
 }
 
 impl MsgBody {
@@ -159,6 +176,7 @@ impl MsgBody {
             MsgBody::Edit { .. } => 1,
             MsgBody::Delete { .. } => 2,
             MsgBody::Reaction { .. } => 3,
+            MsgBody::Sticker { .. } => 4,
             MsgBody::Typing => 5,
             MsgBody::ReadReceipt { .. } => 6,
         }
@@ -186,6 +204,10 @@ impl MsgBody {
                 w.put_arr(target);
                 w.put_str(emoji);
                 w.put_u8(u8::from(*add));
+            }
+            MsgBody::Sticker { name, merkle_root } => {
+                w.put_str(name);
+                w.put_arr(merkle_root);
             }
             MsgBody::Typing => {}
             MsgBody::ReadReceipt { up_to } => w.put_arr(up_to),
@@ -215,6 +237,10 @@ impl MsgBody {
                     1 => true,
                     _ => return Err(DecodeError::InvalidValue("reaction.add")),
                 },
+            },
+            4 => MsgBody::Sticker {
+                name: r.str(MAX_EMOJI_NAME, "msg.sticker.name")?,
+                merkle_root: r.arr()?,
             },
             5 => MsgBody::Typing,
             6 => MsgBody::ReadReceipt { up_to: r.arr()? },
@@ -322,12 +348,19 @@ pub enum GroupOpBody {
         /// Nom du groupe.
         name: String,
     },
-    /// 0x02 — Métadonnées (nom, icône).
+    /// 0x02 — Métadonnées (nom, icône, couleur de bannière).
     SetMeta {
         /// Nouveau nom.
         name: String,
         /// Hash Merkle de l'icône partagée, le cas échéant.
         icon: Option<[u8; 32]>,
+        /// Couleur de bannière du serveur `0xRRGGBB`, le cas échéant
+        /// (`None` = pas de couleur). Champ **additif** de fin de variant
+        /// (D-047) : un émetteur antérieur à son introduction ne l'écrit
+        /// pas du tout, et le décodage le rend à `None` dans ce cas
+        /// ([`Reader::opt_tail`]) — même schéma de rétrocompatibilité que
+        /// [`CoreMsg::Profile`].
+        banner_color: Option<u32>,
     },
     /// 0x03 — Ajout d'un salon.
     AddChannel {
@@ -554,6 +587,75 @@ pub enum GroupOpBody {
         /// Output force-deafened (implies mute, Discord semantics).
         deafen: bool,
     },
+    /// 0x20 — Create a scheduled event (D-047). Gated on `MANAGE_CHANNELS` at
+    /// replay, like every other server-management op; the author is
+    /// recorded so they can always edit/delete their own event afterwards.
+    EventCreate {
+        /// New event identifier ([`crate::new_id16`]-style random id, minted
+        /// by the caller — mirrors channel/category/role id allocation).
+        event_id: [u8; 16],
+        /// Display title (2-100 characters, anti-spoofing checked).
+        title: String,
+        /// Optional description (≤1024 characters, control-char checked
+        /// like a profile bio).
+        description: String,
+        /// Wall-clock start time (ms); bounded like
+        /// [`TimeoutMember::until_ms`](GroupOpBody::TimeoutMember).
+        start_ms: u64,
+        /// Optional voice channel where the event takes place.
+        channel_id: Option<[u8; 16]>,
+    },
+    /// 0x21 — Edit an existing event's fields (author or `MANAGE_CHANNELS`
+    /// at replay); RSVPs are untouched.
+    EventEdit {
+        /// Target event.
+        event_id: [u8; 16],
+        /// New title (same validation as [`GroupOpBody::EventCreate`]).
+        title: String,
+        /// New description.
+        description: String,
+        /// New start time (ms).
+        start_ms: u64,
+        /// New voice channel, if any.
+        channel_id: Option<[u8; 16]>,
+    },
+    /// 0x22 — Delete an event (author or `MANAGE_CHANNELS` at replay).
+    EventDelete {
+        /// Deleted event.
+        event_id: [u8; 16],
+    },
+    /// 0x23 — RSVP to an event: any member may toggle their own
+    /// "interested" status. Deduplicated by `(event_id, member)` at replay
+    /// (a later RSVP from the same member simply overwrites the earlier
+    /// one — plain map semantics, no explicit bookkeeping needed).
+    EventRsvp {
+        /// Target event.
+        event_id: [u8; 16],
+        /// `true` = interested (recorded), `false` = withdrawn (cleared).
+        interested: bool,
+    },
+    /// 0x24 — Add or replace a server sticker (mirrors
+    /// [`GroupOpBody::AddEmoji`] exactly, including replace-on-existing-name
+    /// semantics and permission gate).
+    StickerAdd {
+        /// Short name `[a-z0-9_]` (2-32 characters, validated at replay).
+        name: String,
+        /// Merkle root of the image (published in the file store).
+        file: [u8; 32],
+    },
+    /// 0x25 — Remove a server sticker (mirrors [`GroupOpBody::DelEmoji`]).
+    StickerRemove {
+        /// Removed sticker's name.
+        name: String,
+    },
+    /// 0x26 — Set or clear the caller's own per-server avatar. Self-service
+    /// only — unlike [`GroupOpBody::SetNickname`], there is no moderator
+    /// override, so the target is always the author and no `member` field
+    /// is needed.
+    SetMemberAvatar {
+        /// Merkle root of the new avatar image, or `None` to clear it.
+        avatar: Option<[u8; 32]>,
+    },
 }
 
 impl GroupOpBody {
@@ -591,6 +693,13 @@ impl GroupOpBody {
             Self::TimeoutMember { .. } => 0x1D,
             Self::SetNickname { .. } => 0x1E,
             Self::VoiceModerate { .. } => 0x1F,
+            Self::EventCreate { .. } => 0x20,
+            Self::EventEdit { .. } => 0x21,
+            Self::EventDelete { .. } => 0x22,
+            Self::EventRsvp { .. } => 0x23,
+            Self::StickerAdd { .. } => 0x24,
+            Self::StickerRemove { .. } => 0x25,
+            Self::SetMemberAvatar { .. } => 0x26,
         }
     }
 
@@ -599,9 +708,14 @@ impl GroupOpBody {
         let mut w = Writer::new();
         match self {
             Self::Create { name } => w.put_str(name),
-            Self::SetMeta { name, icon } => {
+            Self::SetMeta {
+                name,
+                icon,
+                banner_color,
+            } => {
                 w.put_str(name);
                 w.put_opt(icon.as_ref(), |w, h| w.put_arr(h));
+                w.put_opt(banner_color.as_ref(), |w, c| w.put_u32(*c));
             }
             Self::AddChannel {
                 channel_id,
@@ -740,6 +854,42 @@ impl GroupOpBody {
                 w.put_u8(u8::from(*mute));
                 w.put_u8(u8::from(*deafen));
             }
+            Self::EventCreate {
+                event_id,
+                title,
+                description,
+                start_ms,
+                channel_id,
+            }
+            | Self::EventEdit {
+                event_id,
+                title,
+                description,
+                start_ms,
+                channel_id,
+            } => {
+                w.put_arr(event_id);
+                w.put_str(title);
+                w.put_str(description);
+                w.put_u64(*start_ms);
+                w.put_opt(channel_id.as_ref(), |w, c| w.put_arr(c));
+            }
+            Self::EventDelete { event_id } => w.put_arr(event_id),
+            Self::EventRsvp {
+                event_id,
+                interested,
+            } => {
+                w.put_arr(event_id);
+                w.put_u8(u8::from(*interested));
+            }
+            Self::StickerAdd { name, file } => {
+                w.put_str(name);
+                w.put_arr(file);
+            }
+            Self::StickerRemove { name } => w.put_str(name),
+            Self::SetMemberAvatar { avatar } => {
+                w.put_opt(avatar.as_ref(), |w, h| w.put_arr(h));
+            }
         }
         w.into_bytes()
     }
@@ -754,6 +904,8 @@ impl GroupOpBody {
             0x02 => Self::SetMeta {
                 name: r.str(MAX_NAME, "op.name")?,
                 icon: r.opt(|r| r.arr())?,
+                banner_color: r
+                    .opt_tail(|r| decode_profile_color(r, "op.set_meta.banner_color"))?,
             },
             0x03 => Self::AddChannel {
                 channel_id: r.arr()?,
@@ -868,6 +1020,35 @@ impl GroupOpBody {
                 member: r.arr()?,
                 mute: decode_bool(&mut r, "op.voice_moderate.mute")?,
                 deafen: decode_bool(&mut r, "op.voice_moderate.deafen")?,
+            },
+            0x20 => Self::EventCreate {
+                event_id: r.arr()?,
+                title: r.str(MAX_EVENT_TITLE, "op.event.title")?,
+                description: r.str(MAX_EVENT_DESC, "op.event.description")?,
+                start_ms: r.u64()?,
+                channel_id: r.opt(|r| r.arr())?,
+            },
+            0x21 => Self::EventEdit {
+                event_id: r.arr()?,
+                title: r.str(MAX_EVENT_TITLE, "op.event.title")?,
+                description: r.str(MAX_EVENT_DESC, "op.event.description")?,
+                start_ms: r.u64()?,
+                channel_id: r.opt(|r| r.arr())?,
+            },
+            0x22 => Self::EventDelete { event_id: r.arr()? },
+            0x23 => Self::EventRsvp {
+                event_id: r.arr()?,
+                interested: decode_bool(&mut r, "op.event_rsvp.interested")?,
+            },
+            0x24 => Self::StickerAdd {
+                name: r.str(MAX_EMOJI_NAME, "op.sticker.name")?,
+                file: r.arr()?,
+            },
+            0x25 => Self::StickerRemove {
+                name: r.str(MAX_EMOJI_NAME, "op.sticker.name")?,
+            },
+            0x26 => Self::SetMemberAvatar {
+                avatar: r.opt(|r| r.arr())?,
             },
             _ => return Err(DecodeError::InvalidValue("groupop kind")),
         };
@@ -1303,8 +1484,10 @@ impl WireEncode for CoreMsg {
     }
 }
 
-/// Décode une couleur `0xRRGGBB` (`profile.accent_color`/`profile.banner_color`) :
-/// rejette strictement tout ce qui dépasse 24 bits.
+/// Décode une couleur `0xRRGGBB` : rejette strictement tout ce qui dépasse 24
+/// bits. Partagée par `profile.accent_color`/`profile.banner_color`
+/// ([`CoreMsg::Profile`]) et `op.set_meta.banner_color`
+/// ([`GroupOpBody::SetMeta`], D-047) — même format, même borne.
 fn decode_profile_color(r: &mut Reader<'_>, what: &'static str) -> Result<u32, DecodeError> {
     let v = r.u32()?;
     if v > MAX_COLOR {
@@ -1638,5 +1821,195 @@ mod tests {
         let mut r = Reader::new(&bytes);
         let _ = CoreMsg::decode(&mut r).expect("prefix decodes");
         assert!(r.finish().is_err());
+    }
+
+    #[test]
+    fn set_meta_banner_color_roundtrips_and_is_additive() {
+        let with_color = GroupOpBody::SetMeta {
+            name: "Salon".into(),
+            icon: Some([1; 32]),
+            banner_color: Some(0x00_FF_AA),
+        };
+        assert_eq!(with_color.kind(), 0x02);
+        assert_eq!(roundtrip(&with_color), with_color);
+
+        // A legacy encoder that never learned about `banner_color` simply
+        // never writes the trailing `opt` tag: strip the final byte our
+        // current encoder always writes for `None` and confirm it still
+        // decodes, to `None` (rétrocompatibilité filaire, `Reader::opt_tail`).
+        let no_color = GroupOpBody::SetMeta {
+            name: "Salon".into(),
+            icon: Some([1; 32]),
+            banner_color: None,
+        };
+        let mut encoded = no_color.encode_body();
+        assert_eq!(encoded.pop(), Some(0), "trailing None opt tag");
+        let decoded = GroupOpBody::decode_body(0x02, &encoded).expect("legacy decode");
+        assert_eq!(decoded, no_color);
+
+        // Out-of-range colour (> 24 bits) is rejected at decode.
+        let mut forged = with_color.encode_body();
+        let len = forged.len();
+        forged[len - 4..].copy_from_slice(&0x0100_0000u32.to_be_bytes());
+        assert!(GroupOpBody::decode_body(0x02, &forged).is_err());
+    }
+
+    #[test]
+    fn event_op_bodies_roundtrip() {
+        for body in [
+            GroupOpBody::EventCreate {
+                event_id: [1; 16],
+                title: "Soirée jeux".into(),
+                description: "Amenez vos manettes.".into(),
+                start_ms: 1_700_000_000_000,
+                channel_id: Some([2; 16]),
+            },
+            GroupOpBody::EventCreate {
+                event_id: [1; 16],
+                title: "Ti".into(),
+                description: String::new(),
+                start_ms: 0,
+                channel_id: None,
+            },
+            GroupOpBody::EventEdit {
+                event_id: [1; 16],
+                title: "Soirée jeux (reportée)".into(),
+                description: "Nouvelle date.".into(),
+                start_ms: 1_700_100_000_000,
+                channel_id: None,
+            },
+            GroupOpBody::EventDelete { event_id: [1; 16] },
+            GroupOpBody::EventRsvp {
+                event_id: [1; 16],
+                interested: true,
+            },
+            GroupOpBody::EventRsvp {
+                event_id: [1; 16],
+                interested: false,
+            },
+        ] {
+            assert_eq!(roundtrip(&body), body);
+        }
+        assert_eq!(
+            GroupOpBody::EventCreate {
+                event_id: [0; 16],
+                title: String::new(),
+                description: String::new(),
+                start_ms: 0,
+                channel_id: None,
+            }
+            .kind(),
+            0x20
+        );
+        assert_eq!(
+            GroupOpBody::EventEdit {
+                event_id: [0; 16],
+                title: String::new(),
+                description: String::new(),
+                start_ms: 0,
+                channel_id: None,
+            }
+            .kind(),
+            0x21
+        );
+        assert_eq!(GroupOpBody::EventDelete { event_id: [0; 16] }.kind(), 0x22);
+        assert_eq!(
+            GroupOpBody::EventRsvp {
+                event_id: [0; 16],
+                interested: true,
+            }
+            .kind(),
+            0x23
+        );
+    }
+
+    #[test]
+    fn event_rsvp_rejects_forged_interested_byte() {
+        // `interested` must be a strict {0,1} boolean tag; anything else is
+        // rejected, never coerced (adversarial byte).
+        let mut bytes = [0u8; 17];
+        bytes[16] = 2;
+        assert!(GroupOpBody::decode_body(0x23, &bytes).is_err());
+        // Truncated (missing the flag byte entirely).
+        assert!(GroupOpBody::decode_body(0x23, &[0u8; 16]).is_err());
+    }
+
+    #[test]
+    fn event_title_and_description_bounds_are_strict_at_decode() {
+        // A title beyond MAX_EVENT_TITLE (400 UTF-8 bytes) is rejected.
+        let mut w = Writer::new();
+        w.put_arr(&[0u8; 16]);
+        w.put_str(&"x".repeat(MAX_EVENT_TITLE + 1));
+        assert!(GroupOpBody::decode_body(0x20, &w.into_bytes()).is_err());
+
+        // A description beyond MAX_EVENT_DESC is rejected too, even with a
+        // valid title ahead of it.
+        let mut w2 = Writer::new();
+        w2.put_arr(&[0u8; 16]);
+        w2.put_str("Titre");
+        w2.put_str(&"x".repeat(MAX_EVENT_DESC + 1));
+        w2.put_u64(0);
+        w2.put_u8(0); // channel_id opt tag = None
+        assert!(GroupOpBody::decode_body(0x20, &w2.into_bytes()).is_err());
+    }
+
+    #[test]
+    fn sticker_op_bodies_roundtrip_and_share_emoji_name_bound() {
+        let add = GroupOpBody::StickerAdd {
+            name: "wave".into(),
+            file: [9; 32],
+        };
+        assert_eq!(add.kind(), 0x24);
+        assert_eq!(roundtrip(&add), add);
+        let remove = GroupOpBody::StickerRemove {
+            name: "wave".into(),
+        };
+        assert_eq!(remove.kind(), 0x25);
+        assert_eq!(roundtrip(&remove), remove);
+
+        // A name beyond 32 bytes is rejected at decode (shared bound with
+        // AddEmoji/DelEmoji — MAX_EMOJI_NAME).
+        let mut w = Writer::new();
+        w.put_str(&"x".repeat(33));
+        w.put_arr(&[0u8; 32]);
+        assert!(GroupOpBody::decode_body(0x24, &w.into_bytes()).is_err());
+    }
+
+    #[test]
+    fn set_member_avatar_roundtrips_and_rejects_trailing_bytes() {
+        let set = GroupOpBody::SetMemberAvatar {
+            avatar: Some([3; 32]),
+        };
+        assert_eq!(set.kind(), 0x26);
+        assert_eq!(roundtrip(&set), set);
+        let clear = GroupOpBody::SetMemberAvatar { avatar: None };
+        assert_eq!(roundtrip(&clear), clear);
+
+        let mut over = set.encode_body();
+        over.push(0xFF);
+        assert!(GroupOpBody::decode_body(0x26, &over).is_err());
+    }
+
+    #[test]
+    fn sticker_msg_body_roundtrips_and_rejects_truncation() {
+        let body = MsgBody::Sticker {
+            name: "wave".into(),
+            merkle_root: [7; 32],
+        };
+        assert_eq!(body.kind(), 4);
+        assert_eq!(roundtrip_msg_body(&body), body);
+
+        let encoded = body.encode_body();
+        for cut in 0..encoded.len() {
+            assert!(
+                MsgBody::decode_body(4, &encoded[..cut]).is_err(),
+                "cut={cut}"
+            );
+        }
+    }
+
+    /// Round-trips a `MsgBody` through its wire discriminant + encoding.
+    fn roundtrip_msg_body(body: &MsgBody) -> MsgBody {
+        MsgBody::decode_body(body.kind(), &body.encode_body()).expect("decode")
     }
 }

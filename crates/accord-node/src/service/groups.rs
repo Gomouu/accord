@@ -17,8 +17,8 @@ use crate::node::Node;
 
 use super::helpers::{
     b64_decode, group_msg_json, group_state_json, param_attachments, param_channel_kind,
-    param_id16, param_limit, param_opt_str, param_opt_u16, param_opt_u32, param_pubkey, param_str,
-    param_u32, param_u64,
+    param_id16, param_limit, param_opt_color, param_opt_str, param_opt_u16, param_opt_u32,
+    param_pubkey, param_str, param_u32, param_u64,
 };
 
 /// Identifiant de salon optionnel (catégorie parente d'un salon).
@@ -76,9 +76,17 @@ fn audit_entry_json(op: &GroupOp) -> Value {
     let (kind, params) = match GroupOpBody::decode_body(op.kind, &op.body) {
         Ok(body) => match body {
             GroupOpBody::Create { name } => ("create", json!({ "name": name })),
-            GroupOpBody::SetMeta { name, icon } => (
+            GroupOpBody::SetMeta {
+                name,
+                icon,
+                banner_color,
+            } => (
                 "set_meta",
-                json!({ "name": name, "icon": icon.map(|h| hex::encode(&h)) }),
+                json!({
+                    "name": name,
+                    "icon": icon.map(|h| hex::encode(&h)),
+                    "banner_color": banner_color,
+                }),
             ),
             GroupOpBody::AddChannel {
                 channel_id,
@@ -246,6 +254,35 @@ fn audit_entry_json(op: &GroupOp) -> Value {
                     "mute": mute,
                     "deafen": deafen,
                 }),
+            ),
+            GroupOpBody::EventCreate {
+                event_id, title, ..
+            } => (
+                "event_create",
+                json!({ "event_id": hex::encode(&event_id), "title": title }),
+            ),
+            GroupOpBody::EventEdit {
+                event_id, title, ..
+            } => (
+                "event_edit",
+                json!({ "event_id": hex::encode(&event_id), "title": title }),
+            ),
+            GroupOpBody::EventDelete { event_id } => (
+                "event_delete",
+                json!({ "event_id": hex::encode(&event_id) }),
+            ),
+            GroupOpBody::EventRsvp {
+                event_id,
+                interested,
+            } => (
+                "event_rsvp",
+                json!({ "event_id": hex::encode(&event_id), "interested": interested }),
+            ),
+            GroupOpBody::StickerAdd { name, .. } => ("sticker_add", json!({ "name": name })),
+            GroupOpBody::StickerRemove { name } => ("sticker_remove", json!({ "name": name })),
+            GroupOpBody::SetMemberAvatar { avatar } => (
+                "set_member_avatar",
+                json!({ "avatar": avatar.map(|h| hex::encode(&h)) }),
             ),
         },
         Err(_) => ("unknown", json!({})),
@@ -560,6 +597,14 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
         "groups.send" => {
             let gid = param_id16(params, "group_id")?;
             let cid = param_id16(params, "channel_id")?;
+            // A `sticker` param sends a registered server sticker instead of
+            // a text message: `text`/`reply_to`/`attachments` are ignored in
+            // that case (D-047). Absent `sticker` preserves prior behavior.
+            if let Some(sticker_name) = param_opt_str(params, "sticker")? {
+                return Ok(json!({
+                    "msg_id": node.group_send_sticker(&gid, &cid, sticker_name)?
+                }));
+            }
             let text = param_str(params, "text")?;
             let reply_to = params
                 .get("reply_to")
@@ -642,6 +687,87 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
         "groups.emoji.del" => {
             let gid = param_id16(params, "group_id")?;
             node.group_emoji_del(&gid, param_str(params, "name")?)?;
+            Ok(json!({ "ok": true }))
+        }
+        "groups.stickers.add" => {
+            let gid = param_id16(params, "group_id")?;
+            let name = param_str(params, "name")?;
+            let mime = param_str(params, "mime")?;
+            let data = b64_decode(param_str(params, "data_b64")?)
+                .ok_or(NodeError::Invalid("data_b64 : base64 invalide"))?;
+            Ok(json!({
+                "merkle_root": node.group_sticker_add(&gid, name, mime, data)?
+            }))
+        }
+        "groups.stickers.remove" => {
+            let gid = param_id16(params, "group_id")?;
+            node.group_sticker_remove(&gid, param_str(params, "name")?)?;
+            Ok(json!({ "ok": true }))
+        }
+        "groups.stickers.list" => {
+            let gid = param_id16(params, "group_id")?;
+            let state = node.group_state(&gid)?;
+            Ok(json!({
+                "stickers": state.stickers.iter().map(|(name, hash)| json!({
+                    "name": name,
+                    "merkle_root": hex::encode(hash),
+                })).collect::<Vec<_>>()
+            }))
+        }
+        "groups.set_member_avatar" => {
+            let gid = param_id16(params, "group_id")?;
+            let avatar = match param_opt_str(params, "data_b64")? {
+                Some(data_str) => {
+                    let mime = param_str(params, "mime")?;
+                    let data = b64_decode(data_str)
+                        .ok_or(NodeError::Invalid("data_b64 : base64 invalide"))?;
+                    node.group_set_member_avatar(&gid, Some((mime, data)))?
+                }
+                None => node.group_set_member_avatar(&gid, None)?,
+            };
+            Ok(json!({ "avatar": avatar }))
+        }
+        "groups.set_banner_color" => {
+            let gid = param_id16(params, "group_id")?;
+            let color = param_opt_color(params, "color")?
+                .ok_or(NodeError::Invalid("color requis (entier 0xRRGGBB ou null)"))?;
+            node.group_set_banner_color(&gid, color)?;
+            Ok(json!({ "ok": true }))
+        }
+        "groups.events.create" => {
+            let gid = param_id16(params, "group_id")?;
+            let title = param_str(params, "title")?;
+            let description = param_opt_str(params, "description")?.unwrap_or("");
+            let start_ms = param_u64(params, "start_ms", 0);
+            let channel_id = param_opt_id16(params, "channel_id")?;
+            Ok(json!({
+                "event_id": node.group_event_create(&gid, title, description, start_ms, channel_id)?
+            }))
+        }
+        "groups.events.edit" => {
+            let gid = param_id16(params, "group_id")?;
+            let eid = param_id16(params, "event_id")?;
+            let title = param_str(params, "title")?;
+            let description = param_opt_str(params, "description")?.unwrap_or("");
+            let start_ms = param_u64(params, "start_ms", 0);
+            let channel_id = param_opt_id16(params, "channel_id")?;
+            node.group_event_edit(&gid, &eid, title, description, start_ms, channel_id)?;
+            Ok(json!({ "ok": true }))
+        }
+        "groups.events.delete" => {
+            let gid = param_id16(params, "group_id")?;
+            let eid = param_id16(params, "event_id")?;
+            node.group_event_delete(&gid, &eid)?;
+            Ok(json!({ "ok": true }))
+        }
+        "groups.events.rsvp" => {
+            let gid = param_id16(params, "group_id")?;
+            let eid = param_id16(params, "event_id")?;
+            let interested = params
+                .get("interested")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            node.group_event_rsvp(&gid, &eid, interested)?;
             Ok(json!({ "ok": true }))
         }
         "groups.typing" => {

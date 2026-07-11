@@ -324,6 +324,10 @@ pub fn ingest_dm(
             db.set_reaction(&target, peer, &emoji, add)?;
             Ok(DmEvent::Reacted)
         }
+        // Server stickers are a group-channel feature only (D-047); a DM
+        // carrying one is simply unsupported — ignored without error like
+        // any other well-formed-but-inapplicable body.
+        MsgBody::Sticker { .. } => Ok(DmEvent::Noop),
         MsgBody::Typing => Ok(DmEvent::Typing),
         MsgBody::ReadReceipt { up_to } => {
             db.set_read_mark(peer, &up_to)?;

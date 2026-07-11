@@ -265,6 +265,11 @@ fn body_json(kind: u8, body: &[u8]) -> Value {
             "emoji": emoji,
             "add": add,
         }),
+        Ok(MsgBody::Sticker { name, merkle_root }) => json!({
+            "type": "sticker",
+            "name": name,
+            "merkle_root": hex::encode(&merkle_root),
+        }),
         Ok(MsgBody::Typing) | Ok(MsgBody::ReadReceipt { .. }) => json!({ "type": "meta" }),
         Err(_) => json!({ "type": "unknown" }),
     }
@@ -363,12 +368,16 @@ pub(super) fn group_state_json(group_id: &[u8; 16], s: &GroupState, me: &[u8; 32
         "group_id": hex::encode(group_id),
         "name": s.name,
         "icon": s.icon.as_ref().map(|h| hex::encode(h)),
+        // Server banner color `0xRRGGBB` (D-047), or null when unset.
+        "banner_color": s.banner_color,
         "founder": s.founder.as_ref().map(|f| hex::encode(f)),
         "members": s.members.iter().map(|(pk, m)| json!({
             "pubkey": hex::encode(pk),
             "roles": m.roles.iter().map(|r| hex::encode(r)).collect::<Vec<_>>(),
             // Per-group display name (overrides the global profile name), or null.
             "nickname": s.nicknames.get(pk),
+            // Per-group avatar (op 0x26, self-service only), or null.
+            "avatar": s.member_avatars.get(pk).map(|h| hex::encode(h)),
             // Active timeout deadline (wall ms), or 0 when not muted. The UI
             // compares it against the current time (expired timeouts are moot).
             "timeout_until_ms": s.timeouts.get(pk).copied().unwrap_or(0),
@@ -408,6 +417,21 @@ pub(super) fn group_state_json(group_id: &[u8; 16], s: &GroupState, me: &[u8; 32
         "emojis": s.emojis.iter().map(|(name, hash)| json!({
             "name": name,
             "merkle_root": hex::encode(hash),
+        })).collect::<Vec<_>>(),
+        "stickers": s.stickers.iter().map(|(name, hash)| json!({
+            "name": name,
+            "merkle_root": hex::encode(hash),
+        })).collect::<Vec<_>>(),
+        "events": s.events.iter().map(|(id, ev)| json!({
+            "event_id": hex::encode(id),
+            "title": ev.title,
+            "description": ev.description,
+            "start_ms": ev.start_ms,
+            "channel_id": ev.channel_id.as_ref().map(|c| hex::encode(c)),
+            "author": hex::encode(&ev.author),
+            "rsvp_count": ev.rsvps.len(),
+            // True when the local user is in the RSVP list.
+            "rsvped": ev.rsvps.contains(me),
         })).collect::<Vec<_>>(),
         "my_permissions": s.base_permissions(me),
     })

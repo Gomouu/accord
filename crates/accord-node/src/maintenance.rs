@@ -69,6 +69,9 @@ pub struct MaintenanceConfig {
     pub mailbox_poll: Duration,
     /// Intervalle d'émission des offres `GroupSync`.
     pub group_sync: Duration,
+    /// Intervalle de vérification des événements planifiés dus
+    /// (`event.group_event_started`, D-047).
+    pub event_check: Duration,
     /// Intervalle de reconnexion aux pairs d'amorçage (base du backoff, B2).
     pub bootstrap_reconnect: Duration,
     /// Amplitude de jitter relative (0.2 ⇒ ±10 % autour de l'intervalle).
@@ -91,6 +94,9 @@ impl Default for MaintenanceConfig {
             outbox_flush: Duration::from_secs(30),
             mailbox_poll: Duration::from_secs(10 * 60),
             group_sync: Duration::from_secs(5 * 60),
+            // Frequent enough to announce an event promptly after its start
+            // time without being wasteful (pure local computation, no I/O).
+            event_check: Duration::from_secs(60),
             bootstrap_reconnect: Duration::from_secs(60),
             jitter: 0.2,
             outbox_batch: 64,
@@ -343,6 +349,12 @@ pub(crate) fn spawn_loops(rt: &Arc<Runtime>) {
     });
     spawn_periodic(Arc::clone(rt), cfg.group_sync, |r, c| {
         Box::pin(group_sync_tick(r, c))
+    });
+    // Signale localement les événements planifiés dont l'heure de début est
+    // atteinte (D-047) : calcul pur, sans I/O réseau ; câblé comme une boucle
+    // de maintenance à part entière pour hériter du jitter/arrêt propre.
+    spawn_periodic(Arc::clone(rt), cfg.event_check, |r, c| {
+        Box::pin(event_check_tick(r, c))
     });
     // Ré-annonce périodique du profil (D-027) : même cadence que la
     // republication d'identité, pas de bouton de réglage supplémentaire.
@@ -768,6 +780,18 @@ async fn group_sync_tick(rt: &Runtime, _cfg: &MaintenanceConfig) {
     }
     if offers > 0 {
         tracing::debug!(offres = offers, "anti-entropie : offres GroupSync émises");
+    }
+}
+
+/// Signale localement (`event.group_event_started`, D-047) les événements
+/// planifiés de tous les groupes dont l'heure de début vient d'être
+/// atteinte. Purement local (aucun message réseau) : délègue entièrement au
+/// nœud, qui persiste le suivi des événements déjà signalés.
+async fn event_check_tick(rt: &Runtime, _cfg: &MaintenanceConfig) {
+    match rt.node().group_fire_due_events(now_ms()) {
+        Ok(fired) if fired > 0 => tracing::debug!(fired, "événements : signalés au démarrage dû"),
+        Ok(_) => {}
+        Err(e) => tracing::warn!(erreur = %e, "événements : vérification impossible"),
     }
 }
 

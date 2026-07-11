@@ -292,6 +292,10 @@ fn msg_body_roundtrip() {
             emoji: "🔥".into(),
             add: true,
         },
+        MsgBody::Sticker {
+            name: "wave".into(),
+            merkle_root: [7; 32],
+        },
         MsgBody::Typing,
         MsgBody::ReadReceipt { up_to: [6; 16] },
     ];
@@ -311,6 +315,7 @@ fn group_op_bodies_roundtrip() {
         GroupOpBody::SetMeta {
             name: "Renommé".into(),
             icon: Some([1; 32]),
+            banner_color: Some(0x5865F2),
         },
         GroupOpBody::AddChannel {
             channel_id: [2; 16],
@@ -438,6 +443,36 @@ fn group_op_bodies_roundtrip() {
             member: [6; 32],
             name: String::new(),
         },
+        GroupOpBody::EventCreate {
+            event_id: [13; 16],
+            title: "Soirée jeux".into(),
+            description: "Amenez vos manettes.".into(),
+            start_ms: 1_700_000_000_000,
+            channel_id: Some([2; 16]),
+        },
+        GroupOpBody::EventEdit {
+            event_id: [13; 16],
+            title: "Soirée jeux (reportée)".into(),
+            description: String::new(),
+            start_ms: 1_700_100_000_000,
+            channel_id: None,
+        },
+        GroupOpBody::EventDelete { event_id: [13; 16] },
+        GroupOpBody::EventRsvp {
+            event_id: [13; 16],
+            interested: true,
+        },
+        GroupOpBody::StickerAdd {
+            name: "wave".into(),
+            file: [14; 32],
+        },
+        GroupOpBody::StickerRemove {
+            name: "wave".into(),
+        },
+        GroupOpBody::SetMemberAvatar {
+            avatar: Some([15; 32]),
+        },
+        GroupOpBody::SetMemberAvatar { avatar: None },
     ];
     for body in bodies {
         let enc = body.encode_body();

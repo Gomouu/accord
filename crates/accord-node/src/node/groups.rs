@@ -15,6 +15,8 @@
 //! ce qui déclenche côté inviteur `ingest_invite_accept` — l'admission
 //! effective (`AddMember` + op-log complet + clé scellée).
 
+use std::collections::BTreeSet;
+
 use accord_core::db::{IncomingInvite, LocalMembership};
 use accord_core::group;
 use accord_core::group::invite as group_invite;
@@ -40,8 +42,22 @@ pub(crate) const MAX_ICON_BYTES: usize = 512 * 1024;
 /// Taille maximale d'un émoji de serveur décodé (256 Kio).
 const MAX_EMOJI_BYTES: usize = 256 * 1024;
 
-/// Types MIME acceptés pour un émoji de serveur.
+/// Types MIME acceptés pour un émoji de serveur (et, par réutilisation, pour
+/// les stickers et l'avatar de serveur — D-047).
 const EMOJI_MIMES: [&str; 4] = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+
+/// Taille maximale d'un sticker décodé (512 Kio, D-047).
+const MAX_STICKER_BYTES: usize = 512 * 1024;
+
+/// Taille maximale d'un avatar de serveur décodé (512 Kio, même borne que
+/// [`MAX_ICON_BYTES`], D-047).
+const MAX_AVATAR_BYTES: usize = MAX_ICON_BYTES;
+
+/// Âge maximal (ms) au-delà duquel un événement déjà commencé n'est plus
+/// (re)signalé par `event.group_event_started`, y compris après un
+/// redémarrage (D-047) : un événement qui a démarré il y a plus d'une heure
+/// n'a plus lieu d'être annoncé comme « vient de commencer ».
+const EVENT_FIRE_GRACE_MS: u64 = 60 * 60 * 1000;
 
 /// Valide un nom d'émoji à la frontière (2-32 caractères `[a-z0-9_]`) : même
 /// règle qu'au repli du journal, avec un message d'erreur explicite.
@@ -67,6 +83,99 @@ fn validate_label(name: &str) -> Result<(), NodeError> {
         return Err(NodeError::Invalid("nom vide ou trop long (100 max)"));
     }
     Ok(())
+}
+
+/// Valide un nom de sticker à la frontière (mêmes règles qu'un nom d'émoji).
+fn validate_sticker_name(name: &str) -> Result<(), NodeError> {
+    let len = name.chars().count();
+    let ok = (2..=32).contains(&len)
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
+    if ok {
+        Ok(())
+    } else {
+        Err(NodeError::Invalid(
+            "nom de sticker invalide (2-32 caractères a-z, 0-9, _)",
+        ))
+    }
+}
+
+/// Valide un titre d'événement à la frontière (2-100 caractères, sans
+/// caractère de contrôle — la vérification anti-usurpation complète a lieu
+/// au repli, [`accord_core::group::state`]).
+fn validate_event_title(title: &str) -> Result<(), NodeError> {
+    let trimmed = title.trim();
+    let len = trimmed.chars().count();
+    if !(2..=accord_core::group::state::MAX_EVENT_TITLE_CHARS).contains(&len) {
+        return Err(NodeError::Invalid(
+            "titre d'événement invalide (2-100 caractères)",
+        ));
+    }
+    if trimmed.chars().any(|c| c.is_control()) {
+        return Err(NodeError::Invalid(
+            "titre : caractères de contrôle interdits",
+        ));
+    }
+    Ok(())
+}
+
+/// Valide une description d'événement à la frontière (≤1024 caractères,
+/// mêmes règles de caractères de contrôle qu'une bio).
+fn validate_event_description(desc: &str) -> Result<(), NodeError> {
+    let trimmed = desc.trim();
+    if trimmed.chars().count() > accord_core::group::state::MAX_EVENT_DESC_CHARS {
+        return Err(NodeError::Invalid(
+            "description trop longue (1024 caractères max)",
+        ));
+    }
+    if trimmed
+        .chars()
+        .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+    {
+        return Err(NodeError::Invalid(
+            "description : caractères de contrôle interdits",
+        ));
+    }
+    Ok(())
+}
+
+/// Valide une échéance d'événement (mêmes bornes qu'une sourdine).
+fn validate_event_start_ms(start_ms: u64) -> Result<(), NodeError> {
+    if start_ms > accord_core::group::state::MAX_TIMEOUT_UNTIL_MS {
+        return Err(NodeError::Invalid("date d'événement hors bornes"));
+    }
+    Ok(())
+}
+
+/// Clé de métadonnée locale du suivi des événements déjà signalés d'un
+/// groupe (`event.group_event_started`) : liste compacte d'identifiants 16
+/// octets concaténés, réélaguée à chaque passe pour ne garder que les
+/// événements encore présents dans l'état matérialisé (borne naturelle :
+/// au plus [`accord_core::group::state::MAX_EVENTS`] par groupe).
+fn group_events_fired_key(group_id: &[u8; 16]) -> String {
+    format!("evfired:{}", hex::encode(group_id))
+}
+
+/// Décode la liste d'identifiants d'événements déjà signalés (silencieuse
+/// sur une longueur non multiple de 16 : tronque au dernier identifiant
+/// complet plutôt que paniquer — métadonnée locale, jamais attaquant-
+/// contrôlée, mais aucune raison de faire confiance aveuglément).
+fn decode_fired_ids(bytes: &[u8]) -> BTreeSet<[u8; 16]> {
+    bytes
+        .chunks_exact(16)
+        .map(|c| c.try_into().expect("chunks_exact(16) produit 16 octets"))
+        .collect()
+}
+
+/// Encode la liste d'identifiants d'événements déjà signalés (ordre du
+/// `BTreeSet`, déterministe).
+fn encode_fired_ids(ids: &BTreeSet<[u8; 16]>) -> Vec<u8> {
+    let mut out = Vec::with_capacity(ids.len() * 16);
+    for id in ids {
+        out.extend_from_slice(id);
+    }
+    out
 }
 
 impl Node {
@@ -123,21 +232,24 @@ impl Node {
 
     // ---- Métadonnées ----
 
-    /// Renomme un groupe (op `SetMeta`, icône actuelle conservée).
+    /// Renomme un groupe (op `SetMeta`, icône et couleur de bannière
+    /// actuelles conservées).
     pub fn group_rename(&self, group_id: &[u8; 16], name: &str) -> Result<(), NodeError> {
         validate_label(name)?;
-        let icon = self.group_state(group_id)?.icon;
+        let state = self.group_state(group_id)?;
         self.group_author(
             group_id,
             GroupOpBody::SetMeta {
                 name: name.trim().to_string(),
-                icon,
+                icon: state.icon,
+                banner_color: state.banner_color,
             },
         )
     }
 
     /// Change l'icône d'un groupe : publie l'image dans le magasin de
-    /// fichiers puis émet `SetMeta` avec sa racine Merkle. Rend la racine.
+    /// fichiers puis émet `SetMeta` avec sa racine Merkle (nom et couleur de
+    /// bannière actuels conservés). Rend la racine.
     pub fn group_set_icon(
         &self,
         group_id: &[u8; 16],
@@ -152,16 +264,40 @@ impl Node {
         if !mime.starts_with("image/") {
             return Err(NodeError::Invalid("l'icône doit être une image"));
         }
-        let name = self.group_state(group_id)?.name;
+        let state = self.group_state(group_id)?;
         let file: FileRef = self.files_publish_bytes("icone-groupe", mime, bytes)?;
         self.group_author(
             group_id,
             GroupOpBody::SetMeta {
-                name,
+                name: state.name,
                 icon: Some(file.merkle_root),
+                banner_color: state.banner_color,
             },
         )?;
         Ok(hex::encode(&file.merkle_root))
+    }
+
+    /// Fixe ou efface la couleur de bannière du serveur (op `SetMeta`, nom
+    /// et icône actuels conservés). `color = None` efface la couleur.
+    pub fn group_set_banner_color(
+        &self,
+        group_id: &[u8; 16],
+        color: Option<u32>,
+    ) -> Result<(), NodeError> {
+        if let Some(c) = color {
+            if c > 0xFF_FF_FF {
+                return Err(NodeError::Invalid("couleur hors bornes (0xRRGGBB)"));
+            }
+        }
+        let state = self.group_state(group_id)?;
+        self.group_author(
+            group_id,
+            GroupOpBody::SetMeta {
+                name: state.name,
+                icon: state.icon,
+                banner_color: color,
+            },
+        )
     }
 
     // ---- Salons ----
@@ -468,6 +604,258 @@ impl Node {
                 name: name.to_string(),
             },
         )
+    }
+
+    // ---- Stickers de serveur (D-047) ----
+
+    /// Ajoute (ou remplace) un sticker de serveur : publie l'image dans le
+    /// magasin de fichiers puis émet l'op `StickerAdd`. Rend la racine
+    /// Merkle de l'image. Mêmes règles qu'un émoji de serveur ; un
+    /// `StickerAdd` sur un nom existant met l'image à jour.
+    pub fn group_sticker_add(
+        &self,
+        group_id: &[u8; 16],
+        name: &str,
+        mime: &str,
+        bytes: Vec<u8>,
+    ) -> Result<String, NodeError> {
+        validate_sticker_name(name)?;
+        if bytes.is_empty() || bytes.len() > MAX_STICKER_BYTES {
+            return Err(NodeError::Invalid(
+                "sticker vide ou trop lourd (512 Kio max)",
+            ));
+        }
+        if !EMOJI_MIMES.contains(&mime) {
+            return Err(NodeError::Invalid(
+                "type de sticker non pris en charge (png, jpeg, webp, gif)",
+            ));
+        }
+        let file: FileRef = self.files_publish_bytes("sticker", mime, bytes)?;
+        self.group_author(
+            group_id,
+            GroupOpBody::StickerAdd {
+                name: name.to_string(),
+                file: file.merkle_root,
+            },
+        )?;
+        Ok(hex::encode(&file.merkle_root))
+    }
+
+    /// Supprime un sticker de serveur par son nom (op `StickerRemove`).
+    pub fn group_sticker_remove(&self, group_id: &[u8; 16], name: &str) -> Result<(), NodeError> {
+        validate_sticker_name(name)?;
+        self.group_author(
+            group_id,
+            GroupOpBody::StickerRemove {
+                name: name.to_string(),
+            },
+        )
+    }
+
+    /// Envoie un sticker de serveur dans un salon : le nom doit référencer
+    /// un sticker enregistré dans l'état courant (la racine Merkle est
+    /// dérivée localement, jamais fournie par l'appelant — voir
+    /// [`accord_core::group::compose_group_sticker`]).
+    pub fn group_send_sticker(
+        &self,
+        group_id: &[u8; 16],
+        channel_id: &[u8; 16],
+        name: &str,
+    ) -> Result<String, NodeError> {
+        let msg = self.with_db(|db| {
+            Ok(group::compose_group_sticker(
+                db,
+                &self.identity,
+                group_id,
+                channel_id,
+                name,
+                now_ms(),
+            )?)
+        })?;
+        let msg_id = match &msg {
+            CoreMsg::GroupMsg { msg_id, .. } => hex::encode(msg_id),
+            _ => unreachable!("compose_group_sticker produit un GroupMsg"),
+        };
+        self.outbound.send(Outbound::GroupCast {
+            group_id: *group_id,
+            msg: Box::new(msg),
+        });
+        Ok(msg_id)
+    }
+
+    // ---- Avatar de serveur (D-047, self-service uniquement) ----
+
+    /// Fixe ou efface l'avatar de serveur de l'identité locale (op
+    /// `SetMemberAvatar`, self-service uniquement — aucun modérateur ne peut
+    /// l'imposer ni l'effacer). `image = None` efface l'avatar ; sinon
+    /// `(mime, octets)` est publié dans le magasin de fichiers. Rend la
+    /// racine Merkle (hex) du nouvel avatar, ou `None` si effacé.
+    pub fn group_set_member_avatar(
+        &self,
+        group_id: &[u8; 16],
+        image: Option<(&str, Vec<u8>)>,
+    ) -> Result<Option<String>, NodeError> {
+        let avatar = match image {
+            Some((mime, bytes)) => {
+                if bytes.is_empty() || bytes.len() > MAX_AVATAR_BYTES {
+                    return Err(NodeError::Invalid(
+                        "avatar vide ou trop lourd (512 Kio max)",
+                    ));
+                }
+                if !mime.starts_with("image/") {
+                    return Err(NodeError::Invalid("l'avatar doit être une image"));
+                }
+                let file: FileRef = self.files_publish_bytes("avatar-serveur", mime, bytes)?;
+                Some(file.merkle_root)
+            }
+            None => None,
+        };
+        self.group_author(group_id, GroupOpBody::SetMemberAvatar { avatar })?;
+        Ok(avatar.map(|h| hex::encode(&h)))
+    }
+
+    // ---- Événements planifiés (D-047) ----
+
+    /// Crée un événement planifié (permission `MANAGE_CHANNELS` requise,
+    /// vérifiée au rejeu). `channel_id`, s'il est fourni, doit être un salon
+    /// vocal existant. Rend l'identifiant de l'événement (hex).
+    pub fn group_event_create(
+        &self,
+        group_id: &[u8; 16],
+        title: &str,
+        description: &str,
+        start_ms: u64,
+        channel_id: Option<[u8; 16]>,
+    ) -> Result<String, NodeError> {
+        validate_event_title(title)?;
+        validate_event_description(description)?;
+        validate_event_start_ms(start_ms)?;
+        let event_id = group::new_id16();
+        self.group_author(
+            group_id,
+            GroupOpBody::EventCreate {
+                event_id,
+                title: title.trim().to_string(),
+                description: description.trim().to_string(),
+                start_ms,
+                channel_id,
+            },
+        )?;
+        Ok(hex::encode(&event_id))
+    }
+
+    /// Édite un événement existant (auteur ou porteur de `MANAGE_CHANNELS`,
+    /// vérifié au rejeu) ; les RSVP existants sont conservés.
+    pub fn group_event_edit(
+        &self,
+        group_id: &[u8; 16],
+        event_id: &[u8; 16],
+        title: &str,
+        description: &str,
+        start_ms: u64,
+        channel_id: Option<[u8; 16]>,
+    ) -> Result<(), NodeError> {
+        validate_event_title(title)?;
+        validate_event_description(description)?;
+        validate_event_start_ms(start_ms)?;
+        self.group_author(
+            group_id,
+            GroupOpBody::EventEdit {
+                event_id: *event_id,
+                title: title.trim().to_string(),
+                description: description.trim().to_string(),
+                start_ms,
+                channel_id,
+            },
+        )
+    }
+
+    /// Supprime un événement (auteur ou porteur de `MANAGE_CHANNELS`).
+    pub fn group_event_delete(
+        &self,
+        group_id: &[u8; 16],
+        event_id: &[u8; 16],
+    ) -> Result<(), NodeError> {
+        self.group_author(
+            group_id,
+            GroupOpBody::EventDelete {
+                event_id: *event_id,
+            },
+        )
+    }
+
+    /// RSVP (ou retrait) de l'identité locale à un événement — n'importe
+    /// quel membre peut RSVP à n'importe quel événement connu.
+    pub fn group_event_rsvp(
+        &self,
+        group_id: &[u8; 16],
+        event_id: &[u8; 16],
+        interested: bool,
+    ) -> Result<(), NodeError> {
+        self.group_author(
+            group_id,
+            GroupOpBody::EventRsvp {
+                event_id: *event_id,
+                interested,
+            },
+        )
+    }
+
+    /// Signale localement (`event.group_event_started`) tout événement
+    /// planifié dont l'heure de début est atteinte et pas encore annoncé.
+    /// Idempotent et tolérant au redémarrage : le suivi des identifiants
+    /// déjà signalés est persisté en base (métadonnée locale, jamais
+    /// répliquée) et élagué à chaque passe pour ne garder que les
+    /// événements encore présents dans l'état matérialisé — un événement
+    /// commencé il y a plus d'une heure ([`EVENT_FIRE_GRACE_MS`]) n'est
+    /// jamais (re)signalé, y compris juste après un redémarrage. Rend le
+    /// nombre d'événements signalés lors de cette passe.
+    pub fn group_fire_due_events(&self, now_ms: u64) -> Result<usize, NodeError> {
+        let mut fired_count = 0usize;
+        for gid_hex in self.group_ids()? {
+            let Some(group_id) = hex::decode::<16>(&gid_hex) else {
+                continue;
+            };
+            let Ok(state) = self.group_state(&group_id) else {
+                continue;
+            };
+            if state.events.is_empty() {
+                continue;
+            }
+            let key = group_events_fired_key(&group_id);
+            let already = self
+                .with_db(|db| Ok(db.meta(&key)?))?
+                .map(|b| decode_fired_ids(&b))
+                .unwrap_or_default();
+            let mut keep: BTreeSet<[u8; 16]> = BTreeSet::new();
+            let mut to_emit = Vec::new();
+            for (event_id, ev) in &state.events {
+                let was_fired = already.contains(event_id);
+                let due = ev.start_ms <= now_ms
+                    && now_ms.saturating_sub(ev.start_ms) <= EVENT_FIRE_GRACE_MS;
+                if was_fired || due {
+                    keep.insert(*event_id);
+                }
+                if due && !was_fired {
+                    to_emit.push((*event_id, ev.title.clone()));
+                }
+            }
+            if keep != already {
+                self.with_db(|db| Ok(db.set_meta(&key, &encode_fired_ids(&keep))?))?;
+            }
+            for (event_id, title) in to_emit {
+                fired_count += 1;
+                self.emit(
+                    "event.group_event_started",
+                    json!({
+                        "group_id": hex::encode(&group_id),
+                        "event_id": hex::encode(&event_id),
+                        "title": title,
+                    }),
+                );
+            }
+        }
+        Ok(fired_count)
     }
 
     // ---- Membres et modération ----
@@ -1433,5 +1821,65 @@ mod tests {
         // Over-long and control-character nicknames are refused at the boundary.
         assert!(n.group_set_nickname(&gid, &mpk, &"x".repeat(33)).is_err());
         assert!(n.group_set_nickname(&gid, &mpk, "bad\u{7}").is_err());
+    }
+
+    #[test]
+    fn fire_due_events_is_idempotent_and_respects_grace_and_future_dates() {
+        let n = node();
+        let gid = hex::decode::<16>(&n.group_create("Guilde").unwrap()).unwrap();
+        let now = 10_000_000_000u64;
+
+        // A future event is not due yet (far enough out that it stays in the
+        // future through every check below, including the grace-window one).
+        let future_id = n
+            .group_event_create(&gid, "Futur", "", now + 10_000_000, None)
+            .unwrap();
+        assert_eq!(n.group_fire_due_events(now).unwrap(), 0);
+
+        // A just-started event fires exactly once.
+        let due_id = n
+            .group_event_create(&gid, "En cours", "", now, None)
+            .unwrap();
+        assert_eq!(n.group_fire_due_events(now).unwrap(), 1, "fires once");
+        assert_eq!(
+            n.group_fire_due_events(now + 1_000).unwrap(),
+            0,
+            "does not re-fire on a later pass"
+        );
+
+        // A very old event (past the grace window) never fires, even though
+        // it was never marked fired — simulates a restart that missed the
+        // window entirely.
+        let stale_id = n
+            .group_event_create(&gid, "Trop vieux", "", 0, None)
+            .unwrap();
+        assert_eq!(
+            n.group_fire_due_events(now + EVENT_FIRE_GRACE_MS + 10_000)
+                .unwrap(),
+            0,
+            "stale event beyond the grace window is silently skipped"
+        );
+
+        // Deleting an event prunes its fired marker without error on the
+        // next pass (no dangling state, no panic).
+        n.group_event_delete(&gid, &hex::decode::<16>(&due_id).unwrap())
+            .unwrap();
+        assert_eq!(n.group_fire_due_events(now + 2_000).unwrap(), 0);
+
+        // The future event eventually fires once its time comes.
+        assert_eq!(
+            n.group_fire_due_events(now + 10_000_000).unwrap(),
+            1,
+            "future event fires once due"
+        );
+
+        // Sanity: the events untouched by deletion are still present.
+        let state = n.group_state(&gid).unwrap();
+        assert!(state
+            .events
+            .contains_key(&hex::decode::<16>(&future_id).unwrap()));
+        assert!(state
+            .events
+            .contains_key(&hex::decode::<16>(&stale_id).unwrap()));
     }
 }

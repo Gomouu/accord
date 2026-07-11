@@ -34,6 +34,7 @@ fn fast_maintenance() -> MaintenanceConfig {
         outbox_flush: Duration::from_millis(400),
         mailbox_poll: Duration::from_millis(500),
         group_sync: Duration::from_millis(300),
+        event_check: Duration::from_millis(300),
         bootstrap_reconnect: Duration::from_millis(300),
         jitter: 0.2,
         outbox_batch: 16,

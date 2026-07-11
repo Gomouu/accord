@@ -30,6 +30,23 @@ pub const ALL_PERMS: u32 = perms::VIEW
 /// le remplacement d'un émoji existant reste possible).
 pub const MAX_EMOJIS: usize = 50;
 
+/// Nombre maximal de stickers de serveur (D-047 ; même politique que les
+/// émojis : au-delà, un nouvel ajout est ignoré, le remplacement reste
+/// possible).
+pub const MAX_STICKERS: usize = 30;
+
+/// Nombre maximal d'événements planifiés par groupe (D-047 ; au-delà, un
+/// `EventCreate` supplémentaire est ignoré — les événements existants
+/// restent modifiables/supprimables sans limite).
+pub const MAX_EVENTS: usize = 25;
+
+/// Bornes du titre d'un événement (caractères, après trim).
+const MIN_EVENT_TITLE_CHARS: usize = 2;
+/// Borne haute du titre d'un événement (caractères, après trim).
+pub const MAX_EVENT_TITLE_CHARS: usize = 100;
+/// Borne haute de la description d'un événement (caractères, après trim).
+pub const MAX_EVENT_DESC_CHARS: usize = 1024;
+
 /// Longueur maximale d'un pseudo de serveur (en caractères, après trim).
 pub const MAX_NICKNAME_CHARS: usize = 32;
 
@@ -90,6 +107,34 @@ fn is_valid_emoji_name(name: &str) -> bool {
         && name
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+}
+
+/// Vrai si `name` est un nom de sticker valide : mêmes règles qu'un nom
+/// d'émoji ([`is_valid_emoji_name`], D-047).
+fn is_valid_sticker_name(name: &str) -> bool {
+    is_valid_emoji_name(name)
+}
+
+/// Vrai si `title` est un titre d'événement valide : 2 à 100 caractères,
+/// sans caractère de contrôle ni caractère de format trompeur
+/// ([`is_spoofing_char`]) — même garde anti-usurpation que
+/// [`is_valid_display_label`], avec un plancher de 2 caractères au lieu de 1
+/// (un événement a besoin d'un vrai nom, D-047).
+fn is_valid_event_title(title: &str) -> bool {
+    let len = title.chars().count();
+    (MIN_EVENT_TITLE_CHARS..=MAX_EVENT_TITLE_CHARS).contains(&len)
+        && !title.chars().any(|c| c.is_control() || is_spoofing_char(c))
+}
+
+/// Vrai si `desc` est une description d'événement valide : au plus 1024
+/// caractères, caractères de contrôle refusés hormis `\n`/`\r`/`\t` (mêmes
+/// règles qu'une bio de profil, `accord_core::profile::validate_bio`). Une
+/// description vide est valide (aucune description).
+fn is_valid_event_description(desc: &str) -> bool {
+    desc.chars().count() <= MAX_EVENT_DESC_CHARS
+        && !desc
+            .chars()
+            .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
 }
 
 /// Définition d'un rôle.
@@ -175,6 +220,25 @@ pub struct VoiceModeration {
     pub deafen: bool,
 }
 
+/// Événement planifié (op 0x20-0x23, D-047). `channel_id`, s'il est fourni,
+/// doit être un salon vocal existant du groupe.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Event {
+    /// Titre affiché (2-100 caractères).
+    pub title: String,
+    /// Description éventuelle (≤1024 caractères).
+    pub description: String,
+    /// Échéance murale de démarrage (ms), bornée comme
+    /// [`GroupState::timeouts`].
+    pub start_ms: u64,
+    /// Salon vocal où l'événement se déroule, le cas échéant.
+    pub channel_id: Option<[u8; 16]>,
+    /// Auteur (peut toujours éditer/supprimer son propre événement).
+    pub author: [u8; 32],
+    /// Membres ayant indiqué être intéressés.
+    pub rsvps: BTreeSet<[u8; 32]>,
+}
+
 /// État matérialisé d'un groupe après repli de l'op-log.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct GroupState {
@@ -214,6 +278,18 @@ pub struct GroupState {
     /// Modérations vocales actives `membre → sourdine/surdité forcées`
     /// (op 0x1F ; une entrée entièrement fausse est retirée).
     pub voice_moderation: BTreeMap<[u8; 32], VoiceModeration>,
+    /// Stickers de serveur `nom → racine Merkle de l'image` (D-047, mêmes
+    /// règles que [`GroupState::emojis`]). Ordre du `BTreeMap` stable.
+    pub stickers: BTreeMap<String, [u8; 32]>,
+    /// Événements planifiés `id → détails` (D-047, bornés à [`MAX_EVENTS`]
+    /// par groupe à la création).
+    pub events: BTreeMap<[u8; 16], Event>,
+    /// Avatars par serveur `membre → racine Merkle` (op 0x26, self-service
+    /// uniquement — aucun retrait par un modérateur).
+    pub member_avatars: BTreeMap<[u8; 32], [u8; 32]>,
+    /// Couleur de bannière du serveur `0xRRGGBB`, le cas échéant (D-047,
+    /// champ additif de [`GroupOpBody::SetMeta`]).
+    pub banner_color: Option<u32>,
     /// Nombre d'ops appliquées (dont ignorées : non).
     pub applied_ops: u64,
 }
@@ -423,12 +499,17 @@ impl GroupState {
 
         match body {
             GroupOpBody::Create { .. } => unreachable!("traité plus haut"),
-            GroupOpBody::SetMeta { name, icon } => {
+            GroupOpBody::SetMeta {
+                name,
+                icon,
+                banner_color,
+            } => {
                 if !has(perms::MANAGE_CHANNELS) {
                     return self.ignore("SET_META refusé");
                 }
                 self.name = name;
                 self.icon = icon;
+                self.banner_color = banner_color;
             }
             GroupOpBody::AddChannel {
                 channel_id,
@@ -477,6 +558,15 @@ impl GroupState {
                     return self.ignore("salon inconnu");
                 }
                 self.overrides.retain(|(ch, _), _| ch != &channel_id);
+                // Un événement pointant sur ce salon devient « sans salon »,
+                // exactement comme un salon devient « sans catégorie » à la
+                // suppression de sa catégorie (D-047) : l'événement lui-même
+                // survit.
+                for event in self.events.values_mut() {
+                    if event.channel_id == Some(channel_id) {
+                        event.channel_id = None;
+                    }
+                }
             }
             GroupOpBody::AddCategory {
                 category_id,
@@ -590,6 +680,14 @@ impl GroupState {
                 self.timeouts.remove(&member);
                 self.nicknames.remove(&member);
                 self.voice_moderation.remove(&member);
+                self.member_avatars.remove(&member);
+                // Ses RSVP sont retirés de tous les événements (hygiène : pas
+                // de clé publique orpheline dans l'état répliqué). Ses
+                // événements AUTORÉS restent : gérables par le fondateur ou
+                // tout MANAGE_CHANNELS (même découplage que DelChannel).
+                for ev in self.events.values_mut() {
+                    ev.rsvps.remove(&member);
+                }
                 if op.kind == 0x09 {
                     self.banned.insert(member);
                 }
@@ -785,6 +883,12 @@ impl GroupState {
                 self.timeouts.remove(&author);
                 self.nicknames.remove(&author);
                 self.voice_moderation.remove(&author);
+                self.member_avatars.remove(&author);
+                // Même hygiène qu'au kick/ban : RSVP retirés, événements
+                // autorés conservés (gérables par fondateur/MANAGE_CHANNELS).
+                for ev in self.events.values_mut() {
+                    ev.rsvps.remove(&author);
+                }
             }
             GroupOpBody::AddEmoji { name, file } => {
                 if !has(perms::MANAGE_EMOJIS) {
@@ -893,6 +997,157 @@ impl GroupState {
                     self.nicknames.insert(member, trimmed.to_string());
                 } else {
                     return self.ignore("pseudo invalide");
+                }
+            }
+            GroupOpBody::EventCreate {
+                event_id,
+                title,
+                description,
+                start_ms,
+                channel_id,
+            } => {
+                if !has(perms::MANAGE_CHANNELS) {
+                    return self.ignore("EVENT_CREATE refusé");
+                }
+                if !is_valid_event_title(&title) {
+                    return self.ignore("titre d'événement invalide");
+                }
+                if !is_valid_event_description(&description) {
+                    return self.ignore("description d'événement invalide");
+                }
+                // Same wall-clock ceiling as a timeout's `until_ms` (D-047) :
+                // an absurd start time is rejected rather than silently
+                // capped — unlike a mute, there is no graceful degrade for a
+                // garbled date.
+                if start_ms > MAX_TIMEOUT_UNTIL_MS {
+                    return self.ignore("date d'événement hors bornes");
+                }
+                if let Some(cid) = &channel_id {
+                    match self.channels.get(cid) {
+                        Some(ch) if ch.kind == ChannelKind::Voice => {}
+                        _ => return self.ignore("salon vocal inconnu"),
+                    }
+                }
+                if self.events.contains_key(&event_id) {
+                    return self.ignore("identifiant d'événement déjà utilisé");
+                }
+                if self.events.len() >= MAX_EVENTS {
+                    return self.ignore("trop d'événements (25 max)");
+                }
+                self.events.insert(
+                    event_id,
+                    Event {
+                        title,
+                        description,
+                        start_ms,
+                        channel_id,
+                        author,
+                        rsvps: BTreeSet::new(),
+                    },
+                );
+            }
+            GroupOpBody::EventEdit {
+                event_id,
+                title,
+                description,
+                start_ms,
+                channel_id,
+            } => {
+                let Some(current) = self.events.get(&event_id) else {
+                    return self.ignore("événement inconnu");
+                };
+                // Author-owns-or-manager-overrides, like most moderation ops
+                // — no role-hierarchy comparison needed beyond that (an
+                // event is not a member, cf. TimeoutMember/VoiceModerate).
+                if !has(perms::MANAGE_CHANNELS) && current.author != author {
+                    return self.ignore("EVENT_EDIT refusé");
+                }
+                if !is_valid_event_title(&title) {
+                    return self.ignore("titre d'événement invalide");
+                }
+                if !is_valid_event_description(&description) {
+                    return self.ignore("description d'événement invalide");
+                }
+                if start_ms > MAX_TIMEOUT_UNTIL_MS {
+                    return self.ignore("date d'événement hors bornes");
+                }
+                if let Some(cid) = &channel_id {
+                    match self.channels.get(cid) {
+                        Some(ch) if ch.kind == ChannelKind::Voice => {}
+                        _ => return self.ignore("salon vocal inconnu"),
+                    }
+                }
+                let rsvps = current.rsvps.clone();
+                let ev_author = current.author;
+                self.events.insert(
+                    event_id,
+                    Event {
+                        title,
+                        description,
+                        start_ms,
+                        channel_id,
+                        author: ev_author,
+                        rsvps,
+                    },
+                );
+            }
+            GroupOpBody::EventDelete { event_id } => {
+                let Some(current) = self.events.get(&event_id) else {
+                    return self.ignore("événement inconnu");
+                };
+                if !has(perms::MANAGE_CHANNELS) && current.author != author {
+                    return self.ignore("EVENT_DELETE refusé");
+                }
+                self.events.remove(&event_id);
+            }
+            GroupOpBody::EventRsvp {
+                event_id,
+                interested,
+            } => {
+                // Any member may RSVP to any known event; deduplicated by
+                // `(event_id, member)` — a later RSVP simply overwrites the
+                // earlier one (plain map/set semantics).
+                let Some(ev) = self.events.get_mut(&event_id) else {
+                    return self.ignore("événement inconnu");
+                };
+                if interested {
+                    ev.rsvps.insert(author);
+                } else {
+                    ev.rsvps.remove(&author);
+                }
+            }
+            GroupOpBody::StickerAdd { name, file } => {
+                if !has(perms::MANAGE_EMOJIS) {
+                    return self.ignore("STICKER_ADD refusé");
+                }
+                if !is_valid_sticker_name(&name) {
+                    return self.ignore("nom de sticker invalide");
+                }
+                // Mirrors AddEmoji exactly: replacing an existing name is
+                // always allowed, only a *new* name beyond the cap is not.
+                if !self.stickers.contains_key(&name) && self.stickers.len() >= MAX_STICKERS {
+                    return self.ignore("trop de stickers (30 max)");
+                }
+                self.stickers.insert(name, file);
+            }
+            GroupOpBody::StickerRemove { name } => {
+                if !has(perms::MANAGE_EMOJIS) {
+                    return self.ignore("STICKER_REMOVE refusé");
+                }
+                if self.stickers.remove(&name).is_none() {
+                    return self.ignore("sticker inconnu");
+                }
+            }
+            GroupOpBody::SetMemberAvatar { avatar } => {
+                // Self-service only: no moderator override, unlike
+                // SetNickname — the target is always the author.
+                match avatar {
+                    Some(hash) => {
+                        self.member_avatars.insert(author, hash);
+                    }
+                    None => {
+                        self.member_avatars.remove(&author);
+                    }
                 }
             }
         }
@@ -1981,5 +2236,721 @@ mod tests {
             st.can_send_message(&BOB, &[7; 16], 1_000),
             "timeout expired at the deadline"
         );
+    }
+
+    // ---- D-047 : événements, stickers, avatar de serveur, banner_color ----
+
+    #[test]
+    fn set_meta_banner_color_preserved_and_permission_gated() {
+        let mut ops = base_ops();
+        ops.push(signed(
+            GroupOpBody::SetMeta {
+                name: "Salon".into(),
+                icon: None,
+                banner_color: Some(0x5865F2),
+            },
+            FOUNDER,
+            4,
+        ));
+        let st = GroupState::fold(&ops);
+        assert_eq!(st.banner_color, Some(0x5865F2));
+
+        // A plain member cannot change server metadata.
+        let mut denied = ops.clone();
+        denied.push(signed(
+            GroupOpBody::SetMeta {
+                name: "Piraté".into(),
+                icon: None,
+                banner_color: Some(0),
+            },
+            ALICE,
+            5,
+        ));
+        let st2 = GroupState::fold(&denied);
+        assert_eq!(st2.banner_color, Some(0x5865F2), "denied, unchanged");
+        assert_eq!(st2.name, "Salon");
+    }
+
+    #[test]
+    fn event_create_requires_manage_channels_and_validates_fields() {
+        let mut ops = base_ops();
+        // Plain member cannot create an event.
+        ops.push(signed(
+            GroupOpBody::EventCreate {
+                event_id: [1; 16],
+                title: "Soirée".into(),
+                description: String::new(),
+                start_ms: 1_000,
+                channel_id: None,
+            },
+            ALICE,
+            4,
+        ));
+        assert!(GroupState::fold(&ops).events.is_empty());
+
+        // Founder (MANAGE_CHANNELS via ALL_PERMS) can.
+        ops.push(signed(
+            GroupOpBody::EventCreate {
+                event_id: [2; 16],
+                title: "Soirée jeux".into(),
+                description: "Amenez vos manettes.".into(),
+                start_ms: 1_000,
+                channel_id: None,
+            },
+            FOUNDER,
+            5,
+        ));
+        let st = GroupState::fold(&ops);
+        assert_eq!(st.events.len(), 1);
+        let ev = st.events.get(&[2; 16]).unwrap();
+        assert_eq!(ev.title, "Soirée jeux");
+        assert_eq!(ev.author, FOUNDER);
+        assert!(ev.rsvps.is_empty());
+
+        // Too-short title (1 char) is rejected.
+        let mut bad_title = ops.clone();
+        bad_title.push(signed(
+            GroupOpBody::EventCreate {
+                event_id: [3; 16],
+                title: "X".into(),
+                description: String::new(),
+                start_ms: 1_000,
+                channel_id: None,
+            },
+            FOUNDER,
+            6,
+        ));
+        assert!(!GroupState::fold(&bad_title).events.contains_key(&[3; 16]));
+
+        // Over-long description is rejected.
+        let mut bad_desc = ops.clone();
+        bad_desc.push(signed(
+            GroupOpBody::EventCreate {
+                event_id: [4; 16],
+                title: "Valide".into(),
+                description: "x".repeat(MAX_EVENT_DESC_CHARS + 1),
+                start_ms: 1_000,
+                channel_id: None,
+            },
+            FOUNDER,
+            6,
+        ));
+        assert!(!GroupState::fold(&bad_desc).events.contains_key(&[4; 16]));
+
+        // Spoofing characters in the title are rejected, like nicknames.
+        let mut spoof = ops.clone();
+        spoof.push(signed(
+            GroupOpBody::EventCreate {
+                event_id: [5; 16],
+                title: "\u{202E}soirée".into(),
+                description: String::new(),
+                start_ms: 1_000,
+                channel_id: None,
+            },
+            FOUNDER,
+            6,
+        ));
+        assert!(!GroupState::fold(&spoof).events.contains_key(&[5; 16]));
+
+        // start_ms beyond the timeout ceiling is rejected outright (no
+        // silent clamp — unlike a timeout, a garbled event date has no
+        // graceful degrade).
+        let mut bad_date = ops.clone();
+        bad_date.push(signed(
+            GroupOpBody::EventCreate {
+                event_id: [6; 16],
+                title: "Valide".into(),
+                description: String::new(),
+                start_ms: MAX_TIMEOUT_UNTIL_MS + 1,
+                channel_id: None,
+            },
+            FOUNDER,
+            6,
+        ));
+        assert!(!GroupState::fold(&bad_date).events.contains_key(&[6; 16]));
+
+        // An unknown channel_id is rejected.
+        let mut bad_chan = ops.clone();
+        bad_chan.push(signed(
+            GroupOpBody::EventCreate {
+                event_id: [7; 16],
+                title: "Valide".into(),
+                description: String::new(),
+                start_ms: 1_000,
+                channel_id: Some([0xEE; 16]),
+            },
+            FOUNDER,
+            6,
+        ));
+        assert!(!GroupState::fold(&bad_chan).events.contains_key(&[7; 16]));
+
+        // A text channel (not voice) is rejected as the event's channel.
+        let mut with_text_channel = ops.clone();
+        with_text_channel.push(signed(
+            GroupOpBody::AddChannel {
+                channel_id: [9; 16],
+                name: "texte".into(),
+                category: None,
+                kind: ChannelKind::Text,
+                position: 0,
+            },
+            FOUNDER,
+            6,
+        ));
+        with_text_channel.push(signed(
+            GroupOpBody::EventCreate {
+                event_id: [8; 16],
+                title: "Valide".into(),
+                description: String::new(),
+                start_ms: 1_000,
+                channel_id: Some([9; 16]),
+            },
+            FOUNDER,
+            7,
+        ));
+        assert!(!GroupState::fold(&with_text_channel)
+            .events
+            .contains_key(&[8; 16]));
+
+        // A voice channel is accepted.
+        let mut with_voice_channel = ops.clone();
+        with_voice_channel.push(signed(
+            GroupOpBody::AddChannel {
+                channel_id: [10; 16],
+                name: "vocal".into(),
+                category: None,
+                kind: ChannelKind::Voice,
+                position: 0,
+            },
+            FOUNDER,
+            6,
+        ));
+        with_voice_channel.push(signed(
+            GroupOpBody::EventCreate {
+                event_id: [11; 16],
+                title: "Valide".into(),
+                description: String::new(),
+                start_ms: 1_000,
+                channel_id: Some([10; 16]),
+            },
+            FOUNDER,
+            7,
+        ));
+        assert_eq!(
+            GroupState::fold(&with_voice_channel)
+                .events
+                .get(&[11; 16])
+                .and_then(|e| e.channel_id),
+            Some([10; 16])
+        );
+    }
+
+    #[test]
+    fn event_cap_blocks_new_but_edit_and_delete_still_work() {
+        let mut ops = base_ops();
+        for i in 0..(MAX_EVENTS as u64) {
+            let mut id = [0u8; 16];
+            id[0..8].copy_from_slice(&i.to_be_bytes());
+            ops.push(signed(
+                GroupOpBody::EventCreate {
+                    event_id: id,
+                    title: format!("Événement {i}"),
+                    description: String::new(),
+                    start_ms: 1_000,
+                    channel_id: None,
+                },
+                FOUNDER,
+                10 + i,
+            ));
+        }
+        let mut one_too_many = [0xFFu8; 16];
+        one_too_many[0] = 0xAA;
+        ops.push(signed(
+            GroupOpBody::EventCreate {
+                event_id: one_too_many,
+                title: "Un de trop".into(),
+                description: String::new(),
+                start_ms: 1_000,
+                channel_id: None,
+            },
+            FOUNDER,
+            200,
+        ));
+        let st = GroupState::fold(&ops);
+        assert_eq!(st.events.len(), MAX_EVENTS);
+        assert!(!st.events.contains_key(&one_too_many));
+
+        // Editing and deleting an existing event still works despite the cap.
+        let mut first_id = [0u8; 16];
+        first_id[0..8].copy_from_slice(&0u64.to_be_bytes());
+        let mut edited = ops.clone();
+        edited.push(signed(
+            GroupOpBody::EventEdit {
+                event_id: first_id,
+                title: "Renommé".into(),
+                description: String::new(),
+                start_ms: 2_000,
+                channel_id: None,
+            },
+            FOUNDER,
+            201,
+        ));
+        assert_eq!(
+            GroupState::fold(&edited)
+                .events
+                .get(&first_id)
+                .unwrap()
+                .title,
+            "Renommé"
+        );
+        let mut deleted = ops.clone();
+        deleted.push(signed(
+            GroupOpBody::EventDelete { event_id: first_id },
+            FOUNDER,
+            201,
+        ));
+        assert_eq!(GroupState::fold(&deleted).events.len(), MAX_EVENTS - 1);
+    }
+
+    #[test]
+    fn event_edit_delete_allowed_for_author_or_manager_only() {
+        let mut ops = base_ops();
+        // Bob (plain member) creates nothing directly — the founder creates
+        // on his behalf isn't possible; instead exercise: Alice authors via
+        // a manager role, Bob (no role) cannot touch Alice's event.
+        ops.push(signed(
+            GroupOpBody::AddRole {
+                role_id: [2; 16],
+                name: "Orga".into(),
+                color: 0,
+                position: 5,
+                permissions: perms::MANAGE_CHANNELS,
+            },
+            FOUNDER,
+            4,
+        ));
+        ops.push(signed(
+            GroupOpBody::AssignRole {
+                member: ALICE,
+                role_id: [2; 16],
+            },
+            FOUNDER,
+            5,
+        ));
+        ops.push(signed(
+            GroupOpBody::EventCreate {
+                event_id: [1; 16],
+                title: "Événement d'Alice".into(),
+                description: String::new(),
+                start_ms: 1_000,
+                channel_id: None,
+            },
+            ALICE,
+            6,
+        ));
+
+        // Bob (plain member, not the author) cannot edit or delete it.
+        let mut bob_edit = ops.clone();
+        bob_edit.push(signed(
+            GroupOpBody::EventEdit {
+                event_id: [1; 16],
+                title: "Piraté".into(),
+                description: String::new(),
+                start_ms: 1_000,
+                channel_id: None,
+            },
+            BOB,
+            7,
+        ));
+        assert_eq!(
+            GroupState::fold(&bob_edit)
+                .events
+                .get(&[1; 16])
+                .unwrap()
+                .title,
+            "Événement d'Alice"
+        );
+        let mut bob_delete = ops.clone();
+        bob_delete.push(signed(
+            GroupOpBody::EventDelete { event_id: [1; 16] },
+            BOB,
+            7,
+        ));
+        assert!(GroupState::fold(&bob_delete).events.contains_key(&[1; 16]));
+
+        // Alice (the author) can edit her own event without MANAGE_CHANNELS
+        // being re-checked (she holds it here, but the author path is what's
+        // under test — remove her role and confirm author-only still works).
+        let mut alice_edits_own = ops.clone();
+        alice_edits_own.push(signed(
+            GroupOpBody::UnassignRole {
+                member: ALICE,
+                role_id: [2; 16],
+            },
+            FOUNDER,
+            7,
+        ));
+        alice_edits_own.push(signed(
+            GroupOpBody::EventEdit {
+                event_id: [1; 16],
+                title: "Renommé par l'autrice".into(),
+                description: String::new(),
+                start_ms: 1_000,
+                channel_id: None,
+            },
+            ALICE,
+            8,
+        ));
+        assert_eq!(
+            GroupState::fold(&alice_edits_own)
+                .events
+                .get(&[1; 16])
+                .unwrap()
+                .title,
+            "Renommé par l'autrice"
+        );
+
+        // The founder (MANAGE_CHANNELS via ALL_PERMS) can delete anyone's
+        // event, even without being the author.
+        let mut founder_deletes = ops.clone();
+        founder_deletes.push(signed(
+            GroupOpBody::EventDelete { event_id: [1; 16] },
+            FOUNDER,
+            7,
+        ));
+        assert!(!GroupState::fold(&founder_deletes)
+            .events
+            .contains_key(&[1; 16]));
+    }
+
+    #[test]
+    fn event_rsvp_dedups_by_member_and_is_order_independent() {
+        let mut ops = base_ops();
+        ops.push(signed(
+            GroupOpBody::EventCreate {
+                event_id: [1; 16],
+                title: "Soirée".into(),
+                description: String::new(),
+                start_ms: 1_000,
+                channel_id: None,
+            },
+            FOUNDER,
+            4,
+        ));
+        ops.push(signed(
+            GroupOpBody::EventRsvp {
+                event_id: [1; 16],
+                interested: true,
+            },
+            ALICE,
+            5,
+        ));
+        ops.push(signed(
+            GroupOpBody::EventRsvp {
+                event_id: [1; 16],
+                interested: true,
+            },
+            BOB,
+            6,
+        ));
+        let st = GroupState::fold(&ops);
+        let ev = st.events.get(&[1; 16]).unwrap();
+        assert_eq!(ev.rsvps.len(), 2);
+        assert!(ev.rsvps.contains(&ALICE) && ev.rsvps.contains(&BOB));
+
+        // Bob withdraws: dedup keeps a single entry per member, this clears
+        // it regardless of how many times he RSVP'd before.
+        let mut withdrawn = ops.clone();
+        withdrawn.push(signed(
+            GroupOpBody::EventRsvp {
+                event_id: [1; 16],
+                interested: false,
+            },
+            BOB,
+            7,
+        ));
+        let st2 = GroupState::fold(&withdrawn);
+        let ev2 = st2.events.get(&[1; 16]).unwrap();
+        assert_eq!(ev2.rsvps.len(), 1);
+        assert!(ev2.rsvps.contains(&ALICE) && !ev2.rsvps.contains(&BOB));
+
+        // Order-independence: shuffled ops converge to the same state.
+        let mut shuffled = withdrawn.clone();
+        shuffled.reverse();
+        assert_eq!(GroupState::fold(&withdrawn), GroupState::fold(&shuffled));
+
+        // RSVP to an unknown event is ignored (no panic, no phantom entry).
+        let mut unknown = ops.clone();
+        unknown.push(signed(
+            GroupOpBody::EventRsvp {
+                event_id: [0xEE; 16],
+                interested: true,
+            },
+            ALICE,
+            7,
+        ));
+        assert!(!GroupState::fold(&unknown).events.contains_key(&[0xEE; 16]));
+    }
+
+    /// Hygiène au départ d'un membre (revue D-047) : ses RSVP sont retirés de
+    /// tous les événements — aucune clé publique orpheline dans l'état
+    /// répliqué — tandis que les événements qu'il a AUTORÉS restent, gérables
+    /// par le fondateur ou tout MANAGE_CHANNELS (découplage type DelChannel).
+    #[test]
+    fn kick_and_leave_clear_event_rsvps_but_keep_authored_events() {
+        let mut ops = base_ops();
+        ops.push(signed(
+            GroupOpBody::EventCreate {
+                event_id: [1; 16],
+                title: "Soirée".into(),
+                description: String::new(),
+                start_ms: 1_000,
+                channel_id: None,
+            },
+            FOUNDER,
+            4,
+        ));
+        ops.push(signed(
+            GroupOpBody::EventRsvp {
+                event_id: [1; 16],
+                interested: true,
+            },
+            BOB,
+            5,
+        ));
+
+        // Kick : le RSVP de Bob disparaît, l'événement du fondateur reste.
+        let mut kicked = ops.clone();
+        kicked.push(signed(GroupOpBody::Kick { member: BOB }, FOUNDER, 6));
+        let st = GroupState::fold(&kicked);
+        let ev = st.events.get(&[1; 16]).expect("événement conservé");
+        assert!(!ev.rsvps.contains(&BOB));
+
+        // Leave : même hygiène quand le membre part de lui-même.
+        let mut left = ops.clone();
+        left.push(signed(GroupOpBody::Leave, BOB, 6));
+        let st2 = GroupState::fold(&left);
+        assert!(!st2.events.get(&[1; 16]).unwrap().rsvps.contains(&BOB));
+
+        // Les événements autorés par le partant restent (gérables ensuite).
+        let mut authored = base_ops();
+        authored.push(signed(
+            GroupOpBody::AddRole {
+                role_id: [9; 16],
+                name: "Orga".into(),
+                color: 0x00FF00,
+                position: 10,
+                permissions: perms::MANAGE_CHANNELS,
+            },
+            FOUNDER,
+            4,
+        ));
+        authored.push(signed(
+            GroupOpBody::AssignRole {
+                member: ALICE,
+                role_id: [9; 16],
+            },
+            FOUNDER,
+            5,
+        ));
+        authored.push(signed(
+            GroupOpBody::EventCreate {
+                event_id: [2; 16],
+                title: "Raid".into(),
+                description: String::new(),
+                start_ms: 2_000,
+                channel_id: None,
+            },
+            ALICE,
+            6,
+        ));
+        authored.push(signed(GroupOpBody::Kick { member: ALICE }, FOUNDER, 7));
+        let st3 = GroupState::fold(&authored);
+        assert!(st3.events.contains_key(&[2; 16]));
+        // …et restent supprimables par le fondateur après le départ.
+        authored.push(signed(
+            GroupOpBody::EventDelete { event_id: [2; 16] },
+            FOUNDER,
+            8,
+        ));
+        assert!(!GroupState::fold(&authored).events.contains_key(&[2; 16]));
+    }
+
+    #[test]
+    fn del_channel_clears_dangling_event_reference() {
+        let mut ops = base_ops();
+        ops.push(signed(
+            GroupOpBody::AddChannel {
+                channel_id: [7; 16],
+                name: "vocal".into(),
+                category: None,
+                kind: ChannelKind::Voice,
+                position: 0,
+            },
+            FOUNDER,
+            4,
+        ));
+        ops.push(signed(
+            GroupOpBody::EventCreate {
+                event_id: [1; 16],
+                title: "Soirée vocale".into(),
+                description: String::new(),
+                start_ms: 1_000,
+                channel_id: Some([7; 16]),
+            },
+            FOUNDER,
+            5,
+        ));
+        ops.push(signed(
+            GroupOpBody::DelChannel {
+                channel_id: [7; 16],
+            },
+            FOUNDER,
+            6,
+        ));
+        let st = GroupState::fold(&ops);
+        assert_eq!(
+            st.events.get(&[1; 16]).unwrap().channel_id,
+            None,
+            "event survives, uncoupled from the deleted channel"
+        );
+    }
+
+    #[test]
+    fn sticker_add_replace_delete_permission_and_cap() {
+        let mut ops = base_ops();
+        // Plain member cannot add.
+        ops.push(signed(
+            GroupOpBody::StickerAdd {
+                name: "wave".into(),
+                file: [1; 32],
+            },
+            ALICE,
+            4,
+        ));
+        assert!(GroupState::fold(&ops).stickers.is_empty());
+
+        // Founder (MANAGE_EMOJIS via ALL_PERMS) can add and replace.
+        ops.push(signed(
+            GroupOpBody::StickerAdd {
+                name: "wave".into(),
+                file: [1; 32],
+            },
+            FOUNDER,
+            5,
+        ));
+        ops.push(signed(
+            GroupOpBody::StickerAdd {
+                name: "wave".into(),
+                file: [2; 32],
+            },
+            FOUNDER,
+            6,
+        ));
+        let st = GroupState::fold(&ops);
+        assert_eq!(st.stickers.get("wave"), Some(&[2; 32]));
+        assert_eq!(st.stickers.len(), 1);
+
+        // Invalid name (uppercase) is rejected.
+        let mut bad_name = ops.clone();
+        bad_name.push(signed(
+            GroupOpBody::StickerAdd {
+                name: "Bad".into(),
+                file: [3; 32],
+            },
+            FOUNDER,
+            7,
+        ));
+        assert!(!GroupState::fold(&bad_name).stickers.contains_key("Bad"));
+
+        // Removal by the founder.
+        let mut removed = ops.clone();
+        removed.push(signed(
+            GroupOpBody::StickerRemove {
+                name: "wave".into(),
+            },
+            FOUNDER,
+            7,
+        ));
+        assert!(GroupState::fold(&removed).stickers.is_empty());
+
+        // Cap: MAX_STICKERS distinct names allowed, one more is ignored,
+        // but replacing an existing name still works past the cap.
+        let mut capped = base_ops();
+        for i in 0..(MAX_STICKERS as u64) {
+            capped.push(signed(
+                GroupOpBody::StickerAdd {
+                    name: format!("s{i}"),
+                    file: [i as u8; 32],
+                },
+                FOUNDER,
+                10 + i,
+            ));
+        }
+        capped.push(signed(
+            GroupOpBody::StickerAdd {
+                name: "one_too_many".into(),
+                file: [9; 32],
+            },
+            FOUNDER,
+            100,
+        ));
+        capped.push(signed(
+            GroupOpBody::StickerAdd {
+                name: "s0".into(),
+                file: [42; 32],
+            },
+            FOUNDER,
+            101,
+        ));
+        let st_capped = GroupState::fold(&capped);
+        assert_eq!(st_capped.stickers.len(), MAX_STICKERS);
+        assert!(!st_capped.stickers.contains_key("one_too_many"));
+        assert_eq!(st_capped.stickers.get("s0"), Some(&[42; 32]));
+    }
+
+    #[test]
+    fn set_member_avatar_is_self_service_only_and_cleared_on_departure() {
+        let mut ops = base_ops();
+        // Bob sets his own avatar.
+        ops.push(signed(
+            GroupOpBody::SetMemberAvatar {
+                avatar: Some([1; 32]),
+            },
+            BOB,
+            4,
+        ));
+        let st = GroupState::fold(&ops);
+        assert_eq!(st.member_avatars.get(&BOB), Some(&[1; 32]));
+
+        // Alice cannot set Bob's avatar on his behalf — the op has no
+        // `member` field at all, so this is structurally impossible; the
+        // closest adversarial equivalent is Alice authoring her own
+        // `SetMemberAvatar`, which only ever affects Alice.
+        let mut alice_sets_own = ops.clone();
+        alice_sets_own.push(signed(
+            GroupOpBody::SetMemberAvatar {
+                avatar: Some([2; 32]),
+            },
+            ALICE,
+            5,
+        ));
+        let st2 = GroupState::fold(&alice_sets_own);
+        assert_eq!(st2.member_avatars.get(&BOB), Some(&[1; 32]), "unaffected");
+        assert_eq!(st2.member_avatars.get(&ALICE), Some(&[2; 32]));
+
+        // Clearing with None removes the entry.
+        let mut cleared = ops.clone();
+        cleared.push(signed(
+            GroupOpBody::SetMemberAvatar { avatar: None },
+            BOB,
+            5,
+        ));
+        assert!(GroupState::fold(&cleared).member_avatars.is_empty());
+
+        // A kick clears the departed member's avatar.
+        let mut kicked = ops.clone();
+        kicked.push(signed(GroupOpBody::Kick { member: BOB }, FOUNDER, 5));
+        assert!(GroupState::fold(&kicked).member_avatars.is_empty());
     }
 }

@@ -351,6 +351,11 @@ export function Modals() {
     case 'settings':
       return <SettingsModal />;
     case 'serverSettings':
-      return <ServerSettingsModal groupId={modal.groupId} />;
+      return (
+        <ServerSettingsModal
+          groupId={modal.groupId}
+          {...(modal.initialTab !== undefined ? { initialTab: modal.initialTab } : {})}
+        />
+      );
   }
 }

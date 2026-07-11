@@ -8,14 +8,16 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PresenceStatus } from '../lib/api';
-import { profileColorCss } from '../lib/color';
+import { profileCardGradient, profileColorCss } from '../lib/color';
+import { copyToClipboard } from '../lib/clipboard';
 import { displayNameOf, presenceOf, useFriends } from '../stores/friends';
 import { nicknameOf, roleColorCss, sortRoles, useGroups } from '../stores/groups';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT, type AncrePopover } from '../stores/ui';
 import { api } from '../lib/client';
 import { Avatar } from './Avatar';
-import { EnvelopeMenuIcon } from './ContextMenu';
+import { CopyMenuIcon, EnvelopeMenuIcon } from './ContextMenu';
+import { MarkdownText } from './MarkdownText';
 import { PresenceDot } from './PresenceDot';
 import { ProfileBanner } from './ProfileBanner';
 
@@ -191,6 +193,15 @@ export function ProfilePopover() {
   const bannerColor =
     isSelf && self !== null ? self.banner_color : (contact?.banner_color ?? null);
   const accentHex = profileColorCss(accentColor);
+  // Fond thématisé de la carte (façon Discord) : teinte subtile de la
+  // couleur de bannière si connue, sinon de l'accent — `null` (aucune des
+  // deux) garde le fond neutre habituel.
+  const cardGradient = profileCardGradient(bannerColor ?? accentColor);
+  // Code ami : affiché UNIQUEMENT sur son propre profil (décision historique
+  // « sans code ami » sur les profils d'autrui : le code d'un ami ne doit pas
+  // pouvoir être repartagé à un tiers sans son accord — il se transmet de la
+  // main à la main).
+  const friendCode = isSelf && self !== null ? self.friend_code : null;
   // Statut riche : le sien (invisible affiché hors ligne) ou celui annoncé
   // par l'ami ; `null` masque la pastille (présence inconnue : non-ami).
   const status: PresenceStatus | null = isSelf
@@ -287,7 +298,10 @@ export function ProfilePopover() {
           )}
         </div>
 
-        <div className="rounded-lg bg-sidebar/90 p-3">
+        <div
+          className="rounded-lg bg-sidebar/90 p-3"
+          style={cardGradient !== null ? { backgroundImage: cardGradient } : undefined}
+        >
           {accentHex !== null && (
             <div
               aria-hidden
@@ -314,13 +328,35 @@ export function ProfilePopover() {
           {statusText !== null && statusText !== '' && (
             <p className="mt-0.5 truncate text-sm text-muted">{statusText}</p>
           )}
+          {friendCode !== null && friendCode !== '' && (
+            <div className="mt-1 flex items-center gap-1.5">
+              <span className="selectable truncate font-mono text-xs text-faint">
+                {friendCode}
+              </span>
+              <button
+                type="button"
+                aria-label={t.profil.copyFriendCode}
+                title={t.profil.copyFriendCode}
+                onClick={() =>
+                  copyToClipboard(
+                    friendCode,
+                    () => toast('info', t.app.copied),
+                    () => toast('error', t.errors.actionFailed),
+                  )
+                }
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-xs text-faint transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-1 focus-visible:ring-offset-sidebar active:scale-95"
+              >
+                <CopyMenuIcon />
+              </button>
+            </div>
+          )}
 
           {bio !== null && bio !== '' && (
             <>
               <div className="mt-3 h-px bg-input/60" role="separator" />
-              <p className="mt-2 whitespace-pre-wrap break-words text-sm text-norm">
-                {bio}
-              </p>
+              <div className="mt-2 whitespace-pre-wrap break-words text-sm text-norm">
+                <MarkdownText text={bio} />
+              </div>
             </>
           )}
 

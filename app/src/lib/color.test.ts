@@ -1,7 +1,7 @@
 /** Tests de la conversion sûre des couleurs de profil (`0xRRGGBB` → `#rrggbb`). */
 
 import { describe, expect, it } from 'vitest';
-import { profileColorCss } from './color';
+import { profileCardGradient, profileColorCss } from './color';
 
 describe('profileColorCss', () => {
   it('convertit un entier 0xRRGGBB en #rrggbb', () => {
@@ -29,5 +29,34 @@ describe('profileColorCss', () => {
   it('rend `null` pour une valeur non finie (donnée pair non fiable)', () => {
     expect(profileColorCss(Number.NaN)).toBeNull();
     expect(profileColorCss(Number.POSITIVE_INFINITY)).toBeNull();
+  });
+});
+
+describe('profileCardGradient', () => {
+  it('produit un dégradé rgba clampé bas (16 %) fondant vers transparent', () => {
+    expect(profileCardGradient(0x5865f2)).toBe(
+      'linear-gradient(to bottom, rgba(88, 101, 242, 0.16) 0%, rgba(88, 101, 242, 0) 100%)',
+    );
+  });
+
+  it('reste lisible avec un accent blanc (haut) et noir (bas)', () => {
+    // Blanc : le point haut ne dépasse jamais l'alpha borné (0.16), jamais
+    // un aplat opaque qui casserait le contraste du texte.
+    expect(profileCardGradient(0xffffff)).toBe(
+      'linear-gradient(to bottom, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0) 100%)',
+    );
+    // Noir : même alpha borné, jamais un fond qui noircirait toute la carte.
+    expect(profileCardGradient(0x000000)).toBe(
+      'linear-gradient(to bottom, rgba(0, 0, 0, 0.16) 0%, rgba(0, 0, 0, 0) 100%)',
+    );
+  });
+
+  it('rend `null` sans couleur de profil (aucun changement visuel)', () => {
+    expect(profileCardGradient(null)).toBeNull();
+    expect(profileCardGradient(undefined)).toBeNull();
+  });
+
+  it('rend `null` pour une valeur non finie', () => {
+    expect(profileCardGradient(Number.NaN)).toBeNull();
   });
 });

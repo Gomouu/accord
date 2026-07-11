@@ -417,6 +417,7 @@ function MemberList({ groupId }: { groupId: string }) {
   const self = useSession((s) => s.self);
   const phase = useSession((s) => s.phase);
   const ownStatus = useFriends((s) => s.ownStatus);
+  const ownStatusText = useFriends((s) => s.ownStatusText);
   const state = useGroups((s) => s.states[groupId]);
   const openProfile = useUi((s) => s.openProfile);
   const requestMentionInsert = useUi((s) => s.requestMentionInsert);
@@ -438,6 +439,12 @@ function MemberList({ groupId }: { groupId: string }) {
       return `${nick ?? selfDisplayName(self)}`;
     }
     return nick ?? displayNameOf(contacts, pubkey);
+  };
+
+  /** Texte de statut personnalisé — le sien, sinon celui du contact ami connu. */
+  const statusTextOf = (pubkey: string): string | null => {
+    if (self && pubkey === self.pubkey) return ownStatusText;
+    return contacts.find((c) => c.pubkey === pubkey)?.status_text ?? null;
   };
 
   /**
@@ -484,7 +491,9 @@ function MemberList({ groupId }: { groupId: string }) {
       const serverDeafened = targetMember?.voice_deafened === true;
       const onModerateError = (): void => toast('error', t.errors.actionFailed);
       items.push({
-        label: serverMuted ? t.contextMenu.voiceUnmuteServer : t.contextMenu.voiceMuteServer,
+        label: serverMuted
+          ? t.contextMenu.voiceUnmuteServer
+          : t.contextMenu.voiceMuteServer,
         icon: <VoiceMuteMenuIcon />,
         separatorBefore: true,
         onClick: () => {
@@ -580,6 +589,7 @@ function MemberList({ groupId }: { groupId: string }) {
                 ? self.avatar
                 : avatarOf(contacts, member.pubkey);
             const status = statusOf(member.pubkey);
+            const statusText = statusTextOf(member.pubkey);
             return (
               <button
                 key={member.pubkey}
@@ -628,6 +638,9 @@ function MemberList({ groupId }: { groupId: string }) {
                   >
                     {nameOf(member.pubkey)}
                   </div>
+                  {statusText !== null && statusText !== '' && (
+                    <div className="truncate text-xs text-muted">{statusText}</div>
+                  )}
                   {state.founder === member.pubkey && (
                     <div className="text-[10px] uppercase text-yellow">
                       {t.groups.founder}

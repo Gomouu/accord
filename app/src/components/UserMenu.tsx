@@ -27,7 +27,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { OwnPresenceStatus, PresenceStatus } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
-import { profileColorCss } from '../lib/color';
+import { profileCardGradient, profileColorCss } from '../lib/color';
 import { useFriends } from '../stores/friends';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
@@ -103,6 +103,8 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
 
   const displayName = selfDisplayName(self);
   const accentHex = profileColorCss(self.accent_color);
+  // Même fond thématisé que ProfilePopover (teinte bannière, repli accent).
+  const cardGradient = profileCardGradient(self.banner_color ?? self.accent_color);
   // Snippet compact façon ProfilePopover : statut personnalisé en priorité,
   // repli sur la bio tant qu'aucun statut personnalisé n'est défini.
   const snippet = (ownStatusText ?? '') !== '' ? ownStatusText : self.bio;
@@ -118,6 +120,14 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
       () => toast('error', t.errors.actionFailed),
     );
     onClose();
+  };
+
+  const copyFriendCode = (): void => {
+    copyToClipboard(
+      self.friend_code,
+      () => toast('info', t.app.copied),
+      () => toast('error', t.errors.actionFailed),
+    );
   };
 
   const doSwitchAccount = (): void => {
@@ -185,7 +195,10 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
         color={self.banner_color}
         heightClassName="h-14"
       />
-      <div className="-mt-7 px-3 pb-3">
+      <div
+        className="-mt-7 px-3 pb-3"
+        style={cardGradient !== null ? { backgroundImage: cardGradient } : undefined}
+      >
         <div className="relative z-10 mb-1.5 inline-flex rounded-full ring-4 ring-modal">
           <Avatar
             id={self.pubkey}
@@ -207,6 +220,20 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
         {snippet !== null && snippet !== '' && (
           <p className="mt-0.5 truncate text-xs text-muted">{snippet}</p>
         )}
+        <div className="mt-1 flex items-center gap-1.5">
+          <span className="selectable truncate font-mono text-xs text-faint">
+            {self.friend_code}
+          </span>
+          <button
+            type="button"
+            aria-label={t.profil.copyFriendCode}
+            title={t.profil.copyFriendCode}
+            onClick={copyFriendCode}
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-xs text-faint transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-1 focus-visible:ring-offset-modal active:scale-95"
+          >
+            <CopyMenuIcon />
+          </button>
+        </div>
       </div>
 
       <div className="p-1.5 pt-0">

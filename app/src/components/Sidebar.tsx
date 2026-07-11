@@ -4,7 +4,7 @@
  * (les sans-catégorie d'abord), boutons gérés par les permissions.
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { interpolate } from '../i18n';
 import type { GroupChannel } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
@@ -17,6 +17,7 @@ import {
   hasPerm,
   PERMISSIONS,
 } from '../stores/groups';
+import { useSession } from '../stores/session';
 import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 import { useUi, useT } from '../stores/ui';
 import { useVoice } from '../stores/voice';
@@ -26,7 +27,11 @@ import {
   CopyMenuIcon,
   DeleteMenuIcon,
   EditMenuIcon,
+  EnvelopeMenuIcon,
+  GearMenuIcon,
+  LeaveMenuIcon,
   PhoneOffIcon,
+  PlusMenuIcon,
 } from './ContextMenu';
 import { MentionInbox } from './MentionInbox';
 import { PresenceDot } from './PresenceDot';
@@ -157,12 +162,14 @@ function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
           const active = view.kind === 'dm' && view.peer === c.pubkey;
           const status = presenceOf(c);
           const mentionCount = c.mention_count ?? 0;
+          const statusText = c.status_text ?? null;
+          const hasStatusText = statusText !== null && statusText !== '';
           return (
             <button
               key={c.pubkey}
               type="button"
               onClick={() => setView({ kind: 'dm', peer: c.pubkey })}
-              className={`flex h-9 w-full items-center gap-2.5 rounded-md px-2 transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
+              className={`flex ${hasStatusText ? 'h-11' : 'h-9'} w-full items-center gap-2.5 rounded-md px-2 transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
                 active
                   ? 'bg-chat-hover text-norm'
                   : 'text-muted hover:bg-chat-hover hover:text-norm'
@@ -182,8 +189,13 @@ function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
                   className="absolute -bottom-0.5 -right-0.5 rounded-full ring-2 ring-sidebar"
                 />
               </span>
-              <span className="min-w-0 truncate font-medium">
-                {c.display_name || c.friend_code}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">
+                  {c.display_name || c.friend_code}
+                </span>
+                {hasStatusText && (
+                  <span className="block truncate text-xs text-muted">{statusText}</span>
+                )}
               </span>
               <span className="ml-auto flex shrink-0 items-center gap-1">
                 {missedPeers.has(c.pubkey) && (
@@ -376,6 +388,215 @@ function ChannelRow({
   );
 }
 
+/** Petit chevron du bouton d'en-tête serveur : pointe vers le bas, 180° une fois ouvert. */
+function HeaderChevronIcon({ open }: { open: boolean }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      className={`shrink-0 text-faint transition-transform duration-fast ease-expo ${open ? 'rotate-180' : 'rotate-0'}`}
+    >
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
+interface ServerMenuItem {
+  label: string;
+  icon: React.ReactNode;
+  onClick: () => void;
+  danger?: boolean;
+  separatorBefore?: boolean;
+}
+
+/**
+ * Menu déroulant du nom de serveur (façon Discord), ancré sous l'en-tête et
+ * large de la barre latérale (moins ses marges) — même langage visuel que
+ * `ContextMenu`/`UserMenu` (`.glass-strong`, icônes partagées, danger rouge),
+ * mais positionné en dropdown plutôt qu'au point de clic. Items construits en
+ * réutilisant exclusivement des actions déjà existantes du store ; aucun
+ * élément de gestion nouveau n'est introduit ici.
+ */
+function ServerHeaderMenu({
+  groupId,
+  name,
+  onClose,
+}: {
+  groupId: string;
+  name: string;
+  onClose: () => void;
+}) {
+  const t = useT();
+  const toast = useUi((s) => s.toast);
+  const openModal = useUi((s) => s.openModal);
+  const setView = useUi((s) => s.setView);
+  const state = useGroups((s) => s.states[groupId]);
+  const self = useSession((s) => s.self);
+  const ref = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const [activeIndex, setActiveIndex] = useState(-1);
+
+  // Fermeture au clic extérieur et à Échap (même approche que ContextMenu/UserMenu).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose();
+    };
+    const onDown = (e: MouseEvent): void => {
+      if (ref.current !== null && !ref.current.contains(e.target as Node)) onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onDown);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onDown);
+    };
+  }, [onClose]);
+
+  useEffect(() => {
+    ref.current?.focus();
+  }, []);
+
+  if (state === undefined) return null;
+
+  const myPerms = state.my_permissions;
+  const isFounder = self !== null && state.founder === self.pubkey;
+  // Même garde que le menu contextuel du rail (ServerRail) : le fondateur ne
+  // peut pas quitter tant que d'autres membres restent (règle du contrat).
+  const founderBlocked = isFounder && state.members.length > 1;
+
+  const items: ServerMenuItem[] = [];
+  if (hasPerm(myPerms, PERMISSIONS.INVITE)) {
+    items.push({
+      label: t.groups.invitePeople,
+      icon: <EnvelopeMenuIcon />,
+      onClick: () => openModal({ kind: 'invite', groupId }),
+    });
+  }
+  items.push({
+    label: t.serveur.settingsTitle,
+    icon: <GearMenuIcon />,
+    onClick: () => openModal({ kind: 'serverSettings', groupId }),
+  });
+  if (hasPerm(myPerms, PERMISSIONS.MANAGE_CHANNELS)) {
+    items.push({
+      label: t.groups.addChannel,
+      icon: <PlusMenuIcon />,
+      onClick: () => openModal({ kind: 'createChannel', groupId }),
+    });
+    // Pas de modale dédiée : réutilise le formulaire de création de
+    // catégorie déjà existant dans Paramètres du serveur → Salons
+    // (`ServerChannelsTab`, action `groups.addCategory`) plutôt que
+    // dupliquer sa logique dans une nouvelle modale.
+    items.push({
+      label: t.serveur.createCategoryAction,
+      icon: <PlusMenuIcon />,
+      onClick: () =>
+        openModal({ kind: 'serverSettings', groupId, initialTab: 'channels' }),
+    });
+  }
+  items.push({
+    label: t.contextMenu.copyServerId,
+    icon: <CopyMenuIcon />,
+    separatorBefore: true,
+    onClick: () =>
+      copyToClipboard(
+        groupId,
+        () => toast('info', t.app.copied),
+        () => toast('error', t.errors.actionFailed),
+      ),
+  });
+  if (!founderBlocked) {
+    items.push({
+      label: t.serveur.leave,
+      icon: <LeaveMenuIcon />,
+      danger: true,
+      separatorBefore: true,
+      onClick: () => {
+        if (!window.confirm(interpolate(t.serveur.leaveConfirm, { name }))) return;
+        useGroups
+          .getState()
+          .leave(groupId)
+          .then(() => {
+            toast('info', t.serveur.left);
+            setView({ kind: 'friends' });
+          })
+          .catch(() => toast('error', t.errors.actionFailed));
+      },
+    });
+  }
+
+  const activate = (item: ServerMenuItem): void => {
+    onClose();
+    item.onClick();
+  };
+
+  const moveActive = (next: number): void => {
+    if (items.length === 0) return;
+    const bounded = ((next % items.length) + items.length) % items.length;
+    setActiveIndex(bounded);
+    itemRefs.current[bounded]?.focus();
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      moveActive(activeIndex + 1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      moveActive(activeIndex - 1);
+    }
+  };
+
+  return (
+    <div
+      ref={ref}
+      role="menu"
+      aria-label={t.serveur.serverMenu}
+      tabIndex={-1}
+      onKeyDown={onKeyDown}
+      className="glass-strong context-menu-enter absolute inset-x-3 top-[calc(100%+4px)] z-50 origin-top rounded-lg p-1.5 focus:outline-none"
+    >
+      {items.map((item, i) => (
+        <div key={`${i}-${item.label}`}>
+          {item.separatorBefore === true && (
+            <div className="my-1.5 h-px bg-input/60" role="separator" />
+          )}
+          <button
+            ref={(el) => {
+              itemRefs.current[i] = el;
+            }}
+            type="button"
+            role="menuitem"
+            tabIndex={i === activeIndex ? 0 : -1}
+            onMouseEnter={() => setActiveIndex(i)}
+            onClick={() => activate(item)}
+            className={`flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm font-medium transition-colors duration-fast focus-visible:outline-none ${
+              item.danger === true
+                ? 'text-red hover:bg-red/10 focus-visible:bg-red/10'
+                : 'text-norm hover:bg-chat-hover focus-visible:bg-chat-hover'
+            }`}
+          >
+            <span
+              aria-hidden
+              className="flex h-[18px] w-[18px] shrink-0 items-center justify-center"
+            >
+              {item.icon}
+            </span>
+            <span className="min-w-0 flex-1 truncate">{item.label}</span>
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function GroupSidebar({ groupId }: { groupId: string }) {
   const t = useT();
   const view = useUi((s) => s.view);
@@ -386,6 +607,8 @@ function GroupSidebar({ groupId }: { groupId: string }) {
   const unread = useGroups((s) => s.unread[groupId]);
   const mentionCount = useGroups((s) => s.mentions[groupId]) ?? 0;
   const joinVoice = useVoice((s) => s.join);
+  /** Menu déroulant du nom de serveur (ouvert/fermé). */
+  const [serverMenuOpen, setServerMenuOpen] = useState(false);
   /** Catégories repliées (état d'affichage local, propre à ce panneau). */
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const toggleCategory = (categoryId: string): void =>
@@ -409,10 +632,26 @@ function GroupSidebar({ groupId }: { groupId: string }) {
 
   return (
     <>
-      <div className="flex h-12 items-center gap-1 border-b border-rail bg-sidebar px-4 shadow-1">
-        <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-header">
-          {state?.name ?? '…'}
-        </span>
+      <div className="relative flex h-12 items-center gap-1 border-b border-rail bg-sidebar px-4 shadow-1">
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={serverMenuOpen}
+          onClick={() => setServerMenuOpen((open) => !open)}
+          className="flex min-w-0 flex-1 items-center gap-1 rounded-md py-0.5 pr-1 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+        >
+          <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-header">
+            {state?.name ?? '…'}
+          </span>
+          <HeaderChevronIcon open={serverMenuOpen} />
+        </button>
+        {serverMenuOpen && (
+          <ServerHeaderMenu
+            groupId={groupId}
+            name={state?.name ?? ''}
+            onClose={() => setServerMenuOpen(false)}
+          />
+        )}
         {mentionCount > 0 && <MentionBadge count={mentionCount} />}
         {hasPerm(myPerms, PERMISSIONS.INVITE) && (
           <HeaderIconButton

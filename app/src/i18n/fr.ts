@@ -180,6 +180,7 @@ export const fr = {
   },
   serveur: {
     settingsTitle: 'Paramètres du serveur',
+    serverMenu: 'Menu du serveur',
     // Onglets.
     tabProfile: 'Profil',
     tabChannels: 'Salons',
@@ -385,6 +386,7 @@ export const fr = {
     nicknameLabel: 'Pseudo de serveur',
     nicknamePlaceholder: 'Pseudo pour ce serveur',
     friendCode: 'Code ami',
+    copyFriendCode: 'Copier le code ami',
     openProfile: 'Voir le profil de {name}',
     editProfile: 'Modifier mon profil',
     switchAccount: 'Changer de compte',

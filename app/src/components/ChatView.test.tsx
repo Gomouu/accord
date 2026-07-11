@@ -21,6 +21,7 @@ vi.mock('../lib/client', () => ({
     dmUnpin: vi.fn(),
     dmHistoryAround: vi.fn(),
     dmRetry: vi.fn(),
+    groupsPins: vi.fn(() => Promise.resolve({ msg_ids: [] })),
   },
 }));
 
@@ -33,9 +34,10 @@ import type { Contact, DmMessage, GroupStateJson } from '../lib/api';
 import { useDms } from '../stores/dms';
 import { useFriends } from '../stores/friends';
 import { useGroups } from '../stores/groups';
+import { useSession } from '../stores/session';
 import { useTyping, dmTypingKey, TYPING_EXPIRY_MS } from '../stores/typing';
 import { useUi } from '../stores/ui';
-import { DmView } from './ChatView';
+import { DmView, GroupView } from './ChatView';
 
 const callMock = rpc.call as unknown as Mock;
 const markReadMock = api.dmMarkRead as unknown as Mock;
@@ -92,7 +94,12 @@ function makeGroupState(over: Partial<GroupStateJson> = {}): GroupStateJson {
 }
 
 beforeEach(() => {
-  useUi.setState({ lang: 'fr', view: { kind: 'dm', peer: PEER }, toasts: [], jump: null });
+  useUi.setState({
+    lang: 'fr',
+    view: { kind: 'dm', peer: PEER },
+    toasts: [],
+    jump: null,
+  });
   useDms.setState({ conversations: {}, hasMore: {}, loadingOlder: {}, pins: {} });
   useFriends.setState({ contacts: [contact(PEER, 'Alice')], loaded: false });
   useGroups.setState({ ids: [], states: {} });
@@ -208,9 +215,9 @@ describe('DmView — saut au message', () => {
     });
 
     await waitFor(() =>
-      expect(
-        useUi.getState().toasts.some((t) => t.text === 'Message indisponible'),
-      ).toBe(true),
+      expect(useUi.getState().toasts.some((t) => t.text === 'Message indisponible')).toBe(
+        true,
+      ),
     );
     expect(historyAroundMock).toHaveBeenCalledWith(PEER, 'ghost');
   });
@@ -261,5 +268,113 @@ describe('DmView — émojis custom agrégés', () => {
     // Assert : jeton littéral, jamais d'image cassée.
     expect(await screen.findByText(':ghost:')).toBeInTheDocument();
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  });
+});
+
+describe('GroupView — statut personnalisé dans la liste des membres', () => {
+  beforeEach(() => {
+    callMock.mockResolvedValue({ messages: [] });
+    useUi.setState({
+      view: { kind: 'group', groupId: 'g1', channelId: 'c1' },
+      toasts: [],
+      jump: null,
+    });
+  });
+
+  it('affiche le texte de statut sous le nom d’un membre ami', async () => {
+    useGroups.setState({
+      ids: ['g1'],
+      states: {
+        g1: makeGroupState({
+          channels: [
+            {
+              channel_id: 'c1',
+              name: 'général',
+              kind: 'text',
+              category: null,
+              position: 0,
+              topic: '',
+            },
+          ],
+          members: [{ pubkey: PEER, roles: [] }],
+        }),
+      },
+    });
+    useFriends.setState({
+      contacts: [{ ...contact(PEER, 'Alice'), status_text: 'En pleine partie' }],
+    });
+
+    render(<GroupView groupId="g1" channelId="c1" />);
+
+    expect(await screen.findByText('En pleine partie')).toBeInTheDocument();
+  });
+
+  it("n'affiche aucune ligne de statut quand il est absent", async () => {
+    useGroups.setState({
+      ids: ['g1'],
+      states: {
+        g1: makeGroupState({
+          channels: [
+            {
+              channel_id: 'c1',
+              name: 'général',
+              kind: 'text',
+              category: null,
+              position: 0,
+              topic: '',
+            },
+          ],
+          members: [{ pubkey: PEER, roles: [] }],
+        }),
+      },
+    });
+    useFriends.setState({ contacts: [contact(PEER, 'Alice')] });
+
+    render(<GroupView groupId="g1" channelId="c1" />);
+
+    expect(await screen.findByText('Alice')).toBeInTheDocument();
+    expect(screen.queryByText('En pleine partie')).not.toBeInTheDocument();
+  });
+
+  it('affiche son propre texte de statut personnalisé dans la liste des membres', async () => {
+    useSession.setState({
+      self: {
+        node_id: 'nm',
+        pubkey: 'moi',
+        friend_code: 'accord-moi',
+        name: 'Moi',
+        bio: null,
+        avatar: null,
+        banner: null,
+        pronouns: null,
+        accent_color: null,
+        banner_color: null,
+      },
+      phase: 'ready',
+    });
+    useGroups.setState({
+      ids: ['g1'],
+      states: {
+        g1: makeGroupState({
+          channels: [
+            {
+              channel_id: 'c1',
+              name: 'général',
+              kind: 'text',
+              category: null,
+              position: 0,
+              topic: '',
+            },
+          ],
+          members: [{ pubkey: 'moi', roles: [] }],
+        }),
+      },
+    });
+    useFriends.setState({ contacts: [], ownStatusText: 'De retour bientôt' });
+
+    render(<GroupView groupId="g1" channelId="c1" />);
+
+    expect(await screen.findByText('De retour bientôt')).toBeInTheDocument();
+    useSession.setState({ self: null, phase: 'boot' });
   });
 });

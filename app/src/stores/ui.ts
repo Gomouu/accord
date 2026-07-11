@@ -27,7 +27,12 @@ export type Modal =
   | { kind: 'createChannel'; groupId: string }
   | { kind: 'invite'; groupId: string }
   | { kind: 'settings' }
-  | { kind: 'serverSettings'; groupId: string };
+  | {
+      kind: 'serverSettings';
+      groupId: string;
+      /** Onglet initial (menu du serveur → « Créer une catégorie ») ; défaut : Profil. */
+      initialTab?: 'channels';
+    };
 
 export interface Toast {
   id: number;
@@ -264,7 +269,9 @@ function initialNotifySoundMode(): NotifySoundMode {
   return isNotifySoundMode(stored) ? stored : 'all';
 }
 
-function isStartupPresence(value: string | null): value is Exclude<StartupPresence, null> {
+function isStartupPresence(
+  value: string | null,
+): value is Exclude<StartupPresence, null> {
   return value === 'online' || value === 'invisible';
 }
 

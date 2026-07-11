@@ -85,12 +85,38 @@ describe('ProfilePopover — contenu', () => {
     expect(screen.getByRole('button', { name: 'Bloquer' })).toBeInTheDocument();
   });
 
-  it('n’affiche plus le code ami', () => {
+  it("n'affiche pas le code ami d'un autre utilisateur (repartage impossible)", () => {
     openFor('ami-pk');
     render(<ProfilePopover />);
 
-    expect(screen.queryByText('Code ami')).not.toBeInTheDocument();
     expect(screen.queryByText('accord-ami')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Copier le code ami' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('affiche son propre code ami avec un bouton de copie', () => {
+    openFor('moi');
+    render(<ProfilePopover />);
+
+    expect(screen.getByText('accord-moi')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Copier le code ami' }),
+    ).toBeInTheDocument();
+  });
+
+  it('copie son propre code ami dans le presse-papiers au clic', () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    openFor('moi');
+    render(<ProfilePopover />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copier le code ami' }));
+
+    expect(writeText).toHaveBeenCalledWith('accord-moi');
   });
 
   it('affiche les rôles colorés en contexte de serveur', () => {
@@ -158,7 +184,9 @@ describe('ProfilePopover — pseudos de serveur', () => {
 
   it('affiche le pseudo de serveur au lieu du pseudo global', () => {
     useGroups.setState({
-      states: { g1: stateWith([{ pubkey: 'ami-pk', roles: ['r1'], nickname: 'Alicette' }]) },
+      states: {
+        g1: stateWith([{ pubkey: 'ami-pk', roles: ['r1'], nickname: 'Alicette' }]),
+      },
     });
     openFor('ami-pk', 'g1');
     render(<ProfilePopover />);
@@ -273,5 +301,49 @@ describe('ProfilePopover — pronoms et couleurs de profil', () => {
     render(<ProfilePopover />);
 
     expect(screen.getByText('Moi')).toHaveStyle({ color: '#ed4245' });
+  });
+});
+
+describe('ProfilePopover — carte thématisée', () => {
+  it('teinte le fond de carte quand une couleur de bannière est définie', () => {
+    useFriends.setState({ contacts: [{ ...AMI, banner_color: 0x5865f2 }] });
+    openFor('ami-pk');
+    render(<ProfilePopover />);
+
+    const card = screen.getByText('Alice').closest('div.rounded-lg') as HTMLElement;
+    expect(card.style.backgroundImage).toContain('rgba(88, 101, 242');
+  });
+
+  it('garde le fond neutre sans couleur de profil', () => {
+    openFor('ami-pk');
+    render(<ProfilePopover />);
+
+    const card = screen.getByText('Alice').closest('div.rounded-lg') as HTMLElement;
+    expect(card.style.backgroundImage).toBe('');
+  });
+});
+
+describe('ProfilePopover — bio et liens', () => {
+  it('rend un lien http(s) de la bio cliquable', () => {
+    useFriends.setState({
+      contacts: [{ ...AMI, bio: 'Visitez https://example.com pour en savoir plus' }],
+    });
+    openFor('ami-pk');
+    render(<ProfilePopover />);
+
+    const link = screen.getByRole('link', { name: 'https://example.com' });
+    expect(link).toHaveAttribute('href', 'https://example.com');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('ne rend jamais un schéma javascript: cliquable dans la bio', () => {
+    useFriends.setState({
+      contacts: [{ ...AMI, bio: '[cliquez ici](javascript:alert(1))' }],
+    });
+    openFor('ami-pk');
+    render(<ProfilePopover />);
+
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
   });
 });

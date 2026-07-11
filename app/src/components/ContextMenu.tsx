@@ -278,6 +278,16 @@ export function LeaveMenuIcon() {
   );
 }
 
+/** Icône « + » partagée (créer un salon, une catégorie…), 14 px du jeu de menu. */
+export function PlusMenuIcon() {
+  return (
+    <svg {...ICON_PROPS}>
+      <path d="M5 12h14" />
+      <path d="M12 5v14" />
+    </svg>
+  );
+}
+
 export function MentionMenuIcon() {
   return (
     <span aria-hidden className="text-xs font-medium leading-none">

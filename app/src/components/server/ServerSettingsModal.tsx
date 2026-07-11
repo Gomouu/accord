@@ -24,7 +24,7 @@ import { ServerMembersTab } from './ServerMembersTab';
 import { ServerProfileTab } from './ServerProfileTab';
 import { ServerRolesTab } from './ServerRolesTab';
 
-type ServerTabId =
+export type ServerTabId =
   'profile' | 'channels' | 'roles' | 'emojis' | 'members' | 'bans' | 'audit';
 
 interface ServerTab {
@@ -57,7 +57,14 @@ const TABS: ServerTab[] = [
   },
 ];
 
-export function ServerSettingsModal({ groupId }: { groupId: string }) {
+export function ServerSettingsModal({
+  groupId,
+  initialTab,
+}: {
+  groupId: string;
+  /** Onglet initial (ex. le menu du serveur ouvre directement Salons). */
+  initialTab?: ServerTabId;
+}) {
   const t = useT();
   const closeModal = useUi((s) => s.closeModal);
   const setView = useUi((s) => s.setView);
@@ -65,7 +72,7 @@ export function ServerSettingsModal({ groupId }: { groupId: string }) {
   const state = useGroups((s) => s.states[groupId]);
   const leave = useGroups((s) => s.leave);
   const self = useSession((s) => s.self);
-  const [tabId, setTabId] = useState<ServerTabId>('profile');
+  const [tabId, setTabId] = useState<ServerTabId>(initialTab ?? 'profile');
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {

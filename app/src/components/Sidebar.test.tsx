@@ -4,16 +4,21 @@
  * (compteurs de groups.list), absentes sans non-lu.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type { Contact, GroupStateJson } from '../lib/api';
 import { useFriends } from '../stores/friends';
-import { useGroups } from '../stores/groups';
+import { PERMISSIONS, useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
 import { useUi } from '../stores/ui';
 import { Sidebar } from './Sidebar';
 
-function contact(pubkey: string, displayName: string, unread?: number): Contact {
+function contact(
+  pubkey: string,
+  displayName: string,
+  unread?: number,
+  statusText?: string,
+): Contact {
   return {
     node_id: 'noeud',
     pubkey,
@@ -25,10 +30,11 @@ function contact(pubkey: string, displayName: string, unread?: number): Contact 
     state: 'friend',
     last_seen_ms: 0,
     ...(unread !== undefined ? { unread } : {}),
+    ...(statusText !== undefined ? { status_text: statusText } : {}),
   };
 }
 
-function groupState(): GroupStateJson {
+function groupState(over: Partial<GroupStateJson> = {}): GroupStateJson {
   return {
     group_id: 'g1',
     name: 'Guilde',
@@ -58,6 +64,7 @@ function groupState(): GroupStateJson {
     roles: [],
     invites: [],
     my_permissions: 0,
+    ...over,
   };
 }
 
@@ -114,5 +121,132 @@ describe('Sidebar — non-lus des salons', () => {
     const badge = screen.getByLabelText('5 message(s) non lu(s)');
     expect(badge).toHaveTextContent('5');
     expect(screen.getAllByLabelText(/non lu/)).toHaveLength(1);
+  });
+});
+
+describe('Sidebar — statut personnalisé des conversations privées', () => {
+  it('affiche le texte de statut sous le nom quand il est défini', () => {
+    useFriends.setState({
+      contacts: [contact('alice-pk', 'Alice', undefined, 'En pleine partie')],
+    });
+
+    render(<Sidebar />);
+
+    expect(screen.getByText('En pleine partie')).toBeInTheDocument();
+  });
+
+  it("n'affiche rien de plus sans statut personnalisé", () => {
+    useFriends.setState({ contacts: [contact('bob-pk', 'Bob')] });
+
+    const { container } = render(<Sidebar />);
+
+    expect(screen.getByText('Bob')).toBeInTheDocument();
+    // Aucune deuxième ligne de statut personnalisé sous le nom.
+    expect(container.querySelectorAll('.text-xs.text-muted')).toHaveLength(0);
+  });
+});
+
+describe('Sidebar — menu du nom de serveur', () => {
+  beforeEach(() => {
+    useUi.setState({
+      view: { kind: 'group', groupId: 'g1', channelId: 'c1' },
+      modal: null,
+    });
+  });
+
+  it("ouvre le menu et n'affiche que les items permis sans permission", () => {
+    useGroups.setState({ ids: ['g1'], states: { g1: groupState() } });
+
+    render(<Sidebar />);
+    fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
+
+    expect(screen.getByRole('menu', { name: 'Menu du serveur' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: 'Paramètres du serveur' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: 'Copier l’ID du serveur' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: 'Quitter le serveur' }),
+    ).toBeInTheDocument();
+    // Ni invitation ni création de salon/catégorie sans les permissions requises.
+    expect(
+      screen.queryByRole('menuitem', { name: 'Inviter des personnes' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('menuitem', { name: 'Créer un salon' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('menuitem', { name: 'Créer la catégorie' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('affiche « Inviter » et « Créer un salon »/« Créer la catégorie » avec les permissions', () => {
+    useGroups.setState({
+      ids: ['g1'],
+      states: {
+        g1: groupState({
+          my_permissions: PERMISSIONS.INVITE | PERMISSIONS.MANAGE_CHANNELS,
+        }),
+      },
+    });
+
+    render(<Sidebar />);
+    fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
+
+    expect(
+      screen.getByRole('menuitem', { name: 'Inviter des personnes' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Créer un salon' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: 'Créer la catégorie' }),
+    ).toBeInTheDocument();
+  });
+
+  it('« Créer la catégorie » ouvre les paramètres du serveur sur l’onglet Salons', () => {
+    useGroups.setState({
+      ids: ['g1'],
+      states: { g1: groupState({ my_permissions: PERMISSIONS.MANAGE_CHANNELS }) },
+    });
+
+    render(<Sidebar />);
+    fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Créer la catégorie' }));
+
+    expect(useUi.getState().modal).toEqual({
+      kind: 'serverSettings',
+      groupId: 'g1',
+      initialTab: 'channels',
+    });
+  });
+
+  it('« Quitter le serveur » demande confirmation puis appelle leave()', () => {
+    const original = useGroups.getState().leave;
+    const leave = vi.fn(() => Promise.resolve());
+    useGroups.setState({ ids: ['g1'], states: { g1: groupState() }, leave });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    render(<Sidebar />);
+    fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Quitter le serveur' }));
+
+    expect(leave).toHaveBeenCalledWith('g1');
+    vi.restoreAllMocks();
+    useGroups.setState({ leave: original });
+  });
+
+  it('se ferme avec Échap', () => {
+    useGroups.setState({ ids: ['g1'], states: { g1: groupState() } });
+
+    render(<Sidebar />);
+    fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
+    expect(screen.getByRole('menu', { name: 'Menu du serveur' })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(
+      screen.queryByRole('menu', { name: 'Menu du serveur' }),
+    ).not.toBeInTheDocument();
   });
 });

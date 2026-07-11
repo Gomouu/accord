@@ -180,6 +180,7 @@ export const en: Dict = {
   },
   serveur: {
     settingsTitle: 'Server settings',
+    serverMenu: 'Server menu',
     // Tabs.
     tabProfile: 'Profile',
     tabChannels: 'Channels',
@@ -383,6 +384,7 @@ export const en: Dict = {
     nicknameLabel: 'Server nickname',
     nicknamePlaceholder: 'Nickname for this server',
     friendCode: 'Friend code',
+    copyFriendCode: 'Copy friend code',
     openProfile: 'View {name}’s profile',
     editProfile: 'Edit my profile',
     switchAccount: 'Switch account',

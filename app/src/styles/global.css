@@ -3,6 +3,47 @@
 @tailwind utilities;
 
 /*
+ * ============================================================================
+ * DESIGN SYSTEM — Discord 2025 × Liquid Glass
+ * ============================================================================
+ * Foundation tokens for the visual overhaul (rounder, better-aligned
+ * surfaces; glassmorphism reserved for floating UI). Component agents: this
+ * block is the contract — read it before styling anything.
+ *
+ * RADIUS SCALE (--radius-xs..--radius-xl; remaps Tailwind `rounded-sm/md/
+ * lg/xl` — every existing `rounded-*` usage now resolves to these values):
+ *   xs   6px  → tiny chips / inline badges / checkboxes
+ *   sm   8px  → buttons
+ *   md  12px  → inputs, cards
+ *   lg  16px  → larger cards, popovers, context menus
+ *   xl  20px  → modals
+ *   full      → pills, avatars, status dots (Tailwind `rounded-full`, untouched)
+ *   `rounded-server` (16px) is a pre-existing, separate token — untouched.
+ *
+ * GLASS APPLICATION MAP (`.glass` / `.glass-strong` utilities below):
+ *   strong glass         → context menus, popovers, toasts (`.glass-strong`)
+ *   medium glass         → modal panels (`.glass`)
+ *   subtle translucency  → user panel, chat header (plain bg-*/opacity, NOT
+ *                          `.glass` — no backdrop-filter)
+ *   NEVER on scrolling containers or the message list. backdrop-filter is
+ *   expensive — reserve it for small, non-scrolling floating surfaces only.
+ *
+ * ICON SPEC:
+ *   - inline SVG, viewBox="0 0 24 24", stroke-width="2", stroke-linecap and
+ *     stroke-linejoin "round", fill="none" (except status dots, which fill)
+ *   - sized w-5 (20px) / w-[18px] / w-4 (16px) by density, always centered
+ *     inside a fixed-size flex container (never left to inline-block drift)
+ *
+ * FOCUS RING CONVENTION:
+ *   `focus-visible:ring-2 ring-blurple ring-offset-2 ring-offset-<surface>`
+ *   where `<surface>` is the Tailwind token of whatever the element sits on
+ *   (`ring-offset-modal`, `ring-offset-sidebar`, `ring-offset-chat`, …).
+ *   Prefer this over the bare `:focus-visible` outline below for any
+ *   interactive element on a colored/glass surface.
+ * ============================================================================
+ */
+
+/*
  * Tokens du design system. Les couleurs sont des triplets RGB (et non des
  * couleurs CSS) pour que Tailwind puisse composer les modificateurs
  * d'opacité (`bg-rail/60`) via `rgb(var(--…) / <alpha-value>)`.
@@ -46,12 +87,48 @@
 
   --shadow-elevation: 0 8px 16px rgba(0, 0, 0, 0.24);
   --shadow-modal: 0 12px 24px rgba(0, 0, 0, 0.4);
-  --scrollbar-thumb: #1a1b1e;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.14);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.22);
 
   /* Densité des messages — Confortable par défaut, resserrée en Compacte. */
   --message-gap: 0.75rem;
   --message-pad-y: 0.25rem;
   --message-pad-y-grouped: 0.125rem;
+
+  /* Échelle de rayons — voir le bloc DESIGN SYSTEM ci-dessus. */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+
+  /*
+   * Élévation — ombre double (directionnelle serrée + ambiante large) pour
+   * les surfaces flottantes. `--shadow-elevation`/`--shadow-modal`
+   * ci-dessus restent la source de vérité pour l'existant ; ces tokens
+   * `--shadow-1/2/3` sont la nouvelle échelle que les agents de composants
+   * doivent utiliser (Tailwind `shadow-1/2/3`).
+   */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-2:
+    0 2px 6px rgba(0, 0, 0, 0.3),
+    0 12px 28px rgba(0, 0, 0, 0.24);
+  --shadow-3:
+    0 8px 16px rgba(0, 0, 0, 0.4),
+    0 24px 56px rgba(0, 0, 0, 0.32);
+
+  /*
+   * Verre liquide — échantillonné sur `--color-modal` (49 51 56), la
+   * surface flottante de référence de l'app (menus contextuels, popovers,
+   * modales), pour que le verre reste teinté plutôt que gris neutre.
+   * Réservé aux surfaces flottantes non scrollables (voir GLASS
+   * APPLICATION MAP ci-dessus) : backdrop-filter est coûteux.
+   */
+  --glass-bg: rgb(var(--color-modal) / 0.62);
+  --glass-bg-strong: rgb(var(--color-modal) / 0.78);
+  --glass-border: rgba(255, 255, 255, 0.09);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --glass-blur: 20px;
 
   color-scheme: dark;
 }
@@ -84,6 +161,15 @@
   --shadow-elevation: 0 8px 16px rgba(0, 0, 0, 0.12);
   --shadow-modal: 0 12px 24px rgba(0, 0, 0, 0.16);
   --scrollbar-thumb: #c4c9ce;
+  --scrollbar-thumb-hover: #a8afb6;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --shadow-2:
+    0 2px 6px rgba(0, 0, 0, 0.08),
+    0 12px 28px rgba(0, 0, 0, 0.06);
+  --shadow-3:
+    0 8px 16px rgba(0, 0, 0, 0.12),
+    0 24px 56px rgba(0, 0, 0, 0.1);
 
   color-scheme: light;
 }
@@ -126,6 +212,9 @@ textarea {
   background: var(--scrollbar-thumb);
   border-radius: 4px;
 }
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
 *::-webkit-scrollbar-track {
   background: transparent;
 }
@@ -134,6 +223,56 @@ textarea {
 :focus-visible {
   outline: 2px solid rgb(var(--color-blurple));
   outline-offset: 2px;
+}
+
+/*
+ * Verre liquide — utilitaires pour surfaces flottantes uniquement (menus
+ * contextuels, popovers, toasts, modales). Voir GLASS APPLICATION MAP dans
+ * le bloc DESIGN SYSTEM en tête de fichier : jamais sur un conteneur
+ * scrollable ni sur la zone de messages (coût de backdrop-filter).
+ */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.5);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.5);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight), var(--shadow-2);
+}
+.glass-strong {
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.5);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.5);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight), var(--shadow-3);
+}
+/* Repli opaque pour les moteurs sans backdrop-filter. */
+@supports not (backdrop-filter: blur(1px)) {
+  .glass {
+    background: rgb(var(--color-modal) / 0.94);
+  }
+  .glass-strong {
+    background: rgb(var(--color-modal) / 0.98);
+  }
+}
+
+/*
+ * Fond ambiant de l'app : deux dégradés radiaux superposés, très faible
+ * alpha (3-4 %), ancrés en haut à gauche, pour que le verre liquide ait
+ * quelque chose à réfracter. Deux couches plutôt qu'une évitent le banding.
+ */
+.app-ambient {
+  background-image:
+    radial-gradient(
+      1100px circle at 6% -8%,
+      rgb(var(--color-blurple) / 0.04),
+      transparent 60%
+    ),
+    radial-gradient(
+      800px circle at -4% 18%,
+      rgb(var(--color-blurple) / 0.03),
+      transparent 55%
+    );
+  background-repeat: no-repeat;
 }
 
 /* Surbrillance brève du message ciblé par un saut (recherche, épingle, citation). */

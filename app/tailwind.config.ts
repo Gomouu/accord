@@ -51,10 +51,23 @@ export default {
       },
       borderRadius: {
         server: '16px',
+        // Discord 2025 × Liquid Glass radius scale (styles/global.css) —
+        // remaps Tailwind's built-in sm/md/lg/xl keys; every `rounded-*`
+        // usage in the app now resolves through these tokens.
+        xs: 'var(--radius-xs)',
+        sm: 'var(--radius-sm)',
+        md: 'var(--radius-md)',
+        lg: 'var(--radius-lg)',
+        xl: 'var(--radius-xl)',
       },
       boxShadow: {
         elevation: 'var(--shadow-elevation)',
         modal: 'var(--shadow-modal)',
+        // Elevation tokens (styles/global.css): 1 = subtle, 2 = floating
+        // (dual shadow), 3 = modal-depth.
+        1: 'var(--shadow-1)',
+        2: 'var(--shadow-2)',
+        3: 'var(--shadow-3)',
       },
       // Tokens de mouvement (styles/global.css) : mêmes valeurs partout,
       // jamais de durée/courbe codée en dur dans un composant.

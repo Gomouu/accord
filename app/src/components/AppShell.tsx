@@ -309,7 +309,7 @@ export function AppShell() {
   }, [loadFriends, loadGroups, syncVoice]);
 
   return (
-    <div className="flex h-full">
+    <div className="app-ambient flex h-full">
       <ServerRail />
       <Sidebar />
       <main className="min-w-0 flex-1 bg-chat" aria-label={t.app.name}>

@@ -149,29 +149,25 @@ only by `MAX_FILE_SIZE`), and a profile announcement can neither re-cap
 nor cancel a root the user is downloading on purpose — regardless of
 message ordering.
 
-The **server** banner/icon, however, is still auto-downloaded by the
-client to render the header through the generic UI fetch path
-(`app/src/components/Sidebar.tsx` → `lireFichier`), which does **not**
-record a media ceiling: a malicious or compromised moderator could still
-make every member's client fetch a very large or unwanted blob.
+Since **v1.0.0** the **server** banner/icon is capped too: the client
+renders it through the inline read path (`app/src/lib/files.ts` →
+`lireFichier`), which marks the fetch as media, so the node applies
+`MEDIA_AUTO_FETCH_MAX` (8 MiB) at manifest arrival and refuses an
+oversized blob — the same ceiling already enforced for profile
+avatars/banners. A `MANAGE_CHANNELS` holder can no longer make every
+member auto-download a huge server image.
 
-**Why acceptable in v0.**
+**Why the residual is acceptable.**
 
 - `MANAGE_CHANNELS` is a **trust permission**, granted explicitly by
   server admins — the same trust boundary as channel moderation itself.
-  Document it as such when granting roles.
-- Blast radius is bandwidth/disk of members plus one displayed image —
-  no confidentiality or integrity property breaks.
 - The op is **signed and attributable**: the log identifies exactly which
   member set the banner, and an admin can revoke the permission and reset
-  the banner.
+  it.
 
-**Hardening path.** Extend the node-level media ceiling
-(`files_fetch_media` / `MEDIA_AUTO_FETCH_MAX`) to the server banner/icon
-and every other auto-fetched decoration (emojis, stickers) — the UI
-should pull preview media through a capped fetch path rather than the
-generic `files_fetch`. Validate the declared MIME type, and fall back to
-click-to-load beyond the budget.
+**Hardening path.** Validate the declared MIME type of auto-rendered
+media, and consider a tighter ceiling for decorations (the bundled client
+already produces avatars/icons ≤ 512 KiB).
 
 ## 5. Accepted trade-off: DHT presence resolution exposes lookup metadata
 
@@ -196,7 +192,36 @@ through disjoint paths (already done for identity records); longer-term
 options (lookup indirection, private information retrieval techniques)
 are research-grade and explicitly out of scope for v0.
 
-## 6. Out of scope for v0
+## 6. Accepted trade-off: op-log reconciliation trusts author-set op ids
+
+**What it is.** Group state is a replicated log of signed operations,
+reconciled by anti-entropy: peers exchange a digest over their op ids
+(`sync_offer` in `crates/accord-core/src/group/mod.rs`) and pull what
+differs. Each op carries a 16-byte `op_id` chosen by its author, and
+`insert_group_op` is idempotent on that id.
+
+**Risk.** A **malicious member** can sign two different, individually
+valid operations that share one `op_id`. Two honest peers that each folded
+a different one of the pair keep divergent state, yet compute the *same*
+reconciliation digest (identical id sets) — so anti-entropy believes they
+are in sync and never repairs the split.
+
+**Why acceptable in v1.**
+
+- The attacker must already be an **authenticated member** of the server —
+  an insider abusing trust, not an outside attacker.
+- No confidentiality or integrity of **messages** breaks; the effect is a
+  server-settings/membership view that can differ between members.
+- Both ops are **signed and attributable** to the same author.
+
+**Hardening path.** Bind `op_id` to a hash of the operation's signed
+content and reject ops whose id does not match: two divergent bodies then
+have distinct ids, both replicate, and last-writer-wins converges
+everywhere. This is a **breaking wire change** (existing random op ids no
+longer validate, so groups must be recreated), scheduled for a release
+that resets group history rather than shipped silently.
+
+## 7. Out of scope for v0
 
 Unchanged from SECURITY.md §5, which is the authoritative list — notably:
 no anonymity (IP addresses visible to peers, DHT nodes and relays),

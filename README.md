@@ -23,7 +23,9 @@ central server to host, read, or lose your conversations.
 
 Accord protects the **content** of your exchanges, not your **anonymity**
 (peers see your IP, like most P2P software). Details and limits:
-[SECURITY.md](SECURITY.md). Beta software — no external security audit yet.
+[SECURITY.md](SECURITY.md). First stable release (**1.0**); the peer-to-peer
+core has been through repeated internal adversarial security audits, but no
+*external* audit yet.
 
 ## Install
 
@@ -68,6 +70,7 @@ First build takes several minutes (bundled SQLCipher and OpenSSL).
 | Document | Contents |
 |----------|----------|
 | [SECURITY.md](SECURITY.md) | Threat model — guarantees and limits |
+| [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) | Accepted trade-offs, in depth |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Layer architecture |
 | [SPEC.md](SPEC.md) | Wire protocol |
 | [API.md](API.md) | UI ↔ node API |

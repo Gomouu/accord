@@ -16,6 +16,7 @@ import {
   validerAjout,
 } from '../lib/attachments';
 import { containsFiltered } from '../lib/automod';
+import { draftKey, readDraft, writeDraft } from '../lib/drafts';
 import { jetonTexteEmoji, type EmojiPick } from '../lib/emoji';
 import {
   findActiveMention,
@@ -118,7 +119,9 @@ export function MessageInput({
   const clearMentionInsert = useUi((s) => s.clearMentionInsert);
   /** Signale la frappe au pair/salon (throttlé, best effort). */
   const notifyTyping = useTypingEmitter(typingTarget);
-  const [text, setText] = useState('');
+  // Brouillon restauré au montage pour la cible courante : le texte non envoyé
+  // survit au changement de vue comme au redémarrage (voir lib/drafts).
+  const [text, setText] = useState(() => readDraft(draftKey(typingTarget)) ?? '');
   const [sending, setSending] = useState(false);
   const [pieces, setPieces] = useState<PieceEnAttente[]>([]);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -153,6 +156,30 @@ export function MessageInput({
   }, [slowmodeUntilMs]);
 
   const slowmodeActive = slowmodeRemaining > 0;
+
+  // Clé de brouillon de la conversation courante (valeur primitive : l'effet
+  // ne se déclenche qu'au vrai changement de cible, pas à chaque re-render).
+  const currentDraftKey = draftKey(typingTarget);
+  // Clé à laquelle `text` appartient : mise à jour au chargement d'un brouillon
+  // entrant, jamais pendant la frappe — sert d'ancre au garde-fou ci-dessous.
+  const loadedDraftKeyRef = useRef(currentDraftKey);
+
+  // Persistance du brouillon (texte seulement) : à chaque frappe le texte est
+  // enregistré sous la clé courante ; vidé, la clé est effacée. L'envoi fait
+  // `setText('')`, ce qui efface donc aussi le brouillon.
+  useEffect(() => {
+    writeDraft(loadedDraftKeyRef.current, text);
+  }, [text]);
+
+  // Changement de conversation sans démontage : le brouillon sortant est déjà
+  // persisté (effet ci-dessus, à chaque frappe), il ne reste qu'à charger
+  // l'entrant. Le garde-fou évite d'écraser un texte en cours quand la cible
+  // n'a pas changé (nouvel objet `typingTarget`, même clé dérivée).
+  useEffect(() => {
+    if (loadedDraftKeyRef.current === currentDraftKey) return;
+    loadedDraftKeyRef.current = currentDraftKey;
+    setText(readDraft(currentDraftKey) ?? '');
+  }, [currentDraftKey]);
 
   /* @mention autocomplete: candidates from the group state (members, roles
    * and the two broadcasts); no candidates in a direct message. */

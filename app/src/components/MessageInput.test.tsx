@@ -93,6 +93,7 @@ beforeEach(() => {
   useMessageEdit.setState({ request: null });
   shareMock.mockReset();
   FakeVoiceRecorder.instances = [];
+  window.localStorage.clear();
 });
 
 function renderInput(onSend = vi.fn(async () => {})) {
@@ -734,6 +735,55 @@ describe('MessageInput — ArrowUp édite le dernier message propre (composeur v
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'ArrowUp' });
 
     expect(useMessageEdit.getState().request).toBeNull();
+  });
+});
+
+describe('MessageInput — brouillons de composeur persistés', () => {
+  it('conserve le texte par cible et le restaure au retour', () => {
+    const { rerender } = render(
+      <MessageInput placeholder="p" onSend={vi.fn(async () => {})} typingTarget={DM_TARGET} />,
+    );
+    typeInput('brouillon pour Alice');
+    expect(screen.getByRole('textbox')).toHaveValue('brouillon pour Alice');
+
+    // Changement de conversation : le composeur se vide pour la nouvelle cible.
+    rerender(
+      <MessageInput
+        placeholder="p"
+        onSend={vi.fn(async () => {})}
+        groupId="g1"
+        typingTarget={GROUP_TARGET}
+      />,
+    );
+    expect(screen.getByRole('textbox')).toHaveValue('');
+
+    // Retour au MP : le brouillon d’Alice est restauré tel quel.
+    rerender(
+      <MessageInput placeholder="p" onSend={vi.fn(async () => {})} typingTarget={DM_TARGET} />,
+    );
+    expect(screen.getByRole('textbox')).toHaveValue('brouillon pour Alice');
+  });
+
+  it('restaure un brouillon déjà stocké au montage (après redémarrage)', () => {
+    window.localStorage.setItem('draft:dm:pk_alice', 'texte survivant');
+    render(
+      <MessageInput placeholder="p" onSend={vi.fn(async () => {})} typingTarget={DM_TARGET} />,
+    );
+    expect(screen.getByRole('textbox')).toHaveValue('texte survivant');
+  });
+
+  it('efface le brouillon après un envoi réussi', async () => {
+    const onSend = vi.fn(async () => {});
+    render(<MessageInput placeholder="p" onSend={onSend} typingTarget={DM_TARGET} />);
+    typeInput('à envoyer');
+    expect(window.localStorage.getItem('draft:dm:pk_alice')).toBe('à envoyer');
+
+    fireEvent.click(screen.getByLabelText('Envoyer'));
+
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith('à envoyer', undefined));
+    await waitFor(() =>
+      expect(window.localStorage.getItem('draft:dm:pk_alice')).toBeNull(),
+    );
   });
 });
 

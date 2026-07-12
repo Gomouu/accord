@@ -125,6 +125,9 @@ function mentionSet(contacts: Contact[], self: SelfProfile | null): Set<string> 
 /** Longueur maximale d'un nom de fil dérivé du texte du message racine. */
 const THREAD_NAME_MAX = 50;
 
+/** Borne du nœud pour la suppression groupée (`groups.purge`) : ≤100 par op. */
+const PURGE_MAX = 100;
+
 /**
  * Nom de fil par défaut : début de la première ligne du message racine (tronqué),
  * ou `fallback` si le message n'a pas de texte exploitable.
@@ -227,6 +230,11 @@ export function DmView({ peer }: { peer: string }) {
   const [pinsOpen, setPinsOpen] = useState(false);
   /** Message auquel la prochaine saisie répondra (null : envoi simple). */
   const [replyTo, setReplyTo] = useState<DisplayMessage | null>(null);
+  /**
+   * Position lue figée à l'ouverture du MP (séparateur « nouveaux messages ») :
+   * capturée AVANT que markRead ne la fasse avancer. `null` = pas de séparateur.
+   */
+  const [dividerLamport, setDividerLamport] = useState<number | null>(null);
   /** Lamport du dernier message affiché (`null` : fil vide). */
   const lastLamport = messages.at(-1)?.lamport ?? null;
 
@@ -253,6 +261,15 @@ export function DmView({ peer }: { peer: string }) {
   useEffect(() => {
     clearMissed(peer);
   }, [peer, clearMissed]);
+
+  // Capture one-shot de la position lue à l'ouverture (dépend de `peer` seul) :
+  // lue depuis le store AVANT le markRead ci-dessous, elle fige le séparateur.
+  // markRead avance la marque via `friends.load`, mais cet effet ne se rejoue
+  // pas (deps inchangées) — le séparateur reste à la position d'entrée.
+  useEffect(() => {
+    const c = useFriends.getState().contacts.find((x) => x.pubkey === peer);
+    setDividerLamport(c?.read_lamport ?? null);
+  }, [peer]);
 
   // Conversation affichée : marquée lue jusqu'au dernier message connu, à
   // l'ouverture comme à chaque arrivée — le badge de non-lus retombe. Seule
@@ -384,6 +401,7 @@ export function DmView({ peer }: { peer: string }) {
         messages={messages}
         hasMore={hasMore}
         scrollTarget={scrollTarget}
+        dividerLamport={dividerLamport}
         pinnedIds={pinnedIds}
         knownMentions={knownMentions}
         emojiMap={emojiMap}
@@ -846,6 +864,82 @@ function ThreadsListPanel({
   );
 }
 
+/**
+ * Barre d'action du mode sélection (suppression groupée) : compteur, garde de
+ * borne (100), suppression en deux temps (confirmation en place) et sortie du
+ * mode. Rendue en tête du salon tant que le mode est actif (voir `GroupView`).
+ */
+function SelectionBar({
+  count,
+  onDelete,
+  onCancel,
+}: {
+  count: number;
+  onDelete: () => void;
+  onCancel: () => void;
+}) {
+  const t = useT();
+  const [confirming, setConfirming] = useState(false);
+  const tooMany = count > PURGE_MAX;
+  const canDelete = count > 0 && !tooMany;
+  return (
+    <div
+      role="toolbar"
+      aria-label={t.purge.select}
+      className="flex h-11 shrink-0 items-center gap-3 border-b border-[color:var(--glass-border)] bg-chat/90 px-4 shadow-1"
+    >
+      <span className="text-sm font-medium text-norm">
+        {interpolate(t.purge.selected, { count: String(count) })}
+      </span>
+      {tooMany && <span className="text-xs font-medium text-red">{t.purge.tooMany}</span>}
+      <div className="ml-auto flex items-center gap-2">
+        {confirming ? (
+          <>
+            <span className="text-sm text-norm">
+              {interpolate(t.purge.confirmTitle, { count: String(count) })}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setConfirming(false);
+                onDelete();
+              }}
+              className="rounded-sm bg-red px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-red/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
+            >
+              {t.purge.confirm}
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirming(false)}
+              className="rounded-sm px-2 py-1 text-xs font-medium text-norm transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
+            >
+              {t.purge.cancel}
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              disabled={!canDelete}
+              onClick={() => setConfirming(true)}
+              className="rounded-sm bg-red px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-red/80 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
+            >
+              {t.purge.delete}
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              className="rounded-sm px-2 py-1 text-xs font-medium text-norm transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
+            >
+              {t.purge.cancel}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function GroupView({
   groupId,
   channelId,
@@ -874,6 +968,7 @@ export function GroupView({
   const togglePin = useGroups((s) => s.togglePin);
   const createThread = useGroups((s) => s.createThread);
   const markRead = useGroups((s) => s.markRead);
+  const purge = useGroups((s) => s.purge);
   const requestJump = useUi((s) => s.requestJump);
   /** Volet des messages épinglés (fermé par défaut). */
   const [pinsOpen, setPinsOpen] = useState(false);
@@ -883,6 +978,15 @@ export function GroupView({
   const [openThreadId, setOpenThreadId] = useState<string | null>(null);
   /** Message auquel la prochaine saisie répondra (null : envoi simple). */
   const [replyTo, setReplyTo] = useState<DisplayMessage | null>(null);
+  /**
+   * Position lue figée à l'ouverture du salon (séparateur « nouveaux
+   * messages ») : capturée AVANT que markRead ne la fasse avancer.
+   */
+  const [dividerLamport, setDividerLamport] = useState<number | null>(null);
+  /** Mode sélection de messages actif (suppression groupée par modérateur). */
+  const [selecting, setSelecting] = useState(false);
+  /** Messages cochés dans le mode sélection (identité locale à `GroupView`). */
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
   /** Lamport du dernier message affiché (`null` : fil vide). */
   const lastLamport = messages.at(-1)?.lamport ?? null;
 
@@ -905,6 +1009,8 @@ export function GroupView({
     setThreadsListOpen(false);
     setOpenThreadId(null);
     setReplyTo(null);
+    setSelecting(false);
+    setSelectedIds(new Set());
     if (channelId !== null) {
       // Un saut vers ce salon charge lui-même la fenêtre du message ciblé :
       // on évite alors le rechargement récent qui l'écraserait.
@@ -922,6 +1028,33 @@ export function GroupView({
       loadPins(groupId, channelId).catch(() => {});
     }
   }, [groupId, channelId, refreshHistory, loadPins, toast, t]);
+
+  // Capture one-shot de la position lue du salon à l'ouverture (dépend de
+  // [groupId, channelId]) : lue depuis le store AVANT le markRead ci-dessous.
+  // markRead ne touche pas `states.read_marks` (il ne rafraîchit que les
+  // compteurs), et cet effet ne se rejoue pas — le séparateur reste figé.
+  useEffect(() => {
+    if (channelId === null) {
+      setDividerLamport(null);
+      return;
+    }
+    const marks = useGroups.getState().states[groupId]?.read_marks;
+    setDividerLamport(marks?.[channelId] ?? null);
+  }, [groupId, channelId]);
+
+  // Mode sélection : Échap le referme (comme les autres volets), au niveau
+  // fenêtre pour capter la touche hors focus d'un champ de saisie.
+  useEffect(() => {
+    if (!selecting) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        setSelecting(false);
+        setSelectedIds(new Set());
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selecting]);
 
   // Salon affiché : marqué lu jusqu'au dernier message connu, à l'ouverture
   // comme à chaque arrivée — le badge de non-lus du salon retombe.
@@ -942,6 +1075,30 @@ export function GroupView({
 
   const onActionError = (): void => toast('error', t.errors.actionFailed);
   const pinnedIds = new Set(pins ?? []);
+
+  /** Coche/décoche un message dans le mode sélection (état local immuable). */
+  const toggleSelected = (msgId: string): void =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(msgId)) next.delete(msgId);
+      else next.add(msgId);
+      return next;
+    });
+
+  /** Quitte le mode sélection en vidant la sélection. */
+  const exitSelection = (): void => {
+    setSelecting(false);
+    setSelectedIds(new Set());
+  };
+
+  /** Suppression groupée des messages cochés (bornée à 100 côté nœud). */
+  const purgeSelected = (): void => {
+    const ids = [...selectedIds];
+    if (ids.length === 0 || ids.length > PURGE_MAX) return;
+    purge(groupId, channelId, ids)
+      .then(exitSelection)
+      .catch(onActionError);
+  };
 
   // AutoMod du serveur : mots masqués au rendu du fil et avertissement
   // émetteur dans le composeur (jamais transmis en MP).
@@ -1151,11 +1308,19 @@ export function GroupView({
             nameOf={nameOf}
           />
         )}
+        {selecting && (
+          <SelectionBar
+            count={selectedIds.size}
+            onDelete={purgeSelected}
+            onCancel={exitSelection}
+          />
+        )}
         <MessageList
           key={key ?? undefined}
           messages={messages}
           hasMore={hasMore}
           scrollTarget={scrollTarget}
+          dividerLamport={dividerLamport}
           onLoadOlder={() => {
             loadOlderHistory(groupId, channelId).catch(() =>
               toast('error', t.errors.loadFailed),
@@ -1198,6 +1363,19 @@ export function GroupView({
           groupId={groupId}
           threads={channelThreadList}
           onOpenThread={onOpenThread}
+          selection={
+            selecting
+              ? { active: true, selected: selectedIds, onToggle: toggleSelected }
+              : undefined
+          }
+          onStartSelection={
+            canModerate
+              ? (message: DisplayMessage) => {
+                  setSelecting(true);
+                  setSelectedIds(new Set([message.msg_id]));
+                }
+              : undefined
+          }
         />
         {replyTo !== null && (
           <ReplyBanner

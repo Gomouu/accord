@@ -27,6 +27,7 @@ vi.mock('../lib/client', () => ({
     groupsHistoryAround: vi.fn(),
     groupsEdit: vi.fn(),
     groupsDelete: vi.fn(),
+    groupsPurge: vi.fn(),
     groupsReact: vi.fn(),
     groupsSend: vi.fn(),
     groupsEmojiAdd: vi.fn(),
@@ -109,6 +110,7 @@ const pinMock = api.groupsPin as unknown as Mock;
 const unpinMock = api.groupsUnpin as unknown as Mock;
 const editMock = api.groupsEdit as unknown as Mock;
 const deleteMock = api.groupsDelete as unknown as Mock;
+const purgeMock = api.groupsPurge as unknown as Mock;
 const reactMock = api.groupsReact as unknown as Mock;
 const sendMock = api.groupsSend as unknown as Mock;
 const emojiAddMock = api.groupsEmojiAdd as unknown as Mock;
@@ -549,6 +551,22 @@ describe('useGroups — actions de message', () => {
 
     expect(deleteMock).toHaveBeenCalledWith('g1', 'c1', 'a');
     expect(useGroups.getState().messages[key]?.[0]?.deleted).toBe(true);
+  });
+
+  it('purge appelle groups.purge et pose les tombstones des ids visés', async () => {
+    useGroups.setState({
+      messages: { [key]: [groupMsg('a', 1), groupMsg('b', 2), groupMsg('c', 3)] },
+    });
+    purgeMock.mockResolvedValueOnce({ deleted: 2 });
+
+    const res = await useGroups.getState().purge('g1', 'c1', ['a', 'c']);
+
+    expect(purgeMock).toHaveBeenCalledWith('g1', 'c1', ['a', 'c']);
+    expect(res).toEqual({ deleted: 2 });
+    const msgs = useGroups.getState().messages[key];
+    expect(msgs?.find((m) => m.msg_id === 'a')?.deleted).toBe(true);
+    expect(msgs?.find((m) => m.msg_id === 'b')?.deleted).toBe(false);
+    expect(msgs?.find((m) => m.msg_id === 'c')?.deleted).toBe(true);
   });
 
   it('toggleReaction ajoute sa réaction absente (add: true)', async () => {

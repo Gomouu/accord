@@ -8,7 +8,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 vi.mock('../lib/client', () => ({
   rpc: { call: vi.fn(), onEvent: vi.fn(() => () => {}), onStatus: vi.fn() },
@@ -22,6 +22,9 @@ vi.mock('../lib/client', () => ({
     dmHistoryAround: vi.fn(),
     dmRetry: vi.fn(),
     groupsPins: vi.fn(() => Promise.resolve({ msg_ids: [] })),
+    groupsMarkRead: vi.fn(() => Promise.resolve({ ok: true })),
+    groupsList: vi.fn(() => Promise.resolve({ unread: {}, mentions: {} })),
+    groupsPurge: vi.fn(() => Promise.resolve({ deleted: 0 })),
   },
 }));
 
@@ -31,6 +34,7 @@ vi.mock('../lib/files', () => ({
 
 import { api, rpc } from '../lib/client';
 import type { Contact, DmMessage, GroupStateJson } from '../lib/api';
+import { useContextMenu } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
 import { useFriends } from '../stores/friends';
 import { useGroups } from '../stores/groups';
@@ -45,6 +49,7 @@ const friendsListMock = api.friendsList as unknown as Mock;
 const pinsMock = api.dmPins as unknown as Mock;
 const unpinMock = api.dmUnpin as unknown as Mock;
 const historyAroundMock = api.dmHistoryAround as unknown as Mock;
+const purgeMock = api.groupsPurge as unknown as Mock;
 
 const PEER = 'pair-pk';
 
@@ -110,6 +115,8 @@ beforeEach(() => {
   pinsMock.mockReset();
   unpinMock.mockReset();
   historyAroundMock.mockReset();
+  purgeMock.mockReset().mockResolvedValue({ deleted: 0 });
+  useContextMenu.setState({ menu: null });
   markReadMock.mockResolvedValue({ ok: true });
   friendsListMock.mockResolvedValue({ contacts: [contact(PEER, 'Alice')] });
   pinsMock.mockResolvedValue({ msg_ids: [] });
@@ -376,5 +383,105 @@ describe('GroupView — statut personnalisé dans la liste des membres', () => {
 
     expect(await screen.findByText('De retour bientôt')).toBeInTheDocument();
     useSession.setState({ self: null, phase: 'boot' });
+  });
+});
+
+describe('GroupView — purge (mode sélection)', () => {
+  const CHANNEL = {
+    channel_id: 'c1',
+    name: 'général',
+    kind: 'text' as const,
+    category: null,
+    position: 0,
+    topic: '',
+  };
+
+  /** Message de salon (le pair) avec horloge de Lamport. */
+  function grpMsg(id: string, lamport: number) {
+    return {
+      msg_id: id,
+      channel_id: 'c1',
+      author: PEER,
+      lamport,
+      sent_ms: lamport * 1000,
+      deleted: false,
+      body: { type: 'text' as const, text: `message ${id}`, reply_to: null, attachments: 0 },
+      edited: null,
+    };
+  }
+
+  beforeEach(() => {
+    useUi.setState({
+      view: { kind: 'group', groupId: 'g1', channelId: 'c1' },
+      toasts: [],
+      jump: null,
+    });
+    useSession.setState({
+      self: {
+        node_id: 'nm',
+        pubkey: 'moderateur',
+        friend_code: 'accord-moi',
+        name: 'Mod',
+        bio: null,
+        avatar: null,
+        banner: null,
+        pronouns: null,
+        accent_color: null,
+        banner_color: null,
+      },
+    });
+    callMock.mockResolvedValue({ messages: [grpMsg('a', 5), grpMsg('b', 6)] });
+  });
+
+  /** Ouvre le menu contextuel d'un message et rend ses items du store. */
+  function openMessageMenu(text: string) {
+    const row = screen.getByText(text).closest('[data-msg-id]') as HTMLElement;
+    fireEvent.contextMenu(row);
+    return useContextMenu.getState().menu?.items ?? [];
+  }
+
+  it('gate la commande « Sélectionner » sur MANAGE_MESSAGES', async () => {
+    useGroups.setState({
+      ids: ['g1'],
+      states: { g1: makeGroupState({ channels: [CHANNEL], my_permissions: 0 }) },
+    });
+    render(<GroupView groupId="g1" channelId="c1" />);
+    await screen.findByText('message a');
+
+    const items = openMessageMenu('message a');
+    expect(items.some((i) => i.label === 'Sélectionner des messages')).toBe(false);
+  });
+
+  it('supprime les messages cochés via purge après confirmation', async () => {
+    useGroups.setState({
+      ids: ['g1'],
+      states: { g1: makeGroupState({ channels: [CHANNEL], my_permissions: 0x1ff }) },
+    });
+    render(<GroupView groupId="g1" channelId="c1" />);
+    await screen.findByText('message a');
+
+    // Entrée en mode sélection depuis le menu contextuel (message « a » coché).
+    const items = openMessageMenu('message a');
+    const select = items.find((i) => i.label === 'Sélectionner des messages');
+    expect(select).toBeDefined();
+    act(() => select!.onClick());
+
+    // La barre d'action affiche le compteur ; on coche aussi « b ».
+    expect(screen.getByText('1 sélectionné(s)')).toBeInTheDocument();
+    const boxes = screen.getAllByRole('checkbox', { name: 'Sélectionner le message' });
+    fireEvent.click(boxes[1]!);
+    expect(screen.getByText('2 sélectionné(s)')).toBeInTheDocument();
+
+    // Suppression en deux temps : « Supprimer » puis « Confirmer ».
+    fireEvent.click(screen.getByRole('button', { name: 'Supprimer' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmer la suppression' }));
+
+    await waitFor(() =>
+      expect(purgeMock).toHaveBeenCalledWith('g1', 'c1', ['a', 'b']),
+    );
+    // Sortie du mode : la barre disparaît.
+    await waitFor(() =>
+      expect(screen.queryByText(/sélectionné/)).not.toBeInTheDocument(),
+    );
   });
 });

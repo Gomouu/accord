@@ -72,6 +72,12 @@ export interface Contact {
   mention_count?: number;
   /** Note privée locale attachée au contact, ou `null` (jamais émise). */
   note?: string | null;
+  /**
+   * Ma dernière position lue (lamport) dans ce MP (`friends.list`) : sert à
+   * tracer le séparateur « nouveaux messages » à l'ouverture. `0` si jamais
+   * lu ; absent = nœud plus ancien (aucun séparateur).
+   */
+  read_lamport?: number;
 }
 
 /** Référence de pièce jointe (enveloppe des messages et `files.*`). */
@@ -403,6 +409,12 @@ export interface GroupStateJson {
   automod_words?: string[];
   /** Fils de discussion ouverts dans les salons (peut manquer, nœud plus ancien). */
   threads?: GroupThread[];
+  /**
+   * Ma dernière position lue (lamport) par salon (`channel_id → lamport`) :
+   * sert à tracer le séparateur « nouveaux messages » à l'ouverture. `0` (ou
+   * salon absent) = jamais lu ; champ entier absent = nœud plus ancien.
+   */
+  read_marks?: Record<string, number>;
 }
 
 /**
@@ -1336,6 +1348,22 @@ export class Api {
       group_id: groupId,
       channel_id: channelId,
       msg_id: msgId,
+    });
+  }
+
+  /**
+   * Suppression groupée par un modérateur (`MANAGE_MESSAGES`) : jusqu'à 100
+   * messages du salon en une opération. Rend le nombre effectivement supprimé.
+   */
+  groupsPurge(
+    groupId: string,
+    channelId: string,
+    msgIds: string[],
+  ): Promise<{ deleted: number }> {
+    return this.rpc.call('groups.purge', {
+      group_id: groupId,
+      channel_id: channelId,
+      msg_ids: msgIds,
     });
   }
 

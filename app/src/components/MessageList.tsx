@@ -38,6 +38,7 @@ import { MessageEditor } from './MessageEditor';
 import { buildMessageItems, buildUserItems, type MessageMenuDeps } from './messageMenus';
 import {
   displayText,
+  firstUnreadIndex,
   messageLink,
   type DisplayMessage,
   type MessageListActions,
@@ -107,6 +108,25 @@ export interface MessageListProps {
   threads?: readonly GroupThread[] | undefined;
   /** Ouvre (ou crée puis ouvre) le fil ancré sur ce message (salons seulement). */
   onOpenThread?: ((message: DisplayMessage) => void) | undefined;
+  /**
+   * Position lue capturée à l'ouverture (lamport) : le séparateur « nouveaux
+   * messages » s'insère avant le premier message d'autrui au-delà. `null`/`0`
+   * (ou aucun message au-delà) ⇒ pas de séparateur. Figé côté vue (one-shot).
+   */
+  dividerLamport?: number | null;
+  /**
+   * Mode sélection de messages (suppression groupée, salons) : quand `active`,
+   * chaque message porte une case à cocher et les actions de survol sont
+   * masquées. `null`/absent = mode inactif.
+   */
+  selection?:
+    | { active: boolean; selected: ReadonlySet<string>; onToggle: (msgId: string) => void }
+    | undefined;
+  /**
+   * Entrée en mode sélection depuis le menu contextuel d'un message (câblée par
+   * la vue groupe pour un porteur de `MANAGE_MESSAGES`). Absent = pas d'entrée.
+   */
+  onStartSelection?: ((message: DisplayMessage) => void) | undefined;
 }
 
 export function MessageList({
@@ -123,6 +143,9 @@ export function MessageList({
   scrollTarget = null,
   threads,
   onOpenThread,
+  dividerLamport = null,
+  selection,
+  onStartSelection,
 }: MessageListProps) {
   const lang = useUi((s) => s.lang);
   const timeFormat = useUi((s) => s.timeFormat);
@@ -365,14 +388,37 @@ export function MessageList({
     onEditInPlace: setEditingId,
     threads,
     onOpenThread,
+    onStartSelection,
+  };
+
+  const selectionActive = selection?.active === true;
+  // Séparateur « nouveaux messages » : index (dans `visible`) du premier
+  // message d'autrui au-delà de la position lue capturée à l'ouverture.
+  const dividerIndex = firstUnreadIndex(
+    visible,
+    dividerLamport,
+    self?.pubkey ?? null,
+  );
+
+  /** Défile jusqu'au séparateur « nouveaux messages » (bouton de saut). */
+  const jumpToUnread = (): void => {
+    if (dividerIndex < 0) return;
+    const target = visible[dividerIndex];
+    if (target === undefined) return;
+    const el = rowRefs.current.get(target.msg_id);
+    try {
+      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    } catch {
+      // jsdom sans mise en page : défilement ignoré.
+    }
   };
 
   return (
-    <>
+    <div className="relative flex min-h-0 flex-1 flex-col">
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="view-enter flex-1 overflow-y-auto pb-4"
+        className="view-enter min-h-0 flex-1 overflow-y-auto pb-4"
         role="log"
         aria-live="polite"
       >
@@ -393,8 +439,10 @@ export function MessageList({
           const actionable =
             actions !== undefined &&
             !isEditing &&
+            !selectionActive &&
             !m.deleted &&
             (m.body.type === 'text' || m.body.type === 'sticker' || m.body.type === 'poll');
+          const isSelected = selectionActive && (selection?.selected.has(m.msg_id) ?? false);
           // Message sans texte (pièces jointes seules) : pas de corps vide.
           const hasAttachments = !m.deleted && (m.attachments?.length ?? 0) > 0;
           const corpsVide = !m.deleted && hasAttachments && displayText(m) === '';
@@ -410,6 +458,19 @@ export function MessageList({
 
           return (
             <div key={m.msg_id}>
+              {i === dividerIndex && (
+                <div
+                  className="mx-4 mb-1 mt-4 flex items-center gap-3"
+                  role="separator"
+                  aria-label={t.unread.newMessages}
+                >
+                  <div className="h-px flex-1 bg-red/50" />
+                  <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-red">
+                    {t.unread.newMessages}
+                  </span>
+                  <div className="h-px flex-1 bg-red/50" />
+                </div>
+              )}
               {newDay && (
                 <div className="mx-4 mb-1 mt-4 flex items-center gap-3" role="separator">
                   <div className="h-px flex-1 bg-input" />
@@ -432,7 +493,7 @@ export function MessageList({
                     : 'mt-[var(--message-gap)] py-[var(--message-pad-y)]'
                 } ${highlightId === m.msg_id ? 'msg-flash' : ''} ${
                   appendedId === m.msg_id ? 'msg-append' : ''
-                }`}
+                } ${isSelected ? 'bg-blurple/10' : ''}`}
                 onContextMenu={(e) => {
                   // Édition en place (textarea) : laisse le clic droit natif
                   // (copier/coller) plutôt que d'ouvrir le menu du message.
@@ -447,6 +508,15 @@ export function MessageList({
                     );
                 }}
               >
+                {selectionActive && (
+                  <input
+                    type="checkbox"
+                    aria-label={t.purge.selectMessage}
+                    checked={isSelected}
+                    onChange={() => selection?.onToggle(m.msg_id)}
+                    className="mt-1 h-4 w-4 shrink-0 cursor-pointer self-start accent-blurple"
+                  />
+                )}
                 {actionable && (
                   <MessageActions
                     canEdit={isOwn && m.body.type === 'text'}
@@ -689,6 +759,15 @@ export function MessageList({
           );
         })}
       </div>
+      {dividerIndex >= 0 && (
+        <button
+          type="button"
+          onClick={jumpToUnread}
+          className="glass-strong popover-enter absolute left-1/2 top-2 z-10 -translate-x-1/2 rounded-full px-3 py-1 text-xs font-medium text-red shadow-1 transition-transform duration-fast hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-chat active:scale-95"
+        >
+          {t.unread.jumpToUnread} ↓
+        </button>
+      )}
       {forwarding !== null && (
         <ForwardPicker
           text={displayText(forwarding) ?? ''}
@@ -696,6 +775,6 @@ export function MessageList({
           onClose={() => setForwarding(null)}
         />
       )}
-    </>
+    </div>
   );
 }

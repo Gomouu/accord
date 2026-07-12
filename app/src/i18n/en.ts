@@ -918,6 +918,20 @@ export const en: Dict = {
     voiceDeafenServer: 'Server deafen',
     voiceUndeafenServer: 'Remove server deafen',
   },
+  unread: {
+    newMessages: 'New messages',
+    jumpToUnread: 'Jump to new',
+  },
+  purge: {
+    select: 'Select messages',
+    selectMessage: 'Select message',
+    selected: '{count} selected',
+    delete: 'Delete',
+    cancel: 'Cancel',
+    confirm: 'Confirm deletion',
+    confirmTitle: 'Delete {count} message(s)?',
+    tooMany: 'At most 100 messages at a time',
+  },
   notifLevel: {
     title: 'Notifications',
     all: 'All',

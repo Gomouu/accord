@@ -56,4 +56,14 @@ describe('groups moderation wrappers', () => {
     const params = call.mock.calls[0]![1] as Record<string, unknown>;
     expect('member' in params).toBe(false);
   });
+
+  it('groupsPurge forwards group_id, channel_id and msg_ids', async () => {
+    const { api, call } = makeApi();
+    await api.groupsPurge('g1', 'c1', ['m1', 'm2']);
+    expect(call).toHaveBeenCalledWith('groups.purge', {
+      group_id: 'g1',
+      channel_id: 'c1',
+      msg_ids: ['m1', 'm2'],
+    });
+  });
 });

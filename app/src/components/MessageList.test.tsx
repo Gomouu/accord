@@ -866,3 +866,67 @@ describe('MessageList — sondage (MsgBody kind 7, D-048)', () => {
     await waitFor(() => expect(pollCloseMock).toHaveBeenCalledWith('g1', 'p1'));
   });
 });
+
+describe('MessageList — séparateur nouveaux messages', () => {
+  it('insère le séparateur avant le premier message d’autrui au-delà de la marque', () => {
+    useSession.setState({ self: SELF });
+    const messages = [
+      textMsg('a', BASE_MS, 'lu', { lamport: 3 }),
+      textMsg('b', BASE_MS + 60_000, 'nouveau', { lamport: 6 }),
+    ];
+    render(<MessageList messages={messages} dividerLamport={5} />);
+
+    expect(
+      screen.getByRole('separator', { name: 'Nouveaux messages' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Sauter aux nouveaux/ })).toBeInTheDocument();
+  });
+
+  it('n’insère aucun séparateur quand tous les non-lus sont de soi', () => {
+    useSession.setState({ self: SELF });
+    const messages = [
+      textMsg('a', BASE_MS, 'mien', { author: SELF.pubkey, lamport: 6 }),
+    ];
+    render(<MessageList messages={messages} dividerLamport={5} />);
+
+    expect(
+      screen.queryByRole('separator', { name: 'Nouveaux messages' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('n’insère aucun séparateur pour une marque à zéro (jamais lu)', () => {
+    const messages = [textMsg('a', BASE_MS, 'texte', { lamport: 6 })];
+    render(<MessageList messages={messages} dividerLamport={0} />);
+
+    expect(screen.queryByText('Nouveaux messages')).not.toBeInTheDocument();
+  });
+});
+
+describe('MessageList — mode sélection (purge)', () => {
+  it('affiche une case par message, reflète la sélection et masque les actions', () => {
+    useSession.setState({ self: SELF });
+    const onToggle = vi.fn();
+    const messages = [
+      textMsg('m1', BASE_MS, 'un'),
+      textMsg('m2', BASE_MS + 1000, 'deux'),
+    ];
+    render(
+      <MessageList
+        messages={messages}
+        actions={makeActions()}
+        selection={{ active: true, selected: new Set(['m1']), onToggle }}
+      />,
+    );
+
+    const boxes = screen.getAllByRole('checkbox', { name: 'Sélectionner le message' });
+    expect(boxes).toHaveLength(2);
+    expect(boxes[0]).toBeChecked();
+    expect(boxes[1]).not.toBeChecked();
+
+    fireEvent.click(boxes[1]!);
+    expect(onToggle).toHaveBeenCalledWith('m2');
+
+    // Les actions de survol sont masquées pendant la sélection.
+    expect(screen.queryByLabelText('Ajouter une réaction')).not.toBeInTheDocument();
+  });
+});

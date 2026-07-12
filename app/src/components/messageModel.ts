@@ -16,6 +16,12 @@ export interface DisplayMessage {
   deleted: boolean;
   body: MsgBody;
   edited: string | null;
+  /**
+   * Horloge de Lamport de l'enveloppe (présente pour MP et salons) : sert au
+   * séparateur « nouveaux messages ». Optionnelle car certains fixtures de
+   * test construisent des messages sans horloge.
+   */
+  lamport?: number;
   acked?: boolean;
   /** État de livraison sortante (MP uniquement) ; absent = considéré envoyé. */
   delivery?: DeliveryState;
@@ -42,6 +48,29 @@ export interface MessageListActions {
 /** Texte affichable d'un message (dernière édition, sinon corps d'origine). */
 export function displayText(message: DisplayMessage): string | null {
   return message.edited ?? (message.body.type === 'text' ? message.body.text : null);
+}
+
+/**
+ * Index du premier message « non lu » à afficher sous le séparateur
+ * « nouveaux messages », ou `-1` s'il n'y en a pas. Un message compte comme
+ * non lu s'il dépasse la position lue capturée à l'ouverture
+ * (`lamport > dividerLamport`) ET n'est pas de l'utilisateur courant (un
+ * message à soi ne marque jamais de nouveauté, comme Discord). `dividerLamport`
+ * nul ou nul/négatif (jamais lu ou nœud plus ancien) ⇒ pas de séparateur.
+ */
+export function firstUnreadIndex(
+  messages: readonly Pick<DisplayMessage, 'author' | 'lamport'>[],
+  dividerLamport: number | null,
+  selfPubkey: string | null,
+): number {
+  if (dividerLamport === null || dividerLamport <= 0) return -1;
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]!;
+    if (m.lamport === undefined || m.lamport <= dividerLamport) continue;
+    if (selfPubkey !== null && m.author === selfPubkey) continue;
+    return i;
+  }
+  return -1;
 }
 
 /**

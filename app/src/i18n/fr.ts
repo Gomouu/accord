@@ -930,6 +930,24 @@ export const fr = {
     voiceDeafenServer: 'Rendre sourd (serveur)',
     voiceUndeafenServer: 'Retirer la surdité (serveur)',
   },
+  // Séparateur « nouveaux messages » (fil de messages) : figé à l'ouverture à
+  // la position lue capturée avant le marquage-lu, façon Discord.
+  unread: {
+    newMessages: 'Nouveaux messages',
+    jumpToUnread: 'Sauter aux nouveaux',
+  },
+  // Mode sélection de messages pour la suppression groupée (modération,
+  // MANAGE_MESSAGES). Borne du nœud : 100 messages par opération.
+  purge: {
+    select: 'Sélectionner des messages',
+    selectMessage: 'Sélectionner le message',
+    selected: '{count} sélectionné(s)',
+    delete: 'Supprimer',
+    cancel: 'Annuler',
+    confirm: 'Confirmer la suppression',
+    confirmTitle: 'Supprimer {count} message(s) ?',
+    tooMany: 'Maximum 100 messages à la fois',
+  },
   // Niveau de notification local d'un serveur ou salon (sous-menu des menus
   // contextuels de `ServerRail`/`Sidebar`, voir stores/mute.ts) — trois choix
   // façon Discord, distincts de la sourdine vocale de modération ci-dessus.

@@ -678,6 +678,17 @@ interface GroupsState {
   ) => Promise<void>;
   /** Supprime un message (le sien, ou celui d'autrui avec MANAGE_MESSAGES). */
   deleteMessage: (groupId: string, channelId: string, msgId: string) => Promise<void>;
+  /**
+   * Suppression groupée (≤100) par un modérateur (`MANAGE_MESSAGES`) : appelle
+   * `groups.purge` puis pose localement les tombstones des messages visés
+   * (l'état convergera par ailleurs via la réplication / `refreshHistory`).
+   * Rend le nombre supprimé par le nœud.
+   */
+  purge: (
+    groupId: string,
+    channelId: string,
+    msgIds: string[],
+  ) => Promise<{ deleted: number }>;
   /** Ajoute ou retire (bascule) sa réaction `emoji` sur un message. */
   toggleReaction: (
     groupId: string,
@@ -1161,6 +1172,19 @@ export const useGroups = create<GroupsState>((set, get) => ({
         deleted: true,
       })),
     }));
+  },
+
+  purge: async (groupId, channelId, msgIds) => {
+    const result = await api.groupsPurge(groupId, channelId, msgIds);
+    const key = channelKey(groupId, channelId);
+    set((s) => {
+      let messages = s.messages;
+      for (const id of msgIds) {
+        messages = patchMessages(messages, key, id, (m) => ({ ...m, deleted: true }));
+      }
+      return { messages };
+    });
+    return result;
   },
 
   toggleReaction: async (groupId, channelId, msgId, emoji, selfPubkey) => {

@@ -21,6 +21,7 @@ import {
   PinMenuIcon,
   ProfileMenuIcon,
   ReplyMenuIcon,
+  SelectMenuIcon,
   ThreadMenuIcon,
 } from './ContextMenu';
 import {
@@ -56,6 +57,12 @@ export interface MessageMenuDeps {
    * groupe. Absent = pas d'entrée « fil » (MP, ou fil lui-même).
    */
   onOpenThread?: ((message: DisplayMessage) => void) | undefined;
+  /**
+   * Active le mode sélection de messages (suppression groupée) en pré-cochant
+   * ce message — câblé par la vue groupe pour un porteur de `MANAGE_MESSAGES`.
+   * Absent = pas d'entrée « Sélectionner des messages » (MP, non-modérateur).
+   */
+  onStartSelection?: ((message: DisplayMessage) => void) | undefined;
 }
 
 /**
@@ -182,6 +189,16 @@ export function buildMessageItems(
   );
 
   const management: ContextMenuItem[] = [];
+  // Modération : entrée en mode sélection (suppression groupée). Disponible dès
+  // que la vue la câble (porteur de MANAGE_MESSAGES), y compris sur un message
+  // d'autrui, et indépendante de la garde suppression auteur-seul ci-dessous.
+  if (deps.onStartSelection !== undefined && !message.deleted) {
+    management.push({
+      label: t.purge.select,
+      icon: <SelectMenuIcon />,
+      onClick: () => deps.onStartSelection?.(message),
+    });
+  }
   if (canEdit) {
     management.push({
       label: t.dm.edit,

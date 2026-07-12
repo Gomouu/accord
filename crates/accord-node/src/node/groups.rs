@@ -694,9 +694,11 @@ impl Node {
     ) -> Result<String, NodeError> {
         validate_label(name)?;
         let state = self.group_state(group_id)?;
+        // Un fil pend d'un salon textuel `#`, ou est un POST d'un salon forum
+        // (même infra : le fold accepte Text | Forum). Voix/annonce refusés.
         match state.channels.get(parent_channel) {
-            Some(ch) if ch.kind == ChannelKind::Text => {}
-            Some(_) => return Err(NodeError::Invalid("salon parent non textuel")),
+            Some(ch) if matches!(ch.kind, ChannelKind::Text | ChannelKind::Forum) => {}
+            Some(_) => return Err(NodeError::Invalid("salon parent ni textuel ni forum")),
             None => return Err(NodeError::NotFound("salon parent inconnu")),
         }
         // Anti-spam : la création de fil est soumise au mode lent du salon

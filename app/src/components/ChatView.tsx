@@ -48,6 +48,7 @@ import {
 import { MessageInput } from './MessageInput';
 import { MessageList, type DisplayMessage } from './MessageList';
 import { displayText } from './messageModel';
+import { ForumView } from './ForumView';
 import { PresenceDot } from './PresenceDot';
 import { ResizeHandle } from './ResizeHandle';
 import { ThreadPanel } from './ThreadPanel';
@@ -1031,6 +1032,35 @@ export function GroupView({
       })
       .catch(onActionError);
   };
+
+  // Salon FORUM : ses « posts » sont des fils (le nœud refuse tout message
+  // direct dans la racine du forum). On rend la vue forum dédiée à la place du
+  // composeur/liste de messages classiques.
+  if (channel.kind === 'forum') {
+    const canPost =
+      state !== undefined &&
+      self !== null &&
+      hasPerm(
+        myChannelPermissions(state, channelId, self.pubkey),
+        PERMISSIONS.VIEW | PERMISSIONS.SEND,
+      );
+    return (
+      <ForumView
+        groupId={groupId}
+        channel={channel}
+        state={state}
+        posts={channelThreadList}
+        canManage={canManageThreads}
+        canModerate={canModerate}
+        canPost={canPost}
+        colorOf={colorOf}
+        emojiMap={emojiMap}
+        knownMentions={knownMentions}
+        automodWords={automodWords}
+        nameOf={nameOf}
+      />
+    );
+  }
 
   return (
     <div className="flex h-full">

@@ -33,7 +33,7 @@ import { ServerSettingsModal } from './server/ServerSettingsModal';
 import { SettingsModal } from './settings/SettingsModal';
 
 /** Genres proposés dans le choix rapide (l'annonce reste réservée aux paramètres serveur). */
-type QuickChannelKind = Extract<GroupChannelKind, 'text' | 'voice'>;
+type QuickChannelKind = Extract<GroupChannelKind, 'text' | 'voice' | 'forum'>;
 
 const QUICK_CHANNEL_KINDS: Array<{
   kind: QuickChannelKind;
@@ -49,6 +49,11 @@ const QUICK_CHANNEL_KINDS: Array<{
     kind: 'voice',
     label: (t) => t.groups.kindVoiceChannel,
     hint: (t) => t.groups.kindVoiceHint,
+  },
+  {
+    kind: 'forum',
+    label: (t) => t.groups.kindForumChannel,
+    hint: (t) => t.groups.kindForumHint,
   },
 ];
 

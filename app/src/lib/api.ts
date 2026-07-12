@@ -174,7 +174,7 @@ export interface SearchQueryHit {
 }
 
 /** Genre d'un salon (API.md §Groupes : `kind`, défaut `"text"`). */
-export type GroupChannelKind = 'text' | 'voice' | 'announcement';
+export type GroupChannelKind = 'text' | 'voice' | 'announcement' | 'forum';
 
 export interface GroupChannel {
   channel_id: string;

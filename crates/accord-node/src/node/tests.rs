@@ -574,6 +574,42 @@ fn group_replication_hierarchy_and_moderation_between_nodes() {
 }
 
 #[test]
+fn forum_post_creates_thread_and_first_message_lives_in_it() {
+    use accord_proto::core_msg::ChannelKind;
+    let (alice, _rx) = node_with_channel();
+    let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
+    // Salon forum : l'envoi direct y est refusé, mais un post (fil) est permis.
+    let forum = hex::decode::<16>(
+        &alice
+            .group_channel_add(&gid, "annonces", ChannelKind::Forum, None)
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        alice.group_send(&gid, &forum, "dans la racine ?").is_err(),
+        "aucun message direct dans la racine d'un forum"
+    );
+    // « Nouveau post » : crée le fil (racine nulle acceptée), puis poste le
+    // premier message DANS le fil.
+    let post = hex::decode::<16>(
+        &alice
+            .group_thread_create(&gid, &forum, &[0u8; 16], "Sujet du jour")
+            .unwrap(),
+    )
+    .unwrap();
+    let mid = alice
+        .group_send(&gid, &post, "premier message du post")
+        .unwrap();
+    assert_eq!(mid.len(), 32);
+    let hist = alice.group_history(&gid, &post, u64::MAX, 10).unwrap();
+    assert_eq!(
+        hist.len(),
+        1,
+        "le message vit dans le fil, pas dans le forum"
+    );
+}
+
+#[test]
 fn group_purge_deletes_many_messages_and_skips_unknown() {
     let (alice, mut rx_a) = node_with_channel();
     let (bob, mut rx_b) = node_with_channel();

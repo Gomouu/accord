@@ -24,6 +24,7 @@ import { ServerEmojisTab } from './ServerEmojisTab';
 import { ServerMembersTab } from './ServerMembersTab';
 import { ServerProfileTab } from './ServerProfileTab';
 import { ServerRolesTab } from './ServerRolesTab';
+import { ServerSoundsTab } from './ServerSoundsTab';
 import { ServerStickersTab } from './ServerStickersTab';
 
 export type ServerTabId =
@@ -33,6 +34,7 @@ export type ServerTabId =
   | 'roles'
   | 'emojis'
   | 'stickers'
+  | 'soundboard'
   | 'members'
   | 'bans'
   | 'audit';
@@ -68,6 +70,13 @@ const TABS: ServerTab[] = [
     label: (t) => t.serveur.tabStickers,
     Content: ServerStickersTab,
     // Stickers réutilisent MANAGE_EMOJIS (même famille que les émojis, contrat).
+    visible: (perms) => hasPerm(perms, PERMISSIONS.MANAGE_EMOJIS),
+  },
+  {
+    id: 'soundboard',
+    label: (t) => t.soundboard.tabTitle,
+    Content: ServerSoundsTab,
+    // Sons de soundboard : même porte que les émojis/stickers (MANAGE_EMOJIS).
     visible: (perms) => hasPerm(perms, PERMISSIONS.MANAGE_EMOJIS),
   },
   { id: 'members', label: (t) => t.serveur.tabMembers, Content: ServerMembersTab },

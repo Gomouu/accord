@@ -734,6 +734,15 @@ interface GroupsState {
   ) => Promise<void>;
   /** Supprime un sticker de serveur par son nom puis recharge l'état. */
   removeSticker: (groupId: string, name: string) => Promise<void>;
+  /** Ajoute (ou remplace) un son de soundboard puis recharge l'état. */
+  addSound: (
+    groupId: string,
+    name: string,
+    mime: string,
+    dataB64: string,
+  ) => Promise<void>;
+  /** Supprime un son de soundboard par son nom puis recharge l'état. */
+  delSound: (groupId: string, name: string) => Promise<void>;
   /**
    * Publie (ou efface, `image` omis) son avatar de serveur self-service puis
    * recharge l'état.
@@ -1232,6 +1241,16 @@ export const useGroups = create<GroupsState>((set, get) => ({
 
   removeSticker: async (groupId, name) => {
     await api.groupsStickersRemove(groupId, name);
+    await get().loadState(groupId);
+  },
+
+  addSound: async (groupId, name, mime, dataB64) => {
+    await api.groupsSoundsAdd(groupId, name, mime, dataB64);
+    await get().loadState(groupId);
+  },
+
+  delSound: async (groupId, name) => {
+    await api.groupsSoundsDel(groupId, name);
     await get().loadState(groupId);
   },
 

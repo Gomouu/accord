@@ -20,6 +20,7 @@ import { useVoice } from '../stores/voice';
 import { Avatar } from './Avatar';
 import { PhoneOffIcon } from './ContextMenu';
 import { PresenceDot } from './PresenceDot';
+import { SoundboardButton } from './SoundboardButton';
 import { ownDotStatus, UserMenu } from './UserMenu';
 
 /** Icône casque, barrée en rouge quand la sortie est coupée (deafen). */
@@ -117,6 +118,7 @@ function VoiceBanner() {
         >
           <HeadphonesIcon deafened={selfDeafened} />
         </button>
+        <SoundboardButton className={ICON_BUTTON_CLASS} />
         <button
           type="button"
           aria-label={t.voice.disconnect}

@@ -274,6 +274,12 @@ export interface ServerSticker {
   merkle_root: string;
 }
 
+/** Son de soundboard : nom (`[a-z0-9_]`) et racine Merkle du clip audio. */
+export interface ServerSound {
+  name: string;
+  merkle_root: string;
+}
+
 /**
  * Événement planifié d'un groupe (`groups.events.*`) tel qu'exposé dans
  * `groups.state.events`. `channel_id` référence un salon vocal existant, ou
@@ -380,6 +386,8 @@ export interface GroupStateJson {
   banner_color?: number | null;
   /** Stickers de serveur, même forme que `groups.stickers.list` (peut manquer). */
   stickers?: ServerSticker[];
+  /** Sons de soundboard, même forme que `emojis` (peut manquer, nœud plus ancien). */
+  sounds?: ServerSound[];
   /** Événements planifiés du groupe (peut manquer, nœud plus ancien). */
   events?: GroupEvent[];
   /**
@@ -634,6 +642,17 @@ export type AccordEvent =
   | {
       method: 'event.group_event_started';
       params: { group_id: string; event_id: string; title: string };
+    }
+  | {
+      method: 'event.soundboard_play';
+      params: {
+        group_id: string;
+        channel_id: string;
+        /** Racine Merkle (hex) du clip à jouer. */
+        sound: string;
+        /** Clé publique (hex) de l'émetteur, indice de source pour le fetch. */
+        from: string;
+      };
     };
 
 export class Api {
@@ -1564,6 +1583,47 @@ export class Api {
   /** Supprime un émoji de serveur par son nom (`MANAGE_EMOJIS`). */
   groupsEmojiDel(groupId: string, name: string): Promise<{ ok: true }> {
     return this.rpc.call('groups.emoji.del', { group_id: groupId, name });
+  }
+
+  /**
+   * Ajoute (ou remplace) un son de soundboard (`MANAGE_EMOJIS`) : nom
+   * `[a-z0-9_]` 2-32, clip audio ≤ 256 Kio décodés (OGG/MP3/MP4/WebM/WAV).
+   * Rend la racine Merkle du clip publié.
+   */
+  groupsSoundsAdd(
+    groupId: string,
+    name: string,
+    mime: string,
+    dataB64: string,
+  ): Promise<{ merkle_root: string }> {
+    return this.rpc.call('groups.sounds.add', {
+      group_id: groupId,
+      name,
+      mime,
+      data_b64: dataB64,
+    });
+  }
+
+  /** Supprime un son de soundboard par son nom (`MANAGE_EMOJIS`). */
+  groupsSoundsDel(groupId: string, name: string): Promise<{ ok: true }> {
+    return this.rpc.call('groups.sounds.del', { group_id: groupId, name });
+  }
+
+  /**
+   * Joue un son de soundboard dans le salon vocal actif : le nœud le diffuse
+   * aux participants présents. Refusé si l'appelant n'est pas connecté au
+   * salon vocal `(group_id, channel_id)` — à n'appeler que depuis ce contexte.
+   */
+  groupsSoundboardPlay(
+    groupId: string,
+    channelId: string,
+    soundName: string,
+  ): Promise<{ ok: true }> {
+    return this.rpc.call('groups.soundboard.play', {
+      group_id: groupId,
+      channel_id: channelId,
+      sound_name: soundName,
+    });
   }
 
   /**

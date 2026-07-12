@@ -95,6 +95,16 @@ interface DmPageWithReceipt {
   peer_read_lamport?: number | null;
 }
 
+/**
+ * Séquence « dernier gagne » par pair pour `refresh` : plusieurs
+ * actualisations peuvent être en vol (une par `event.dm`) et répondre dans le
+ * désordre sur la même connexion. On tamponne un numéro monotone au départ ;
+ * si une actualisation PLUS récente a démarré avant que celle-ci ne réponde,
+ * on ignore la réponse périmée (sinon elle réécraserait une édition/
+ * suppression/réaction déjà appliquée par la plus récente).
+ */
+const refreshSeq = new Map<string, number>();
+
 export const useDms = create<DmsState>((set, get) => ({
   conversations: {},
   hasMore: {},
@@ -111,7 +121,12 @@ export const useDms = create<DmsState>((set, get) => ({
   },
 
   refresh: async (peer) => {
+    const seq = (refreshSeq.get(peer) ?? 0) + 1;
+    refreshSeq.set(peer, seq);
     const page = (await fetchDmPage(rpc, peer)) as DmPageWithReceipt;
+    // Réponse périmée (une actualisation plus récente a démarré depuis) :
+    // l'appliquer réécraserait des données plus fraîches — on l'ignore.
+    if (refreshSeq.get(peer) !== seq) return;
     const { messages } = page;
     if (typeof page.peer_read_lamport === 'number') {
       get().applyPeerRead(peer, page.peer_read_lamport);

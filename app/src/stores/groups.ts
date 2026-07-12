@@ -796,6 +796,15 @@ interface GroupsState {
   closePoll: (groupId: string, pollId: string) => Promise<void>;
 }
 
+/**
+ * Séquences « dernier gagne » (cf. `stores/dms`) : `loadState` (par groupe) et
+ * `refreshHistory` (par salon) sont déclenchés sur événement et peuvent
+ * répondre dans le désordre ; on ignore une réponse périmée pour ne pas
+ * réécraser un état/des messages plus frais déjà appliqués.
+ */
+const stateSeq = new Map<string, number>();
+const historySeq = new Map<string, number>();
+
 export const useGroups = create<GroupsState>((set, get) => ({
   ids: [],
   states: {},
@@ -896,7 +905,11 @@ export const useGroups = create<GroupsState>((set, get) => ({
   },
 
   loadState: async (groupId) => {
+    const seq = (stateSeq.get(groupId) ?? 0) + 1;
+    stateSeq.set(groupId, seq);
     const state = await api.groupsState(groupId);
+    // Réponse périmée (un `loadState` plus récent a démarré depuis) : ignorée.
+    if (stateSeq.get(groupId) !== seq) return;
     set((s) => ({ states: { ...s.states, [groupId]: state } }));
   },
 
@@ -924,7 +937,11 @@ export const useGroups = create<GroupsState>((set, get) => ({
 
   refreshHistory: async (groupId, channelId) => {
     const key = channelKey(groupId, channelId);
+    const seq = (historySeq.get(key) ?? 0) + 1;
+    historySeq.set(key, seq);
     const { messages } = await fetchGroupPage(rpc, groupId, channelId);
+    // Réponse périmée (un rafraîchissement plus récent a démarré depuis) : ignorée.
+    if (historySeq.get(key) !== seq) return;
     const pageFull = messages.length === PAGE_SIZE;
     set((s) => {
       const existing = s.messages[key];

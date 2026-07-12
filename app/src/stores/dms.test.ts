@@ -83,6 +83,27 @@ beforeEach(() => {
 });
 
 describe('useDms.refresh', () => {
+  it('ignore une réponse périmée quand une actualisation plus récente a démarré (dernier gagne)', async () => {
+    // Deux refresh(pair) en vol ; l'ANCIEN résout APRÈS le RÉCENT.
+    let resoudreAncien!: (v: { messages: DmMessage[] }) => void;
+    const ancien = new Promise<{ messages: DmMessage[] }>((r) => {
+      resoudreAncien = r;
+    });
+    callMock.mockReturnValueOnce(ancien); // refresh #1 (ancien, en attente)
+    callMock.mockResolvedValueOnce({ messages: [dmMsg('recent', 2)] }); // #2 (récent)
+
+    const r1 = useDms.getState().refresh('pair');
+    const r2 = useDms.getState().refresh('pair');
+    await r2;
+    expect(conversation('pair').map((m) => m.msg_id)).toEqual(['recent']);
+
+    // L'ancien résout maintenant avec des données périmées : doit être ignoré,
+    // sinon il réécraserait la page récente déjà appliquée.
+    resoudreAncien({ messages: [dmMsg('perime', 1)] });
+    await r1;
+    expect(conversation('pair').map((m) => m.msg_id)).toEqual(['recent']);
+  });
+
   it('charge la page récente en ordre croissant, sans page suivante si incomplète', async () => {
     callMock.mockResolvedValueOnce({ messages: [dmMsg('b', 2), dmMsg('a', 1)] });
 

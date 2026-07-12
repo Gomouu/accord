@@ -70,7 +70,15 @@ export const useCalls = create<CallsState>((set, get) => ({
 
   start: async (peer) => {
     const { call_id: callId } = await api.callsStart(peer);
-    set({ phase: 'outgoing_ringing', peer, callId, sincePhaseMs: Date.now() });
+    // N'adopte l'état « sortant » QUE si rien d'événementiel (plus autoritaire)
+    // n'a bougé la machine à états pendant l'appel RPC — p. ex. un appel
+    // ENTRANT arrivé entre-temps ne doit pas être écrasé. `applyOutgoing`
+    // (événement de notre propre appel) a déjà posé le bon état le cas échéant.
+    set((s) =>
+      s.phase === 'idle'
+        ? { phase: 'outgoing_ringing', peer, callId, sincePhaseMs: Date.now() }
+        : s,
+    );
   },
 
   accept: async () => {

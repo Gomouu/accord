@@ -1234,7 +1234,6 @@ export function GroupView({
       <ForumView
         groupId={groupId}
         channel={channel}
-        state={state}
         posts={channelThreadList}
         canManage={canManageThreads}
         canModerate={canModerate}

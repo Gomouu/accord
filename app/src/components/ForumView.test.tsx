@@ -13,7 +13,7 @@ vi.mock('../lib/client', () => ({
   api: {},
 }));
 
-import type { GroupChannel, GroupStateJson, GroupThread } from '../lib/api';
+import type { GroupChannel, GroupThread } from '../lib/api';
 import { useGroups } from '../stores/groups';
 import { useUi } from '../stores/ui';
 import { ForumView } from './ForumView';
@@ -37,30 +37,11 @@ function post(threadId: string, name: string, archived = false): GroupThread {
   return { thread_id: threadId, parent_channel: FORUM, root_msg: '0'.repeat(32), name, archived };
 }
 
-function state(threads: GroupThread[]): GroupStateJson {
-  return {
-    group_id: GROUP,
-    name: 'Guilde',
-    icon: null,
-    founder: 'f',
-    members: [],
-    bans: [],
-    channels: [forumChannel()],
-    categories: [],
-    roles: [],
-    invites: [],
-    emojis: [],
-    my_permissions: 0x1ff,
-    threads,
-  };
-}
-
 function renderForum(posts: GroupThread[], canPost = true) {
   return render(
     <ForumView
       groupId={GROUP}
       channel={forumChannel()}
-      state={state(posts)}
       posts={posts}
       canManage={false}
       canModerate={false}

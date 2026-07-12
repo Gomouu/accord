@@ -13,7 +13,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { interpolate } from '../i18n';
-import type { GroupChannel, GroupStateJson, GroupThread } from '../lib/api';
+import type { GroupChannel, GroupThread } from '../lib/api';
 import { useGroups } from '../stores/groups';
 import { useT, useUi } from '../stores/ui';
 import type { DisplayMessage } from './MessageList';
@@ -50,7 +50,6 @@ export interface ForumViewProps {
   groupId: string;
   /** Le salon forum courant (`kind === 'forum'`). */
   channel: GroupChannel;
-  state: GroupStateJson | undefined;
   /** Posts du forum = `channelThreads(state, channel.channel_id)`. */
   posts: readonly GroupThread[];
   /** MANAGE_CHANNELS sur le forum : archivage des posts (via `ThreadPanel`). */

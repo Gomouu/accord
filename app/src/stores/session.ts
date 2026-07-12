@@ -20,8 +20,53 @@ import {
   type SessionInfo,
 } from '../lib/bridge';
 import { clearPendingConversation } from '../lib/notifications';
+import { useDms } from './dms';
+import { useGroups } from './groups';
+import { useFriends } from './friends';
+import { useUi } from './ui';
 
 export type { AccountMeta } from '../lib/bridge';
+
+/**
+ * Purge les stores account-scoped au verrouillage / changement de compte.
+ * Ces stores sont des singletons de module qui SURVIVENT à la transition :
+ * sans ce nettoyage, les données du compte précédent (conversations, états de
+ * serveurs, contacts) resteraient affichées sous le nouveau compte (fuite
+ * inter-comptes). Les PRÉFÉRENCES UI (thème, densité, langue…) sont persistées
+ * dans localStorage et ne sont PAS touchées ; seule la vue courante retombe
+ * sur « Amis » et toute modale ouverte est fermée. `calls`/`voice`/`typing`
+ * se resynchronisent d'eux-mêmes au `ready` du nouveau compte (syncCalls/
+ * syncVoice), donc pas besoin de les réinitialiser ici.
+ */
+function resetAccountScopedStores(): void {
+  useDms.setState({
+    conversations: {},
+    hasMore: {},
+    loadingOlder: {},
+    pins: {},
+    peerRead: {},
+  });
+  useGroups.setState({
+    ids: [],
+    states: {},
+    messages: {},
+    hasMore: {},
+    loadingOlder: {},
+    pins: {},
+    unread: {},
+    mentions: {},
+    pendingInvites: [],
+  });
+  useFriends.setState({
+    contacts: [],
+    loaded: false,
+    ownStatus: 'online',
+    ownStatusText: null,
+  });
+  const ui = useUi.getState();
+  ui.setView({ kind: 'friends' });
+  ui.closeModal();
+}
 
 /**
  * `welcome` : sélecteur de comptes (2+ comptes locaux connus, ou atteint
@@ -214,6 +259,7 @@ export const useSession = create<SessionState>((set) => {
         askName: false,
         error: null,
       });
+      resetAccountScopedStores();
       clearPendingConversation();
       rpc.close();
       try {
@@ -296,6 +342,7 @@ export const useSession = create<SessionState>((set) => {
         askName: false,
         error: null,
       });
+      resetAccountScopedStores();
       clearPendingConversation();
       rpc.close();
       try {

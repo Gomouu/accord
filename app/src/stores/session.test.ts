@@ -53,6 +53,10 @@ import {
   takePendingConversation,
 } from '../lib/notifications';
 import { useSession } from './session';
+import { useDms } from './dms';
+import { useGroups } from './groups';
+import { useFriends } from './friends';
+import { useUi } from './ui';
 
 const lockIdentityMock = lockIdentity as unknown as Mock;
 const unlockIdentityMock = unlockIdentity as unknown as Mock;
@@ -265,5 +269,23 @@ describe('useSession.unlockAccount', () => {
     const s = useSession.getState();
     expect(s.phase).toBe('welcome');
     expect(s.error).toBe('phrase de passe incorrecte');
+  });
+
+  it('purge les stores account-scoped au verrouillage (anti-fuite inter-comptes)', async () => {
+    // Données du « compte A ».
+    useDms.setState({ conversations: { p: [] } });
+    useGroups.setState({ ids: ['g1'], pins: { g1: ['m'] } });
+    useFriends.setState({ loaded: true });
+    useUi.getState().setView({ kind: 'group', groupId: 'g1', channelId: 'c1' });
+
+    lockIdentityMock.mockResolvedValue('present');
+    await useSession.getState().lock();
+
+    // Rien du compte A ne subsiste ; la vue retombe sur « Amis ».
+    expect(useDms.getState().conversations).toEqual({});
+    expect(useGroups.getState().ids).toEqual([]);
+    expect(useGroups.getState().pins).toEqual({});
+    expect(useFriends.getState().loaded).toBe(false);
+    expect(useUi.getState().view).toEqual({ kind: 'friends' });
   });
 });

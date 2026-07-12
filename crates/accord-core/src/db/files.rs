@@ -6,6 +6,25 @@ use crate::error::CoreError;
 use crate::files::fetch;
 use rusqlite::params;
 
+/// Borne dure sur le nombre total d'intentions de téléchargement persistées.
+/// Au-delà, une nouvelle insertion évince les lignes les moins prometteuses
+/// (les plus abandonnées puis les plus repoussées). Empêche un ami
+/// malveillant qui annonce en boucle des hashes d'avatar/bannière aléatoires
+/// de faire croître `file_fetches` sans borne (croissance disque + latence de
+/// la passe d'adoption). Miroir de `FILES_DEBIT_MAX_PAIRS` côté runtime
+/// (éviction au-delà de la borne).
+const FETCH_INTENTS_MAX: usize = 512;
+
+/// Borne d'intentions en attente par pair source (`hint`) : une seule
+/// relation ne peut pas monopoliser le budget global d'intentions.
+const MAX_INTENTS_PAR_INDICE: usize = 8;
+
+/// Au-delà de ce nombre d'abandons successifs, une intention est jugée sans
+/// espoir et SUPPRIMÉE au lieu d'être repoussée indéfiniment (borne le coût
+/// d'un fichier introuvable — pair hors ligne ou hash inexistant annoncé par
+/// un ami malveillant).
+const FETCH_ATTEMPTS_MAX: u32 = 12;
+
 /// Intention de téléchargement persistée : racine de Merkle, indice de pair
 /// source éventuel et état de reprise après abandon (backoff par racine).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,6 +104,22 @@ fn build(r: RawFileEntry) -> Result<FileEntry, CoreError> {
 }
 
 const COLS: &str = "merkle_root, name, size, mime, manifest, path, bitmap, complete, added_ms";
+
+/// Colonnes brutes d'une intention de téléchargement.
+type RawFetch = (Vec<u8>, Option<Vec<u8>>, u64, u32);
+
+fn row_to_fetch(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawFetch> {
+    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+}
+
+fn build_intent(r: RawFetch) -> Result<FetchIntent, CoreError> {
+    Ok(FetchIntent {
+        merkle_root: blob(r.0)?,
+        hint: r.1.map(blob).transpose()?,
+        next_attempt_ms: r.2,
+        attempts: r.3,
+    })
+}
 
 impl Db {
     /// Enregistre ou met à jour un fichier.
@@ -195,7 +230,52 @@ impl Db {
         hint: Option<&[u8; 32]>,
         now_ms: u64,
     ) -> Result<(), CoreError> {
-        self.conn().execute(
+        let conn = self.conn();
+        // Une intention pour cette racine existe déjà : simple
+        // rafraîchissement (réarme le backoff, complète l'indice). Aucune
+        // nouvelle ligne, donc les bornes anti-abus ne s'appliquent pas.
+        let deja_presente: u32 = conn.query_row(
+            "SELECT count(*) FROM file_fetches WHERE merkle_root = ?1",
+            [merkle_root.as_slice()],
+            |row| row.get(0),
+        )?;
+        if deja_presente == 0 {
+            // Borne par indice : fait de la place pour ce pair source en
+            // évinçant ses intentions les moins prometteuses (les plus
+            // abandonnées puis les plus repoussées).
+            if let Some(h) = hint {
+                let n: u32 = conn.query_row(
+                    "SELECT count(*) FROM file_fetches WHERE hint = ?1",
+                    [h.as_slice()],
+                    |row| row.get(0),
+                )?;
+                if (n as usize) >= MAX_INTENTS_PAR_INDICE {
+                    let surplus = n as usize + 1 - MAX_INTENTS_PAR_INDICE;
+                    conn.execute(
+                        "DELETE FROM file_fetches WHERE merkle_root IN (
+                           SELECT merkle_root FROM file_fetches WHERE hint = ?1
+                           ORDER BY attempts DESC, next_attempt_ms DESC LIMIT ?2
+                         )",
+                        params![h.as_slice(), surplus as i64],
+                    )?;
+                }
+            }
+            // Borne totale : fait de la place globalement, tous indices
+            // confondus, selon le même critère de moindre promesse.
+            let total: u32 =
+                conn.query_row("SELECT count(*) FROM file_fetches", [], |row| row.get(0))?;
+            if (total as usize) >= FETCH_INTENTS_MAX {
+                let surplus = total as usize + 1 - FETCH_INTENTS_MAX;
+                conn.execute(
+                    "DELETE FROM file_fetches WHERE merkle_root IN (
+                       SELECT merkle_root FROM file_fetches
+                       ORDER BY attempts DESC, next_attempt_ms DESC LIMIT ?1
+                     )",
+                    params![surplus as i64],
+                )?;
+            }
+        }
+        conn.execute(
             "INSERT INTO file_fetches (merkle_root, hint, added_ms) VALUES (?1, ?2, ?3)
              ON CONFLICT(merkle_root) DO UPDATE SET
                hint = COALESCE(excluded.hint, hint),
@@ -213,32 +293,33 @@ impl Db {
              FROM file_fetches ORDER BY added_ms ASC",
         )?;
         let raws = stmt
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, Vec<u8>>(0)?,
-                    row.get::<_, Option<Vec<u8>>>(1)?,
-                    row.get::<_, u64>(2)?,
-                    row.get::<_, u32>(3)?,
-                ))
-            })?
+            .query_map([], row_to_fetch)?
             .collect::<Result<Vec<_>, _>>()?;
-        raws.into_iter()
-            .map(|(root, hint, next_attempt_ms, attempts)| {
-                Ok(FetchIntent {
-                    merkle_root: blob(root)?,
-                    hint: hint.map(blob).transpose()?,
-                    next_attempt_ms,
-                    attempts,
-                })
-            })
-            .collect()
+        raws.into_iter().map(build_intent).collect()
+    }
+
+    /// Intentions à adopter en priorité par la boucle réseau : les plus dues
+    /// d'abord (`next_attempt_ms` croissant, donc `next_attempt_ms <= now`
+    /// devant), bornées à `limit`. Évite de charger toute la table
+    /// `file_fetches` à chaque passe (latence de tick sous un grand nombre
+    /// d'intentions — vecteur DoS d'un ami annonçant des avatars aléatoires).
+    pub fn file_fetches_a_adopter(&self, limit: usize) -> Result<Vec<FetchIntent>, CoreError> {
+        let mut stmt = self.conn().prepare(
+            "SELECT merkle_root, hint, next_attempt_ms, attempts
+             FROM file_fetches ORDER BY next_attempt_ms ASC LIMIT ?1",
+        )?;
+        let raws = stmt
+            .query_map([limit as i64], row_to_fetch)?
+            .collect::<Result<Vec<_>, _>>()?;
+        raws.into_iter().map(build_intent).collect()
     }
 
     /// Reporte une intention après un abandon : incrémente le compteur et
     /// planifie la prochaine adoption selon l'échelle
-    /// [`fetch::relance_apres_abandon_ms`]. L'intention n'est JAMAIS
-    /// supprimée ici (elle ne l'est qu'à la complétion ou sur annulation
-    /// explicite) ; sans effet si elle a déjà été soldée.
+    /// [`fetch::relance_apres_abandon_ms`]. Sans effet si elle a déjà été
+    /// soldée. Abandon terminal : au-delà de [`FETCH_ATTEMPTS_MAX`] abandons,
+    /// l'intention est jugée sans espoir et SUPPRIMÉE (au lieu d'être
+    /// repoussée sans fin), ce qui borne le coût d'un fichier introuvable.
     pub fn defer_file_fetch(&self, merkle_root: &[u8; 32], now_ms: u64) -> Result<(), CoreError> {
         let mut stmt = self
             .conn()
@@ -248,6 +329,13 @@ impl Db {
             return Ok(());
         };
         let tentatives: u32 = row.get::<_, u32>(0)?.saturating_add(1);
+        if tentatives > FETCH_ATTEMPTS_MAX {
+            self.conn().execute(
+                "DELETE FROM file_fetches WHERE merkle_root = ?1",
+                [merkle_root.as_slice()],
+            )?;
+            return Ok(());
+        }
         let prochaine = now_ms.saturating_add(fetch::relance_apres_abandon_ms(tentatives));
         self.conn().execute(
             "UPDATE file_fetches SET attempts = ?2, next_attempt_ms = ?3
@@ -395,6 +483,83 @@ mod tests {
         db.remove_file_fetch(&[1; 32]).unwrap();
         db.defer_file_fetch(&[1; 32], 2_000).unwrap();
         assert!(db.file_fetches().unwrap().is_empty());
+    }
+
+    #[test]
+    fn spam_de_hashes_distincts_ne_depasse_pas_le_cap_total() {
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        // Plus d'intentions que la borne : chacune avec une racine distincte
+        // (comme un flot d'annonces d'avatars aléatoires).
+        for i in 0..(FETCH_INTENTS_MAX as u32 + 100) {
+            let mut root = [0u8; 32];
+            root[..4].copy_from_slice(&i.to_le_bytes());
+            db.upsert_file_fetch(&root, None, 10 + i as u64).unwrap();
+        }
+        assert_eq!(db.file_fetches().unwrap().len(), FETCH_INTENTS_MAX);
+    }
+
+    #[test]
+    fn cap_par_indice_borne_les_intentions_d_un_meme_pair() {
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        let indice = [9u8; 32];
+        for i in 0..(MAX_INTENTS_PAR_INDICE as u32 + 20) {
+            let mut root = [0u8; 32];
+            root[..4].copy_from_slice(&i.to_le_bytes());
+            db.upsert_file_fetch(&root, Some(&indice), 10 + i as u64)
+                .unwrap();
+        }
+        let pour_indice = db
+            .file_fetches()
+            .unwrap()
+            .into_iter()
+            .filter(|f| f.hint == Some(indice))
+            .count();
+        assert_eq!(pour_indice, MAX_INTENTS_PAR_INDICE);
+        // Un autre indice garde son propre budget (borne par pair, pas global).
+        db.upsert_file_fetch(&[200; 32], Some(&[7; 32]), 999)
+            .unwrap();
+        assert_eq!(db.file_fetches().unwrap().len(), MAX_INTENTS_PAR_INDICE + 1);
+    }
+
+    #[test]
+    fn abandon_terminal_supprime_apres_fetch_attempts_max() {
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        db.upsert_file_fetch(&[1; 32], Some(&[9; 32]), 10).unwrap();
+        // Jusqu'à FETCH_ATTEMPTS_MAX abandons : l'intention survit.
+        for _ in 0..FETCH_ATTEMPTS_MAX {
+            db.defer_file_fetch(&[1; 32], 1_000).unwrap();
+        }
+        assert_eq!(db.file_fetches().unwrap()[0].attempts, FETCH_ATTEMPTS_MAX);
+        // L'abandon de trop la juge sans espoir et la supprime.
+        db.defer_file_fetch(&[1; 32], 1_000).unwrap();
+        assert!(db.file_fetches().unwrap().is_empty());
+    }
+
+    #[test]
+    fn adopter_borne_le_nombre_et_priorise_les_dues() {
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        // Intentions très repoussées (grandes `next_attempt_ms`)…
+        for i in 0..40u32 {
+            let mut root = [0u8; 32];
+            root[0] = 1;
+            root[1..5].copy_from_slice(&i.to_le_bytes());
+            db.upsert_file_fetch(&root, None, i as u64).unwrap();
+            db.defer_file_fetch(&root, 1_000_000).unwrap();
+        }
+        // …et une poignée de dues (relance immédiate, next_attempt_ms = 0).
+        for i in 0..5u32 {
+            let mut root = [0u8; 32];
+            root[0] = 2;
+            root[1..5].copy_from_slice(&i.to_le_bytes());
+            db.upsert_file_fetch(&root, None, i as u64).unwrap();
+        }
+        let a_adopter = db.file_fetches_a_adopter(10).unwrap();
+        assert_eq!(a_adopter.len(), 10, "au plus K intentions lues");
+        // Les 5 dues doivent figurer en tête (next_attempt_ms croissant).
+        assert!(
+            a_adopter[..5].iter().all(|f| f.next_attempt_ms == 0),
+            "les intentions dues sont priorisées"
+        );
     }
 
     #[test]

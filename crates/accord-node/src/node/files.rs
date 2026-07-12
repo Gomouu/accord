@@ -27,6 +27,12 @@ use super::{now_ms, Node};
 /// Longueur maximale d'un nom de fichier ou d'un type MIME (bornes filaires).
 const MAX_NOM: usize = 255;
 
+/// Intentions adoptées au plus par passe de la boucle réseau : la lecture est
+/// bornée (les plus dues d'abord) plutôt que de charger toute la table
+/// `file_fetches`. Large devant [`fetch::MAX_FETCHES_ACTIFS`] pour absorber
+/// les intentions déjà actives ou déjà complètes que la passe ignore.
+const ADOPT_INTENTS_MAX: usize = 64;
+
 /// Vrai si le bit `i` de la bitmap est levé (bit i = bloc i détenu).
 fn bit(bitmap: &[u8], i: usize) -> bool {
     bitmap.get(i / 8).is_some_and(|b| b & (1 << (i % 8)) != 0)
@@ -208,9 +214,12 @@ impl Node {
         )?))
     }
 
-    /// Intentions de téléchargement en attente (persistées).
+    /// Intentions de téléchargement à adopter à cette passe (persistées),
+    /// bornées à [`ADOPT_INTENTS_MAX`] et priorisant les plus dues : la boucle
+    /// réseau ne charge pas toute la table `file_fetches` toutes les 250 ms
+    /// (latence de tick sous un grand nombre d'intentions).
     pub(crate) fn files_fetch_intents(&self) -> Result<Vec<FetchIntent>, NodeError> {
-        self.with_db(|db| Ok(db.file_fetches()?))
+        self.with_db(|db| Ok(db.file_fetches_a_adopter(ADOPT_INTENTS_MAX)?))
     }
 
     /// Solde une intention de téléchargement (terminée : le fichier est là).

@@ -74,6 +74,13 @@ pub struct PeerProfile {
     /// Couleur de bannière persistée (`None` si absente ou hors bornes,
     /// silencieusement ignorée dans ce dernier cas).
     pub banner_color: Option<u32>,
+    /// Vrai si le hash d'avatar DIFFÈRE de celui déjà stocké pour ce contact
+    /// (nouveau ou retiré). Seule une vraie nouveauté justifie une
+    /// récupération en arrière-plan : une ré-annonce du même profil (ou un
+    /// spam de hashes) ne crée alors aucune intention de téléchargement.
+    pub avatar_changed: bool,
+    /// Idem pour la bannière : vrai si le hash diffère de celui stocké.
+    pub banner_changed: bool,
 }
 
 /// Valide un pseudo : 2 à 32 caractères après trim, sans caractère de
@@ -356,6 +363,13 @@ pub fn ingest_peer_profile(
             let canon_accent = accent_color.filter(|c| *c <= COLOR_MAX);
             let canon_banner_color = banner_color.filter(|c| *c <= COLOR_MAX);
 
+            // Diff avant écriture : ne signaler « changé » (donc ne déclencher
+            // une récupération) que si le hash diffère du hash déjà stocké.
+            // Racine du correctif anti-DoS : sans ce diff, chaque `Profile`
+            // (même identique) créait une intention de téléchargement.
+            let avatar_changed = avatar != peer_avatar(db, &node_id)?;
+            let banner_changed = banner != peer_banner(db, &node_id)?;
+
             db.set_contact_name(&node_id, canon_name, now_ms)?;
             db.set_meta(&peer_meta_key(&node_id, "bio"), canon_bio.as_bytes())?;
             db.set_meta(
@@ -384,6 +398,8 @@ pub fn ingest_peer_profile(
                 pronouns: canon_pronouns,
                 accent_color: canon_accent,
                 banner_color: canon_banner_color,
+                avatar_changed,
+                banner_changed,
             }))
         }
         _ => Ok(None),
@@ -695,6 +711,8 @@ mod tests {
                 pronouns: Some("il/lui".into()),
                 accent_color: Some(0x00_FF_AA),
                 banner_color: Some(0x11_22_33),
+                avatar_changed: true,
+                banner_changed: true,
             }
         );
         let node_id = node_id_of(&peer).0;
@@ -707,6 +725,29 @@ mod tests {
         assert_eq!(peer_pronouns(&db, &node_id).unwrap(), Some("il/lui".into()));
         assert_eq!(peer_accent_color(&db, &node_id).unwrap(), Some(0x00_FF_AA));
         assert_eq!(peer_banner_color(&db, &node_id).unwrap(), Some(0x11_22_33));
+    }
+
+    #[test]
+    fn re_annonce_du_meme_avatar_n_est_pas_marquee_changee() {
+        let db = db();
+        let peer = [7u8; 32];
+        friend(&db, &peer, ContactState::Friend);
+        let ingest = |avatar, banner, ts| {
+            ingest_peer_profile(
+                &db, &peer, "Anna", "bio", avatar, banner, None, None, None, ts,
+            )
+            .unwrap()
+            .unwrap()
+        };
+        // Première annonce : hashes inédits → changés (récupération justifiée).
+        let a = ingest(Some([4u8; 32]), Some([6u8; 32]), 1);
+        assert!(a.avatar_changed && a.banner_changed);
+        // Ré-annonce du MÊME profil : rien de changé → aucune récupération.
+        let b = ingest(Some([4u8; 32]), Some([6u8; 32]), 2);
+        assert!(!b.avatar_changed && !b.banner_changed);
+        // Un vrai nouveau hash d'avatar est de nouveau changé (une fois).
+        let c = ingest(Some([5u8; 32]), Some([6u8; 32]), 3);
+        assert!(c.avatar_changed && !c.banner_changed);
     }
 
     #[test]

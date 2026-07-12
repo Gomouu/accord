@@ -622,8 +622,16 @@ impl Node {
                     // Octets d'avatar et de bannière absents en local :
                     // récupération en arrière-plan auprès de l'émetteur
                     // (meilleur effort — le sous-système fichiers peut être
-                    // indisponible, l'annonce reste appliquée).
-                    for hash in applied.avatar.iter().chain(applied.banner.iter()) {
+                    // indisponible, l'annonce reste appliquée). On ne récupère
+                    // QUE les hashes qui ont changé (anti-DoS) : une ré-annonce
+                    // du même profil ou un spam de hashes ne crée aucune
+                    // nouvelle intention de téléchargement.
+                    for hash in applied
+                        .avatar
+                        .iter()
+                        .filter(|_| applied.avatar_changed)
+                        .chain(applied.banner.iter().filter(|_| applied.banner_changed))
+                    {
                         if let Ok(None) = self.files_local_path(hash) {
                             let _ = self.files_fetch(hash, Some(*peer_pubkey));
                         }

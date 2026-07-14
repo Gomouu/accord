@@ -2,6 +2,15 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [1.2.4] — 2026-07-14
+
+### Added
+
+- New **immersive themes**: extra palettes with subtle animated scene
+  backgrounds, selectable from Settings → Appearance. Motion is
+  compositor-only and honours the reduced-motion preference; existing saved
+  themes keep working unchanged.
+
 ## [1.2.3] — 2026-07-14
 
 ### Added

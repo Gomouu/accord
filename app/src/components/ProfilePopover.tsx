@@ -631,7 +631,7 @@ export function ProfilePopover() {
                       <button
                         type="button"
                         onClick={retirer}
-                        className="flex-1 rounded-full bg-red px-3 py-1.5 text-sm font-medium text-white transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+                        className="flex-1 rounded-full bg-red px-3 py-1.5 text-sm font-medium text-on-red transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
                       >
                         {t.friends.remove}
                       </button>

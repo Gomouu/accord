@@ -182,7 +182,7 @@ export function MessageActions({
               setConfirming(false);
               onDelete();
             }}
-            className="rounded-sm bg-red px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-red/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+            className="rounded-sm bg-red px-2.5 py-1 text-xs font-medium text-on-red transition-colors hover:bg-red/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
           >
             {t.dm.delete}
           </button>

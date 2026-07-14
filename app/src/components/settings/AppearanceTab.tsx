@@ -21,11 +21,11 @@ const THEME_LABEL_KEYS: Record<Theme, keyof Dict['settings']> = {
   sunset: 'themeSunset',
   ocean: 'themeOcean',
   crimson: 'themeCrimson',
+  boreal: 'themeBoreal',
+  paper: 'themePaper',
+  topography: 'themeTopography',
+  signal: 'themeSignal',
 };
-
-/** Nombre de colonnes de la grille — source de vérité pour la navigation
- * clavier haut/bas (voir `ThemeGallery`), garder en phase avec `grid-cols-4`. */
-const THEME_GRID_COLUMNS = 4;
 
 function ThemeCheckIcon() {
   return (
@@ -50,9 +50,10 @@ function ThemeCheckIcon() {
  * `data-theme` sur l'aperçu (et lui seul — jamais sur le libellé) scope les
  * tokens CSS du thème représenté à ce petit bloc, indépendamment du thème
  * réellement actif ; c'est ce qui permet à l'aperçu de rester exact sans
- * dupliquer la moindre couleur en JS (voir global.css, sélecteurs
- * `[data-theme='…']`). Membre d'un `radiogroup` (voir `ThemeGallery`) : le
- * focus roving (`tabIndex`) est géré par le parent.
+ * dupliquer la moindre couleur en JS (voir `global.css` et
+ * `theme-scenes.css`, sélecteurs `[data-theme='…']`). Membre d'un
+ * `radiogroup` (voir `ThemeGallery`) : le focus roving (`tabIndex`) est géré
+ * par le parent.
  */
 function ThemeCard({
   id,
@@ -80,15 +81,23 @@ function ThemeCard({
       <span
         data-theme={id}
         aria-hidden
-        className={`relative flex h-20 w-full overflow-hidden rounded-lg border-2 bg-chat transition-colors duration-150 ${
+        className={`theme-preview relative flex h-20 w-full overflow-hidden rounded-lg border-2 transition-colors duration-150 ${
           selected ? 'border-blurple' : 'border-input group-hover:border-faint'
         }`}
       >
-        <span className="h-full w-1/4 shrink-0 bg-sidebar" />
-        <span className="flex min-w-0 flex-1 flex-col gap-1 bg-chat p-1.5">
-          <span className="h-1.5 w-3/4 rounded-full bg-input" />
-          <span className="h-1.5 w-1/2 rounded-full bg-input" />
-          <span className="mt-auto h-1.5 w-2/3 rounded-full bg-blurple" />
+        <span className="theme-preview__rail flex h-full w-[18%] shrink-0 flex-col items-center gap-1 pt-2">
+          <span className="h-2 w-2 rounded-full bg-blurple" />
+          <span className="theme-preview__secondary h-2 w-2 rounded-full" />
+        </span>
+        <span className="theme-preview__sidebar flex h-full w-[28%] shrink-0 flex-col gap-1 p-1.5">
+          <span className="h-1.5 w-4/5 rounded-full bg-input" />
+          <span className="h-1.5 w-3/5 rounded-full bg-input" />
+          <span className="mt-1 h-1.5 w-full rounded-full bg-chat/70" />
+        </span>
+        <span className="theme-preview__chat flex min-w-0 flex-1 flex-col gap-1 p-1.5">
+          <span className="h-1.5 w-3/4 rounded-full bg-input/80" />
+          <span className="h-1.5 w-1/2 rounded-full bg-input/80" />
+          <span className="theme-preview__accent mt-auto h-1.5 w-4/5 rounded-full" />
         </span>
         {selected && (
           <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-blurple text-white">
@@ -97,7 +106,7 @@ function ThemeCard({
         )}
       </span>
       <span
-        className={`mt-1.5 block text-sm font-medium ${
+        className={`mt-1.5 block min-h-9 text-sm font-medium leading-tight ${
           selected ? 'text-header' : 'text-muted group-hover:text-norm'
         }`}
       >
@@ -110,9 +119,8 @@ function ThemeCard({
 /**
  * Galerie de thèmes : `radiogroup` accessible au clavier — les flèches
  * déplacent le focus roving ET la sélection à la fois (comme un groupe de
- * boutons radio natif, où sélection = focus), gauche/droite dans la grille,
- * haut/bas d'une rangée entière (`THEME_GRID_COLUMNS`), avec retour au
- * début en bout de liste.
+ * boutons radio natif, où sélection = focus). Droite/Bas avancent,
+ * Gauche/Haut reculent, indépendamment du nombre responsive de colonnes.
  */
 function ThemeGallery({
   theme,
@@ -135,18 +143,12 @@ function ThemeGallery({
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
     const currentIndex = THEME_IDS.indexOf(theme);
-    if (e.key === 'ArrowRight') {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
       e.preventDefault();
       selectAt(currentIndex + 1);
-    } else if (e.key === 'ArrowLeft') {
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
       e.preventDefault();
       selectAt(currentIndex - 1);
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      selectAt(currentIndex + THEME_GRID_COLUMNS);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      selectAt(currentIndex - THEME_GRID_COLUMNS);
     }
   };
 
@@ -155,7 +157,7 @@ function ThemeGallery({
       role="radiogroup"
       aria-label={t.settings.theme}
       onKeyDown={onKeyDown}
-      className="grid grid-cols-4 gap-4"
+      className="grid grid-cols-2 gap-4 sm:grid-cols-4"
     >
       {THEME_IDS.map((id, index) => (
         <ThemeCard

@@ -81,7 +81,7 @@ function FriendRow({ contact }: { contact: Contact }) {
                 setConfirmRemove(false);
                 act(() => remove(contact.pubkey));
               }}
-              className="h-9 shrink-0 whitespace-nowrap rounded-sm bg-red px-3 text-sm font-medium text-white transition-colors duration-fast hover:brightness-110 active:scale-95"
+              className="h-9 shrink-0 whitespace-nowrap rounded-sm bg-red px-3 text-sm font-medium text-on-red transition-colors duration-fast hover:brightness-110 active:scale-95"
             >
               {t.friends.remove}
             </button>
@@ -370,7 +370,7 @@ export function FriendsView() {
               {badge !== undefined && badge > 0 && (
                 <span
                   aria-hidden
-                  className="ml-1.5 flex min-w-[18px] items-center justify-center rounded-full bg-red px-1 text-[11px] font-semibold leading-[18px] text-white"
+                  className="ml-1.5 flex min-w-[18px] items-center justify-center rounded-full bg-red px-1 text-[11px] font-semibold leading-[18px] text-on-red"
                 >
                   {badge > 99 ? '99+' : badge}
                 </span>
@@ -384,7 +384,7 @@ export function FriendsView() {
             className={`flex h-9 shrink-0 items-center rounded-full px-3 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green focus-visible:ring-offset-2 focus-visible:ring-offset-chat ${
               tab === 'add'
                 ? 'bg-green/20 text-green'
-                : 'bg-green text-white hover:brightness-110'
+                : 'bg-green text-on-green hover:brightness-110'
             }`}
           >
             {t.friends.add}

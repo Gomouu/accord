@@ -60,9 +60,9 @@
  * d'opacité (`bg-rail/60`) via `rgb(var(--…) / <alpha-value>)`.
  *
  * Le thème sombre est le défaut (`:root`) ; les autres thèmes (galerie
- * Paramètres → Apparence : clair, minuit, storm, forêt, crépuscule, océan,
- * cerise) sont activés par `data-theme="<id>"` sur la racine, posé par le
- * store d'interface. Le sélecteur `[data-theme='…']` (sans `:root`) est
+ * Paramètres → Apparence) sont activés par `data-theme="<id>"` sur la racine,
+ * posé par le store d'interface. Les scènes composées sont isolées dans
+ * `theme-scenes.css`. Le sélecteur `[data-theme='…']` (sans `:root`) est
  * délibéré : il permet aussi de scoper un thème sur un élément descendant
  * (vignette d'aperçu de la galerie), pas seulement sur la racine du
  * document.
@@ -101,6 +101,9 @@
   --color-red: 242 63 67;
   --color-yellow: 240 178 50;
   --color-link: 0 168 252;
+  /* Contenu lisible sur les fonds sémantiques pleins. */
+  --color-on-green: 17 18 20;
+  --color-on-red: 17 18 20;
 
   --shadow-elevation: 0 8px 16px rgba(0, 0, 0, 0.24);
   --shadow-modal: 0 12px 24px rgba(0, 0, 0, 0.4);
@@ -190,6 +193,8 @@
   --color-red: 216 60 62;
   --color-yellow: 160 96 0;
   --color-link: 0 104 224;
+  --color-on-green: 255 255 255;
+  --color-on-red: 255 255 255;
 
   --shadow-elevation: 0 8px 16px rgba(0, 0, 0, 0.12);
   --shadow-modal: 0 12px 24px rgba(0, 0, 0, 0.16);

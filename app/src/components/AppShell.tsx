@@ -548,7 +548,7 @@ export function AppShell() {
       <main
         id="contenu-principal"
         tabIndex={-1}
-        className="min-w-0 flex-1 bg-chat focus:outline-none"
+        className="theme-surface-chat min-w-0 flex-1 bg-chat focus:outline-none"
         aria-label={t.app.name}
       >
         {/*

@@ -155,7 +155,7 @@ export function NetworkTab() {
                 <button
                   type="button"
                   onClick={() => retirer(addr)}
-                  className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-red transition-colors duration-fast hover:bg-red hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+                  className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-red transition-colors duration-fast hover:bg-red hover:text-on-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
                 >
                   {t.reseau.remove}
                 </button>

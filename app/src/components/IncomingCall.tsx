@@ -22,7 +22,7 @@ import { Avatar } from './Avatar';
 import { PhoneIcon, PhoneOffIcon } from './ContextMenu';
 
 const ROUND_BUTTON =
-  'flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-white transition-transform duration-fast active:scale-95 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-modal';
+  'flex h-14 w-14 shrink-0 items-center justify-center rounded-full transition-transform duration-fast active:scale-95 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-modal';
 
 export function IncomingCall() {
   const t = useT();
@@ -107,7 +107,7 @@ export function IncomingCall() {
             onClick={() => {
               decline().catch(onActionError);
             }}
-            className={`${ROUND_BUTTON} bg-red focus-visible:ring-red`}
+            className={`${ROUND_BUTTON} bg-red text-on-red focus-visible:ring-red`}
           >
             <PhoneOffIcon size={26} />
           </button>
@@ -118,7 +118,7 @@ export function IncomingCall() {
             onClick={() => {
               accept().catch(onActionError);
             }}
-            className={`${ROUND_BUTTON} bg-green focus-visible:ring-green`}
+            className={`${ROUND_BUTTON} bg-green text-on-green focus-visible:ring-green`}
           >
             <PhoneIcon size={26} />
           </button>

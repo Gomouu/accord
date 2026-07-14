@@ -1,0 +1,314 @@
+/*
+ * Scènes de thèmes immersifs. Les motifs restent des arrière-plans statiques
+ * très peu opaques : ils donnent une matière aux grandes surfaces sans passer
+ * au-dessus du texte, sans blur plein écran et sans dépendance graphique.
+ */
+:root {
+  --theme-accent-secondary: var(--color-link);
+  --theme-seam: rgb(var(--color-input) / 0.28);
+  --theme-rail-art: none;
+  --theme-sidebar-art: none;
+  --theme-chat-art: none;
+  --theme-modal-art: none;
+  --theme-rail-size: auto;
+  --theme-sidebar-size: auto;
+  --theme-chat-size: auto;
+  --theme-modal-size: auto;
+}
+
+.theme-surface-rail,
+.theme-preview__rail {
+  background-image: var(--theme-rail-art);
+  background-position: center;
+  background-size: var(--theme-rail-size);
+}
+
+.theme-surface-sidebar,
+.theme-preview__sidebar {
+  background-image: var(--theme-sidebar-art);
+  background-position: center;
+  background-size: var(--theme-sidebar-size);
+}
+
+.theme-surface-chat,
+.theme-preview__chat {
+  background-image: var(--theme-chat-art);
+  background-position: center;
+  background-size: var(--theme-chat-size);
+}
+
+.theme-surface-rail,
+.theme-surface-sidebar {
+  box-shadow: inset -1px 0 var(--theme-seam);
+}
+
+.modal-panel-enter,
+.modal-panel-exit {
+  background-image: var(--theme-modal-art);
+  background-position: center;
+  background-size: var(--theme-modal-size);
+}
+
+/* Base sombre autonome : un aperçu imbriqué n'hérite pas du thème actif. */
+:where(.theme-preview) {
+  --color-rail: 30 31 34;
+  --color-sidebar: 43 45 49;
+  --color-chat: 49 51 56;
+  --color-chat-hover: 46 48 53;
+  --color-input: 56 58 64;
+  --color-modal: 49 51 56;
+  --color-tooltip: 17 18 20;
+  --color-norm: 219 222 225;
+  --color-muted: 181 186 193;
+  --color-faint: 164 169 179;
+  --color-header: 242 243 245;
+  --color-blurple: 88 101 242;
+  --color-blurple-hover: 71 82 196;
+  --color-green: 35 165 90;
+  --color-red: 242 63 67;
+  --color-yellow: 240 178 50;
+  --color-link: 0 168 252;
+  --color-on-green: 17 18 20;
+  --color-on-red: 17 18 20;
+  --theme-accent-secondary: var(--color-link);
+  --theme-rail-art: none;
+  --theme-sidebar-art: none;
+  --theme-chat-art: none;
+  --theme-modal-art: none;
+  --theme-rail-size: auto;
+  --theme-sidebar-size: auto;
+  --theme-chat-size: auto;
+  --theme-modal-size: auto;
+}
+
+.theme-preview__rail {
+  background-color: rgb(var(--color-rail));
+}
+
+.theme-preview__sidebar {
+  background-color: rgb(var(--color-sidebar));
+}
+
+.theme-preview__chat {
+  background-color: rgb(var(--color-chat));
+}
+
+.theme-preview__accent {
+  background-image: linear-gradient(
+    90deg,
+    rgb(var(--color-blurple)),
+    rgb(var(--theme-accent-secondary))
+  );
+}
+
+.theme-preview__secondary {
+  background-color: rgb(var(--theme-accent-secondary));
+}
+
+/* Boréal : nuit marine, aurore sarcelle/violette et poussière d'étoiles. */
+[data-theme='boreal'] {
+  --color-rail: 8 17 28;
+  --color-sidebar: 15 31 41;
+  --color-chat: 24 35 49;
+  --color-chat-hover: 29 44 56;
+  --color-input: 31 48 57;
+  --color-modal: 26 35 53;
+  --color-tooltip: 5 9 17;
+  --color-blurple: 126 92 215;
+  --color-blurple-hover: 105 72 192;
+  --color-green: 48 187 132;
+  --color-red: 238 93 109;
+  --color-yellow: 224 169 74;
+  --color-link: 82 180 214;
+  --theme-accent-secondary: 40 208 181;
+  --ambient-a: 40 208 181;
+  --ambient-b: 161 82 214;
+  --ambient-alpha-a: 0.08;
+  --ambient-alpha-b: 0.065;
+  --theme-seam: rgb(73 198 180 / 0.16);
+  --theme-rail-art:
+    linear-gradient(165deg, transparent 30%, rgb(40 208 181 / 0.16) 49%, transparent 64%),
+    radial-gradient(circle at 40% 0%, rgb(161 82 214 / 0.18), transparent 36%);
+  --theme-sidebar-art:
+    radial-gradient(ellipse at 8% 4%, rgb(40 208 181 / 0.12), transparent 48%),
+    linear-gradient(145deg, transparent 58%, rgb(161 82 214 / 0.08));
+  --theme-chat-art:
+    radial-gradient(ellipse at 78% -8%, rgb(40 208 181 / 0.1), transparent 36%),
+    radial-gradient(ellipse at 4% 105%, rgb(161 82 214 / 0.1), transparent 34%),
+    radial-gradient(circle, rgb(235 246 255 / 0.13) 0 1px, transparent 1.3px);
+  --theme-chat-size: auto, auto, 42px 42px;
+  --theme-modal-art: linear-gradient(
+    135deg,
+    rgb(40 208 181 / 0.055),
+    transparent 42%,
+    rgb(161 82 214 / 0.055)
+  );
+  color-scheme: dark;
+}
+
+/* Papier solaire : ivoire, eucalyptus et rouille sur une fibre discrète. */
+[data-theme='paper'] {
+  --color-rail: 215 224 223;
+  --color-sidebar: 239 231 213;
+  --color-chat: 255 250 239;
+  --color-chat-hover: 246 237 220;
+  --color-input: 226 235 232;
+  --color-modal: 255 247 232;
+  --color-tooltip: 17 18 20;
+  --color-norm: 48 44 38;
+  --color-muted: 92 82 70;
+  --color-faint: 105 95 82;
+  --color-header: 28 31 34;
+  --color-blurple: 161 66 45;
+  --color-blurple-hover: 133 50 34;
+  --color-green: 30 116 84;
+  --color-red: 180 50 50;
+  --color-yellow: 138 91 0;
+  --color-link: 21 100 123;
+  --color-on-green: 255 255 255;
+  --color-on-red: 255 255 255;
+  --theme-accent-secondary: 43 122 116;
+  --ambient-a: 232 151 69;
+  --ambient-b: 65 139 137;
+  --ambient-alpha-a: 0.1;
+  --ambient-alpha-b: 0.07;
+  --theme-seam: rgb(91 82 64 / 0.16);
+  --theme-rail-art:
+    repeating-linear-gradient(115deg, rgb(24 77 77 / 0.035) 0 1px, transparent 1px 7px),
+    radial-gradient(circle at 30% 0%, rgb(65 139 137 / 0.12), transparent 48%);
+  --theme-sidebar-art:
+    repeating-linear-gradient(0deg, rgb(92 70 45 / 0.025) 0 1px, transparent 1px 5px),
+    linear-gradient(150deg, rgb(232 151 69 / 0.09), transparent 38%);
+  --theme-chat-art:
+    repeating-linear-gradient(7deg, rgb(73 59 42 / 0.022) 0 1px, transparent 1px 6px),
+    repeating-linear-gradient(97deg, rgb(43 92 88 / 0.018) 0 1px, transparent 1px 9px),
+    radial-gradient(ellipse at 92% 112%, rgb(65 139 137 / 0.08), transparent 38%);
+  --theme-modal-art: linear-gradient(
+    145deg,
+    rgb(232 151 69 / 0.065),
+    transparent 44%,
+    rgb(65 139 137 / 0.045)
+  );
+  --shadow-elevation: 0 8px 16px rgb(73 59 42 / 0.12);
+  --shadow-modal: 0 12px 24px rgb(73 59 42 / 0.16);
+  --shadow-1: 0 1px 2px rgb(73 59 42 / 0.08);
+  --shadow-2: 0 2px 6px rgb(73 59 42 / 0.08), 0 12px 28px rgb(73 59 42 / 0.06);
+  --shadow-3: 0 8px 16px rgb(73 59 42 / 0.12), 0 24px 56px rgb(73 59 42 / 0.1);
+  --scrollbar-thumb: rgb(92 82 70 / 0.28);
+  --scrollbar-thumb-hover: rgb(92 82 70 / 0.42);
+  --glass-bg: rgb(var(--color-modal) / 0.82);
+  --glass-bg-strong: rgb(var(--color-modal) / 0.92);
+  --glass-border: rgb(73 59 42 / 0.14);
+  --glass-highlight: inset 0 1px 0 rgb(255 255 255 / 0.72);
+  color-scheme: light;
+}
+
+/* Topographie : graphite minéral, courbes cuivre et contrepoint jade. */
+[data-theme='topography'] {
+  --color-rail: 19 21 20;
+  --color-sidebar: 31 35 33;
+  --color-chat: 38 40 38;
+  --color-chat-hover: 46 49 45;
+  --color-input: 50 53 48;
+  --color-modal: 42 39 35;
+  --color-tooltip: 10 11 10;
+  --color-norm: 222 222 215;
+  --color-muted: 188 187 177;
+  --color-faint: 166 165 155;
+  --color-header: 247 244 234;
+  --color-blurple: 183 82 44;
+  --color-blurple-hover: 145 60 29;
+  --color-green: 69 173 121;
+  --color-red: 244 101 92;
+  --color-yellow: 226 166 70;
+  --color-link: 78 169 184;
+  --theme-accent-secondary: 62 155 126;
+  --ambient-a: 214 112 55;
+  --ambient-b: 62 155 126;
+  --ambient-alpha-a: 0.055;
+  --ambient-alpha-b: 0.045;
+  --theme-seam: rgb(214 112 55 / 0.13);
+  --theme-rail-art: repeating-radial-gradient(
+    ellipse at 0% 100%,
+    transparent 0 13px,
+    rgb(214 112 55 / 0.1) 14px 15px,
+    transparent 16px 27px
+  );
+  --theme-sidebar-art:
+    repeating-radial-gradient(
+      ellipse at 5% 95%,
+      transparent 0 20px,
+      rgb(214 112 55 / 0.065) 21px 22px,
+      transparent 23px 37px
+    ),
+    radial-gradient(circle at 100% 0%, rgb(62 155 126 / 0.08), transparent 42%);
+  --theme-chat-art:
+    repeating-radial-gradient(
+      ellipse at -5% 105%,
+      transparent 0 30px,
+      rgb(214 112 55 / 0.05) 31px 32px,
+      transparent 33px 51px
+    ),
+    repeating-radial-gradient(
+      ellipse at 110% -10%,
+      transparent 0 42px,
+      rgb(62 155 126 / 0.045) 43px 44px,
+      transparent 45px 67px
+    );
+  --theme-modal-art:
+    radial-gradient(ellipse at 0% 100%, rgb(214 112 55 / 0.075), transparent 48%),
+    radial-gradient(ellipse at 100% 0%, rgb(62 155 126 / 0.06), transparent 48%);
+  color-scheme: dark;
+}
+
+/* Signal fantôme : grille nocturne, magenta radio et impulsions cyan. */
+[data-theme='signal'] {
+  --color-rail: 17 12 29;
+  --color-sidebar: 28 24 44;
+  --color-chat: 20 28 40;
+  --color-chat-hover: 28 39 53;
+  --color-input: 34 43 58;
+  --color-modal: 35 28 48;
+  --color-tooltip: 7 8 14;
+  --color-norm: 222 222 232;
+  --color-muted: 183 187 202;
+  --color-faint: 163 168 185;
+  --color-header: 246 243 250;
+  --color-blurple: 192 49 107;
+  --color-blurple-hover: 148 31 76;
+  --color-green: 51 189 159;
+  --color-red: 235 76 91;
+  --color-yellow: 230 174 66;
+  --color-link: 62 183 214;
+  --theme-accent-secondary: 36 210 189;
+  --ambient-a: 36 210 189;
+  --ambient-b: 215 56 135;
+  --ambient-alpha-a: 0.065;
+  --ambient-alpha-b: 0.055;
+  --theme-seam: rgb(36 210 189 / 0.13);
+  --theme-rail-art:
+    repeating-linear-gradient(
+      145deg,
+      transparent 0 9px,
+      rgb(215 56 135 / 0.075) 9px 10px
+    ),
+    linear-gradient(180deg, rgb(36 210 189 / 0.09), transparent 32%);
+  --theme-sidebar-art:
+    linear-gradient(rgb(36 210 189 / 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(36 210 189 / 0.035) 1px, transparent 1px),
+    radial-gradient(circle at 0% 100%, rgb(215 56 135 / 0.1), transparent 42%);
+  --theme-sidebar-size: 24px 24px, 24px 24px, auto;
+  --theme-chat-art:
+    linear-gradient(rgb(36 210 189 / 0.032) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(36 210 189 / 0.032) 1px, transparent 1px),
+    repeating-linear-gradient(0deg, rgb(255 255 255 / 0.014) 0 1px, transparent 1px 4px),
+    radial-gradient(ellipse at 88% 12%, rgb(215 56 135 / 0.09), transparent 34%);
+  --theme-chat-size: 24px 24px, 24px 24px, auto, auto;
+  --theme-modal-art: linear-gradient(
+    135deg,
+    rgb(36 210 189 / 0.05),
+    transparent 40%,
+    rgb(215 56 135 / 0.07)
+  );
+  color-scheme: dark;
+}

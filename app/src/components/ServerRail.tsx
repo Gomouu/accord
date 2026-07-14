@@ -137,7 +137,7 @@ function RailBadge({ badge }: { badge: RailBadgeInfo }) {
   return (
     <span
       aria-hidden
-      className="badge-pop absolute right-1.5 top-0 z-10 flex min-w-[18px] items-center justify-center gap-0.5 rounded-full bg-red px-1 text-[11px] font-semibold leading-[18px] text-white ring-2 ring-rail"
+      className="badge-pop absolute right-1.5 top-0 z-10 flex min-w-[18px] items-center justify-center gap-0.5 rounded-full bg-red px-1 text-[11px] font-semibold leading-[18px] text-on-red ring-2 ring-rail"
     >
       {badge.mention && (
         <span aria-hidden className="font-semibold leading-none">
@@ -219,7 +219,7 @@ function RailButton({
           active
             ? 'rounded-server bg-blurple text-white'
             : accent
-              ? 'rounded-full bg-sidebar text-green hover:rounded-server hover:bg-green hover:text-white'
+              ? 'rounded-full bg-sidebar text-green hover:rounded-server hover:bg-green hover:text-on-green'
               : 'rounded-full bg-sidebar text-norm hover:rounded-server hover:bg-blurple hover:text-white'
         } ${muted === true ? 'opacity-50' : ''}`}
       >
@@ -584,7 +584,7 @@ export function ServerRail() {
   return (
     <nav
       aria-label={t.app.name}
-      className="flex h-full w-[72px] flex-col items-center gap-2 overflow-y-auto bg-rail py-3"
+      className="theme-surface-rail flex h-full w-[72px] flex-col items-center gap-2 overflow-y-auto bg-rail py-3"
     >
       <RailButton
         label={`${t.dm.directMessages}${badgeSuffix(t, dmBadge)}`}

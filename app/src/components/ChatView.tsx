@@ -624,7 +624,7 @@ function MemberList({ groupId }: { groupId: string }) {
 
   return (
     <aside
-      className="shrink-0 overflow-y-auto bg-sidebar p-2"
+      className="theme-surface-sidebar shrink-0 overflow-y-auto bg-sidebar p-2"
       style={{ width: membersWidth }}
       aria-label={t.groups.members}
     >
@@ -963,7 +963,7 @@ function SelectionBar({
                 setConfirming(false);
                 onDelete();
               }}
-              className="rounded-sm bg-red px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-red/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
+              className="rounded-sm bg-red px-2.5 py-1 text-xs font-medium text-on-red transition-colors hover:bg-red/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
             >
               {t.purge.confirm}
             </button>
@@ -981,7 +981,7 @@ function SelectionBar({
               type="button"
               disabled={!canDelete}
               onClick={() => setConfirming(true)}
-              className="rounded-sm bg-red px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-red/80 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
+              className="rounded-sm bg-red px-2.5 py-1 text-xs font-medium text-on-red transition-colors hover:bg-red/80 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
             >
               {t.purge.delete}
             </button>

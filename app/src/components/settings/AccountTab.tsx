@@ -481,7 +481,7 @@ function LogoutSection() {
           <button
             type="button"
             onClick={() => setConfirming(true)}
-            className="rounded-lg bg-red px-4 py-2 text-sm font-medium text-white transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+            className="rounded-lg bg-red px-4 py-2 text-sm font-medium text-on-red transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
           >
             {t.settings.logout}
           </button>
@@ -494,7 +494,7 @@ function LogoutSection() {
               type="button"
               disabled={busy}
               onClick={logout}
-              className="rounded-lg bg-red px-4 py-2 text-sm font-medium text-white transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
+              className="rounded-lg bg-red px-4 py-2 text-sm font-medium text-on-red transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
             >
               {t.settings.logoutConfirm}
             </button>

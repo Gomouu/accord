@@ -100,7 +100,7 @@ export function App() {
         <div
           role="status"
           aria-live="polite"
-          className="relative z-30 flex min-h-8 shrink-0 items-center justify-center gap-2 border-b border-white/10 bg-red/95 px-4 py-1.5 text-center text-sm font-medium text-white shadow-1"
+          className="relative z-30 flex min-h-8 shrink-0 items-center justify-center gap-2 border-b border-white/10 bg-red/95 px-4 py-1.5 text-center text-sm font-medium text-on-red shadow-1"
         >
           <span className="relative flex h-2 w-2" aria-hidden>
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white/70" />

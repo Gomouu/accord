@@ -564,7 +564,7 @@ export const fr = {
     invisible: 'Invisible',
     setStatus: 'Définir le statut',
     userMenu: 'Menu utilisateur',
-    copyMyId: 'Copier mon ID',
+    copyMyId: 'Copier l’identifiant utilisateur',
     customStatusPlaceholder: 'Statut personnalisé',
     customStatusHint: 'Entrée pour enregistrer',
     clearCustomStatus: 'Effacer le statut personnalisé',
@@ -581,6 +581,8 @@ export const fr = {
     openProfile: 'Voir le profil de {name}',
     editProfile: 'Modifier mon profil',
     switchAccount: 'Changer de compte',
+    backToProfile: 'Retour au profil',
+    saveStatus: 'Enregistrer',
   },
   voice: {
     channels: 'Salons vocaux',

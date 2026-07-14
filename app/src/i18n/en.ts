@@ -557,7 +557,7 @@ export const en: Dict = {
     invisible: 'Invisible',
     setStatus: 'Set status',
     userMenu: 'User menu',
-    copyMyId: 'Copy my ID',
+    copyMyId: 'Copy user ID',
     customStatusPlaceholder: 'Custom status',
     customStatusHint: 'Enter to save',
     clearCustomStatus: 'Clear custom status',
@@ -574,6 +574,8 @@ export const en: Dict = {
     openProfile: 'View {name}’s profile',
     editProfile: 'Edit my profile',
     switchAccount: 'Switch account',
+    backToProfile: 'Back to profile',
+    saveStatus: 'Save',
   },
   voice: {
     channels: 'Voice channels',

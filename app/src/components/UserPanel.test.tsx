@@ -58,7 +58,7 @@ const groupState: GroupStateJson = {
 };
 
 beforeEach(() => {
-  useUi.setState({ lang: 'fr', toasts: [], profile: null });
+  useUi.setState({ lang: 'fr', toasts: [], profile: null, modal: null });
   useSession.setState({ self, phase: 'ready' });
   useGroups.setState({ states: { g1: groupState } });
   useVoice.setState({ active: null, participants: new Map() });
@@ -84,14 +84,26 @@ describe('UserPanel — menu utilisateur rapide', () => {
     render(<UserPanel />);
 
     const trigger = screen.getByRole('button', { name: 'Menu utilisateur' });
-    expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
+    expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
 
     fireEvent.click(trigger);
 
-    expect(screen.getByRole('menu', { name: 'Menu utilisateur' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Menu utilisateur' })).toBeInTheDocument();
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
     expect(useUi.getState().profile).toBeNull();
+  });
+
+  it('referme le panneau au second clic sur son déclencheur', () => {
+    render(<UserPanel />);
+
+    const trigger = screen.getByRole('button', { name: 'Menu utilisateur' });
+    fireEvent.click(trigger);
+    fireEvent.mouseDown(trigger);
+    fireEvent.click(trigger);
+
+    expect(screen.queryByRole('dialog', { name: 'Menu utilisateur' })).toBeNull();
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('applique le statut choisi puis ferme le menu', () => {
@@ -100,10 +112,13 @@ describe('UserPanel — menu utilisateur rapide', () => {
     render(<UserPanel />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Menu utilisateur' }));
-    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Ne pas déranger' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Définir le statut — En ligne' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Ne pas déranger' }));
 
     expect(setOwnStatus).toHaveBeenCalledWith('dnd', undefined);
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('dialog', { name: 'Menu utilisateur' }),
+    ).not.toBeInTheDocument();
   });
 
   it('enregistre le texte de statut personnalisé avec Entrée', () => {
@@ -112,6 +127,7 @@ describe('UserPanel — menu utilisateur rapide', () => {
     render(<UserPanel />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Menu utilisateur' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Définir le statut — Inactif' }));
     const input = screen.getByRole('textbox', { name: 'Statut personnalisé' });
     fireEvent.change(input, { target: { value: 'en pause' } });
     fireEvent.keyDown(input, { key: 'Enter' });
@@ -128,10 +144,26 @@ describe('UserPanel — menu utilisateur rapide', () => {
     render(<UserPanel />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Menu utilisateur' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Copier mon ID' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Copier l’identifiant utilisateur' }),
+    );
 
     expect(writeText).toHaveBeenCalledWith('moi');
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('dialog', { name: 'Menu utilisateur' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('ouvre directement les paramètres de profil', () => {
+    render(<UserPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Menu utilisateur' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Modifier mon profil' }));
+
+    expect(useUi.getState().modal).toEqual({ kind: 'settings' });
+    expect(
+      screen.queryByRole('dialog', { name: 'Menu utilisateur' }),
+    ).not.toBeInTheDocument();
   });
 
   it('déconnexion rapide : demande confirmation puis appelle lock()', () => {
@@ -140,7 +172,7 @@ describe('UserPanel — menu utilisateur rapide', () => {
     render(<UserPanel />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Menu utilisateur' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Se déconnecter' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Se déconnecter' }));
 
     // Premier clic : confirmation inline, pas encore déconnecté.
     expect(lock).not.toHaveBeenCalled();
@@ -157,11 +189,13 @@ describe('UserPanel — menu utilisateur rapide', () => {
     render(<UserPanel />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Menu utilisateur' }));
-    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Menu utilisateur' })).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: 'Escape' });
 
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('dialog', { name: 'Menu utilisateur' }),
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -173,7 +207,9 @@ describe('UserPanel — bandeau vocal', () => {
   });
 
   it('affiche l’état connecté et le nom du groupe', () => {
-    useVoice.setState({ active: { groupId: 'g1', channelId: 'g1', muted: false, isCall: false } });
+    useVoice.setState({
+      active: { groupId: 'g1', channelId: 'g1', muted: false, isCall: false },
+    });
     render(<UserPanel />);
 
     expect(screen.getByText('Vocal connecté')).toBeInTheDocument();
@@ -196,7 +232,9 @@ describe('UserPanel — bandeau vocal', () => {
   });
 
   it('présente le bouton de rétablissement quand le micro est coupé', () => {
-    useVoice.setState({ active: { groupId: 'g1', channelId: 'g1', muted: true, isCall: false } });
+    useVoice.setState({
+      active: { groupId: 'g1', channelId: 'g1', muted: true, isCall: false },
+    });
     render(<UserPanel />);
 
     const muteButton = screen.getByRole('button', { name: 'Rétablir le micro' });
@@ -219,8 +257,15 @@ describe('UserPanel — bandeau vocal', () => {
 
 describe('UserPanel — bandeau d’appel 1-à-1', () => {
   it('prime sur le bandeau de salon vocal de groupe (jamais les deux)', () => {
-    useVoice.setState({ active: { groupId: 'g1', channelId: 'g1', muted: false, isCall: false } });
-    useCalls.setState({ phase: 'active', peer: 'alice', callId: 'c1', sincePhaseMs: Date.now() });
+    useVoice.setState({
+      active: { groupId: 'g1', channelId: 'g1', muted: false, isCall: false },
+    });
+    useCalls.setState({
+      phase: 'active',
+      peer: 'alice',
+      callId: 'c1',
+      sincePhaseMs: Date.now(),
+    });
     render(<UserPanel />);
 
     expect(screen.getByText('Alice')).toBeInTheDocument();
@@ -238,7 +283,9 @@ describe('UserPanel — bandeau d’appel 1-à-1', () => {
 
     expect(screen.getByText('Alice')).toBeInTheDocument();
     expect(screen.getByText('Sonnerie…')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Couper le micro' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Couper le micro' }),
+    ).not.toBeInTheDocument();
   });
 
   it('annule via le bouton rouge en sonnerie sortante', () => {
@@ -277,6 +324,8 @@ describe('UserPanel — bandeau d’appel 1-à-1', () => {
     render(<UserPanel />);
 
     expect(screen.queryByText('Sonnerie…')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Annuler l’appel' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Annuler l’appel' }),
+    ).not.toBeInTheDocument();
   });
 });

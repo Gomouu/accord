@@ -272,21 +272,23 @@ export function UserPanel() {
     <div className="relative border-t border-[color:var(--glass-border)]">
       {inCallPhase ? <CallBanner /> : <VoiceBanner />}
       {userMenuOpen && <UserMenu onClose={() => setUserMenuOpen(false)} />}
-      <div className="flex items-center gap-2 bg-rail/60 px-2 py-2">
+      <div className="flex items-center gap-1.5 bg-rail/70 p-2">
         <button
           type="button"
+          data-user-menu-trigger
+          onMouseDown={(e) => e.stopPropagation()}
           onClick={() => setUserMenuOpen((open) => !open)}
           title={t.profil.userMenu}
           aria-label={t.profil.userMenu}
-          aria-haspopup="menu"
+          aria-haspopup="dialog"
           aria-expanded={userMenuOpen}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-0.5 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-rail"
+          className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-md px-1.5 py-1 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-rail active:scale-[0.99]"
         >
           <span className="relative shrink-0 rounded-full">
             <Avatar
               id={self.pubkey}
               name={displayName}
-              size={32}
+              size={36}
               avatarHash={self.avatar}
               hint={self.pubkey}
               decoration={self.avatar_decoration}
@@ -298,7 +300,7 @@ export function UserPanel() {
             />
           </span>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium text-header">{displayName}</div>
+            <div className="truncate text-sm font-semibold text-header">{displayName}</div>
             <div className="truncate text-xs text-faint">
               {(ownStatusText ?? '') !== '' ? ownStatusText : self.friend_code}
             </div>
@@ -309,7 +311,7 @@ export function UserPanel() {
           aria-label={t.settings.title}
           title={t.settings.title}
           onClick={() => openModal({ kind: 'settings' })}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-rail active:scale-95"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-rail active:scale-95"
         >
           <svg
             width="18"

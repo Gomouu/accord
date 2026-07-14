@@ -1,29 +1,3 @@
-/**
- * Menu utilisateur rapide (façon Discord), ouvert au clic sur l'avatar/pseudo
- * du panneau utilisateur : mini carte de profil en tête (bannière, avatar,
- * pseudo teinté par la couleur d'accent, pronoms, snippet de statut
- * personnalisé ou de bio — même lecture que `ProfilePopover` pour soi-même),
- * puis les sections existantes : bascule de statut (même présence riche que
- * `friends.setOwnStatus`, y compris le texte personnalisé), copie de son
- * propre ID, changement de compte, et déconnexion rapide — sans passer par
- * les Paramètres. La déconnexion garde la même confirmation en deux temps
- * que `AccountTab.LogoutSection` (inline, pas de modal supplémentaire) ; le
- * changement de compte est une action normale (pas de style « danger »).
- *
- * Navigation clavier façon `ContextMenu` : flèches haut/bas déplacent le
- * focus parmi les items « bouton » (roving tabindex), Entrée/Espace les
- * activent nativement. Le champ de statut personnalisé garde son
- * comportement de saisie normal (les flèches n'y sont pas interceptées).
- * Fermeture au clic extérieur et à Échap, comme `StatusMenu`/`ProfilePopover`.
- *
- * L'en-tête (bannière + avatar qui chevauche) reprend la technique de
- * `ProfilePopover` : `overflow-hidden` sur le panneau entier fait que la
- * bannière garde les coins arrondis, tandis que l'avatar — positionné par une
- * marge négative, mais toujours dans les bornes du panneau — n'est jamais
- * rogné malgré le chevauchement (`relative z-10` + `ring-4 ring-modal` pour
- * le détacher visuellement de la bannière).
- */
-
 import { useEffect, useRef, useState } from 'react';
 import type { OwnPresenceStatus, PresenceStatus } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
@@ -37,17 +11,15 @@ import { CheckMenuIcon, CloseIcon, CopyMenuIcon, LeaveMenuIcon } from './Context
 import { PresenceDot } from './PresenceDot';
 import { ProfileBanner } from './ProfileBanner';
 
-/** Statut affichable de son propre nœud (invisible = pastille hors ligne). */
 export function ownDotStatus(status: OwnPresenceStatus): PresenceStatus {
   return status === 'invisible' ? 'offline' : status;
 }
 
-/** Icône « changer de compte » (voir ICON SPEC, styles/global.css). */
 function SwitchAccountIcon() {
   return (
     <svg
-      width="16"
-      height="16"
+      width="18"
+      height="18"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -56,17 +28,78 @@ function SwitchAccountIcon() {
       strokeLinejoin="round"
       aria-hidden
     >
-      <path d="m16 3 4 4-4 4" />
-      <path d="M20 7H4" />
-      <path d="m8 21-4-4 4-4" />
-      <path d="M4 17h16" />
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="m16 11 2 2 4-4" />
     </svg>
   );
 }
 
+function PencilIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="m9 18 6-6-6-6" />
+    </svg>
+  );
+}
+
+function BackIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="m15 18-6-6 6-6" />
+    </svg>
+  );
+}
+
+const ACTION_CLASS =
+  'flex min-h-12 w-full items-center gap-3 rounded-md px-3 text-left text-sm font-medium text-norm transition-[background-color,color,transform] duration-fast hover:bg-chat-hover hover:text-header focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blurple active:scale-[0.985]';
+
+const ICON_FRAME_CLASS =
+  'flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-input/70 text-muted';
+
 export function UserMenu({ onClose }: { onClose: () => void }) {
   const t = useT();
   const toast = useUi((s) => s.toast);
+  const openModal = useUi((s) => s.openModal);
   const closeModal = useUi((s) => s.closeModal);
   const self = useSession((s) => s.self);
   const lock = useSession((s) => s.lock);
@@ -74,18 +107,24 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
   const ownStatus = useFriends((s) => s.ownStatus);
   const ownStatusText = useFriends((s) => s.ownStatusText);
   const setOwnStatus = useFriends((s) => s.setOwnStatus);
+  const [view, setView] = useState<'profile' | 'status'>('profile');
   const [draft, setDraft] = useState(ownStatusText ?? '');
   const [confirmingLogout, setConfirmingLogout] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const [activeIndex, setActiveIndex] = useState(-1);
 
-  // Fermeture au clic extérieur et à Échap (même approche que ProfilePopover).
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose();
+      if (e.key !== 'Escape') return;
+      if (view === 'status') setView('profile');
+      else onClose();
     };
     const onDown = (e: MouseEvent): void => {
+      if (
+        e.target instanceof Element &&
+        e.target.closest('[data-user-menu-trigger]') !== null
+      ) {
+        return;
+      }
       if (ref.current !== null && !ref.current.contains(e.target as Node)) onClose();
     };
     window.addEventListener('keydown', onKey);
@@ -94,25 +133,37 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
       window.removeEventListener('keydown', onKey);
       document.removeEventListener('mousedown', onDown);
     };
-  }, [onClose]);
+  }, [onClose, view]);
 
   useEffect(() => {
     ref.current?.focus();
-  }, []);
+  }, [view]);
 
   if (self === null) return null;
 
+  const options: { status: OwnPresenceStatus; label: string }[] = [
+    { status: 'online', label: t.profil.online },
+    { status: 'idle', label: t.profil.idle },
+    { status: 'dnd', label: t.profil.dnd },
+    { status: 'invisible', label: t.profil.invisible },
+  ];
   const displayName = selfDisplayName(self);
   const accentHex = profileColorCss(self.accent_color);
-  // Même fond thématisé que ProfilePopover (teinte bannière, repli accent).
   const cardGradient = profileCardGradient(self.banner_color ?? self.accent_color);
   const effect = effectById(self.profile_effect);
-  // Snippet compact façon ProfilePopover : statut personnalisé en priorité,
-  // repli sur la bio tant qu'aucun statut personnalisé n'est défini.
-  const snippet = (ownStatusText ?? '') !== '' ? ownStatusText : self.bio;
+  const currentStatusLabel =
+    options.find(({ status }) => status === ownStatus)?.label ?? t.profil.online;
 
   const applyStatus = (status: OwnPresenceStatus, custom?: string): void => {
     setOwnStatus(status, custom).catch(() => toast('error', t.errors.actionFailed));
+  };
+
+  const copyFriendCode = (): void => {
+    copyToClipboard(
+      self.friend_code,
+      () => toast('info', t.app.copied),
+      () => toast('error', t.errors.actionFailed),
+    );
   };
 
   const copyId = (): void => {
@@ -124,73 +175,37 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
     onClose();
   };
 
-  const copyFriendCode = (): void => {
-    copyToClipboard(
-      self.friend_code,
-      () => toast('info', t.app.copied),
-      () => toast('error', t.errors.actionFailed),
-    );
+  const editProfile = (): void => {
+    onClose();
+    openModal({ kind: 'settings' });
   };
 
   const doSwitchAccount = (): void => {
+    onClose();
     closeModal();
     void switchAccount();
   };
 
-  // Même geste que `LogoutSection` (Paramètres) : ferme la modale éventuelle
-  // avant de verrouiller — `lock` rapporte ses échecs via le store, ne rejette
-  // jamais.
   const confirmLogout = (): void => {
+    onClose();
     closeModal();
     void lock();
-  };
-
-  const options: { status: OwnPresenceStatus; label: string }[] = [
-    { status: 'online', label: t.profil.online },
-    { status: 'idle', label: t.profil.idle },
-    { status: 'dnd', label: t.profil.dnd },
-    { status: 'invisible', label: t.profil.invisible },
-  ];
-
-  // Liste plate façon roving-tabindex (voir `ContextMenu`) : statuts, copie
-  // d'ID, changement de compte, puis déconnexion (ou sa confirmation à deux
-  // boutons). L'index s'incrémente au fil du rendu, dans l'ordre du DOM.
-  let cursor = -1;
-  const nextIndex = (): number => {
-    cursor += 1;
-    return cursor;
-  };
-  const itemCount = options.length + 2 + (confirmingLogout ? 2 : 1);
-
-  const moveActive = (next: number): void => {
-    const bounded = ((next % itemCount) + itemCount) % itemCount;
-    setActiveIndex(bounded);
-    itemRefs.current[bounded]?.focus();
-  };
-
-  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
-    // Ignore les flèches quand le focus est dans le champ de statut
-    // personnalisé : il doit garder son comportement de saisie normal.
-    if (e.target instanceof HTMLInputElement) return;
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      moveActive(activeIndex + 1);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      moveActive(activeIndex - 1);
-    }
   };
 
   return (
     <div
       ref={ref}
-      role="menu"
+      role="dialog"
       aria-label={t.profil.userMenu}
       tabIndex={-1}
-      onKeyDown={onKeyDown}
-      className="glass-strong context-menu-enter absolute bottom-[calc(100%+8px)] left-2 z-50 w-[300px] overflow-hidden rounded-lg focus:outline-none"
+      style={{
+        width: 360,
+        maxWidth: 'calc(100vw - 16px)',
+        maxHeight: 'min(720px, calc(100vh - 80px))',
+      }}
+      className="glass-strong context-menu-enter absolute bottom-[calc(100%+10px)] left-2 z-50 origin-bottom-left overflow-y-auto overscroll-contain rounded-xl shadow-3 focus:outline-none"
     >
-      <div className="profile-card-canvas overflow-hidden">
+      <div className="profile-card-canvas min-h-full">
         {effect?.render()}
         {cardGradient !== null && (
           <span
@@ -199,254 +214,278 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
             style={{ backgroundImage: cardGradient }}
           />
         )}
+
         <div className="profile-card-content">
-          <ProfileBanner
-            hash={self.banner}
-            hint={self.pubkey}
-            color={self.banner_color}
-            heightClassName="h-14"
-          />
-          <div className="-mt-7 px-3 pb-3">
-            <div className="relative z-10 mb-1.5 inline-flex rounded-full bg-modal p-1 shadow-2">
-              <Avatar
-                id={self.pubkey}
-                name={displayName}
-                size={56}
-                avatarHash={self.avatar}
+          {view === 'profile' ? (
+            <>
+              <ProfileBanner
+                hash={self.banner}
                 hint={self.pubkey}
-                decoration={self.avatar_decoration}
+                color={self.banner_color}
+                heightClassName="h-28"
               />
-            </div>
-            <div
-              className="truncate text-base font-semibold text-header"
-              style={accentHex !== null ? { color: accentHex } : undefined}
-            >
-              {displayName}
-            </div>
-            {self.pronouns !== null && self.pronouns !== '' && (
-              <p className="truncate text-xs text-muted">{self.pronouns}</p>
-            )}
-            {snippet !== null && snippet !== '' && (
-              <p className="mt-0.5 truncate text-xs text-muted">{snippet}</p>
-            )}
-            <div className="mt-1 flex items-center gap-1.5">
-              <span className="selectable truncate font-mono text-xs text-faint">
-                {self.friend_code}
-              </span>
-              <button
-                type="button"
-                aria-label={t.profil.copyFriendCode}
-                title={t.profil.copyFriendCode}
-                onClick={copyFriendCode}
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-xs text-faint transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-1 focus-visible:ring-offset-modal active:scale-95"
-              >
-                <CopyMenuIcon />
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
 
-      <div className="p-1.5 pt-0">
-        <div className="my-1 h-px bg-input/60" role="separator" />
+              <div className="-mt-11 px-4 pb-4">
+                <div className="flex items-end justify-between gap-3">
+                  <div className="relative z-10 rounded-full bg-modal p-1 shadow-2">
+                    <Avatar
+                      id={self.pubkey}
+                      name={displayName}
+                      size={80}
+                      avatarHash={self.avatar}
+                      hint={self.pubkey}
+                      decoration={self.avatar_decoration}
+                    />
+                    <PresenceDot
+                      status={ownDotStatus(ownStatus)}
+                      label={currentStatusLabel}
+                      className="absolute bottom-1 right-1 rounded-full ring-[3px] ring-modal"
+                    />
+                  </div>
+                  <span className="mb-1 flex min-w-0 items-center gap-1.5 rounded-full border border-[color:var(--glass-border)] bg-modal/75 px-2.5 py-1 text-xs font-medium text-muted shadow-1">
+                    <PresenceDot status={ownDotStatus(ownStatus)} />
+                    <span className="truncate">{currentStatusLabel}</span>
+                  </span>
+                </div>
 
-        <div className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-faint">
-          {t.profil.setStatus}
-        </div>
-        {options.map(({ status, label }) => {
-          const index = nextIndex();
-          const checked = ownStatus === status;
-          return (
-            <button
-              key={status}
-              ref={(el) => {
-                itemRefs.current[index] = el;
-              }}
-              type="button"
-              role="menuitemradio"
-              aria-checked={checked}
-              tabIndex={index === activeIndex ? 0 : -1}
-              onMouseEnter={() => setActiveIndex(index)}
-              onClick={() => {
-                applyStatus(status);
-                onClose();
-              }}
-              className={`flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors duration-fast focus-visible:outline-none ${
-                checked
-                  ? 'bg-chat-hover text-header'
-                  : 'text-norm hover:bg-chat-hover focus-visible:bg-chat-hover'
-              }`}
-            >
-              <PresenceDot status={ownDotStatus(status)} />
-              <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-              {checked && (
-                <span
-                  aria-hidden
-                  className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-header"
+                <div className="mt-2">
+                  <h2
+                    className="truncate text-xl font-semibold tracking-[-0.02em] text-header"
+                    style={accentHex !== null ? { color: accentHex } : undefined}
+                  >
+                    {displayName}
+                  </h2>
+                  {self.pronouns !== null && self.pronouns !== '' && (
+                    <p className="mt-0.5 text-xs text-muted">{self.pronouns}</p>
+                  )}
+
+                  <div className="mt-1.5 flex items-center gap-1.5">
+                    <span className="selectable min-w-0 truncate font-mono text-xs text-faint">
+                      {self.friend_code}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={t.profil.copyFriendCode}
+                      title={t.profil.copyFriendCode}
+                      onClick={copyFriendCode}
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint transition-[background-color,color,transform] duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-95"
+                    >
+                      <CopyMenuIcon />
+                    </button>
+                  </div>
+
+                  {ownStatusText !== null && ownStatusText !== '' && (
+                    <div className="mt-3 flex items-start gap-2 rounded-lg border border-[color:var(--glass-border)] bg-modal/55 px-3 py-2.5 text-sm text-norm shadow-1">
+                      <span className="mt-0.5 text-blurple">✦</span>
+                      <p className="min-w-0 break-words text-pretty">{ownStatusText}</p>
+                    </div>
+                  )}
+
+                  {self.bio !== null && self.bio !== '' && (
+                    <p className="mt-3 whitespace-pre-wrap break-words text-pretty text-sm leading-relaxed text-norm">
+                      {self.bio}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2 px-3 pb-3">
+                <div className="rounded-lg border border-[color:var(--glass-border)] bg-sidebar/80 p-1 shadow-1">
+                  <button type="button" onClick={editProfile} className={ACTION_CLASS}>
+                    <span className={ICON_FRAME_CLASS}>
+                      <PencilIcon />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">
+                      {t.profil.editProfile}
+                    </span>
+                  </button>
+                  <div className="mx-3 h-px bg-input/70" role="separator" />
+                  <button
+                    type="button"
+                    aria-label={`${t.profil.setStatus} — ${currentStatusLabel}`}
+                    onClick={() => setView('status')}
+                    className={ACTION_CLASS}
+                  >
+                    <span className={ICON_FRAME_CLASS}>
+                      <PresenceDot status={ownDotStatus(ownStatus)} />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{currentStatusLabel}</span>
+                    <span className="text-faint">
+                      <ChevronRightIcon />
+                    </span>
+                  </button>
+                </div>
+
+                <div className="rounded-lg border border-[color:var(--glass-border)] bg-sidebar/80 p-1 shadow-1">
+                  <button
+                    type="button"
+                    onClick={doSwitchAccount}
+                    className={ACTION_CLASS}
+                  >
+                    <span className={ICON_FRAME_CLASS}>
+                      <SwitchAccountIcon />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">
+                      {t.profil.switchAccount}
+                    </span>
+                    <span className="text-faint">
+                      <ChevronRightIcon />
+                    </span>
+                  </button>
+                  <div className="mx-3 h-px bg-input/70" role="separator" />
+                  <button type="button" onClick={copyId} className={ACTION_CLASS}>
+                    <span className={ICON_FRAME_CLASS}>
+                      <CopyMenuIcon />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{t.profil.copyMyId}</span>
+                  </button>
+                </div>
+
+                {!confirmingLogout ? (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingLogout(true)}
+                    className={`${ACTION_CLASS} border border-red/20 bg-red/10 text-red hover:bg-red/15 hover:text-red`}
+                  >
+                    <span className={`${ICON_FRAME_CLASS} bg-red/10 text-red`}>
+                      <LeaveMenuIcon />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{t.settings.logout}</span>
+                  </button>
+                ) : (
+                  <div className="rounded-lg border border-red/20 bg-sidebar/85 p-3 shadow-1">
+                    <p className="text-pretty text-sm text-norm">
+                      {t.settings.logoutConfirmText}
+                    </p>
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={confirmLogout}
+                        className="min-h-10 flex-1 rounded-md bg-red px-3 text-sm font-medium text-on-red transition-[filter,transform] duration-fast hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red active:scale-[0.98]"
+                      >
+                        {t.settings.logoutConfirm}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmingLogout(false)}
+                        className="min-h-10 rounded-md bg-input px-3 text-sm font-medium text-norm transition-[background-color,transform] duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-[0.98]"
+                      >
+                        {t.app.cancel}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="p-3">
+              <div className="flex items-center gap-2 px-1 pb-3">
+                <button
+                  type="button"
+                  aria-label={t.profil.backToProfile}
+                  onClick={() => setView('profile')}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted transition-[background-color,color,transform] duration-fast hover:bg-chat-hover hover:text-header focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-95"
                 >
-                  <CheckMenuIcon />
-                </span>
-              )}
-            </button>
-          );
-        })}
-        <div className="flex items-center gap-1.5 px-1 py-1.5">
-          <input
-            aria-label={t.profil.customStatusPlaceholder}
-            placeholder={t.profil.customStatusPlaceholder}
-            value={draft}
-            maxLength={128}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                applyStatus(ownStatus, draft);
-                onClose();
-              }
-            }}
-            className="min-w-0 flex-1 rounded-md border border-transparent bg-input px-2 py-1.5 text-sm text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
-          />
-          {(ownStatusText ?? '') !== '' && (
-            <button
-              type="button"
-              aria-label={t.profil.clearCustomStatus}
-              title={t.profil.clearCustomStatus}
-              onClick={() => {
-                applyStatus(ownStatus, '');
-                onClose();
-              }}
-              className="rounded-md p-1.5 text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
-            >
-              <CloseIcon size={14} />
-            </button>
+                  <BackIcon />
+                </button>
+                <div>
+                  <h2 className="text-lg font-semibold text-header">
+                    {t.profil.setStatus}
+                  </h2>
+                  <p className="text-xs text-muted">{currentStatusLabel}</p>
+                </div>
+              </div>
+
+              <div
+                role="radiogroup"
+                aria-label={t.profil.setStatus}
+                className="rounded-lg border border-[color:var(--glass-border)] bg-sidebar/80 p-1 shadow-1"
+              >
+                {options.map(({ status, label }, index) => {
+                  const checked = ownStatus === status;
+                  return (
+                    <div key={status}>
+                      {index > 0 && <div className="mx-3 h-px bg-input/70" />}
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={checked}
+                        onClick={() => {
+                          applyStatus(status);
+                          onClose();
+                        }}
+                        className={`${ACTION_CLASS} ${checked ? 'bg-chat-hover text-header' : ''}`}
+                      >
+                        <span className={ICON_FRAME_CLASS}>
+                          <PresenceDot status={ownDotStatus(status)} />
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">{label}</span>
+                        {checked && (
+                          <span className="flex h-6 w-6 items-center justify-center text-header">
+                            <CheckMenuIcon />
+                          </span>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="mt-3 rounded-lg border border-[color:var(--glass-border)] bg-sidebar/80 p-3 shadow-1">
+                <label
+                  htmlFor="user-custom-status"
+                  className="text-xs font-medium text-muted"
+                >
+                  {t.profil.customStatusPlaceholder}
+                </label>
+                <div className="mt-2">
+                  <input
+                    id="user-custom-status"
+                    value={draft}
+                    maxLength={128}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        applyStatus(ownStatus, draft);
+                        onClose();
+                      }
+                    }}
+                    className="min-h-10 w-full rounded-md border border-transparent bg-input px-3 text-sm text-norm placeholder-faint outline-none transition-[border-color,box-shadow] duration-fast focus:border-blurple/50 focus:ring-1 focus:ring-blurple/25"
+                  />
+                  <div className="mt-2 flex items-center gap-2">
+                    <p className="min-w-0 flex-1 truncate text-xs text-faint">
+                      {t.profil.customStatusHint}
+                    </p>
+                    {(ownStatusText ?? '') !== '' && (
+                      <button
+                        type="button"
+                        aria-label={t.profil.clearCustomStatus}
+                        title={t.profil.clearCustomStatus}
+                        onClick={() => {
+                          applyStatus(ownStatus, '');
+                          onClose();
+                        }}
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted transition-[background-color,color,transform] duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-95"
+                      >
+                        <CloseIcon size={15} />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        applyStatus(ownStatus, draft);
+                        onClose();
+                      }}
+                      className="min-h-10 rounded-md bg-blurple px-3 text-sm font-medium text-white transition-[background-color,transform] duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-[0.98]"
+                    >
+                      {t.profil.saveStatus}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
         </div>
-        <div className="px-1 pb-1 text-[10px] text-faint">
-          {t.profil.customStatusHint}
-        </div>
-
-        <div className="my-1.5 h-px bg-input/60" role="separator" />
-
-        {(() => {
-          const index = nextIndex();
-          return (
-            <button
-              key="copy-id"
-              ref={(el) => {
-                itemRefs.current[index] = el;
-              }}
-              type="button"
-              role="menuitem"
-              tabIndex={index === activeIndex ? 0 : -1}
-              onMouseEnter={() => setActiveIndex(index)}
-              onClick={copyId}
-              className="flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm font-medium text-norm transition-colors duration-fast hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none"
-            >
-              <span
-                aria-hidden
-                className="flex h-[18px] w-[18px] shrink-0 items-center justify-center"
-              >
-                <CopyMenuIcon />
-              </span>
-              {t.profil.copyMyId}
-            </button>
-          );
-        })()}
-
-        {(() => {
-          const index = nextIndex();
-          return (
-            <button
-              key="switch-account"
-              ref={(el) => {
-                itemRefs.current[index] = el;
-              }}
-              type="button"
-              role="menuitem"
-              tabIndex={index === activeIndex ? 0 : -1}
-              onMouseEnter={() => setActiveIndex(index)}
-              onClick={doSwitchAccount}
-              className="flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm font-medium text-norm transition-colors duration-fast hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none"
-            >
-              <span
-                aria-hidden
-                className="flex h-[18px] w-[18px] shrink-0 items-center justify-center"
-              >
-                <SwitchAccountIcon />
-              </span>
-              {t.profil.switchAccount}
-            </button>
-          );
-        })()}
-
-        <div className="my-1.5 h-px bg-input/60" role="separator" />
-
-        {!confirmingLogout ? (
-          (() => {
-            const index = nextIndex();
-            return (
-              <button
-                key="logout"
-                ref={(el) => {
-                  itemRefs.current[index] = el;
-                }}
-                type="button"
-                role="menuitem"
-                tabIndex={index === activeIndex ? 0 : -1}
-                onMouseEnter={() => setActiveIndex(index)}
-                onClick={() => setConfirmingLogout(true)}
-                className="flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm font-medium text-red transition-colors duration-fast hover:bg-red/10 focus-visible:bg-red/10 focus-visible:outline-none"
-              >
-                <span
-                  aria-hidden
-                  className="flex h-[18px] w-[18px] shrink-0 items-center justify-center"
-                >
-                  <LeaveMenuIcon />
-                </span>
-                {t.settings.logout}
-              </button>
-            );
-          })()
-        ) : (
-          <div className="rounded-lg bg-rail/40 p-2">
-            <p className="text-xs text-norm">{t.settings.logoutConfirmText}</p>
-            <div className="mt-2 flex gap-1.5">
-              {(() => {
-                const confirmIndex = nextIndex();
-                const cancelIndex = nextIndex();
-                return (
-                  <>
-                    <button
-                      key="logout-confirm"
-                      ref={(el) => {
-                        itemRefs.current[confirmIndex] = el;
-                      }}
-                      type="button"
-                      tabIndex={confirmIndex === activeIndex ? 0 : -1}
-                      onMouseEnter={() => setActiveIndex(confirmIndex)}
-                      onClick={confirmLogout}
-                      className="flex-1 rounded-sm bg-red px-2 py-1.5 text-xs font-medium text-on-red transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
-                    >
-                      {t.settings.logoutConfirm}
-                    </button>
-                    <button
-                      key="logout-cancel"
-                      ref={(el) => {
-                        itemRefs.current[cancelIndex] = el;
-                      }}
-                      type="button"
-                      tabIndex={cancelIndex === activeIndex ? 0 : -1}
-                      onMouseEnter={() => setActiveIndex(cancelIndex)}
-                      onClick={() => setConfirmingLogout(false)}
-                      className="rounded-sm bg-rail px-2 py-1.5 text-xs font-medium text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
-                    >
-                      {t.app.cancel}
-                    </button>
-                  </>
-                );
-              })()}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

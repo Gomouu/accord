@@ -330,6 +330,8 @@ mod tests {
                 pronouns: None,
                 accent_color: None,
                 banner_color: None,
+                avatar_decoration: None,
+                profile_effect: None,
             },
         )
         .unwrap();

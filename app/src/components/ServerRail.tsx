@@ -9,17 +9,25 @@ import { copyToClipboard } from '../lib/clipboard';
 import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 import { folderOfServer, useFolders, type ServerFolder } from '../stores/folders';
 import { totalDmMentions, totalDmUnread, useFriends } from '../stores/friends';
-import { useGroups, sortChannels, hasPerm, PERMISSIONS } from '../stores/groups';
+import {
+  useGroups,
+  sortChannels,
+  channelKey,
+  hasPerm,
+  PERMISSIONS,
+} from '../stores/groups';
 import { serverLevel, useMute } from '../stores/mute';
 import { useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import {
   BellOffMenuIcon,
   buildNotifLevelItems,
+  CheckMenuIcon,
   CopyMenuIcon,
   EnvelopeMenuIcon,
   GearMenuIcon,
   LeaveMenuIcon,
+  PlusMenuIcon,
 } from './ContextMenu';
 import { lireFichier } from '../lib/files';
 import { estOuvertureMenu, pointAncrageMenu } from '../lib/focus';
@@ -74,6 +82,28 @@ function ServerIcon({ icon, name }: { icon: string | null; name: string }) {
 
   if (url === null) return <>{initials(name)}</>;
   return <img src={url} alt="" className="h-full w-full object-cover" />;
+}
+
+/** Icône « calendrier » du jeu de menu (14 px, création d'événement). */
+function EventMenuIcon() {
+  return (
+    <svg
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect width="18" height="18" x="3" y="4" rx="2" />
+      <path d="M16 2v4" />
+      <path d="M8 2v4" />
+      <path d="M3 10h18" />
+    </svg>
+  );
 }
 
 /** Glyphe dossier partagé (pastille du rail et items de menu contextuel). */
@@ -208,6 +238,8 @@ export function ServerRail() {
   const ids = useGroups((s) => s.ids);
   const states = useGroups((s) => s.states);
   const groupMentions = useGroups((s) => s.mentions);
+  const groupUnread = useGroups((s) => s.unread);
+  const hideMutedChannels = useUi((s) => s.hideMutedChannels);
   const serverLevels = useMute((s) => s.serverLevels);
   const lastChannelByServer = useUi((s) => s.lastChannelByServer);
   const lastDmPeer = useUi((s) => s.lastDmPeer);
@@ -312,25 +344,139 @@ export function ServerRail() {
     const muted = level === 'none';
 
     /**
-     * Items du menu contextuel du serveur : copie d'identifiant, niveau de
-     * notification (sous-menu local à trois choix Tout/@mentions/Rien, voir
-     * `stores/mute.ts` — agit sur le son et la notification native, sans effet
-     * sur le compteur de non-lu), rangement dans un dossier (local, voir
-     * `stores/folders.ts`), invitation (si permis, D-045 : consentement
-     * explicite — ouvre le sélecteur d'ami existant), paramètres (mêmes
-     * actions que l'icône ⚙️ du salon) et départ — omis si le fondateur
-     * ne peut pas encore quitter (règle du contrat : d'autres membres
-     * restent). Pas de « marquer comme lu » global : aucune action
-     * équivalente n'existe côté store (seulement par salon, une fois
-     * ouvert). `x`/`y` : point de clic, pour rouvrir le sous-menu au même
-     * endroit.
+     * Items du menu contextuel du serveur, ordonnés façon Discord : marquer
+     * comme lu (si non-lus), invitation (D-045)/notifications/masquage des
+     * salons muets, paramètres, créations (salon, catégorie, événement, si
+     * MANAGE_CHANNELS), copie d'identifiant, rangement dans un dossier (local,
+     * voir `stores/folders.ts`) et départ — omis si le fondateur ne peut pas
+     * encore quitter (règle du contrat : d'autres membres restent). Le sous-menu
+     * de notifications se rouvre au point de clic `x`/`y`. Les groupes sont
+     * assemblés puis aplatis, un séparateur ouvrant chaque groupe non vide.
      */
     const buildServerItems = (x: number, y: number): ContextMenuItem[] => {
       const groupState = states[id];
       const isFounder = self !== null && groupState?.founder === self.pubkey;
       const founderBlocked = isFounder && (groupState?.members.length ?? 0) > 1;
-      const canInvite = hasPerm(groupState?.my_permissions ?? 0, PERMISSIONS.INVITE);
-      const items: ContextMenuItem[] = [
+      const perms = groupState?.my_permissions ?? 0;
+      const canInvite = hasPerm(perms, PERMISSIONS.INVITE);
+      const canManageChannels = hasPerm(perms, PERMISSIONS.MANAGE_CHANNELS);
+      const serverHasUnread =
+        (groupMentions[id] ?? 0) > 0 ||
+        Object.values(groupUnread[id] ?? {}).some((n) => n > 0);
+
+      const sections: ContextMenuItem[][] = [];
+
+      // Marquer comme lu — seulement si le serveur a des non-lus (jamais un
+      // no-op) : parcourt les salons texte/annonces à non-lus et réutilise
+      // `markRead` salon par salon (même flux qu'à l'ouverture d'un salon).
+      sections.push(
+        serverHasUnread
+          ? [
+              {
+                label: t.contextMenu.markAsRead,
+                icon: <CheckMenuIcon />,
+                onClick: () => {
+                  void (async () => {
+                    const g = useGroups.getState();
+                    const chans = (g.states[id]?.channels ?? []).filter(
+                      (c) => c.kind !== 'voice',
+                    );
+                    for (const ch of chans) {
+                      if ((g.unread[id]?.[ch.channel_id] ?? 0) === 0) continue;
+                      try {
+                        await g.refreshHistory(id, ch.channel_id);
+                        const last = (
+                          useGroups.getState().messages[channelKey(id, ch.channel_id)] ??
+                          []
+                        ).at(-1);
+                        if (last !== undefined) {
+                          await useGroups
+                            .getState()
+                            .markRead(id, ch.channel_id, last.lamport);
+                        }
+                      } catch {
+                        // Best effort : les autres salons continuent d'être marqués.
+                      }
+                    }
+                  })();
+                },
+              },
+            ]
+          : [],
+      );
+
+      // Invitation, notifications, masquage des salons muets.
+      const notifGroup: ContextMenuItem[] = [];
+      if (canInvite) {
+        notifGroup.push({
+          label: t.groups.invitePeople,
+          icon: <EnvelopeMenuIcon />,
+          onClick: () => useUi.getState().openModal({ kind: 'invite', groupId: id }),
+        });
+      }
+      notifGroup.push({
+        label: t.notifLevel.title,
+        icon: <BellOffMenuIcon />,
+        onClick: () =>
+          useContextMenu.getState().openMenu(
+            x,
+            y,
+            buildNotifLevelItems(t.notifLevel, level, (lvl) =>
+              useMute.getState().setServerLevel(id, lvl),
+            ),
+          ),
+      });
+      notifGroup.push({
+        label: t.serveur.hideMutedChannels,
+        icon: <BellOffMenuIcon />,
+        checked: hideMutedChannels,
+        onClick: () => useUi.getState().toggleHideMutedChannels(),
+      });
+      sections.push(notifGroup);
+
+      // Paramètres du serveur.
+      sections.push([
+        {
+          label: t.serveur.settingsTitle,
+          icon: <GearMenuIcon />,
+          onClick: () =>
+            useUi.getState().openModal({ kind: 'serverSettings', groupId: id }),
+        },
+      ]);
+
+      // Créations (MANAGE_CHANNELS) : salon, catégorie (onglet Salons des
+      // paramètres, pas de modale dédiée — même choix que le menu du nom de
+      // serveur), événement.
+      const creations: ContextMenuItem[] = [];
+      if (canManageChannels) {
+        creations.push(
+          {
+            label: t.groups.addChannel,
+            icon: <PlusMenuIcon />,
+            onClick: () =>
+              useUi.getState().openModal({ kind: 'createChannel', groupId: id }),
+          },
+          {
+            label: t.serveur.createCategoryAction,
+            icon: <PlusMenuIcon />,
+            onClick: () =>
+              useUi.getState().openModal({
+                kind: 'serverSettings',
+                groupId: id,
+                initialTab: 'channels',
+              }),
+          },
+          {
+            label: t.groups.eventCreate,
+            icon: <EventMenuIcon />,
+            onClick: () => useUi.getState().openModal({ kind: 'events', groupId: id }),
+          },
+        );
+      }
+      sections.push(creations);
+
+      // Copie d'identifiant.
+      sections.push([
         {
           label: t.contextMenu.copyServerId,
           icon: <CopyMenuIcon />,
@@ -341,78 +487,72 @@ export function ServerRail() {
               () => toast('error', t.errors.actionFailed),
             ),
         },
-        {
-          label: t.notifLevel.title,
-          icon: <BellOffMenuIcon />,
-          onClick: () =>
-            useContextMenu.getState().openMenu(
-              x,
-              y,
-              buildNotifLevelItems(t.notifLevel, level, (lvl) =>
-                useMute.getState().setServerLevel(id, lvl),
-              ),
-            ),
-        },
-      ];
+      ]);
+
+      // Rangement dans un dossier (local, propre à Accord).
+      const folderItems: ContextMenuItem[] = [];
       if (folderOfServer(folders, id) !== null) {
-        items.push({
+        folderItems.push({
           label: t.folders.removeFromFolder,
           icon: <FolderSvg size={16} />,
           onClick: () => useFolders.getState().removeServer(id),
         });
       } else {
         for (const f of folders) {
-          items.push({
+          folderItems.push({
             label: interpolate(t.folders.addToFolder, { name: f.name }),
             icon: <FolderSvg size={16} />,
             onClick: () => useFolders.getState().addServer(f.id, id),
           });
         }
-        items.push({
+        folderItems.push({
           label: t.folders.addToNew,
           icon: <FolderSvg size={16} />,
           onClick: () => {
-            const folderName = window.prompt(
-              t.folders.namePrompt,
-              t.folders.defaultName,
-            );
+            const folderName = window.prompt(t.folders.namePrompt, t.folders.defaultName);
             if (folderName === null || folderName.trim() === '') return;
             useFolders.getState().createFolder(folderName.trim(), [id]);
           },
         });
       }
-      if (canInvite) {
-        items.push({
-          label: t.groups.invitePeople,
-          icon: <EnvelopeMenuIcon />,
-          onClick: () => useUi.getState().openModal({ kind: 'invite', groupId: id }),
-        });
-      }
-      items.push({
-        label: t.serveur.settingsTitle,
-        icon: <GearMenuIcon />,
-        onClick: () => useUi.getState().openModal({ kind: 'serverSettings', groupId: id }),
-      });
-      if (!founderBlocked) {
-        items.push({
-          label: t.serveur.leave,
-          icon: <LeaveMenuIcon />,
-          danger: true,
-          separatorBefore: true,
-          onClick: () => {
-            if (!window.confirm(interpolate(t.serveur.leaveConfirm, { name }))) return;
-            useGroups
-              .getState()
-              .leave(id)
-              .then(() => {
-                toast('info', t.serveur.left);
-                const current = useUi.getState().view;
-                if (current.kind === 'group' && current.groupId === id) {
-                  setView({ kind: 'friends' });
-                }
-              })
-              .catch(() => toast('error', t.errors.actionFailed));
-          },
+      sections.push(folderItems);
+
+      // Départ (omis si le fondateur ne peut pas encore quitter).
+      sections.push(
+        founderBlocked
+          ? []
+          : [
+              {
+                label: t.serveur.leave,
+                icon: <LeaveMenuIcon />,
+                danger: true,
+                onClick: () => {
+                  if (!window.confirm(interpolate(t.serveur.leaveConfirm, { name }))) {
+                    return;
+                  }
+                  useGroups
+                    .getState()
+                    .leave(id)
+                    .then(() => {
+                      toast('info', t.serveur.left);
+                      const current = useUi.getState().view;
+                      if (current.kind === 'group' && current.groupId === id) {
+                        setView({ kind: 'friends' });
+                      }
+                    })
+                    .catch(() => toast('error', t.errors.actionFailed));
+                },
+              },
+            ],
+      );
+
+      // Aplatit : un séparateur ouvre chaque groupe non vide après le premier.
+      const items: ContextMenuItem[] = [];
+      for (const section of sections) {
+        section.forEach((item, i) => {
+          items.push(
+            i === 0 && items.length > 0 ? { ...item, separatorBefore: true } : item,
+          );
         });
       }
       return items;

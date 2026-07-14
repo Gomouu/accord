@@ -35,6 +35,8 @@ const SELF: SelfProfile = {
   pronouns: null,
   accent_color: null,
   banner_color: null,
+  avatar_decoration: null,
+  profile_effect: null,
 };
 
 function contact(pubkey: string, name: string): Contact {

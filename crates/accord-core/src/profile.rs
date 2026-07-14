@@ -30,10 +30,15 @@ const META_PRONOUNS_KEY: &str = "profile.pronouns";
 const META_ACCENT_COLOR_KEY: &str = "profile.accent_color";
 /// Clé de métadonnée de la couleur de bannière locale dans la table `meta`.
 const META_BANNER_COLOR_KEY: &str = "profile.banner_color";
+/// Clé de métadonnée de l'id de décoration d'avatar locale dans `meta`.
+const META_AVATAR_DECORATION_KEY: &str = "profile.avatar_decoration";
+/// Clé de métadonnée de l'id d'effet de profil local dans `meta`.
+const META_PROFILE_EFFECT_KEY: &str = "profile.profile_effect";
 /// Préfixe des métadonnées de profil des contacts (`profile.peer.<hex>.bio`,
 /// `profile.peer.<hex>.avatar`, `profile.peer.<hex>.banner`,
-/// `profile.peer.<hex>.pronouns`, `profile.peer.<hex>.accent_color` et
-/// `profile.peer.<hex>.banner_color`).
+/// `profile.peer.<hex>.pronouns`, `profile.peer.<hex>.accent_color`,
+/// `profile.peer.<hex>.banner_color`, `profile.peer.<hex>.avatar_decoration`
+/// et `profile.peer.<hex>.profile_effect`).
 const PEER_META_PREFIX: &str = "profile.peer.";
 
 /// Longueur minimale d'un pseudo (caractères, après trim).
@@ -53,6 +58,11 @@ pub const PRONOUNS_MAX_BYTES: usize = 40;
 /// Borne d'une couleur `0xRRGGBB` (accent ou bannière), alignée sur la limite
 /// de décodage côté protocole.
 pub const COLOR_MAX: u32 = 0xFF_FF_FF;
+/// Borne d'un id de décoration d'avatar / d'effet de profil (octets ASCII),
+/// alignée sur la limite de décodage côté protocole (`MAX_DECORATION_ID`). Ces
+/// ids sont des clés opaques vers un catalogue intégré côté client : jamais
+/// interpolés, ils servent uniquement de clé de lookup.
+pub const DECORATION_ID_MAX_BYTES: usize = 24;
 
 /// Profil d'un contact appliqué à l'ingestion d'un message `Profile`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,6 +84,12 @@ pub struct PeerProfile {
     /// Couleur de bannière persistée (`None` si absente ou hors bornes,
     /// silencieusement ignorée dans ce dernier cas).
     pub banner_color: Option<u32>,
+    /// Id de décoration d'avatar persisté (`None` si absent ou malformé,
+    /// meilleur effort — un id malformé est silencieusement ignoré).
+    pub avatar_decoration: Option<String>,
+    /// Id d'effet de profil persisté (`None` si absent ou malformé, meilleur
+    /// effort — mêmes règles que `avatar_decoration`).
+    pub profile_effect: Option<String>,
     /// Vrai si le hash d'avatar DIFFÈRE de celui déjà stocké pour ce contact
     /// (nouveau ou retiré). Seule une vraie nouveauté justifie une
     /// récupération en arrière-plan : une ré-annonce du même profil (ou un
@@ -137,6 +153,41 @@ pub fn validate_color(color: u32) -> Result<u32, CoreError> {
         ));
     }
     Ok(color)
+}
+
+/// Vrai si `id` est un id de décoration/effet bien formé : 1 à
+/// [`DECORATION_ID_MAX_BYTES`] octets ASCII `[a-z0-9_-]`. Miroir exact de la
+/// règle appliquée côté protocole au décodage (`core_msg::is_valid_decoration_id`),
+/// dupliquée ici faute de dépendance cœur → proto sur ce point.
+pub fn is_valid_decoration_id(id: &str) -> bool {
+    let len = id.len();
+    (1..=DECORATION_ID_MAX_BYTES).contains(&len)
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
+}
+
+/// Valide un id de décoration d'avatar / d'effet de profil défini localement
+/// (`profile.set`) : 1 à 24 octets ASCII `[a-z0-9_-]`. Contrairement à la bio
+/// ou aux pronoms, une chaîne vide N'EST PAS un effacement (l'effacement passe
+/// par `null` côté frontière, tri-état) : un id vide est donc rejeté. Rend l'id
+/// tel quel une fois validé.
+pub fn validate_decoration_id(id: &str) -> Result<&str, CoreError> {
+    if !is_valid_decoration_id(id) {
+        return Err(CoreError::Invalid(
+            "id de décoration : 1 à 24 caractères [a-z0-9_-] attendus",
+        ));
+    }
+    Ok(id)
+}
+
+/// Sanitize un id de décoration/effet annoncé par un **pair** : meilleur
+/// effort plutôt que rejet (miroir de [`sanitize_peer_pronouns`]). Rend
+/// `Some(id)` seulement s'il est bien formé, `None` sinon — un id malformé ou
+/// inconnu n'affiche simplement rien côté client (défense en profondeur : le
+/// protocole a déjà réduit les ids malformés à `None` au décodage).
+pub fn sanitize_peer_decoration_id(id: &str) -> Option<String> {
+    is_valid_decoration_id(id).then(|| id.to_string())
 }
 
 /// Sanitize des pronoms annoncés par un **pair** : meilleur effort plutôt
@@ -280,6 +331,41 @@ pub fn local_banner_color(db: &Db) -> Result<Option<u32>, CoreError> {
     read_color(db, META_BANNER_COLOR_KEY)
 }
 
+/// Enregistre (ou efface, avec `None`) l'id de décoration d'avatar local après
+/// validation.
+pub fn set_local_avatar_decoration(db: &Db, id: Option<&str>) -> Result<(), CoreError> {
+    let validated = id.map(validate_decoration_id).transpose()?;
+    db.set_meta(
+        META_AVATAR_DECORATION_KEY,
+        validated.unwrap_or("").as_bytes(),
+    )
+}
+
+/// Id de décoration d'avatar local, s'il est défini et non vide.
+pub fn local_avatar_decoration(db: &Db) -> Result<Option<String>, CoreError> {
+    read_string(
+        db,
+        META_AVATAR_DECORATION_KEY,
+        "décoration locale corrompue",
+    )
+}
+
+/// Enregistre (ou efface, avec `None`) l'id d'effet de profil local après
+/// validation.
+pub fn set_local_profile_effect(db: &Db, id: Option<&str>) -> Result<(), CoreError> {
+    let validated = id.map(validate_decoration_id).transpose()?;
+    db.set_meta(META_PROFILE_EFFECT_KEY, validated.unwrap_or("").as_bytes())
+}
+
+/// Id d'effet de profil local, s'il est défini et non vide.
+pub fn local_profile_effect(db: &Db) -> Result<Option<String>, CoreError> {
+    read_string(
+        db,
+        META_PROFILE_EFFECT_KEY,
+        "effet de profil local corrompu",
+    )
+}
+
 /// Bio persistée d'un contact (annoncée par lui), si non vide.
 pub fn peer_bio(db: &Db, node_id: &[u8; 32]) -> Result<Option<String>, CoreError> {
     read_bio(db, &peer_meta_key(node_id, "bio"))
@@ -315,6 +401,25 @@ pub fn peer_banner_color(db: &Db, node_id: &[u8; 32]) -> Result<Option<u32>, Cor
     read_color(db, &peer_meta_key(node_id, "banner_color"))
 }
 
+/// Id de décoration d'avatar persisté d'un contact (annoncé par lui), si non
+/// vide.
+pub fn peer_avatar_decoration(db: &Db, node_id: &[u8; 32]) -> Result<Option<String>, CoreError> {
+    read_string(
+        db,
+        &peer_meta_key(node_id, "avatar_decoration"),
+        "décoration de pair corrompue",
+    )
+}
+
+/// Id d'effet de profil persisté d'un contact (annoncé par lui), si non vide.
+pub fn peer_profile_effect(db: &Db, node_id: &[u8; 32]) -> Result<Option<String>, CoreError> {
+    read_string(
+        db,
+        &peer_meta_key(node_id, "profile_effect"),
+        "effet de profil de pair corrompu",
+    )
+}
+
 /// Ingère le profil annoncé par un pair (message `Profile`, authentifié par
 /// la session chiffrée : `peer_pubkey` est la clé de session, pas un champ).
 ///
@@ -348,6 +453,8 @@ pub fn ingest_peer_profile(
     pronouns: Option<&str>,
     accent_color: Option<u32>,
     banner_color: Option<u32>,
+    avatar_decoration: Option<&str>,
+    profile_effect: Option<&str>,
     now_ms: u64,
 ) -> Result<Option<PeerProfile>, CoreError> {
     let node_id = node_id_of(peer_pubkey).0;
@@ -362,6 +469,8 @@ pub fn ingest_peer_profile(
             let canon_pronouns = pronouns.and_then(sanitize_peer_pronouns);
             let canon_accent = accent_color.filter(|c| *c <= COLOR_MAX);
             let canon_banner_color = banner_color.filter(|c| *c <= COLOR_MAX);
+            let canon_decoration = avatar_decoration.and_then(sanitize_peer_decoration_id);
+            let canon_effect = profile_effect.and_then(sanitize_peer_decoration_id);
 
             // Diff avant écriture : ne signaler « changé » (donc ne déclencher
             // une récupération) que si le hash diffère du hash déjà stocké.
@@ -390,6 +499,14 @@ pub fn ingest_peer_profile(
                 &peer_meta_key(&node_id, "banner_color"),
                 canon_banner_color,
             )?;
+            db.set_meta(
+                &peer_meta_key(&node_id, "avatar_decoration"),
+                canon_decoration.as_deref().unwrap_or("").as_bytes(),
+            )?;
+            db.set_meta(
+                &peer_meta_key(&node_id, "profile_effect"),
+                canon_effect.as_deref().unwrap_or("").as_bytes(),
+            )?;
             Ok(Some(PeerProfile {
                 name: canon_name.to_string(),
                 bio: (!canon_bio.is_empty()).then(|| canon_bio.to_string()),
@@ -398,6 +515,8 @@ pub fn ingest_peer_profile(
                 pronouns: canon_pronouns,
                 accent_color: canon_accent,
                 banner_color: canon_banner_color,
+                avatar_decoration: canon_decoration,
+                profile_effect: canon_effect,
                 avatar_changed,
                 banner_changed,
             }))
@@ -683,6 +802,52 @@ mod tests {
     }
 
     #[test]
+    fn decoration_id_validation_enforces_alphabet_and_bounds() {
+        assert!(is_valid_decoration_id("neon_ring"));
+        assert!(is_valid_decoration_id("golden-laurel"));
+        assert!(is_valid_decoration_id("x"));
+        assert!(is_valid_decoration_id(&"a".repeat(24)));
+        // Vide, trop long, majuscules, espaces, ponctuation, non ASCII.
+        assert!(!is_valid_decoration_id(""));
+        assert!(!is_valid_decoration_id(&"a".repeat(25)));
+        assert!(!is_valid_decoration_id("Neon"));
+        assert!(!is_valid_decoration_id("neon ring"));
+        assert!(!is_valid_decoration_id("neon!"));
+        assert!(!is_valid_decoration_id("étoile"));
+        // `validate_decoration_id` : Ok pour un id bien formé, Err sinon (vide
+        // inclus — l'effacement passe par `null`, pas par la chaîne vide).
+        assert_eq!(validate_decoration_id("neon_ring").unwrap(), "neon_ring");
+        assert!(validate_decoration_id("").is_err());
+        assert!(validate_decoration_id("BAD").is_err());
+        // `sanitize_peer_decoration_id` : meilleur effort (`None` si malformé).
+        assert_eq!(sanitize_peer_decoration_id("aurora"), Some("aurora".into()));
+        assert_eq!(sanitize_peer_decoration_id("BAD ID!"), None);
+        assert_eq!(sanitize_peer_decoration_id(""), None);
+    }
+
+    #[test]
+    fn local_decoration_and_effect_roundtrip_and_none_clears() {
+        let db = db();
+        assert_eq!(local_avatar_decoration(&db).unwrap(), None);
+        assert_eq!(local_profile_effect(&db).unwrap(), None);
+        set_local_avatar_decoration(&db, Some("neon_ring")).unwrap();
+        set_local_profile_effect(&db, Some("aurora")).unwrap();
+        assert_eq!(
+            local_avatar_decoration(&db).unwrap(),
+            Some("neon_ring".into())
+        );
+        assert_eq!(local_profile_effect(&db).unwrap(), Some("aurora".into()));
+        // Retrait indépendant.
+        set_local_avatar_decoration(&db, None).unwrap();
+        assert_eq!(local_avatar_decoration(&db).unwrap(), None);
+        assert_eq!(local_profile_effect(&db).unwrap(), Some("aurora".into()));
+        // Id invalide : refusé, l'ancienne valeur reste.
+        set_local_profile_effect(&db, Some("starfield")).unwrap();
+        assert!(set_local_profile_effect(&db, Some("BAD ID!")).is_err());
+        assert_eq!(local_profile_effect(&db).unwrap(), Some("starfield".into()));
+    }
+
+    #[test]
     fn peer_profile_updates_friend_contact_only() {
         let db = db();
         let peer = [7u8; 32];
@@ -697,6 +862,8 @@ mod tests {
             Some(" il/lui "),
             Some(0x00_FF_AA),
             Some(0x11_22_33),
+            Some("neon_ring"),
+            Some("aurora"),
             9,
         )
         .unwrap()
@@ -711,6 +878,8 @@ mod tests {
                 pronouns: Some("il/lui".into()),
                 accent_color: Some(0x00_FF_AA),
                 banner_color: Some(0x11_22_33),
+                avatar_decoration: Some("neon_ring".into()),
+                profile_effect: Some("aurora".into()),
                 avatar_changed: true,
                 banner_changed: true,
             }
@@ -725,6 +894,14 @@ mod tests {
         assert_eq!(peer_pronouns(&db, &node_id).unwrap(), Some("il/lui".into()));
         assert_eq!(peer_accent_color(&db, &node_id).unwrap(), Some(0x00_FF_AA));
         assert_eq!(peer_banner_color(&db, &node_id).unwrap(), Some(0x11_22_33));
+        assert_eq!(
+            peer_avatar_decoration(&db, &node_id).unwrap(),
+            Some("neon_ring".into())
+        );
+        assert_eq!(
+            peer_profile_effect(&db, &node_id).unwrap(),
+            Some("aurora".into())
+        );
     }
 
     #[test]
@@ -734,7 +911,7 @@ mod tests {
         friend(&db, &peer, ContactState::Friend);
         let ingest = |avatar, banner, ts| {
             ingest_peer_profile(
-                &db, &peer, "Anna", "bio", avatar, banner, None, None, None, ts,
+                &db, &peer, "Anna", "bio", avatar, banner, None, None, None, None, None, ts,
             )
             .unwrap()
             .unwrap()
@@ -765,20 +942,26 @@ mod tests {
             Some("il/lui"),
             Some(0x00_FF_AA),
             Some(0x11_22_33),
+            Some("neon_ring"),
+            Some("aurora"),
             1,
         )
         .unwrap();
-        // Nouvelle annonce sans bio, avatar, bannière, pronoms ni couleurs :
-        // les valeurs connues s'effacent.
-        let applied = ingest_peer_profile(&db, &peer, "Anna", "", None, None, None, None, None, 2)
-            .unwrap()
-            .unwrap();
+        // Nouvelle annonce sans bio, avatar, bannière, pronoms, couleurs,
+        // décoration ni effet : les valeurs connues s'effacent.
+        let applied = ingest_peer_profile(
+            &db, &peer, "Anna", "", None, None, None, None, None, None, None, 2,
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(applied.bio, None);
         assert_eq!(applied.avatar, None);
         assert_eq!(applied.banner, None);
         assert_eq!(applied.pronouns, None);
         assert_eq!(applied.accent_color, None);
         assert_eq!(applied.banner_color, None);
+        assert_eq!(applied.avatar_decoration, None);
+        assert_eq!(applied.profile_effect, None);
         let node_id = node_id_of(&peer).0;
         assert_eq!(peer_bio(&db, &node_id).unwrap(), None);
         assert_eq!(peer_avatar(&db, &node_id).unwrap(), None);
@@ -786,6 +969,8 @@ mod tests {
         assert_eq!(peer_pronouns(&db, &node_id).unwrap(), None);
         assert_eq!(peer_accent_color(&db, &node_id).unwrap(), None);
         assert_eq!(peer_banner_color(&db, &node_id).unwrap(), None);
+        assert_eq!(peer_avatar_decoration(&db, &node_id).unwrap(), None);
+        assert_eq!(peer_profile_effect(&db, &node_id).unwrap(), None);
     }
 
     #[test]
@@ -793,8 +978,10 @@ mod tests {
         let db = db();
         let unknown = [8u8; 32];
         assert_eq!(
-            ingest_peer_profile(&db, &unknown, "Anna", "", None, None, None, None, None, 1)
-                .unwrap(),
+            ingest_peer_profile(
+                &db, &unknown, "Anna", "", None, None, None, None, None, None, None, 1
+            )
+            .unwrap(),
             None
         );
         for state in [
@@ -815,6 +1002,8 @@ mod tests {
                     Some("il/lui"),
                     Some(0x00_FF_AA),
                     Some(0x11_22_33),
+                    Some("neon_ring"),
+                    Some("aurora"),
                     1
                 )
                 .unwrap(),
@@ -848,6 +1037,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
             1
         )
         .is_err());
@@ -857,6 +1048,8 @@ mod tests {
             &peer,
             "Anna",
             &"x".repeat(2049),
+            None,
+            None,
             None,
             None,
             None,
@@ -890,6 +1083,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
             1,
         )
         .unwrap()
@@ -903,7 +1098,9 @@ mod tests {
     fn peer_profile_sanitizes_pronouns_and_ignores_out_of_range_colors() {
         // Pronoms avec un caractère indésirable : nettoyés, jamais de rejet
         // total du profil pour ce champ annexe. Couleurs hors bornes :
-        // ignorées (`None`), le reste du profil s'applique normalement.
+        // ignorées (`None`), le reste du profil s'applique normalement. Id de
+        // décoration malformé (majuscules/espaces) : ignoré (`None`) ; id
+        // d'effet bien formé : conservé — mêmes règles annexes que ci-dessus.
         let db = db();
         let peer = [7u8; 32];
         friend(&db, &peer, ContactState::Friend);
@@ -917,6 +1114,8 @@ mod tests {
             Some("il\u{202E}/lui"),
             Some(0x0100_0000), // hors bornes (> 0xFFFFFF)
             Some(0x00_11_22),  // dans les bornes
+            Some("BAD ID!"),   // hors alphabet → ignoré
+            Some("falling_petals"),
             1,
         )
         .unwrap()
@@ -924,10 +1123,17 @@ mod tests {
         assert_eq!(applied.pronouns, Some("il/lui".into()));
         assert_eq!(applied.accent_color, None);
         assert_eq!(applied.banner_color, Some(0x00_11_22));
+        assert_eq!(applied.avatar_decoration, None);
+        assert_eq!(applied.profile_effect, Some("falling_petals".into()));
         let node_id = node_id_of(&peer).0;
         assert_eq!(peer_pronouns(&db, &node_id).unwrap(), Some("il/lui".into()));
         assert_eq!(peer_accent_color(&db, &node_id).unwrap(), None);
         assert_eq!(peer_banner_color(&db, &node_id).unwrap(), Some(0x00_11_22));
+        assert_eq!(peer_avatar_decoration(&db, &node_id).unwrap(), None);
+        assert_eq!(
+            peer_profile_effect(&db, &node_id).unwrap(),
+            Some("falling_petals".into())
+        );
     }
 
     #[test]

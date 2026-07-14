@@ -1,6 +1,10 @@
 /**
  * Zone de saisie : Entrée envoie, Maj+Entrée insère un saut de ligne.
- * Pièces jointes : bouton trombone, glisser-déposer sur la zone de saisie,
+ * Barre façon Discord : à gauche un unique bouton « + » (en salon, il déplie
+ * le menu de création — joindre un fichier, créer un sondage ; en MP, il
+ * ouvre directement le sélecteur de fichiers), au centre la saisie, à droite
+ * la grappe des pastilles (message vocal, émojis/stickers, puis envoi).
+ * Pièces jointes : bouton « + », glisser-déposer sur la zone de saisie,
  * collage d'image — aperçus retirables, bornes UI (10 pièces, 8 Mio chacune).
  * À l'envoi, chaque pièce est publiée via `files.share_bytes` (état
  * « publication… »), puis le message part avec ses références.
@@ -42,6 +46,7 @@ import { formatTimestamp, formatDuration, tailleLisible } from '../lib/format';
 import { applySlashCommand } from '../lib/slashCommands';
 import { VoiceRecorder, voiceFileName } from '../lib/voiceRecorder';
 import { useTypingEmitter, type TypingTarget } from '../hooks/useTypingEmitter';
+import { useContextMenu } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
 import { useFriends, displayNameOf } from '../stores/friends';
 import {
@@ -123,6 +128,49 @@ let prochainId = 1;
  */
 const EQ_BAR_HEIGHTS = [6, 11, 16, 9, 14, 7, 12, 16, 8, 13, 6, 10, 15, 8] as const;
 
+/**
+ * Icônes 16 px des entrées du menu « + » (joindre un fichier, créer un
+ * sondage) : mêmes tracés que les anciens boutons du composeur, au gabarit
+ * du jeu d'icônes des menus contextuels.
+ */
+function TromboneMenuIcon() {
+  return (
+    <svg
+      width={16}
+      height={16}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+    </svg>
+  );
+}
+
+function SondageMenuIcon() {
+  return (
+    <svg
+      width={16}
+      height={16}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <line x1="18" x2="18" y1="20" y2="10" />
+      <line x1="12" x2="12" y1="20" y2="4" />
+      <line x1="6" x2="6" y1="20" y2="14" />
+    </svg>
+  );
+}
+
 export function MessageInput({
   placeholder,
   onSend,
@@ -136,6 +184,7 @@ export function MessageInput({
   const lang = useUi((s) => s.lang);
   const toast = useUi((s) => s.toast);
   const openModal = useUi((s) => s.openModal);
+  const openMenu = useContextMenu((s) => s.openMenu);
   const mentionInsert = useUi((s) => s.mentionInsert);
   const clearMentionInsert = useUi((s) => s.clearMentionInsert);
   /** Signale la frappe au pair/salon (throttlé, best effort). */
@@ -157,6 +206,7 @@ export function MessageInput({
   const recording = recPhase !== 'idle';
   const [elapsedMs, setElapsedMs] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
+  const plusRef = useRef<HTMLButtonElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const recorderRef = useRef<VoiceRecorder | null>(null);
   /** Secondes restantes du mode lent (0 : envoi permis). */
@@ -549,6 +599,41 @@ export function MessageInput({
       .catch(() => setErreur(t.errors.sendFailed));
   };
 
+  // Le bouton « + » déplie un menu de création dès qu'un salon de groupe est
+  // connu (au moins deux actions : joindre / sonder) ; ailleurs, une seule
+  // action possible, le clic ouvre directement le sélecteur de fichiers.
+  const hasCreateMenu = groupId !== null && channelId !== null;
+
+  /**
+   * Clic sur « + » : en salon, ouvre le menu de création (joindre un fichier,
+   * créer un sondage) via le menu contextuel générique, ancré au coin haut-
+   * gauche du bouton (le rendu se borne au viewport, donc il remonte au-
+   * dessus du composeur). En MP — ou hors salon — le sélecteur de fichiers
+   * s'ouvre directement, comme le trombone d'avant (D-048).
+   */
+  const ouvrirMenuAjout = (): void => {
+    if (sending) return;
+    const gid = groupId;
+    const cid = channelId;
+    if (gid === null || cid === null) {
+      void choisirFichiers();
+      return;
+    }
+    const rect = plusRef.current?.getBoundingClientRect() ?? { left: 0, top: 0 };
+    openMenu(rect.left, rect.top, [
+      {
+        label: t.fichiers.joindre,
+        icon: <TromboneMenuIcon />,
+        onClick: () => void choisirFichiers(),
+      },
+      {
+        label: t.groups.pollNew,
+        icon: <SondageMenuIcon />,
+        onClick: () => openModal({ kind: 'createPoll', groupId: gid, channelId: cid }),
+      },
+    ]);
+  };
+
   const selfMember =
     self !== null && groupState !== undefined
       ? groupState.members.find((m) => m.pubkey === self.pubkey)
@@ -798,17 +883,21 @@ export function MessageInput({
           </div>
         ) : (
           <>
+        {/* À gauche : unique bouton « + ». En salon il déplie le menu de
+            création (joindre / sonder) ; en MP il ouvre le sélecteur direct. */}
         <button
+          ref={plusRef}
           type="button"
           aria-label={t.fichiers.joindre}
           title={t.fichiers.joindre}
+          {...(hasCreateMenu ? { 'aria-haspopup': 'menu' as const } : {})}
           disabled={sending}
-          onClick={() => void choisirFichiers()}
+          onClick={ouvrirMenuAjout}
           className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95 disabled:opacity-40"
         >
           <svg
-            width="18"
-            height="18"
+            width="20"
+            height="20"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -817,58 +906,8 @@ export function MessageInput({
             strokeLinejoin="round"
             aria-hidden
           >
-            <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-          </svg>
-        </button>
-        {groupId !== null && channelId !== null && (
-          <button
-            type="button"
-            aria-label={t.groups.pollNew}
-            title={t.groups.pollNew}
-            disabled={sending}
-            onClick={() => openModal({ kind: 'createPoll', groupId, channelId })}
-            className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95 disabled:opacity-40"
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-            >
-              <line x1="18" x2="18" y1="20" y2="10" />
-              <line x1="12" x2="12" y1="20" y2="4" />
-              <line x1="6" x2="6" y1="20" y2="14" />
-            </svg>
-          </button>
-        )}
-        <button
-          type="button"
-          aria-label={t.vocal.enregistrer}
-          title={t.vocal.enregistrer}
-          disabled={sending}
-          onClick={demarrerEnregistrement}
-          className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95 disabled:opacity-40"
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-            <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
-            <line x1="12" x2="12" y1="18" y2="22" />
-            <line x1="8" x2="16" y1="22" y2="22" />
+            <path d="M12 5v14" />
+            <path d="M5 12h14" />
           </svg>
         </button>
         <textarea
@@ -971,6 +1010,33 @@ export function MessageInput({
             <span aria-hidden>{slowmodeRemaining}s</span>
           </span>
         )}
+            {/* Grappe de droite (façon Discord) : message vocal, émojis /
+                stickers, puis envoi. */}
+            <button
+              type="button"
+              aria-label={t.vocal.enregistrer}
+              title={t.vocal.enregistrer}
+              disabled={sending}
+              onClick={demarrerEnregistrement}
+              className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95 disabled:opacity-40"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
+                <line x1="12" x2="12" y1="18" y2="22" />
+                <line x1="8" x2="16" y1="22" y2="22" />
+              </svg>
+            </button>
             <div className="relative">
               <button
                 type="button"

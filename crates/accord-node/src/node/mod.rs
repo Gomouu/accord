@@ -613,6 +613,8 @@ impl Node {
                 pronouns,
                 accent_color,
                 banner_color,
+                avatar_decoration,
+                profile_effect,
             } => {
                 // Anti-abus : seuls les amis sont pris en compte (ignoré
                 // silencieusement sinon) ; pseudo validé (2-32 caractères,
@@ -631,6 +633,8 @@ impl Node {
                         pronouns.as_deref(),
                         accent_color,
                         banner_color,
+                        avatar_decoration.as_deref(),
+                        profile_effect.as_deref(),
                         now_ms(),
                     )?)
                 })?;
@@ -664,6 +668,8 @@ impl Node {
                             "pronouns": applied.pronouns,
                             "accent_color": applied.accent_color,
                             "banner_color": applied.banner_color,
+                            "avatar_decoration": applied.avatar_decoration,
+                            "profile_effect": applied.profile_effect,
                         }),
                     );
                 }

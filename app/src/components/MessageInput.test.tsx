@@ -355,6 +355,8 @@ const SELF = {
   pronouns: null,
   accent_color: null,
   banner_color: null,
+  avatar_decoration: null,
+  profile_effect: null,
 };
 
 const GROUP_TARGET = { kind: 'group', groupId: 'g1', channelId: 'c1' } as const;
@@ -583,8 +585,8 @@ describe('MessageInput — message vocal', () => {
   });
 });
 
-describe('MessageInput — bouton de pièce jointe et bouton de sondage', () => {
-  it('en message privé, le trombone ouvre le sélecteur de fichiers (aucun menu)', () => {
+describe('MessageInput — bouton « + » (pièces jointes et sondage)', () => {
+  it('en message privé, le « + » ouvre le sélecteur de fichiers (aucun menu)', () => {
     const clickSpy = vi.spyOn(HTMLInputElement.prototype, 'click');
     renderInput();
 
@@ -595,14 +597,17 @@ describe('MessageInput — bouton de pièce jointe et bouton de sondage', () => 
     clickSpy.mockRestore();
   });
 
-  it('aucun bouton de sondage en message privé (D-048)', () => {
+  it('aucune option de sondage en message privé (D-048)', () => {
     renderInput();
 
+    fireEvent.click(screen.getByLabelText('Joindre des fichiers', { selector: 'button' }));
+
+    // MP : aucune modale de sondage possible, le menu n'est jamais déplié.
+    expect(useContextMenu.getState().menu).toBeNull();
     expect(screen.queryByLabelText('Créer un sondage')).not.toBeInTheDocument();
   });
 
-  it('en salon de groupe, le trombone ouvre le sélecteur (aucun menu contextuel)', () => {
-    const clickSpy = vi.spyOn(HTMLInputElement.prototype, 'click');
+  it('en salon de groupe, le « + » déplie un menu (joindre puis sonder)', () => {
     seedComposer({}, 'text');
     render(
       <MessageInput
@@ -615,12 +620,16 @@ describe('MessageInput — bouton de pièce jointe et bouton de sondage', () => 
 
     fireEvent.click(screen.getByLabelText('Joindre des fichiers', { selector: 'button' }));
 
-    expect(clickSpy).toHaveBeenCalled();
-    expect(useContextMenu.getState().menu).toBeNull();
-    clickSpy.mockRestore();
+    const menu = useContextMenu.getState().menu;
+    expect(menu).not.toBeNull();
+    expect(menu?.items.map((item) => item.label)).toEqual([
+      'Joindre des fichiers',
+      'Créer un sondage',
+    ]);
   });
 
-  it('un bouton de sondage dédié ouvre la modale de création du salon courant', () => {
+  it('l’entrée « joindre » du menu « + » ouvre le sélecteur de fichiers', () => {
+    const clickSpy = vi.spyOn(HTMLInputElement.prototype, 'click');
     seedComposer({}, 'text');
     render(
       <MessageInput
@@ -631,7 +640,32 @@ describe('MessageInput — bouton de pièce jointe et bouton de sondage', () => 
       />,
     );
 
-    fireEvent.click(screen.getByLabelText('Créer un sondage'));
+    fireEvent.click(screen.getByLabelText('Joindre des fichiers', { selector: 'button' }));
+    const joindre = useContextMenu
+      .getState()
+      .menu?.items.find((item) => item.label === 'Joindre des fichiers');
+    joindre?.onClick();
+
+    expect(clickSpy).toHaveBeenCalled();
+    clickSpy.mockRestore();
+  });
+
+  it('l’entrée « sondage » du menu « + » ouvre la modale de création du salon', () => {
+    seedComposer({}, 'text');
+    render(
+      <MessageInput
+        placeholder="Écrire dans #salon"
+        onSend={vi.fn()}
+        groupId="g1"
+        typingTarget={GROUP_TARGET}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('Joindre des fichiers', { selector: 'button' }));
+    const sondage = useContextMenu
+      .getState()
+      .menu?.items.find((item) => item.label === 'Créer un sondage');
+    sondage?.onClick();
 
     expect(useUi.getState().modal).toEqual({
       kind: 'createPoll',

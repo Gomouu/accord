@@ -46,6 +46,8 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                     v["pronouns"] = json!(profile.pronouns);
                     v["accent_color"] = json!(profile.accent_color);
                     v["banner_color"] = json!(profile.banner_color);
+                    v["avatar_decoration"] = json!(profile.avatar_decoration);
+                    v["profile_effect"] = json!(profile.profile_effect);
                     // Presence (best-effort, rich): `online` kept for
                     // backward compatibility, `status` + `status_text` carry
                     // the announced rich presence. Unread counter follows.

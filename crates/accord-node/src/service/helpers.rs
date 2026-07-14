@@ -108,6 +108,19 @@ pub(super) fn param_opt_color(params: &Value, key: &str) -> Result<Option<Option
     }
 }
 
+/// Id de décoration/effet de profil optionnel à trois états (même forme que
+/// [`param_device`]) : absent → inchangé (`None`), `null` → effacé
+/// (`Some(None)`), chaîne → défini (`Some(Some(id))`, revalidé côté cœur
+/// contre l'alphabet `[a-z0-9_-]` et la borne de 24 octets).
+pub(super) fn param_opt_id(params: &Value, key: &str) -> Result<Option<Option<String>>, NodeError> {
+    match params.get(key) {
+        None => Ok(None),
+        Some(Value::Null) => Ok(Some(None)),
+        Some(Value::String(s)) => Ok(Some(Some(s.clone()))),
+        Some(_) => Err(NodeError::Invalid("id : chaîne ou null requis")),
+    }
+}
+
 /// Entier `u16` optionnel (positions de salons et de rôles).
 pub(super) fn param_opt_u16(params: &Value, key: &str) -> Result<Option<u16>, NodeError> {
     match param_opt_u32(params, key)? {

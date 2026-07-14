@@ -144,6 +144,10 @@ interface SessionState {
   setAccentColor: (color: number | null) => Promise<void>;
   /** Fixe ou efface la couleur de fond de bannière (profile.set ; `null` = effacer). */
   setBannerColor: (color: number | null) => Promise<void>;
+  /** Fixe ou efface la décoration d'avatar (profile.set ; `null` = effacer). */
+  setAvatarDecoration: (id: string | null) => Promise<void>;
+  /** Fixe ou efface l'effet de profil (profile.set ; `null` = effacer). */
+  setProfileEffect: (id: string | null) => Promise<void>;
   /**
    * Publie l'avatar (profile.set_avatar, PNG/JPEG/WebP en base64) puis
    * rafraîchit le profil local ; `null` retire l'avatar.
@@ -387,6 +391,18 @@ export const useSession = create<SessionState>((set) => {
 
     setBannerColor: async (color) => {
       await api.profileSet({ banner_color: color });
+      const self = await api.identitySelf();
+      set({ self });
+    },
+
+    setAvatarDecoration: async (id) => {
+      await api.profileSet({ avatar_decoration: id });
+      const self = await api.identitySelf();
+      set({ self });
+    },
+
+    setProfileEffect: async (id) => {
+      await api.profileSet({ profile_effect: id });
       const self = await api.identitySelf();
       set({ self });
     },

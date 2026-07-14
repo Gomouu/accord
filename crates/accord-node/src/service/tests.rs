@@ -48,19 +48,21 @@ async fn identity_self_returns_profile() {
     let s = service();
     let v = s.call("identity.self", json!({})).await.unwrap();
     // Forme exacte du contrat gelé : `name`, `bio`, `avatar`, `banner`,
-    // `pronouns`, `accent_color`, `banner_color` présents (null si non
-    // définis).
+    // `pronouns`, `accent_color`, `banner_color`, `avatar_decoration`,
+    // `profile_effect` présents (null si non définis).
     assert_eq!(
         sorted_keys(&v),
         [
             "accent_color",
             "avatar",
+            "avatar_decoration",
             "banner",
             "banner_color",
             "bio",
             "friend_code",
             "name",
             "node_id",
+            "profile_effect",
             "pronouns",
             "pubkey"
         ]
@@ -72,9 +74,11 @@ async fn identity_self_returns_profile() {
 
 // ---- Frontière JSON : contrat gelé du profil (D-027) ----
 
-/// Forme exacte d'un `profile.get` (contrat gelé) : les six champs textuels
-/// (name, bio, avatar, banner, pronouns) et de couleur (accent_color,
-/// banner_color) sont toujours présents, `null` si non définis.
+/// Forme exacte d'un `profile.get` (contrat gelé) : les champs textuels
+/// (name, bio, avatar, banner, pronouns), de couleur (accent_color,
+/// banner_color) et de personnalisation (avatar_decoration, profile_effect)
+/// sont toujours présents, `null` si non définis.
+#[allow(clippy::too_many_arguments)]
 fn profile_shape(
     name: Option<&str>,
     bio: Option<&str>,
@@ -83,6 +87,8 @@ fn profile_shape(
     pronouns: Option<&str>,
     accent_color: Option<u32>,
     banner_color: Option<u32>,
+    avatar_decoration: Option<&str>,
+    profile_effect: Option<&str>,
 ) -> Value {
     json!({
         "name": name,
@@ -92,6 +98,8 @@ fn profile_shape(
         "pronouns": pronouns,
         "accent_color": accent_color,
         "banner_color": banner_color,
+        "avatar_decoration": avatar_decoration,
+        "profile_effect": profile_effect,
     })
 }
 
@@ -101,7 +109,7 @@ async fn profile_get_set_exact_shapes() {
     // Jamais défini : tout null.
     assert_eq!(
         s.call("profile.get", json!({})).await.unwrap(),
-        profile_shape(None, None, None, None, None, None, None)
+        profile_shape(None, None, None, None, None, None, None, None, None)
     );
     // Définition : résultat vide exact, pseudo trimé.
     assert_eq!(
@@ -112,7 +120,7 @@ async fn profile_get_set_exact_shapes() {
     );
     assert_eq!(
         s.call("profile.get", json!({})).await.unwrap(),
-        profile_shape(Some("Anna"), None, None, None, None, None, None)
+        profile_shape(Some("Anna"), None, None, None, None, None, None, None, None)
     );
     // Bio seule : le pseudo reste ; bio vide = effacer.
     s.call("profile.set", json!({ "bio": "  ma bio  " }))
@@ -120,12 +128,22 @@ async fn profile_get_set_exact_shapes() {
         .unwrap();
     assert_eq!(
         s.call("profile.get", json!({})).await.unwrap(),
-        profile_shape(Some("Anna"), Some("ma bio"), None, None, None, None, None)
+        profile_shape(
+            Some("Anna"),
+            Some("ma bio"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None
+        )
     );
     s.call("profile.set", json!({ "bio": "" })).await.unwrap();
     assert_eq!(
         s.call("profile.get", json!({})).await.unwrap(),
-        profile_shape(Some("Anna"), None, None, None, None, None, None)
+        profile_shape(Some("Anna"), None, None, None, None, None, None, None, None)
     );
     // Pronoms et couleurs : mêmes conventions (vide efface les pronoms,
     // `null` efface une couleur).
@@ -144,7 +162,9 @@ async fn profile_get_set_exact_shapes() {
             None,
             Some("il/lui"),
             Some(0x00_FF_AA),
-            Some(0x11_22_33)
+            Some(0x11_22_33),
+            None,
+            None
         )
     );
     s.call(
@@ -155,7 +175,62 @@ async fn profile_get_set_exact_shapes() {
     .unwrap();
     assert_eq!(
         s.call("profile.get", json!({})).await.unwrap(),
-        profile_shape(Some("Anna"), None, None, None, None, None, Some(0x11_22_33))
+        profile_shape(
+            Some("Anna"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(0x11_22_33),
+            None,
+            None
+        )
+    );
+    // Décoration d'avatar et effet de profil : tri-état comme les couleurs
+    // (chaîne = défini, `null` = effacé). Id invalide refusé à la frontière.
+    s.call(
+        "profile.set",
+        json!({ "avatar_decoration": "neon_ring", "profile_effect": "aurora" }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        s.call("profile.get", json!({})).await.unwrap(),
+        profile_shape(
+            Some("Anna"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(0x11_22_33),
+            Some("neon_ring"),
+            Some("aurora")
+        )
+    );
+    let err = s
+        .call("profile.set", json!({ "avatar_decoration": "BAD ID!" }))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+    // `null` efface la décoration, l'effet reste.
+    s.call("profile.set", json!({ "avatar_decoration": null }))
+        .await
+        .unwrap();
+    assert_eq!(
+        s.call("profile.get", json!({})).await.unwrap(),
+        profile_shape(
+            Some("Anna"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(0x11_22_33),
+            None,
+            Some("aurora")
+        )
     );
     // Répercuté dans identity.self.
     s.call("profile.set", json!({ "bio": "présentation" }))
@@ -200,7 +275,7 @@ async fn profile_set_rejects_invalid_pronouns_and_colors_explicitly() {
     // Rien n'a été enregistré.
     assert_eq!(
         s.call("profile.get", json!({})).await.unwrap(),
-        profile_shape(None, None, None, None, None, None, None)
+        profile_shape(None, None, None, None, None, None, None, None, None)
     );
 }
 
@@ -234,7 +309,7 @@ async fn profile_set_rejects_invalid_names_explicitly() {
     // Rien n'a été enregistré.
     assert_eq!(
         s.call("profile.get", json!({})).await.unwrap(),
-        profile_shape(None, None, None, None, None, None, None)
+        profile_shape(None, None, None, None, None, None, None, None, None)
     );
 }
 
@@ -303,7 +378,7 @@ async fn profile_set_avatar_validates_at_the_boundary() {
     );
     assert_eq!(
         s.call("profile.get", json!({})).await.unwrap(),
-        profile_shape(None, None, None, None, None, None, None)
+        profile_shape(None, None, None, None, None, None, None, None, None)
     );
 }
 
@@ -372,7 +447,7 @@ async fn profile_set_banner_validates_at_the_boundary() {
     );
     assert_eq!(
         s.call("profile.get", json!({})).await.unwrap(),
-        profile_shape(None, None, None, None, None, None, None)
+        profile_shape(None, None, None, None, None, None, None, None, None)
     );
 }
 
@@ -390,6 +465,8 @@ async fn profile_of_friend_updates_friends_list() {
             pronouns: Some("il/lui".into()),
             accent_color: Some(0x00_FF_AA),
             banner_color: Some(0x11_22_33),
+            avatar_decoration: Some("neon_ring".into()),
+            profile_effect: Some("aurora".into()),
         },
     )
     .unwrap();
@@ -397,15 +474,17 @@ async fn profile_of_friend_updates_friends_list() {
     let contact = &v["contacts"][0];
     assert_eq!(contact["display_name"], json!("Pair Renommé"));
     // Profil public annoncé exposé dans friends.list : bio, avatar,
-    // bannière, pronoms, couleurs.
+    // bannière, pronoms, couleurs, décoration, effet.
     assert_eq!(contact["bio"], json!("sa bio"));
     assert_eq!(contact["avatar"], json!("05".repeat(32)));
     assert_eq!(contact["banner"], json!("06".repeat(32)));
     assert_eq!(contact["pronouns"], json!("il/lui"));
     assert_eq!(contact["accent_color"], json!(0x00_FF_AA));
     assert_eq!(contact["banner_color"], json!(0x11_22_33));
-    // Nouvelle annonce sans bannière ni couleurs : les champs s'effacent
-    // (null).
+    assert_eq!(contact["avatar_decoration"], json!("neon_ring"));
+    assert_eq!(contact["profile_effect"], json!("aurora"));
+    // Nouvelle annonce sans bannière, couleurs, décoration ni effet : les
+    // champs s'effacent (null).
     node.ingest_core(
         &peer.public_key(),
         CoreMsg::Profile {
@@ -416,6 +495,8 @@ async fn profile_of_friend_updates_friends_list() {
             pronouns: None,
             accent_color: None,
             banner_color: None,
+            avatar_decoration: None,
+            profile_effect: None,
         },
     )
     .unwrap();
@@ -424,6 +505,8 @@ async fn profile_of_friend_updates_friends_list() {
     assert_eq!(v["contacts"][0]["pronouns"], json!(null));
     assert_eq!(v["contacts"][0]["accent_color"], json!(null));
     assert_eq!(v["contacts"][0]["banner_color"], json!(null));
+    assert_eq!(v["contacts"][0]["avatar_decoration"], json!(null));
+    assert_eq!(v["contacts"][0]["profile_effect"], json!(null));
 }
 
 #[tokio::test]

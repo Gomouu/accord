@@ -9,7 +9,9 @@
 
 import { interpolate, type Dict } from '../i18n';
 import type { Contact, GroupThread } from '../lib/api';
+import { useCalls } from '../stores/calls';
 import type { ContextMenuItem } from '../stores/contextMenu';
+import { useFriends } from '../stores/friends';
 import { useUi } from '../stores/ui';
 import {
   CopyMenuIcon,
@@ -18,6 +20,7 @@ import {
   EnvelopeMenuIcon,
   ForwardMenuIcon,
   MentionMenuIcon,
+  PhoneIcon,
   PinMenuIcon,
   ProfileMenuIcon,
   ReplyMenuIcon,
@@ -65,11 +68,57 @@ export interface MessageMenuDeps {
   onStartSelection?: ((message: DisplayMessage) => void) | undefined;
 }
 
+/** Icône « retirer l'ami » du jeu de menu (14 px) — personne barrée d'un moins. */
+function RemoveFriendMenuIcon() {
+  return (
+    <svg
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <line x1="22" x2="16" y1="11" y2="11" />
+    </svg>
+  );
+}
+
+/** Icône « bloquer/débloquer » du jeu de menu (14 px) — cercle barré. */
+function BlockUserMenuIcon() {
+  return (
+    <svg
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="10" />
+      <path d="m4.9 4.9 14.2 14.2" />
+    </svg>
+  );
+}
+
 /**
- * Items du menu contextuel « utilisateur » (avatar, pseudo, entrée de la
- * liste des membres) : profil, mention, MP, copie d'identifiant — réutilise
- * l'ouverture de profil, le pont de mention (`requestMentionInsert`) et
- * l'action d'ouverture de MP déjà existante (`ui.setView`).
+ * Items du menu contextuel « utilisateur » (avatar, pseudo d'un message) :
+ * profil, mention, MP et appel (amis confirmés), puis les actions de relation
+ * (retrait d'amitié, blocage/déblocage) et la copie d'identifiant — chacune
+ * réutilisant une action déjà existante des stores de domaine (`ui.setView`,
+ * `calls.start`, `friends.remove/block/unblock`), à l'image de la carte de
+ * profil. Les actions d'administration serveur (pseudo, rôles, exclusion,
+ * expulsion, bannissement) vivent dans le menu de la liste des membres
+ * (`ChatView`), qui dispose du contexte de groupe requis — ce menu-ci n'a que
+ * l'identité du pair.
  */
 export function buildUserItems(
   deps: MessageMenuDeps,
@@ -79,7 +128,11 @@ export function buildUserItems(
   const { t, selfPubkey, contacts, nameOf, copyWithToast, requestMentionInsert } = deps;
   const isSelfAuthor = selfPubkey !== null && author === selfPubkey;
   const contact = contacts.find((c) => c.pubkey === author);
-  const canMessage = !isSelfAuthor && contact?.state === 'friend';
+  const isFriend = contact?.state === 'friend';
+  const isBlocked = contact?.state === 'blocked';
+  const canMessage = !isSelfAuthor && isFriend;
+  const onActionError = (): void =>
+    useUi.getState().toast('error', t.errors.actionFailed);
   const items: ContextMenuItem[] = [
     {
       label: t.contextMenu.viewProfile,
@@ -97,6 +150,49 @@ export function buildUserItems(
       label: t.friends.sendDm,
       icon: <EnvelopeMenuIcon />,
       onClick: () => useUi.getState().setView({ kind: 'dm', peer: author }),
+    });
+    // Appel 1-à-1 : réservé aux amis confirmés côté nœud (contrat calls.start),
+    // même garde que le bouton d'appel de l'en-tête MP (`ChatView`).
+    items.push({
+      label: t.calls.startCall,
+      icon: <PhoneIcon size={14} />,
+      onClick: () => {
+        useCalls.getState().start(author).catch(onActionError);
+      },
+    });
+  }
+  // Relation d'amitié : retrait (confirmé, l'historique est conservé) et
+  // blocage/déblocage — mêmes actions que la carte de profil (`ProfilePopover`).
+  if (isFriend) {
+    items.push({
+      label: t.friends.remove,
+      icon: <RemoveFriendMenuIcon />,
+      danger: true,
+      separatorBefore: true,
+      onClick: () => {
+        if (!window.confirm(t.friends.removeQuestion)) return;
+        useFriends.getState().remove(author).catch(onActionError);
+      },
+    });
+  }
+  if (isBlocked) {
+    items.push({
+      label: t.friends.unblock,
+      icon: <BlockUserMenuIcon />,
+      separatorBefore: !isFriend,
+      onClick: () => {
+        useFriends.getState().unblock(author).catch(onActionError);
+      },
+    });
+  } else if (!isSelfAuthor) {
+    items.push({
+      label: t.friends.block,
+      icon: <BlockUserMenuIcon />,
+      danger: true,
+      separatorBefore: !isFriend,
+      onClick: () => {
+        useFriends.getState().block(author).catch(onActionError);
+      },
     });
   }
   items.push({

@@ -16,6 +16,15 @@ const MAX_PRONOUNS: usize = 40;
 /// additifs de `Profile`) : tout ce qui dépasse 24 bits est rejeté au
 /// décodage.
 const MAX_COLOR: u32 = 0xFF_FF_FF;
+/// Borne d'un id de décoration d'avatar / d'effet de profil
+/// (`avatar_decoration`/`profile_effect`, champs additifs de `Profile`) : id
+/// ASCII court `[a-z0-9_-]`, 1 à 24 octets. Un id hors bornes, non ASCII ou
+/// hors alphabet est réduit à `None` AU DÉCODAGE (meilleur effort — jamais de
+/// rejet du profil, voir [`Reader::opt_tail_short_id`]), pas seulement à
+/// l'ingestion : ces ids traversent la frontière de confiance P2P et ne sont
+/// jamais interpolés — ils servent uniquement de clé vers un catalogue
+/// statique côté client.
+const MAX_DECORATION_ID: usize = 24;
 const MAX_BODY: usize = 64 * 1024;
 const MAX_ATTACHMENTS: usize = 10;
 const MAX_EMOJI: usize = 64;
@@ -1556,6 +1565,15 @@ pub enum CoreMsg {
         /// absent chez un émetteur plus ancien (décodé à `None`), rejetée au
         /// décodage au-delà de 24 bits.
         banner_color: Option<u32>,
+        /// Id de décoration d'avatar (cadre/anneau décoratif autour de
+        /// l'avatar), champ additif ; id ASCII court `[a-z0-9_-]` (≤ 24 octets)
+        /// résolu contre un catalogue intégré côté client. Absent chez un
+        /// émetteur plus ancien (décodé à `None`), réduit à `None` si malformé
+        /// ([`Reader::opt_tail_short_id`]).
+        avatar_decoration: Option<String>,
+        /// Id d'effet de profil (fond animé de la carte de profil), champ
+        /// additif ; mêmes règles et mêmes bornes que `avatar_decoration`.
+        profile_effect: Option<String>,
     },
     /// 0x0A — Signalisation de salon vocal.
     VoiceSignal {
@@ -1803,6 +1821,8 @@ impl WireEncode for CoreMsg {
                 pronouns,
                 accent_color,
                 banner_color,
+                avatar_decoration,
+                profile_effect,
             } => {
                 w.put_u8(0x09);
                 w.put_str(display_name);
@@ -1812,6 +1832,8 @@ impl WireEncode for CoreMsg {
                 w.put_opt(pronouns.as_ref(), |w, p| w.put_str(p));
                 w.put_opt(accent_color.as_ref(), |w, c| w.put_u32(*c));
                 w.put_opt(banner_color.as_ref(), |w, c| w.put_u32(*c));
+                w.put_opt(avatar_decoration.as_ref(), |w, s| w.put_str(s));
+                w.put_opt(profile_effect.as_ref(), |w, s| w.put_str(s));
             }
             CoreMsg::VoiceSignal {
                 group_id,
@@ -1939,6 +1961,20 @@ fn decode_profile_color(r: &mut Reader<'_>, what: &'static str) -> Result<u32, D
     Ok(v)
 }
 
+/// Vrai si `s` est un id de décoration/effet bien formé : 1 à
+/// [`MAX_DECORATION_ID`] octets ASCII `[a-z0-9_-]`. Passé à
+/// [`Reader::opt_tail_short_id`] au décodage du message `Profile` pour réduire
+/// à `None` tout id malformé sans rejeter le profil (le catalogue d'ids vit
+/// côté client — un id inconnu ou mal formé n'affiche simplement rien). La
+/// même règle est ré-appliquée côté cœur à l'ingestion et à la définition
+/// locale (défense en profondeur, sans dépendance croisée proto → cœur).
+fn is_valid_decoration_id(s: &str) -> bool {
+    let len = s.len();
+    (1..=MAX_DECORATION_ID).contains(&len)
+        && s.bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
+}
+
 impl WireDecode for CoreMsg {
     fn decode(r: &mut Reader<'_>) -> Result<Self, DecodeError> {
         match r.u8()? {
@@ -1999,6 +2035,12 @@ impl WireDecode for CoreMsg {
                 pronouns: r.opt_tail(|r| r.str(MAX_PRONOUNS, "profile.pronouns"))?,
                 accent_color: r.opt_tail(|r| decode_profile_color(r, "profile.accent_color"))?,
                 banner_color: r.opt_tail(|r| decode_profile_color(r, "profile.banner_color"))?,
+                // Ids annexes en meilleur effort : un id trop long ou hors
+                // alphabet est réduit à `None` sans rejeter le profil (les
+                // catalogues vivent côté client — un id inconnu n'affiche rien).
+                avatar_decoration: r
+                    .opt_tail_short_id(MAX_DECORATION_ID, is_valid_decoration_id)?,
+                profile_effect: r.opt_tail_short_id(MAX_DECORATION_ID, is_valid_decoration_id)?,
             }),
             0x0A => Ok(CoreMsg::VoiceSignal {
                 group_id: r.arr()?,
@@ -2604,7 +2646,10 @@ mod tests {
             let encoded = body.encode_body();
             // Truncated msg_id (< 16 bytes) or missing/trailing bytes reject.
             for cut in 0..encoded.len() {
-                assert!(MsgBody::decode_body(8, &encoded[..cut]).is_err(), "cut={cut}");
+                assert!(
+                    MsgBody::decode_body(8, &encoded[..cut]).is_err(),
+                    "cut={cut}"
+                );
             }
             let mut extra = encoded.clone();
             extra.push(0);

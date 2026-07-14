@@ -265,6 +265,42 @@ impl<'a> Reader<'a> {
         self.opt(f)
     }
 
+    /// Lit un id court optionnel de fin de structure (`opt<str>`) en MEILLEUR
+    /// EFFORT : le champ additif se décode comme les autres ([`Reader::opt_tail`]
+    /// — absent chez un émetteur plus ancien → `None`), mais un id dont la
+    /// longueur déclarée dépasse `max` octets, dont le contenu n'est pas de
+    /// l'UTF-8, ou que `valid` rejette, est réduit à `None` AU LIEU de faire
+    /// échouer tout le message. Réservé aux champs annexes strictement en fin
+    /// de variant (décoration d'avatar, effet de profil) : ces ids traversent
+    /// la frontière de confiance P2P, et un pair malveillant ne doit jamais
+    /// pouvoir invalider le profil entier avec un id trop long ou hors
+    /// alphabet. Aucune allocation pour un id rejeté (le contenu n'est
+    /// qu'emprunté puis abandonné) ; le flux reste toujours aligné (les octets
+    /// déclarés sont consommés). Un tag `opt` invalide (ni 0 ni 1) ou une
+    /// vraie troncature (moins d'octets que la longueur déclarée) restent des
+    /// erreurs.
+    pub fn opt_tail_short_id(
+        &mut self,
+        max: usize,
+        valid: impl FnOnce(&str) -> bool,
+    ) -> Result<Option<String>, DecodeError> {
+        if self.remaining() == 0 {
+            return Ok(None);
+        }
+        match self.u8()? {
+            0 => Ok(None),
+            1 => {
+                let len = self.u16()? as usize;
+                let bytes = self.take(len)?;
+                match std::str::from_utf8(bytes) {
+                    Ok(s) if s.len() <= max && valid(s) => Ok(Some(s.to_string())),
+                    _ => Ok(None),
+                }
+            }
+            _ => Err(DecodeError::InvalidValue("opt tag")),
+        }
+    }
+
     /// Lit une `list<T>` bornée à `max` éléments.
     pub fn list<T>(
         &mut self,

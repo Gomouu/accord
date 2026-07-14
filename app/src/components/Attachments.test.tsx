@@ -102,7 +102,11 @@ describe('Pièces jointes — vignette d’image', () => {
     expect(screen.getByRole('dialog', { name: 'photo.png' })).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: 'Escape' });
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    // Fermeture différée (animation de sortie) : le dialogue se démonte après
+    // l'animation, pas de façon synchrone.
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    );
   });
 
   it('signale une image indisponible sans casser le fil', async () => {

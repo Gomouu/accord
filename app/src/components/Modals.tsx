@@ -5,7 +5,7 @@
  * `ui.modal = { kind: 'settings' }`.
  */
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { Dict } from '../i18n';
 import { interpolate } from '../i18n';
 import type { GroupChannelKind } from '../lib/api';
@@ -89,6 +89,17 @@ const INVITE_LINK_DURATIONS: Array<{ value: number; label: (t: Dict) => string }
   { value: 0, label: (t) => t.inviteLink.durNever },
 ];
 
+/** Durée de l'animation de fermeture d'une modale (aligne `--duration-fast`). */
+const MODAL_EXIT_MS = 150;
+
+/**
+ * Durée de la confirmation « Invité ✓ » d'une rangée d'ami avant que le bouton
+ * ne redevienne « Inviter ». Transitoire volontairement : chaque appel autorise
+ * une nouvelle invitation à usage unique côté nœud, il faut donc pouvoir
+ * relancer (renvoi/rappel) le même ami sans rouvrir la modale.
+ */
+const INVITE_SENT_RESET_MS = 2500;
+
 export function ModalFrame({
   title,
   hint,
@@ -102,13 +113,30 @@ export function ModalFrame({
   const closeModal = useUi((s) => s.closeModal);
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  const [closing, setClosing] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Fermeture différée : joue l'animation de sortie puis démonte réellement
+  // (via `closeModal`). Le minuteur est purgé au démontage pour ne jamais
+  // fermer une modale ouverte entre-temps.
+  const fermer = useCallback((): void => {
+    if (timerRef.current !== null) return;
+    setClosing(true);
+    timerRef.current = setTimeout(closeModal, MODAL_EXIT_MS);
+  }, [closeModal]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) clearTimeout(timerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     // Focus rendu au déclencheur à la fermeture (s'il est toujours monté).
     const precedent =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeModal();
+      if (e.key === 'Escape') fermer();
       else if (e.key === 'Tab') bouclerTab(e, ref.current);
     };
     window.addEventListener('keydown', onKey);
@@ -120,13 +148,15 @@ export function ModalFrame({
       window.removeEventListener('keydown', onKey);
       if (precedent !== null && precedent.isConnected) precedent.focus();
     };
-  }, [closeModal]);
+  }, [fermer]);
 
   return (
     <div
-      className="modal-overlay-enter fixed inset-0 z-40 flex items-center justify-center bg-black/75 backdrop-blur-sm"
+      className={`fixed inset-0 z-40 flex items-center justify-center bg-black/75 backdrop-blur-sm ${
+        closing ? 'modal-overlay-exit' : 'modal-overlay-enter'
+      }`}
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) closeModal();
+        if (e.target === e.currentTarget) fermer();
       }}
     >
       <div
@@ -135,7 +165,9 @@ export function ModalFrame({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="glass modal-panel-enter w-[440px] max-w-[92vw] rounded-xl shadow-3 focus:outline-none"
+        className={`glass w-[440px] max-w-[92vw] rounded-xl shadow-3 focus:outline-none ${
+          closing ? 'modal-panel-exit' : 'modal-panel-enter'
+        }`}
       >
         <div className="p-5">
           <div className="flex items-start justify-between">
@@ -145,7 +177,7 @@ export function ModalFrame({
             <button
               type="button"
               aria-label={t.app.close}
-              onClick={closeModal}
+              onClick={fermer}
               className="rounded-sm p-1 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
             >
               <CloseIcon size={20} />
@@ -580,9 +612,10 @@ function ShareableLinkSection({ groupId }: { groupId: string }) {
 
 /**
  * Modale d'invitation façon Discord : recherche parmi les amis non-membres,
- * invitation par rangée (le bouton devient « Invité ✓ » sans fermer la
- * modale, pour enchaîner plusieurs invitations) et lien partageable créé
- * automatiquement à l'ouverture (`ShareableLinkSection`).
+ * invitation par rangée (le bouton affiche brièvement « Invité ✓ » sans fermer
+ * la modale puis redevient « Inviter », pour enchaîner ET relancer plusieurs
+ * invitations) et lien partageable créé automatiquement à l'ouverture
+ * (`ShareableLinkSection`).
  */
 function InviteModal({ groupId }: { groupId: string }) {
   const t = useT();
@@ -591,8 +624,22 @@ function InviteModal({ groupId }: { groupId: string }) {
   const state = useGroups((s) => s.states[groupId]);
   const invite = useGroups((s) => s.invite);
   const [query, setQuery] = useState('');
+  // `sent` n'est qu'une confirmation TRANSITOIRE (voir `INVITE_SENT_RESET_MS`) :
+  // jamais un verrou définitif — chaque invitation étant à usage unique côté
+  // nœud, une rangée doit toujours pouvoir être relancée.
   const [sent, setSent] = useState<ReadonlySet<string>>(new Set());
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
+  // Minuteurs de retour à « Inviter » par ami, purgés au démontage pour ne
+  // jamais faire un `setState` sur une modale déjà fermée.
+  const resetTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  useEffect(() => {
+    const timers = resetTimers.current;
+    return () => {
+      timers.forEach((id) => clearTimeout(id));
+      timers.clear();
+    };
+  }, []);
 
   const members = new Set((state?.members ?? []).map((m) => m.pubkey));
   const candidates = contacts.filter(
@@ -612,11 +659,24 @@ function InviteModal({ groupId }: { groupId: string }) {
     new Set([...set].filter((k) => k !== key));
 
   const sendInvite = (pubkey: string): void => {
+    if (pending.has(pubkey)) return;
     setPending((prev) => withKey(prev, pubkey));
     invite(groupId, pubkey)
       .then(() => {
         setSent((prev) => withKey(prev, pubkey));
         toast('info', t.groups.invited);
+        // Confirmation transitoire : le bouton redevient « Inviter » après un
+        // court délai pour autoriser un renvoi (l'invitation précédente est à
+        // usage unique — le nœud en autorise une neuve à chaque appel).
+        const existing = resetTimers.current.get(pubkey);
+        if (existing !== undefined) clearTimeout(existing);
+        resetTimers.current.set(
+          pubkey,
+          setTimeout(() => {
+            setSent((prev) => withoutKey(prev, pubkey));
+            resetTimers.current.delete(pubkey);
+          }, INVITE_SENT_RESET_MS),
+        );
       })
       .catch(() => toast('error', t.errors.actionFailed))
       .finally(() => setPending((prev) => withoutKey(prev, pubkey)));
@@ -670,7 +730,7 @@ function InviteModal({ groupId }: { groupId: string }) {
                 aria-label={interpolate(t.groups.invitedUser, {
                   name: displayNameOf(contacts, c.pubkey),
                 })}
-                className="rounded-lg border border-transparent px-3 py-1 text-sm font-medium text-green"
+                className="rounded-lg border border-green/40 bg-green/10 px-3 py-1 text-sm font-medium text-green"
               >
                 {t.groups.inviteSent}
               </button>

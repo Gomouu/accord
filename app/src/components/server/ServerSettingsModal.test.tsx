@@ -79,6 +79,8 @@ const moi: SelfProfile = {
   pronouns: null,
   accent_color: null,
   banner_color: null,
+  avatar_decoration: null,
+  profile_effect: null,
 };
 
 const fondateur: SelfProfile = {
@@ -92,6 +94,8 @@ const fondateur: SelfProfile = {
   pronouns: null,
   accent_color: null,
   banner_color: null,
+  avatar_decoration: null,
+  profile_effect: null,
 };
 
 function makeState(over: Partial<GroupStateJson> = {}): GroupStateJson {

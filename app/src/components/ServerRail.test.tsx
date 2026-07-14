@@ -11,7 +11,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import type { Contact, GroupChannel, GroupStateJson } from '../lib/api';
 import { useContextMenu } from '../stores/contextMenu';
 import { useFriends } from '../stores/friends';
-import { useGroups } from '../stores/groups';
+import { PERMISSIONS, useGroups } from '../stores/groups';
 import { useMute } from '../stores/mute';
 import { useUi } from '../stores/ui';
 import { ContextMenu } from './ContextMenu';
@@ -328,6 +328,67 @@ describe('ServerRail — accessibilité clavier', () => {
     expect(screen.getByRole('menu')).toBeInTheDocument();
     expect(
       screen.getByRole('menuitem', { name: 'Copier l’ID du serveur' }),
+    ).toBeInTheDocument();
+  });
+
+  it('propose créations et masquage des salons muets avec les permissions', () => {
+    useGroups.setState({
+      ids: ['g1'],
+      states: {
+        g1: {
+          ...serverState('Guilde'),
+          my_permissions: PERMISSIONS.INVITE | PERMISSIONS.MANAGE_CHANNELS,
+        },
+      },
+      mentions: {},
+      unread: {},
+    });
+
+    render(
+      <>
+        <ServerRail />
+        <ContextMenu />
+      </>,
+    );
+    fireEvent.keyDown(screen.getByLabelText('Guilde'), { key: 'F10', shiftKey: true });
+
+    expect(
+      screen.getByRole('menuitem', { name: 'Inviter des personnes' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Créer un salon' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: 'Créer la catégorie' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: 'Créer un événement' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitemradio', { name: 'Masquer les salons muets' }),
+    ).toBeInTheDocument();
+    // Aucun non-lu : pas d'entrée « Marquer comme lu » (jamais un no-op).
+    expect(
+      screen.queryByRole('menuitem', { name: 'Marquer comme lu' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('« Marquer comme lu » n’apparaît que si le serveur a des non-lus', () => {
+    useGroups.setState({
+      ids: ['g1'],
+      states: { g1: serverState('Guilde') },
+      mentions: {},
+      unread: { g1: { c1: 3 } },
+    });
+
+    render(
+      <>
+        <ServerRail />
+        <ContextMenu />
+      </>,
+    );
+    fireEvent.keyDown(screen.getByLabelText('Guilde'), { key: 'F10', shiftKey: true });
+
+    expect(
+      screen.getByRole('menuitem', { name: 'Marquer comme lu' }),
     ).toBeInTheDocument();
   });
 });

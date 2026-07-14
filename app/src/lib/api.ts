@@ -27,6 +27,16 @@ export interface SelfProfile {
    * image de bannière n'est définie ; `null` sans couleur.
    */
   banner_color: number | null;
+  /**
+   * Id de décoration d'avatar (cadre/anneau décoratif), clé d'un catalogue
+   * intégré côté client (`[a-z0-9_-]`, ≤ 24) ; `null` sans décoration.
+   */
+  avatar_decoration: string | null;
+  /**
+   * Id d'effet de profil (fond animé de la carte de profil), clé du même
+   * catalogue ; `null` sans effet.
+   */
+  profile_effect: string | null;
 }
 
 export type ContactState = 'pending_out' | 'pending_in' | 'friend' | 'blocked';
@@ -58,6 +68,10 @@ export interface Contact {
    * couleur.
    */
   banner_color?: number | null;
+  /** Id de décoration d'avatar annoncé par le pair, ou `null` (absent = inconnu). */
+  avatar_decoration?: string | null;
+  /** Id d'effet de profil annoncé par le pair, ou `null` (absent = inconnu). */
+  profile_effect?: string | null;
   state: ContactState;
   last_seen_ms: number;
   /** Présence best-effort du pair (`friends.list`, D-027) ; absente = inconnue. */
@@ -644,6 +658,10 @@ export type AccordEvent =
         accent_color?: number | null;
         /** Absent : nœud pair ancien, couleur de bannière inconnue (conservée telle quelle). */
         banner_color?: number | null;
+        /** Absent : nœud pair ancien, décoration inconnue (conservée telle quelle). */
+        avatar_decoration?: string | null;
+        /** Absent : nœud pair ancien, effet inconnu (conservé tel quel). */
+        profile_effect?: string | null;
       };
     }
   | {
@@ -701,6 +719,8 @@ export class Api {
     pronouns: string | null;
     accent_color: number | null;
     banner_color: number | null;
+    avatar_decoration: string | null;
+    profile_effect: string | null;
   }> {
     return this.rpc.call('profile.get');
   }
@@ -710,10 +730,11 @@ export class Api {
    * vide = effacer) et/ou les pronoms (≤ 40 caractères, chaîne vide =
    * effacer) — au moins un champ requis, tout ou rien.
    *
-   * `accent_color`/`banner_color` sont tri-états : absent du sous-objet =
-   * inchangé, `null` = effacé, entier `0xRRGGBB` = fixé. Utiliser `'key' in
-   * changes` (et non `!== undefined`, que `exactOptionalPropertyTypes`
-   * interdit d'ailleurs pour ces champs) pour distinguer absent de `null`.
+   * `accent_color`/`banner_color`/`avatar_decoration`/`profile_effect` sont
+   * tri-états : absent du sous-objet = inchangé, `null` = effacé, valeur =
+   * fixé. Utiliser `'key' in changes` (et non `!== undefined`, que
+   * `exactOptionalPropertyTypes` interdit d'ailleurs pour ces champs) pour
+   * distinguer absent de `null`.
    */
   profileSet(changes: {
     name?: string;
@@ -721,6 +742,8 @@ export class Api {
     pronouns?: string;
     accent_color?: number | null;
     banner_color?: number | null;
+    avatar_decoration?: string | null;
+    profile_effect?: string | null;
   }): Promise<Record<string, never>> {
     return this.rpc.call('profile.set', {
       ...(changes.name !== undefined ? { name: changes.name } : {}),
@@ -728,6 +751,10 @@ export class Api {
       ...(changes.pronouns !== undefined ? { pronouns: changes.pronouns } : {}),
       ...('accent_color' in changes ? { accent_color: changes.accent_color } : {}),
       ...('banner_color' in changes ? { banner_color: changes.banner_color } : {}),
+      ...('avatar_decoration' in changes
+        ? { avatar_decoration: changes.avatar_decoration }
+        : {}),
+      ...('profile_effect' in changes ? { profile_effect: changes.profile_effect } : {}),
     });
   }
 
@@ -1425,7 +1452,11 @@ export class Api {
    * Lit un fichier du magasin local par sa racine Merkle (borné à 8 Mio).
    * `hint` : clé publique d'un pair source probable pour le téléchargement.
    */
-  filesRead(merkleRoot: string, hint?: string, media?: boolean): Promise<FilesReadResult> {
+  filesRead(
+    merkleRoot: string,
+    hint?: string,
+    media?: boolean,
+  ): Promise<FilesReadResult> {
     return this.rpc.call('files.read', {
       merkle_root: merkleRoot,
       ...(hint !== undefined ? { hint } : {}),

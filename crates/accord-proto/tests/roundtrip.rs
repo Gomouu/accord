@@ -599,6 +599,8 @@ fn core_msgs_roundtrip() {
             pronouns: Some("il/lui".into()),
             accent_color: Some(0x00_FF_AA),
             banner_color: None,
+            avatar_decoration: Some("neon_ring".into()),
+            profile_effect: Some("aurora".into()),
         },
         CoreMsg::VoiceSignal {
             group_id: [2; 16],
@@ -647,8 +649,8 @@ fn core_msgs_roundtrip() {
     assert!(sb1.starts_with(b"accord-groupop-v1"));
 }
 
-/// `CoreMsg::Profile` sans les champs additifs (pronoms/couleurs), tel
-/// qu'un émetteur antérieur à leur introduction l'aurait construit.
+/// `CoreMsg::Profile` sans AUCUN champ additif (pronoms, couleurs, décoration,
+/// effet), tel qu'un émetteur antérieur à leur introduction l'aurait construit.
 fn old_profile(
     display_name: &str,
     bio: &str,
@@ -663,6 +665,8 @@ fn old_profile(
         pronouns: None,
         accent_color: None,
         banner_color: None,
+        avatar_decoration: None,
+        profile_effect: None,
     }
 }
 
@@ -695,6 +699,8 @@ fn profile_pronouns_and_color_bounds_are_strict_at_decode() {
         pronouns: Some("x".repeat(40)),
         accent_color: Some(0xFF_FF_FF),
         banner_color: Some(0),
+        avatar_decoration: None,
+        profile_effect: None,
     }));
     // 41 octets : rejet strict.
     let bytes = ChannelMsg::Core(CoreMsg::Profile {
@@ -705,6 +711,8 @@ fn profile_pronouns_and_color_bounds_are_strict_at_decode() {
         pronouns: Some("x".repeat(41)),
         accent_color: None,
         banner_color: None,
+        avatar_decoration: None,
+        profile_effect: None,
     })
     .to_bytes();
     assert_eq!(
@@ -721,6 +729,8 @@ fn profile_pronouns_and_color_bounds_are_strict_at_decode() {
         pronouns: None,
         accent_color: Some(0x0100_0000),
         banner_color: None,
+        avatar_decoration: None,
+        profile_effect: None,
     })
     .to_bytes();
     assert_eq!(
@@ -735,6 +745,8 @@ fn profile_pronouns_and_color_bounds_are_strict_at_decode() {
         pronouns: None,
         accent_color: None,
         banner_color: Some(0x0100_0000),
+        avatar_decoration: None,
+        profile_effect: None,
     })
     .to_bytes();
     assert_eq!(
@@ -753,11 +765,12 @@ fn profile_decodes_old_format_without_additive_fields_to_none() {
     // (`Writer::put_opt`) : `old_profile(..).to_bytes()` n'est donc PAS un
     // vecteur d'ancien format, seulement un message moderne dont les trois
     // champs additifs valent `None`. Pour simuler fidèlement l'ancien
-    // format, on retire les 3 octets de tag `None` finaux (un par champ
-    // additif) de cet encodage.
+    // format, on retire les 5 octets de tag `None` finaux (un par champ
+    // additif : pronoms, accent, bannière, décoration d'avatar, effet) de cet
+    // encodage.
     let old = old_profile("Anna", "bio", Some([1; 32]), Some([2; 32]));
     let modern_bytes = old.to_bytes();
-    let legacy_bytes = &modern_bytes[..modern_bytes.len() - 3];
+    let legacy_bytes = &modern_bytes[..modern_bytes.len() - 5];
     let decoded =
         CoreMsg::from_bytes(legacy_bytes).expect("un ancien message doit toujours décoder");
     assert_eq!(decoded, old);
@@ -775,13 +788,69 @@ fn profile_decodes_old_format_without_additive_fields_to_none() {
         other => panic!("variant inattendu : {other:?}"),
     }
     // Même vérification via le framing complet `ChannelMsg` (canal 0x02 +
-    // `CoreMsg`) : seuls les 3 derniers octets diffèrent entre l'ancien et
+    // `CoreMsg`) : seuls les 5 derniers octets diffèrent entre l'ancien et
     // le nouveau format.
     let modern_channel_bytes = ChannelMsg::Core(old.clone()).to_bytes();
-    let legacy_channel_bytes = &modern_channel_bytes[..modern_channel_bytes.len() - 3];
+    let legacy_channel_bytes = &modern_channel_bytes[..modern_channel_bytes.len() - 5];
     let decoded_channel = ChannelMsg::from_bytes(legacy_channel_bytes)
         .expect("un ancien message doit toujours décoder (framing complet)");
     assert_eq!(decoded_channel, ChannelMsg::Core(old));
+}
+
+#[test]
+fn profile_decoration_ids_roundtrip_and_reject_malformed_to_none() {
+    // Ids bien formés (`[a-z0-9_-]`, ≤ 24 octets) : aller-retour fidèle.
+    roundtrip_channel(&ChannelMsg::Core(CoreMsg::Profile {
+        display_name: "Anna".into(),
+        bio: String::new(),
+        avatar: None,
+        banner: None,
+        pronouns: None,
+        accent_color: None,
+        banner_color: None,
+        avatar_decoration: Some("neon_ring".into()),
+        profile_effect: Some("falling_petals".into()),
+    }));
+
+    // Ids malformés forgés par un pair malveillant : hors alphabet
+    // (majuscules/espaces), trop longs (25 octets), non ASCII ou vides.
+    // Chacun est réduit à `None` AU DÉCODAGE sans faire échouer le profil (les
+    // autres champs survivent) — jamais de panique, jamais de rejet du message
+    // entier (robustesse frontière de confiance P2P, `Reader::opt_tail_short_id`).
+    for (deco, effect) in [
+        (Some("BAD ID!".to_string()), Some("UPPER".to_string())),
+        (Some("x".repeat(25)), Some("y".repeat(30))),
+        (Some(String::new()), Some("\u{202E}bad".to_string())),
+    ] {
+        let bytes = ChannelMsg::Core(CoreMsg::Profile {
+            display_name: "Anna".into(),
+            bio: "bio".into(),
+            avatar: None,
+            banner: None,
+            pronouns: None,
+            accent_color: None,
+            banner_color: None,
+            avatar_decoration: deco,
+            profile_effect: effect,
+        })
+        .to_bytes();
+        let decoded = ChannelMsg::from_bytes(&bytes).expect("profil décode malgré ids malformés");
+        match decoded {
+            ChannelMsg::Core(CoreMsg::Profile {
+                display_name,
+                bio,
+                avatar_decoration,
+                profile_effect,
+                ..
+            }) => {
+                assert_eq!(display_name, "Anna");
+                assert_eq!(bio, "bio");
+                assert_eq!(avatar_decoration, None);
+                assert_eq!(profile_effect, None);
+            }
+            other => panic!("variant inattendu : {other:?}"),
+        }
+    }
 }
 
 #[test]
@@ -928,6 +997,8 @@ fn truncation_fuzz_channel_msgs() {
         pronouns: Some("il/lui".into()),
         accent_color: Some(0x00_FF_AA),
         banner_color: Some(0x11_22_33),
+        avatar_decoration: Some("neon_ring".into()),
+        profile_effect: Some("aurora".into()),
     });
     let bytes = m.to_bytes();
     // Chaque frontière est calculée en encodant un message au préfixe
@@ -936,11 +1007,13 @@ fn truncation_fuzz_channel_msgs() {
     // restants (`Writer::put_opt` écrit 1 octet même pour `None` — voir
     // `profile_decodes_old_format_without_additive_fields_to_none`) :
     // l'encodage étant strictement préfixe, le résultat coïncide
-    // octet-à-octet avec le début de `bytes` jusqu'à cette frontière.
+    // octet-à-octet avec le début de `bytes` jusqu'à cette frontière. Il y a
+    // désormais 5 champs additifs en fin de variant (pronoms, accent,
+    // bannière, décoration d'avatar, effet de profil).
     let after_banner = ChannelMsg::Core(old_profile("Anna", "bio", Some([1; 32]), Some([2; 32])))
         .to_bytes()
         .len()
-        - 3; // 3 champs additifs encore à `None` (pronouns, accent, banner).
+        - 5; // 5 champs additifs encore à `None`.
     let after_pronouns = ChannelMsg::Core(CoreMsg::Profile {
         display_name: "Anna".into(),
         bio: "bio".into(),
@@ -949,10 +1022,12 @@ fn truncation_fuzz_channel_msgs() {
         pronouns: Some("il/lui".into()),
         accent_color: None,
         banner_color: None,
+        avatar_decoration: None,
+        profile_effect: None,
     })
     .to_bytes()
     .len()
-        - 2; // 2 champs additifs encore à `None` (accent, banner).
+        - 4; // 4 champs additifs encore à `None`.
     let after_accent_color = ChannelMsg::Core(CoreMsg::Profile {
         display_name: "Anna".into(),
         bio: "bio".into(),
@@ -961,11 +1036,47 @@ fn truncation_fuzz_channel_msgs() {
         pronouns: Some("il/lui".into()),
         accent_color: Some(0x00_FF_AA),
         banner_color: None,
+        avatar_decoration: None,
+        profile_effect: None,
     })
     .to_bytes()
     .len()
-        - 1; // 1 champ additif encore à `None` (banner_color).
-    let valid_prefixes = [after_banner, after_pronouns, after_accent_color];
+        - 3; // 3 champs additifs encore à `None`.
+    let after_banner_color = ChannelMsg::Core(CoreMsg::Profile {
+        display_name: "Anna".into(),
+        bio: "bio".into(),
+        avatar: Some([1; 32]),
+        banner: Some([2; 32]),
+        pronouns: Some("il/lui".into()),
+        accent_color: Some(0x00_FF_AA),
+        banner_color: Some(0x11_22_33),
+        avatar_decoration: None,
+        profile_effect: None,
+    })
+    .to_bytes()
+    .len()
+        - 2; // 2 champs additifs encore à `None` (décoration, effet).
+    let after_avatar_decoration = ChannelMsg::Core(CoreMsg::Profile {
+        display_name: "Anna".into(),
+        bio: "bio".into(),
+        avatar: Some([1; 32]),
+        banner: Some([2; 32]),
+        pronouns: Some("il/lui".into()),
+        accent_color: Some(0x00_FF_AA),
+        banner_color: Some(0x11_22_33),
+        avatar_decoration: Some("neon_ring".into()),
+        profile_effect: None,
+    })
+    .to_bytes()
+    .len()
+        - 1; // 1 champ additif encore à `None` (effet de profil).
+    let valid_prefixes = [
+        after_banner,
+        after_pronouns,
+        after_accent_color,
+        after_banner_color,
+        after_avatar_decoration,
+    ];
     for cut in 0..bytes.len() {
         if valid_prefixes.contains(&cut) {
             assert!(ChannelMsg::from_bytes(&bytes[..cut]).is_ok());

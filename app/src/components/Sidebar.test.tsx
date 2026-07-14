@@ -56,6 +56,8 @@ const SELF = {
   pronouns: null,
   accent_color: null,
   banner_color: null,
+  avatar_decoration: null,
+  profile_effect: null,
 };
 
 function groupState(over: Partial<GroupStateJson> = {}): GroupStateJson {
@@ -355,6 +357,52 @@ describe('Sidebar — menu du nom de serveur', () => {
     });
   });
 
+  it('affiche « Créer un événement » avec MANAGE_CHANNELS et ouvre la modale', () => {
+    useGroups.setState({
+      ids: ['g1'],
+      states: { g1: groupState({ my_permissions: PERMISSIONS.MANAGE_CHANNELS }) },
+    });
+
+    render(<Sidebar />);
+    fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Créer un événement' }));
+
+    expect(useUi.getState().modal).toEqual({ kind: 'events', groupId: 'g1' });
+  });
+
+  it('« Masquer les salons muets » bascule la préférence locale', () => {
+    useGroups.setState({ ids: ['g1'], states: { g1: groupState() } });
+    useUi.setState({ hideMutedChannels: false });
+
+    render(<Sidebar />);
+    fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
+    const item = screen.getByRole('menuitemcheckbox', {
+      name: 'Masquer les salons muets',
+    });
+    expect(item).toHaveAttribute('aria-checked', 'false');
+
+    fireEvent.click(item);
+    expect(useUi.getState().hideMutedChannels).toBe(true);
+    useUi.setState({ hideMutedChannels: false });
+  });
+
+  it('« Notifications » ouvre le sous-menu de niveau (serveur)', () => {
+    useGroups.setState({ ids: ['g1'], states: { g1: groupState() } });
+
+    render(
+      <>
+        <Sidebar />
+        <ContextMenu />
+      </>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Notifications' }));
+
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Rien' }));
+    expect(useMute.getState().serverLevels.g1).toBe('none');
+    useMute.setState({ serverLevels: {} });
+  });
+
   it('« Quitter le serveur » demande confirmation puis appelle leave()', () => {
     const original = useGroups.getState().leave;
     const leave = vi.fn(() => Promise.resolve());
@@ -412,6 +460,30 @@ describe('Sidebar — sourdine des notifications (salon)', () => {
     ).not.toBeInTheDocument();
     const row = screen.getByText('général').closest('button');
     expect(row?.className).not.toMatch(/opacity-50/);
+  });
+
+  it('masque un salon muet non actif quand « Masquer les salons muets » est actif', () => {
+    useMute.setState({ channelLevels: { 'g1/c2': 'none' } });
+    useUi.setState({ hideMutedChannels: true });
+
+    render(<Sidebar />);
+
+    // c1 (général) est le salon actif ; c2 (projets) est muet → masqué.
+    expect(screen.getByText('général')).toBeInTheDocument();
+    expect(screen.queryByText('projets')).not.toBeInTheDocument();
+    useUi.setState({ hideMutedChannels: false });
+  });
+
+  it('garde le salon actif visible même en sourdine', () => {
+    useMute.setState({ channelLevels: { 'g1/c1': 'none', 'g1/c2': 'none' } });
+    useUi.setState({ hideMutedChannels: true });
+
+    render(<Sidebar />);
+
+    // c1 est actif : conservé bien que muet ; c2 muet non actif → masqué.
+    expect(screen.getByText('général')).toBeInTheDocument();
+    expect(screen.queryByText('projets')).not.toBeInTheDocument();
+    useUi.setState({ hideMutedChannels: false });
   });
 
   it('le sous-menu « Notifications » règle le niveau du salon (Rien puis Tout)', () => {

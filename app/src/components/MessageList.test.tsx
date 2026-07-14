@@ -53,6 +53,8 @@ const SELF = {
   pronouns: null,
   accent_color: null,
   banner_color: null,
+  avatar_decoration: null,
+  profile_effect: null,
 };
 
 function textMsg(

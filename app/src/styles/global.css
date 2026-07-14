@@ -126,12 +126,8 @@
    * doivent utiliser (Tailwind `shadow-1/2/3`).
    */
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-2:
-    0 2px 6px rgba(0, 0, 0, 0.3),
-    0 12px 28px rgba(0, 0, 0, 0.24);
-  --shadow-3:
-    0 8px 16px rgba(0, 0, 0, 0.4),
-    0 24px 56px rgba(0, 0, 0, 0.32);
+  --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.3), 0 12px 28px rgba(0, 0, 0, 0.24);
+  --shadow-3: 0 8px 16px rgba(0, 0, 0, 0.4), 0 24px 56px rgba(0, 0, 0, 0.32);
 
   /*
    * Verre liquide — échantillonné sur `--color-modal` (49 51 56), la
@@ -200,12 +196,8 @@
   --scrollbar-thumb-hover: #a8afb6;
 
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.08);
-  --shadow-2:
-    0 2px 6px rgba(0, 0, 0, 0.08),
-    0 12px 28px rgba(0, 0, 0, 0.06);
-  --shadow-3:
-    0 8px 16px rgba(0, 0, 0, 0.12),
-    0 24px 56px rgba(0, 0, 0, 0.1);
+  --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.08), 0 12px 28px rgba(0, 0, 0, 0.06);
+  --shadow-3: 0 8px 16px rgba(0, 0, 0, 0.12), 0 24px 56px rgba(0, 0, 0, 0.1);
 
   color-scheme: light;
 }
@@ -534,6 +526,23 @@ select:focus-visible {
 .modal-panel-enter {
   animation: modal-panel-in var(--duration-normal) var(--ease-out);
 }
+/* Fermeture d'une modale : symétrique de l'ouverture (voile + panneau). */
+@keyframes modal-panel-out {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+}
+.modal-overlay-exit {
+  animation: fade-in var(--duration-fast) var(--ease-out) reverse forwards;
+}
+.modal-panel-exit {
+  animation: modal-panel-out var(--duration-fast) var(--ease-out) forwards;
+}
 
 /*
  * Fondu + légère montée : changement de vue (salon/conversation) et
@@ -558,6 +567,21 @@ select:focus-visible {
 }
 .toast-enter {
   animation: fade-rise-in var(--duration-fast) var(--ease-out);
+}
+/* Sortie d'un toast : fondu + glissement/repli (transform+opacity, compositor). */
+@keyframes toast-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+}
+.toast-leaving {
+  animation: toast-out var(--duration-fast) var(--ease-out) forwards;
+  pointer-events: none;
 }
 
 /* Pastille (badge de non-lu/mention) : léger dépassement à l'apparition. */
@@ -624,6 +648,23 @@ select:focus-visible {
 .lightbox-image-enter {
   animation: lightbox-zoom-in var(--duration-normal) var(--ease-out);
 }
+/* Fermeture de l'aperçu plein écran : symétrique de l'ouverture. */
+@keyframes lightbox-zoom-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+.lightbox-exit {
+  animation: fade-in var(--duration-fast) var(--ease-out) reverse forwards;
+}
+.lightbox-image-exit {
+  animation: lightbox-zoom-out var(--duration-fast) var(--ease-out) forwards;
+}
 
 /* Halo pulsé autour de l'avatar de la personne qui parle (salon vocal). */
 @keyframes voice-speaking {
@@ -664,6 +705,80 @@ select:focus-visible {
 /* Apparition de la liste d'occupants d'un salon vocal (léger fondu/montée). */
 .voice-roster-enter {
   animation: fade-rise-in var(--duration-fast) var(--ease-out);
+}
+
+/*
+ * Personnalisation de profil (lib/decorations.tsx) : décorations d'avatar et
+ * effets de profil. Animations strictement compositeur (transform/opacity) —
+ * couvertes d'office par les blocs `prefers-reduced-motion` / `data-motion`
+ * ci-dessous (sélecteur `*`).
+ */
+@keyframes deco-ring-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes deco-aurora-drift {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.85;
+  }
+  33% {
+    transform: translate(8%, -6%) scale(1.12);
+    opacity: 1;
+  }
+  66% {
+    transform: translate(-6%, 5%) scale(0.95);
+    opacity: 0.75;
+  }
+}
+
+@keyframes deco-twinkle {
+  0%,
+  100% {
+    opacity: 0.15;
+    transform: scale(0.7);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+}
+
+@keyframes deco-petal-fall {
+  0% {
+    transform: translate3d(0, -20%, 0) rotate(0deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.9;
+  }
+  88% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate3d(22px, 320%, 0) rotate(320deg);
+    opacity: 0;
+  }
+}
+
+@keyframes deco-particle-float {
+  0% {
+    transform: translate3d(0, 0, 0) scale(0.6);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.6;
+  }
+  80% {
+    opacity: 0.5;
+  }
+  100% {
+    transform: translate3d(6px, -340%, 0) scale(1);
+    opacity: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

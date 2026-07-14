@@ -9,7 +9,7 @@
  * (sélecteur natif Tauri, sans plafond), avec indicateur de progression.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { interpolate } from '../i18n';
 import type { FileAttachment } from '../lib/api';
 import { estAudio, estImage, MAX_TAILLE_PIECE } from '../lib/attachments';
@@ -25,6 +25,9 @@ import { tailleLisible } from '../lib/format';
 import { useUi, useT } from '../stores/ui';
 import { CloseIcon } from './ContextMenu';
 import { VoiceMessagePlayer } from './VoiceMessagePlayer';
+
+/** Durée de l'animation de fermeture de l'aperçu (aligne `--duration-fast`). */
+const LIGHTBOX_EXIT_MS = 150;
 
 /**
  * Déclenche puis attend le téléchargement COMPLET d'un blob (sans plafond :
@@ -81,32 +84,46 @@ function Lightbox({
   onClose: () => void;
 }) {
   const t = useT();
+  const [closing, setClosing] = useState(false);
+  const closedRef = useRef(false);
+
+  // Fermeture différée : joue l'animation de sortie puis démonte réellement.
+  const fermer = useCallback((): void => {
+    if (closedRef.current) return;
+    closedRef.current = true;
+    setClosing(true);
+    window.setTimeout(onClose, LIGHTBOX_EXIT_MS);
+  }, [onClose]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') fermer();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [fermer]);
 
   return (
     <div
       role="dialog"
       aria-label={name}
-      className="lightbox-enter fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-8"
-      onClick={onClose}
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-8 ${
+        closing ? 'lightbox-exit' : 'lightbox-enter'
+      }`}
+      onClick={fermer}
     >
       <img
         src={url}
         alt={name}
-        className="lightbox-image-enter max-h-full max-w-full rounded-lg object-contain"
+        className={`max-h-full max-w-full rounded-lg object-contain ${
+          closing ? 'lightbox-image-exit' : 'lightbox-image-enter'
+        }`}
       />
       <button
         type="button"
         aria-label={t.fichiers.fermerApercu}
         title={t.fichiers.fermerApercu}
-        onClick={onClose}
+        onClick={fermer}
         className="absolute right-4 top-4 rounded-full p-2 text-white/80 transition-colors duration-fast hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
       >
         <CloseIcon size={22} />

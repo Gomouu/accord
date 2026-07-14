@@ -25,7 +25,7 @@ import {
   upcomingEvents,
   PERMISSIONS,
 } from '../stores/groups';
-import { channelLevel, useMute, type NotifLevel } from '../stores/mute';
+import { channelLevel, serverLevel, useMute, type NotifLevel } from '../stores/mute';
 import { useSession } from '../stores/session';
 import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 import { useUi, useT } from '../stores/ui';
@@ -332,6 +332,28 @@ function CalendarIcon() {
   );
 }
 
+/** Icône « calendrier » du jeu de menu (14 px, création d'événement — en-tête). */
+function EventMenuIcon() {
+  return (
+    <svg
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect width="18" height="18" x="3" y="4" rx="2" />
+      <path d="M16 2v4" />
+      <path d="M8 2v4" />
+      <path d="M3 10h18" />
+    </svg>
+  );
+}
+
 /** Icône de cadenas (salon restreint par au moins un override de rôle), icon spec 14 px. */
 function LockIcon() {
   return (
@@ -563,18 +585,29 @@ function HeaderChevronIcon({
 interface ServerMenuItem {
   label: string;
   icon: React.ReactNode;
-  onClick: () => void;
+  /** Action directe ; absente pour un item à sous-menu (voir `submenu`). */
+  onClick?: () => void;
   danger?: boolean;
   separatorBefore?: boolean;
+  /** Item à cocher (case) : rendu `menuitemcheckbox`, coche à droite si `true`. */
+  checked?: boolean;
+  /**
+   * Ouvre un sous-menu (menu contextuel générique) au lieu d'agir directement —
+   * réutilise `buildNotifLevelItems`. Le menu déroulant se ferme et le sous-menu
+   * s'ancre sur la ligne cliquée.
+   */
+  submenu?: () => ContextMenuItem[];
 }
 
 /**
  * Menu déroulant du nom de serveur (façon Discord), ancré sous l'en-tête et
  * large de la barre latérale (moins ses marges) — même langage visuel que
  * `ContextMenu`/`UserMenu` (`.glass-strong`, icônes partagées, danger rouge),
- * mais positionné en dropdown plutôt qu'au point de clic. Items construits en
- * réutilisant exclusivement des actions déjà existantes du store ; aucun
- * élément de gestion nouveau n'est introduit ici.
+ * mais positionné en dropdown plutôt qu'au point de clic. Icônes en fin de
+ * ligne (façon menu de serveur Discord). Items construits en réutilisant
+ * exclusivement des actions déjà existantes des stores (modales, sourdine,
+ * copie) ; le niveau de notification passe par le sous-menu générique et le
+ * masquage des salons muets bascule une simple préférence locale.
  */
 function ServerHeaderMenu({
   groupId,
@@ -589,6 +622,8 @@ function ServerHeaderMenu({
   const toast = useUi((s) => s.toast);
   const openModal = useUi((s) => s.openModal);
   const setView = useUi((s) => s.setView);
+  const hideMutedChannels = useUi((s) => s.hideMutedChannels);
+  const serverLevels = useMute((s) => s.serverLevels);
   const state = useGroups((s) => s.states[groupId]);
   const self = useSession((s) => s.self);
   const ref = useRef<HTMLDivElement>(null);
@@ -630,6 +665,8 @@ function ServerHeaderMenu({
   // peut pas quitter tant que d'autres membres restent (règle du contrat).
   const founderBlocked = isFounder && state.members.length > 1;
 
+  const canManageChannels = hasPerm(myPerms, PERMISSIONS.MANAGE_CHANNELS);
+
   const items: ServerMenuItem[] = [];
   if (hasPerm(myPerms, PERMISSIONS.INVITE)) {
     items.push({
@@ -643,7 +680,7 @@ function ServerHeaderMenu({
     icon: <GearMenuIcon />,
     onClick: () => openModal({ kind: 'serverSettings', groupId }),
   });
-  if (hasPerm(myPerms, PERMISSIONS.MANAGE_CHANNELS)) {
+  if (canManageChannels) {
     items.push({
       label: t.groups.addChannel,
       icon: <PlusMenuIcon />,
@@ -659,7 +696,33 @@ function ServerHeaderMenu({
       onClick: () =>
         openModal({ kind: 'serverSettings', groupId, initialTab: 'channels' }),
     });
+    items.push({
+      label: t.groups.eventCreate,
+      icon: <EventMenuIcon />,
+      onClick: () => openModal({ kind: 'events', groupId }),
+    });
   }
+  // Notifications : ouvre le sous-menu générique (mêmes trois niveaux que le
+  // rail, voir `stores/mute.ts`) plutôt qu'une modale — ce menu déroulant ne
+  // gère pas lui-même les items imbriqués.
+  items.push({
+    label: t.notifLevel.title,
+    icon: <BellOffMenuIcon />,
+    separatorBefore: true,
+    submenu: () =>
+      buildNotifLevelItems(
+        t.notifLevel,
+        serverLevel({ serverLevels, channelLevels: {} }, groupId),
+        (lvl) => useMute.getState().setServerLevel(groupId, lvl),
+      ),
+  });
+  items.push({
+    label: t.serveur.hideMutedChannels,
+    icon: <BellOffMenuIcon />,
+    separatorBefore: true,
+    checked: hideMutedChannels,
+    onClick: () => useUi.getState().toggleHideMutedChannels(),
+  });
   items.push({
     label: t.contextMenu.copyServerId,
     icon: <CopyMenuIcon />,
@@ -693,7 +756,19 @@ function ServerHeaderMenu({
 
   const activate = (item: ServerMenuItem): void => {
     onClose();
-    item.onClick();
+    item.onClick?.();
+  };
+
+  /**
+   * Ouvre le sous-menu générique d'un item (notifications) ancré sur la ligne
+   * cliquée, après fermeture du menu déroulant — le sous-menu vit dans le
+   * `ContextMenu` global (monté dans `AppShell`).
+   */
+  const openSubmenu = (item: ServerMenuItem, trigger: HTMLElement): void => {
+    if (item.submenu === undefined) return;
+    const r = trigger.getBoundingClientRect();
+    onClose();
+    useContextMenu.getState().openMenu(r.right, r.top, item.submenu());
   };
 
   const moveActive = (next: number): void => {
@@ -732,23 +807,33 @@ function ServerHeaderMenu({
               itemRefs.current[i] = el;
             }}
             type="button"
-            role="menuitem"
+            role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+            aria-checked={item.checked}
+            aria-haspopup={item.submenu !== undefined ? 'menu' : undefined}
             tabIndex={i === activeIndex ? 0 : -1}
             onMouseEnter={() => setActiveIndex(i)}
-            onClick={() => activate(item)}
+            onClick={(e) =>
+              item.submenu !== undefined ? openSubmenu(item, e.currentTarget) : activate(item)
+            }
             className={`flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm font-medium transition-colors duration-fast focus-visible:outline-none ${
               item.danger === true
                 ? 'text-red hover:bg-red/10 focus-visible:bg-red/10'
                 : 'text-norm hover:bg-chat-hover focus-visible:bg-chat-hover'
             }`}
           >
+            <span className="min-w-0 flex-1 truncate">{item.label}</span>
+            {/* Icône en fin de ligne, façon menu de serveur Discord ; pour une
+                case cochée, la coche remplace l'icône quand l'option est active. */}
             <span
               aria-hidden
-              className="flex h-[18px] w-[18px] shrink-0 items-center justify-center"
+              className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-faint"
             >
-              {item.icon}
+              {item.checked === undefined
+                ? item.icon
+                : item.checked
+                  ? <CheckMenuIcon />
+                  : null}
             </span>
-            <span className="min-w-0 flex-1 truncate">{item.label}</span>
           </button>
         </div>
       ))}
@@ -768,6 +853,7 @@ function GroupSidebar({ groupId }: { groupId: string }) {
   const channelMentions = useGroups((s) => s.channelMentions[groupId]);
   const serverLevels = useMute((s) => s.serverLevels);
   const channelLevels = useMute((s) => s.channelLevels);
+  const hideMutedChannels = useUi((s) => s.hideMutedChannels);
   const joinVoice = useVoice((s) => s.join);
   const self = useSession((s) => s.self);
   /** Menu déroulant du nom de serveur (ouvert/fermé). */
@@ -808,9 +894,20 @@ function GroupSidebar({ groupId }: { groupId: string }) {
   const visibleChannels = (state?.channels ?? []).filter((c) =>
     isChannelVisible(state, c.channel_id, self?.pubkey ?? null),
   );
-  const sections = channelsByCategory(visibleChannels, state?.categories ?? []);
-  const hasChannels = sections.some((section) => section.channels.length > 0);
   const activeChannel = view.kind === 'group' ? view.channelId : null;
+  // Masquage des salons muets (préférence locale, menu du serveur) : retire les
+  // salons au niveau effectif 'none' (héritage salon←serveur compris), en
+  // gardant toujours le salon actif pour ne jamais cacher la conversation
+  // ouverte (façon Discord).
+  const shownChannels = hideMutedChannels
+    ? visibleChannels.filter(
+        (c) =>
+          c.channel_id === activeChannel ||
+          channelLevel({ serverLevels, channelLevels }, groupId, c.channel_id) !== 'none',
+      )
+    : visibleChannels;
+  const sections = channelsByCategory(shownChannels, state?.categories ?? []);
+  const hasChannels = sections.some((section) => section.channels.length > 0);
 
   /** Ouvre un salon : conversation pour texte/annonces, vocal sinon. */
   const openChannel = (channel: GroupChannel): void => {

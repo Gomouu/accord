@@ -9,12 +9,13 @@ import { useState } from 'react';
 import type { Dict } from '../../i18n';
 import { interpolate } from '../../i18n';
 import { formatTimestamp } from '../../lib/format';
-import { displayNameOf, useFriends } from '../../stores/friends';
+import { avatarOf, displayNameOf, useFriends } from '../../stores/friends';
 import {
   useGroups,
   hasPerm,
   memberColor,
   nicknameOf,
+  serverAvatarOf,
   sortRoles,
   timeoutUntil,
   PERMISSIONS,
@@ -150,12 +151,26 @@ export function ServerMembersTab({ groupId }: { groupId: string }) {
         const name = nameOf(member.pubkey);
         const until = timeoutUntil(member);
         const hasNickname = nicknameOf(state, member.pubkey) !== null;
+        // Avatar de serveur self-service s'il est défini, sinon l'avatar
+        // global (le sien, ou celui du contact ami connu) — même résolution
+        // que la liste des membres du salon (ChatView).
+        const globalAvatar =
+          self !== null && member.pubkey === self.pubkey
+            ? self.avatar
+            : avatarOf(contacts, member.pubkey);
+        const avatarHash = serverAvatarOf(state, contacts, member.pubkey) ?? globalAvatar;
         return (
           <div
             key={member.pubkey}
             className="mb-1 flex items-center gap-3 rounded-lg bg-sidebar px-3 py-2"
           >
-            <Avatar id={member.pubkey} name={name} size={32} />
+            <Avatar
+              id={member.pubkey}
+              name={name}
+              size={32}
+              avatarHash={avatarHash}
+              hint={member.pubkey}
+            />
             <div className="min-w-0 flex-1">
               <div
                 className="truncate text-sm font-medium text-header"

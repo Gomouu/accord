@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react';
 import { lireFichier } from '../lib/files';
 import { avatarColor, initials } from '../lib/format';
+import { decorationById } from '../lib/decorations';
 
 interface AvatarProps {
   id: string;
@@ -21,6 +22,12 @@ interface AvatarProps {
    * `undefined` = pas de pastille (contexte sans présence connue).
    */
   online?: boolean | undefined;
+  /**
+   * Id de décoration d'avatar (cadre/anneau décoratif intégré). Absent, `null`
+   * ou inconnu = aucun cadre (l'avatar reste identique). La décoration est
+   * décorative (`pointer-events:none`) et se met à l'échelle avec `size`.
+   */
+  decoration?: string | null;
 }
 
 export function Avatar({
@@ -30,6 +37,7 @@ export function Avatar({
   avatarHash = null,
   hint,
   online,
+  decoration = null,
 }: AvatarProps) {
   const [url, setUrl] = useState<string | null>(null);
 
@@ -63,11 +71,15 @@ export function Avatar({
     </div>
   );
 
-  // Sans présence connue : cercle nu (aucun changement de layout).
+  // Décoration intégrée (cadre/anneau) superposée, si l'id est connu.
+  const cadre = decorationById(decoration)?.render(size) ?? null;
+
+  // Sans présence connue : cercle nu + éventuelle décoration.
   if (online === undefined) {
     return (
-      <div className="shrink-0" style={{ width: size, height: size }}>
+      <div className="relative shrink-0" style={{ width: size, height: size }}>
         {cercle}
+        {cadre}
       </div>
     );
   }
@@ -77,6 +89,7 @@ export function Avatar({
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
       {cercle}
+      {cadre}
       <span
         aria-label={online ? 'en ligne' : 'hors ligne'}
         className={`absolute bottom-0 right-0 rounded-full border-2 border-rail ${

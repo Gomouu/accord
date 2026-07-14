@@ -61,7 +61,9 @@ export function Toasts() {
           key={toast.id}
           type="button"
           onClick={() => dismiss(toast.id)}
-          className="glass-strong toast-enter pointer-events-auto flex items-center gap-2.5 rounded-lg px-4 py-2.5 text-sm font-medium text-norm shadow-2 transition-transform duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
+          className={`glass-strong pointer-events-auto flex items-center gap-2.5 rounded-lg px-4 py-2.5 text-sm font-medium text-norm shadow-2 transition-transform duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95 ${
+            toast.leaving === true ? 'toast-leaving' : 'toast-enter'
+          }`}
         >
           <span
             aria-hidden

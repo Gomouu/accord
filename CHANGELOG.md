@@ -2,6 +2,32 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [1.2.1] — 2026-07-14
+
+### Added
+
+- Profile customization: pick a built-in **avatar decoration** (glow, neon,
+  aurora, golden laurel, sakura, pixel crown) and an animated **profile effect**
+  (aurora, starfield, petals, particles) from profile settings. Shared with
+  peers as a tiny id — no image transfer.
+- Discord-style context menus: right-click a member/author, a server icon, or
+  the server name for the full set of actions (call, remove/block, mark as read,
+  create channel/category/event, hide muted channels…).
+- The message composer now mirrors Discord: a single **+** creation menu on the
+  left (attach files, create a poll), the input, then the emoji/send cluster.
+
+### Fixed
+
+- Server invitations can be **re-sent**: the "Invited ✓" state was a permanent
+  dead-end, so a second invite to the same friend was impossible until reopening
+  the modal. It now reverts after a moment.
+- Member avatars in **Server settings → Members** now load (were initials-only).
+
+### Changed
+
+- Graceful **close animations** for toasts, the image lightbox and modals
+  (they used to vanish instantly).
+
 ## [1.2.0] — 2026-07-14
 
 ### Added

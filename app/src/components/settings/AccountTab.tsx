@@ -16,6 +16,11 @@ import {
 } from '../../stores/session';
 import { useUi, useT } from '../../stores/ui';
 import { lireFichier } from '../../lib/files';
+import {
+  AVATAR_DECORATIONS,
+  DECORATION_UI_TEXT,
+  PROFILE_EFFECTS,
+} from '../../lib/decorations';
 import { AvatarCropper } from '../AvatarCropper';
 import { Avatar } from '../Avatar';
 import { ColorSwatchPicker, SettingsSection } from './controls';
@@ -460,6 +465,155 @@ function ColorsSection() {
   );
 }
 
+/** Classe d'une tuile de sélection (décoration/effet), état sélectionné inclus. */
+function tileClass(selected: boolean): string {
+  return `flex w-20 shrink-0 flex-col items-center gap-1.5 rounded-lg p-2 transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50 ${
+    selected ? 'bg-blurple/15 ring-2 ring-blurple' : 'hover:bg-chat-hover'
+  }`;
+}
+
+/**
+ * Section personnalisation : décoration d'avatar (cadre intégré) et effet de
+ * profil (fond animé de la carte), tous deux rendus en CSS/SVG pur et
+ * enregistrés via `profile.set` (tri-état, `null` = aucune). Aperçu en direct
+ * sur son propre avatar / une mini-carte.
+ */
+function PersonalizationSection() {
+  const t = useT();
+  const lang = useUi((s) => s.lang);
+  const toast = useUi((s) => s.toast);
+  const self = useSession((s) => s.self);
+  const setAvatarDecoration = useSession((s) => s.setAvatarDecoration);
+  const setProfileEffect = useSession((s) => s.setProfileEffect);
+  const [busy, setBusy] = useState(false);
+
+  if (!self) return null;
+
+  const avatarName = self.name ?? self.friend_code;
+
+  const apply = async (fn: () => Promise<void>): Promise<void> => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await fn();
+      toast('info', DECORATION_UI_TEXT.saved[lang]);
+    } catch {
+      toast('error', t.errors.actionFailed);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pickDecoration = (id: string | null): void => {
+    if (id === self.avatar_decoration) return;
+    void apply(() => setAvatarDecoration(id));
+  };
+
+  const pickEffect = (id: string | null): void => {
+    if (id === self.profile_effect) return;
+    void apply(() => setProfileEffect(id));
+  };
+
+  return (
+    <>
+      <SettingsSection
+        title={DECORATION_UI_TEXT.decorationTitle[lang]}
+        hint={DECORATION_UI_TEXT.decorationHint[lang]}
+      >
+        <div
+          role="group"
+          aria-label={DECORATION_UI_TEXT.decorationTitle[lang]}
+          className="flex flex-wrap gap-2 rounded-lg bg-sidebar p-3"
+        >
+          <button
+            type="button"
+            disabled={busy}
+            aria-pressed={self.avatar_decoration === null}
+            onClick={() => pickDecoration(null)}
+            className={tileClass(self.avatar_decoration === null)}
+          >
+            <Avatar
+              id={self.pubkey}
+              name={avatarName}
+              size={48}
+              avatarHash={self.avatar}
+              hint={self.pubkey}
+            />
+            <span className="text-xs text-muted">{DECORATION_UI_TEXT.none[lang]}</span>
+          </button>
+          {AVATAR_DECORATIONS.map((deco) => {
+            const selected = self.avatar_decoration === deco.id;
+            return (
+              <button
+                key={deco.id}
+                type="button"
+                disabled={busy}
+                aria-pressed={selected}
+                onClick={() => pickDecoration(deco.id)}
+                className={tileClass(selected)}
+              >
+                <Avatar
+                  id={self.pubkey}
+                  name={avatarName}
+                  size={48}
+                  avatarHash={self.avatar}
+                  hint={self.pubkey}
+                  decoration={deco.id}
+                />
+                <span className="w-full truncate text-center text-xs text-muted">
+                  {deco.label[lang]}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </SettingsSection>
+
+      <SettingsSection
+        title={DECORATION_UI_TEXT.effectTitle[lang]}
+        hint={DECORATION_UI_TEXT.effectHint[lang]}
+      >
+        <div
+          role="group"
+          aria-label={DECORATION_UI_TEXT.effectTitle[lang]}
+          className="flex flex-wrap gap-2 rounded-lg bg-sidebar p-3"
+        >
+          <button
+            type="button"
+            disabled={busy}
+            aria-pressed={self.profile_effect === null}
+            onClick={() => pickEffect(null)}
+            className={tileClass(self.profile_effect === null)}
+          >
+            <span className="h-12 w-full rounded-md bg-rail" aria-hidden />
+            <span className="text-xs text-muted">{DECORATION_UI_TEXT.none[lang]}</span>
+          </button>
+          {PROFILE_EFFECTS.map((fx) => {
+            const selected = self.profile_effect === fx.id;
+            return (
+              <button
+                key={fx.id}
+                type="button"
+                disabled={busy}
+                aria-pressed={selected}
+                onClick={() => pickEffect(fx.id)}
+                className={tileClass(selected)}
+              >
+                <span className="relative h-12 w-full overflow-hidden rounded-md bg-modal">
+                  {fx.render()}
+                </span>
+                <span className="w-full truncate text-center text-xs text-muted">
+                  {fx.label[lang]}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </SettingsSection>
+    </>
+  );
+}
+
 /**
  * Danger zone: logs out without quitting the app. Locking drops the node's
  * in-memory keys host-side and lands on the unlock screen, exactly like a
@@ -594,6 +748,8 @@ export function AccountTab() {
       <BioSection />
 
       <ColorsSection />
+
+      <PersonalizationSection />
 
       <SettingsSection title={t.settings.identity}>
         <div className="rounded-lg bg-sidebar p-4">

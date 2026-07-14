@@ -10,7 +10,7 @@ use crate::error::NodeError;
 use crate::hex;
 use crate::node::Node;
 
-use super::helpers::{b64_decode, param_opt_color, param_opt_str, param_str};
+use super::helpers::{b64_decode, param_opt_color, param_opt_id, param_opt_str, param_str};
 
 /// Taille maximale d'un avatar une fois décodé (512 Kio).
 const AVATAR_MAX_BYTES: usize = 512 * 1024;
@@ -40,6 +40,8 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             "pronouns": node.profile_pronouns()?,
             "accent_color": node.profile_accent_color()?,
             "banner_color": node.profile_banner_color()?,
+            "avatar_decoration": node.profile_avatar_decoration()?,
+            "profile_effect": node.profile_profile_effect()?,
         })),
         "profile.set" => {
             let name = param_opt_str(params, "name")?;
@@ -47,7 +49,19 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             let pronouns = param_opt_str(params, "pronouns")?;
             let accent_color = param_opt_color(params, "accent_color")?;
             let banner_color = param_opt_color(params, "banner_color")?;
-            node.profile_update(name, bio, pronouns, accent_color, banner_color)?;
+            let avatar_decoration = param_opt_id(params, "avatar_decoration")?;
+            let profile_effect = param_opt_id(params, "profile_effect")?;
+            // `Option<Option<String>>` → `Option<Option<&str>>` sans copier :
+            // le cœur revalide l'id (alphabet, borne) avant écriture.
+            node.profile_update(
+                name,
+                bio,
+                pronouns,
+                accent_color,
+                banner_color,
+                avatar_decoration.as_ref().map(|o| o.as_deref()),
+                profile_effect.as_ref().map(|o| o.as_deref()),
+            )?;
             Ok(json!({}))
         }
         "profile.set_avatar" => {

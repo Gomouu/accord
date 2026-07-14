@@ -7,7 +7,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 vi.mock('../lib/client', () => ({
   rpc: {
@@ -117,6 +117,32 @@ describe('InviteModal (Modals.tsx) — invitation par consentement (D-045)', () 
     // Carole reste invitable.
     expect(screen.getByRole('button', { name: 'Inviter Carole' })).toBeInTheDocument();
     await attendreLien();
+  });
+
+  it('la confirmation est transitoire : on peut relancer l’invitation au même ami', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<Modals />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Inviter Bob' }));
+      expect(
+        await screen.findByRole('button', { name: 'Invitation envoyée à Bob' }),
+      ).toBeInTheDocument();
+      expect(api.groupsInviteCreate).toHaveBeenCalledTimes(1);
+
+      // « Invité ✓ » n'est PAS un verrou définitif : le bouton redevient
+      // « Inviter » (régression — auparavant il restait désactivé à vie).
+      await act(async () => {
+        vi.advanceTimersByTime(3000);
+      });
+      const reinviter = await screen.findByRole('button', { name: 'Inviter Bob' });
+
+      // Une nouvelle invitation (à usage unique côté nœud) peut repartir.
+      fireEvent.click(reinviter);
+      await vi.waitFor(() => expect(api.groupsInviteCreate).toHaveBeenCalledTimes(2));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('filtre les amis via le champ de recherche', async () => {
@@ -369,13 +395,14 @@ describe('Modales — accessibilité (focus, onglets, noms accessibles)', () => 
     expect(dialog).toHaveAttribute('aria-labelledby');
   });
 
-  it('Échap ferme la modale', () => {
+  it('Échap ferme la modale', async () => {
     useUi.setState({ lang: 'fr', modal: { kind: 'createGroup' } });
     render(<Modals />);
 
     fireEvent.keyDown(window, { key: 'Escape' });
 
-    expect(useUi.getState().modal).toBeNull();
+    // Fermeture différée (animation de sortie) : le démontage suit l'animation.
+    await vi.waitFor(() => expect(useUi.getState().modal).toBeNull());
   });
 
   it('les onglets Créer/Rejoindre basculent aux flèches, focus compris', () => {

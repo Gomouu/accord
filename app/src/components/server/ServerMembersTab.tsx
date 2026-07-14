@@ -83,7 +83,7 @@ function MemberTimeout({
   }
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-1.5">
       <select
         aria-label={t.serveur.timeoutDuration}
         value={choice}
@@ -171,7 +171,7 @@ export function ServerMembersTab({ groupId }: { groupId: string }) {
         return (
           <div
             key={member.pubkey}
-            className="mb-1 flex items-center gap-3 rounded-lg bg-sidebar px-3 py-2"
+            className="mb-1 flex flex-wrap items-center gap-3 rounded-lg bg-sidebar px-3 py-2"
           >
             <Avatar
               id={member.pubkey}
@@ -204,7 +204,7 @@ export function ServerMembersTab({ groupId }: { groupId: string }) {
               )}
             </div>
             {!isSelf && !isFounder && (
-              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              <div className="flex min-w-0 basis-full flex-wrap items-center justify-end gap-2 pl-11">
                 {canKick && (
                   <MemberTimeout
                     until={until}

@@ -75,6 +75,21 @@ What it can **not** do:
   have yet; enforcing them now would break first contact more often than
   it would protect it.
 
+**Residual after M1a hardening.** The self-declared `RELAY` flag in a
+`NODE_ANNOUNCE` (`crates/accord-proto/src/plaintext.rs`) is no longer
+trusted on its own for selection: a node is only treated as a *reachable*
+relay after it advertises the flag **inside an established direct session**
+(a mutually-authenticated handshake = active reachability proof), tracked
+as `verified_relays` in `crates/accord-node/src/runtime.rs` and used to
+push verified relays to the front of the bounded try-list
+(`relay::prioritize_reachable`). This defeats the cheap variant — a flood
+of *unreachable* fake-`RELAY` identities crowding the genuine relay out of
+`RELAY_TRY_MAX` attempts. It does **not** defeat an attacker who is
+genuinely reachable and grinds a close `NodeId`: a reachable malicious
+relay can still be selected and can observe/censor first-contact metadata
+(the accepted trade-off above). Content confidentiality and
+non-impersonation still hold.
+
 **Hardening path.** Raise `HOME_RELAY_COUNT`; require IP/operator
 diversity among a node's home relays (as the DHT already does per bucket:
 at most 2 nodes per IPv4 /24); periodically re-select with an

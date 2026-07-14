@@ -36,7 +36,7 @@ export function AccessibilityTab() {
         title={t.settings.reducedMotionTitle}
         hint={t.settings.reducedMotionHint}
       >
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {motionOptions.map(({ id, label }) => (
             <OptionPill
               key={id}
@@ -49,7 +49,10 @@ export function AccessibilityTab() {
         </div>
       </SettingsSection>
 
-      <SettingsSection title={t.settings.saturationTitle} hint={t.settings.saturationHint}>
+      <SettingsSection
+        title={t.settings.saturationTitle}
+        hint={t.settings.saturationHint}
+      >
         <div className="flex items-center gap-4 rounded-lg bg-sidebar px-4 py-3">
           <input
             type="range"
@@ -68,7 +71,7 @@ export function AccessibilityTab() {
       </SettingsSection>
 
       <SettingsSection title={t.settings.fontSize}>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {FONT_SCALES.map((scale) => (
             <OptionPill
               key={scale}

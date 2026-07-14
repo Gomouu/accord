@@ -165,9 +165,33 @@ fn control_msgs_roundtrip() {
             token: 5,
             candidates: vec![],
         },
+        ControlMsg::NodeAnnounce {
+            pow_nonce: 0xDEAD_BEEF,
+            flags: types::node_flags::RELAY,
+        },
     ] {
         roundtrip_channel(&ChannelMsg::Control(m));
     }
+}
+
+#[test]
+fn node_announce_refuse_les_octets_excedentaires() {
+    // Décodage strict : une annonce suivie d'octets résiduels est rejetée
+    // (aucune tolérance sur la nouvelle surface filaire, SPEC §12).
+    let mut bytes = ChannelMsg::Control(ControlMsg::NodeAnnounce {
+        pow_nonce: 7,
+        flags: 0,
+    })
+    .to_bytes();
+    bytes.push(0);
+    assert!(ChannelMsg::from_bytes(&bytes).is_err());
+    // Annonce tronquée : rejetée aussi.
+    let ok = ChannelMsg::Control(ControlMsg::NodeAnnounce {
+        pow_nonce: 7,
+        flags: 0,
+    })
+    .to_bytes();
+    assert!(ChannelMsg::from_bytes(&ok[..ok.len() - 1]).is_err());
 }
 
 #[test]

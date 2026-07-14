@@ -116,7 +116,12 @@ export function ForumView({
     try {
       // Crée le fil (post) sous le forum, puis publie le 1er message DANS le
       // fil : la racine du forum refuse tout envoi direct.
-      const threadId = await createThread(groupId, forumId, FORUM_POST_ROOT, title.trim());
+      const threadId = await createThread(
+        groupId,
+        forumId,
+        FORUM_POST_ROOT,
+        title.trim(),
+      );
       await send(groupId, threadId, firstMessage.trim());
       setTitle('');
       setFirstMessage('');
@@ -162,7 +167,12 @@ export function ForumView({
           >
             <ForumGlyph />
           </span>
-          <span className="shrink-0 font-semibold text-header">{channel.name}</span>
+          <span
+            className="min-w-0 truncate font-semibold text-header"
+            title={channel.name}
+          >
+            {channel.name}
+          </span>
           {channel.topic !== '' && (
             <>
               <span aria-hidden className="h-5 w-px shrink-0 bg-input" />

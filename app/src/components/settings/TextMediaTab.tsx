@@ -35,7 +35,7 @@ export function TextMediaTab() {
       </SettingsSection>
 
       <SettingsSection title={t.settings.emojiSizeTitle} hint={t.settings.emojiSizeHint}>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {emojiOptions.map(({ id, label }) => (
             <OptionPill
               key={id}

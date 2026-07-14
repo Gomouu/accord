@@ -358,6 +358,20 @@ describe('ServerSettingsModal — membres', () => {
     expect(until - before).toBeGreaterThan(6 * 24 * 60 * 60 * 1000);
   });
 
+  it('place les actions de modération sur une rangée contrainte et repliable', () => {
+    seed(makeState());
+    render(<ServerSettingsModal groupId="g1" />);
+    openTab('Membres');
+
+    const timeout = screen.getByRole('combobox', { name: 'Durée de la sourdine' });
+    expect(timeout.parentElement).toHaveClass('flex-wrap');
+    expect(timeout.parentElement?.parentElement).toHaveClass(
+      'min-w-0',
+      'basis-full',
+      'flex-wrap',
+    );
+  });
+
   it('affiche l’indicateur de sourdine et permet de la lever', async () => {
     seed(
       makeState({

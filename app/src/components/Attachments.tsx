@@ -181,7 +181,7 @@ function VignetteImage({
 
   if (echec) {
     return (
-      <div className="flex h-24 w-64 max-w-full items-center justify-center rounded-lg border border-rail bg-sidebar px-4 text-sm text-faint">
+      <div className="flex aspect-[4/3] w-80 max-w-full items-center justify-center rounded-lg border border-rail bg-sidebar px-4 text-center text-sm text-faint">
         {t.fichiers.imageIndisponible}
       </div>
     );
@@ -195,7 +195,7 @@ function VignetteImage({
     return (
       <div
         role="status"
-        className="flex h-40 w-64 max-w-full flex-col items-center justify-center gap-2 rounded-lg border border-rail bg-sidebar px-4"
+        className="flex aspect-[4/3] w-80 max-w-full flex-col items-center justify-center gap-2 rounded-lg border border-rail bg-sidebar px-4"
       >
         <div className="text-xs text-muted">
           {interpolate(t.fichiers.enTelechargement, { pct: String(pct) })}
@@ -218,12 +218,12 @@ function VignetteImage({
         aria-label={interpolate(t.fichiers.agrandir, { name: piece.name })}
         title={piece.name}
         onClick={() => setPleinEcran(true)}
-        className="w-fit rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+        className="flex aspect-[4/3] w-80 max-w-full items-center justify-center overflow-hidden rounded-lg border border-rail bg-sidebar focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
       >
         <img
           src={url}
           alt={piece.name}
-          className="max-h-80 max-w-full rounded-lg object-contain"
+          className="h-full w-full rounded-lg object-contain"
         />
       </button>
       {pleinEcran && (
@@ -438,7 +438,11 @@ export function AttachmentRow({
           (estImage(piece.mime) || estAudio(piece.mime)) && piece.size > MAX_TAILLE_PIECE;
         if (estAudio(piece.mime) && !tropGrandPourApercu) {
           return (
-            <VoiceMessagePlayer key={`${piece.merkle_root}-${i}`} piece={piece} hint={hint} />
+            <VoiceMessagePlayer
+              key={`${piece.merkle_root}-${i}`}
+              piece={piece}
+              hint={hint}
+            />
           );
         }
         return showPreviews && estImage(piece.mime) && !tropGrandPourApercu ? (

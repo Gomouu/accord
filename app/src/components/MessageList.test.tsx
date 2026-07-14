@@ -6,7 +6,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import {
   MessageList,
   messageLink,
@@ -221,6 +221,96 @@ describe('MessageList — rendu', () => {
     expect(screen.getByText('Message supprimé')).toBeInTheDocument();
     expect(screen.getByText(/version finale/)).toBeInTheDocument();
     expect(screen.getByText('(modifié)')).toBeInTheDocument();
+  });
+
+  it('préserve la position de lecture quand un message arrive loin du bas', () => {
+    const premier = textMsg('m1', BASE_MS, 'premier');
+    const { rerender } = render(<MessageList messages={[premier]} />);
+    const log = screen.getByRole('log');
+    Object.defineProperties(log, {
+      clientHeight: { configurable: true, value: 300 },
+      scrollHeight: { configurable: true, value: 1_000 },
+      scrollTop: { configurable: true, writable: true, value: 120 },
+    });
+    fireEvent.scroll(log);
+
+    rerender(
+      <MessageList messages={[premier, textMsg('m2', BASE_MS + 1_000, 'nouveau')]} />,
+    );
+
+    expect(log.scrollTop).toBe(120);
+  });
+
+  it('continue de suivre les messages quand la lecture est proche du bas', () => {
+    const premier = textMsg('m1', BASE_MS, 'premier');
+    const { rerender } = render(<MessageList messages={[premier]} />);
+    const log = screen.getByRole('log');
+    Object.defineProperties(log, {
+      clientHeight: { configurable: true, value: 300 },
+      scrollHeight: { configurable: true, value: 1_000 },
+      scrollTop: { configurable: true, writable: true, value: 680 },
+    });
+    fireEvent.scroll(log);
+    Object.defineProperty(log, 'scrollHeight', { configurable: true, value: 1_200 });
+
+    rerender(
+      <MessageList messages={[premier, textMsg('m2', BASE_MS + 1_000, 'nouveau')]} />,
+    );
+
+    expect(log.scrollTop).toBe(1_200);
+  });
+
+  it('préserve aussi l’ancre si un message arrive pendant la pagination', () => {
+    const loadOlder = vi.fn();
+    const premier = textMsg('m1', BASE_MS, 'premier');
+    const { rerender } = render(
+      <MessageList messages={[premier]} hasMore onLoadOlder={loadOlder} />,
+    );
+    const log = screen.getByRole('log');
+    Object.defineProperties(log, {
+      clientHeight: { configurable: true, value: 300 },
+      scrollHeight: { configurable: true, value: 1_000 },
+      scrollTop: { configurable: true, writable: true, value: 40 },
+    });
+    fireEvent.scroll(log);
+    expect(loadOlder).toHaveBeenCalledOnce();
+
+    Object.defineProperty(log, 'scrollHeight', { configurable: true, value: 1_100 });
+    const recent = textMsg('m2', BASE_MS + 1_000, 'récent');
+    rerender(
+      <MessageList messages={[premier, recent]} hasMore onLoadOlder={loadOlder} />,
+    );
+    expect(log.scrollTop).toBe(40);
+
+    Object.defineProperty(log, 'scrollHeight', { configurable: true, value: 1_300 });
+    rerender(
+      <MessageList
+        messages={[textMsg('m0', BASE_MS - 1_000, 'ancien'), premier, recent]}
+        hasMore
+        onLoadOlder={loadOlder}
+      />,
+    );
+    expect(log.scrollTop).toBe(240);
+  });
+
+  it('ouvre une autre conversation sur ses messages récents', () => {
+    useUi.setState({ view: { kind: 'dm', peer: 'alice' } });
+    const { rerender } = render(
+      <MessageList messages={[textMsg('m1', BASE_MS, 'conversation A')]} />,
+    );
+    const log = screen.getByRole('log');
+    Object.defineProperties(log, {
+      clientHeight: { configurable: true, value: 300 },
+      scrollHeight: { configurable: true, value: 1_000 },
+      scrollTop: { configurable: true, writable: true, value: 120 },
+    });
+    fireEvent.scroll(log);
+    Object.defineProperty(log, 'scrollHeight', { configurable: true, value: 1_400 });
+
+    act(() => useUi.setState({ view: { kind: 'dm', peer: 'bob' } }));
+    rerender(<MessageList messages={[textMsg('m2', BASE_MS, 'conversation B')]} />);
+
+    expect(log.scrollTop).toBe(1_400);
   });
 });
 
@@ -778,7 +868,11 @@ describe('MessageList — sondage (MsgBody kind 7, D-048)', () => {
     };
   }
 
-  function pollMsg(id: string, sentMs: number, extra: Partial<DisplayMessage> = {}): DisplayMessage {
+  function pollMsg(
+    id: string,
+    sentMs: number,
+    extra: Partial<DisplayMessage> = {},
+  ): DisplayMessage {
     return {
       msg_id: id,
       author: 'aabbccddee',
@@ -834,7 +928,9 @@ describe('MessageList — sondage (MsgBody kind 7, D-048)', () => {
     useGroups.setState({
       states: {
         g1: pollGroupState({
-          polls: [pollTally({ closed: true, counts: [1, 0], total_votes: 1, my_vote: 0 })],
+          polls: [
+            pollTally({ closed: true, counts: [1, 0], total_votes: 1, my_vote: 0 }),
+          ],
         }),
       },
     });
@@ -904,14 +1000,14 @@ describe('MessageList — séparateur nouveaux messages', () => {
     expect(
       screen.getByRole('separator', { name: 'Nouveaux messages' }),
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Sauter aux nouveaux/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Sauter aux nouveaux/ }),
+    ).toBeInTheDocument();
   });
 
   it('n’insère aucun séparateur quand tous les non-lus sont de soi', () => {
     useSession.setState({ self: SELF });
-    const messages = [
-      textMsg('a', BASE_MS, 'mien', { author: SELF.pubkey, lamport: 6 }),
-    ];
+    const messages = [textMsg('a', BASE_MS, 'mien', { author: SELF.pubkey, lamport: 6 })];
     render(<MessageList messages={messages} dividerLamport={5} />);
 
     expect(

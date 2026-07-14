@@ -29,7 +29,7 @@ export function LanguageTab() {
   return (
     <div>
       <SettingsSection title={t.settings.language} hint={t.settings.languageHint}>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {langs.map(({ id, label }) => (
             <OptionPill key={id} selected={lang === id} onSelect={() => setLang(id)}>
               {label}
@@ -38,8 +38,11 @@ export function LanguageTab() {
         </div>
       </SettingsSection>
 
-      <SettingsSection title={t.settings.timeFormatTitle} hint={t.settings.timeFormatHint}>
-        <div className="flex gap-2">
+      <SettingsSection
+        title={t.settings.timeFormatTitle}
+        hint={t.settings.timeFormatHint}
+      >
+        <div className="flex flex-wrap gap-2">
           {timeFormats.map(({ id, label }) => (
             <OptionPill
               key={id}

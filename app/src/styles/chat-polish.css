@@ -1,0 +1,52 @@
+/*
+ * Composition responsive des conversations de groupe. Le conteneur observe
+ * l'espace réellement laissé par le rail et la barre latérale (et non la
+ * largeur globale de la fenêtre), afin que les panneaux latéraux ne puissent
+ * jamais réduire le fil principal à quelques pixels.
+ */
+.group-chat-layout {
+  container-name: group-chat;
+  container-type: inline-size;
+}
+
+.thread-panel {
+  width: clamp(20rem, 32vw, 24rem);
+  max-width: min(85vw, 24rem);
+}
+
+.group-chat-layout .thread-panel {
+  width: clamp(20rem, 38cqw, 24rem);
+  max-width: min(85cqw, 24rem);
+}
+
+/*
+ * Dans la fenêtre courante de l'application, trois colonnes ne laissent pas
+ * une largeur de lecture suffisante. La liste des membres disparaît et le fil
+ * reste dans le flux : aucun contrôle masqué ne demeure atteignable au clavier.
+ */
+@container group-chat (max-width: 68rem) {
+  .group-chat-layout.thread-is-open .group-chat-members {
+    display: none;
+  }
+
+  .group-chat-layout.thread-is-open .thread-panel {
+    width: clamp(20rem, 46cqw, 24rem);
+    max-width: min(48cqw, 24rem);
+    box-shadow: -16px 0 36px rgb(0 0 0 / 0.24);
+  }
+}
+
+/* Sur un contenu très étroit, le fil remplace la conversation au lieu de la
+ * recouvrir entièrement tout en la laissant focusable derrière lui. */
+@container group-chat (max-width: 44rem) {
+  .group-chat-layout.thread-is-open .group-chat-main {
+    display: none;
+  }
+
+  .group-chat-layout.thread-is-open .thread-panel {
+    width: 100%;
+    max-width: none;
+    border-left: 0;
+    box-shadow: none;
+  }
+}

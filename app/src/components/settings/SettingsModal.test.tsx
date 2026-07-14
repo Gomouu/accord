@@ -167,7 +167,10 @@ describe('SettingsModal — apparence', () => {
     render(<SettingsModal />);
     openTab('Apparence');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Compacte' }));
+    const compact = screen.getByRole('button', { name: 'Compacte' });
+    expect(compact).toHaveClass('inline-flex', 'min-h-9');
+    expect(compact.parentElement).toHaveClass('flex-wrap');
+    fireEvent.click(compact);
 
     expect(document.documentElement.dataset.density).toBe('compact');
     expect(window.localStorage.getItem('accord.density')).toBe('compact');

@@ -75,7 +75,7 @@ export function SettingsModal() {
                     onClick={() => setTabId(tab.id)}
                     className={`mb-0.5 block w-full rounded-md px-2.5 py-1.5 text-left font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
                       tabId === tab.id
-                        ? 'bg-chat-hover text-header'
+                        ? 'bg-blurple/15 text-header ring-1 ring-inset ring-blurple/20'
                         : 'text-muted hover:bg-chat-hover hover:text-norm'
                     }`}
                   >

@@ -72,7 +72,7 @@ function HeaderIconButton({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar active:scale-95 ${
+      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar active:scale-95 ${
         onBanner
           ? 'text-white/80 hover:bg-white/10 hover:text-white'
           : `hover:bg-chat-hover ${active ? 'text-header' : 'text-muted hover:text-norm'}`
@@ -144,7 +144,7 @@ function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
           onClick={() => setView({ kind: 'friends' })}
           className={`flex h-9 w-full items-center gap-3 rounded-md px-2 font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
             view.kind === 'friends'
-              ? 'bg-chat-hover text-norm'
+              ? 'bg-blurple/15 text-header ring-1 ring-inset ring-blurple/20'
               : 'text-muted hover:bg-chat-hover hover:text-norm'
           }`}
         >
@@ -189,7 +189,7 @@ function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
               onClick={() => setView({ kind: 'dm', peer: c.pubkey })}
               className={`flex ${hasStatusText ? 'h-11' : 'h-9'} w-full items-center gap-2.5 rounded-md px-2 transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
                 active
-                  ? 'bg-chat-hover text-norm'
+                  ? 'bg-blurple/15 text-header ring-1 ring-inset ring-blurple/20'
                   : 'text-muted hover:bg-chat-hover hover:text-norm'
               }`}
             >
@@ -514,7 +514,7 @@ function ChannelRow({
       }}
       className={`flex h-9 w-full items-center gap-1.5 rounded-md px-2 font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
         active
-          ? 'bg-chat-hover text-norm'
+          ? 'bg-blurple/15 text-header ring-1 ring-inset ring-blurple/20'
           : 'text-muted hover:bg-chat-hover hover:text-norm'
       } ${muted ? 'opacity-50' : ''}`}
     >
@@ -796,7 +796,7 @@ function ServerHeaderMenu({
       aria-label={t.serveur.serverMenu}
       tabIndex={-1}
       onKeyDown={onKeyDown}
-      className="glass-strong context-menu-enter absolute inset-x-3 top-[calc(100%+4px)] z-50 origin-top rounded-lg p-1.5 focus:outline-none"
+      className="glass-strong context-menu-enter absolute inset-x-3 top-[calc(100%+4px)] z-50 max-h-[calc(100vh-9rem)] origin-top overflow-y-auto overscroll-contain rounded-lg p-1.5 focus:outline-none"
     >
       {items.map((item, i) => (
         <div key={`${i}-${item.label}`}>
@@ -814,7 +814,9 @@ function ServerHeaderMenu({
             tabIndex={i === activeIndex ? 0 : -1}
             onMouseEnter={() => setActiveIndex(i)}
             onClick={(e) =>
-              item.submenu !== undefined ? openSubmenu(item, e.currentTarget) : activate(item)
+              item.submenu !== undefined
+                ? openSubmenu(item, e.currentTarget)
+                : activate(item)
             }
             className={`flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm font-medium transition-colors duration-fast focus-visible:outline-none ${
               item.danger === true
@@ -829,11 +831,11 @@ function ServerHeaderMenu({
               aria-hidden
               className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-faint"
             >
-              {item.checked === undefined
-                ? item.icon
-                : item.checked
-                  ? <CheckMenuIcon />
-                  : null}
+              {item.checked === undefined ? (
+                item.icon
+              ) : item.checked ? (
+                <CheckMenuIcon />
+              ) : null}
             </span>
           </button>
         </div>
@@ -923,27 +925,37 @@ function GroupSidebar({ groupId }: { groupId: string }) {
 
   const bannerGradient = profileCardGradient(state?.banner_color ?? null);
   const upcomingCount = upcomingEvents(state).length;
-  /** Bannière chargée : l'en-tête devient un bandeau image façon Discord. */
-  const hasBanner = bannerUrl !== null;
+  /**
+   * Un hash suffit à réserver le bandeau : la liste des salons ne saute plus
+   * de 80 px lorsque l'image finit de charger. Le fond reste sombre et teinté
+   * pendant le chargement (ou si le fichier est indisponible), puis l'image
+   * apparaît en fondu au-dessus.
+   */
+  const hasBanner = banner !== null;
+  const bannerBackground = hasBanner
+    ? (bannerGradient ??
+      'linear-gradient(135deg, rgb(var(--color-blurple) / 0.72), rgb(var(--color-tooltip)))')
+    : bannerGradient;
 
   return (
     <>
       <div
-        className={`relative border-b border-rail bg-sidebar shadow-1 ${hasBanner ? 'h-32' : 'h-12'}`}
+        data-testid="server-header"
+        className={`relative shrink-0 border-b border-rail shadow-1 ${
+          hasBanner ? 'h-32 bg-tooltip' : 'h-12 bg-sidebar'
+        }`}
         style={
-          !hasBanner && bannerGradient !== null
-            ? { backgroundImage: bannerGradient }
-            : undefined
+          bannerBackground !== null ? { backgroundImage: bannerBackground } : undefined
         }
       >
-        {hasBanner && (
+        {bannerUrl !== null && (
           <>
             <img
               src={bannerUrl}
               alt=""
               aria-hidden
               data-testid="server-banner"
-              className="absolute inset-0 h-full w-full object-cover"
+              className="absolute inset-0 h-full w-full animate-[fade-in_var(--duration-normal)_var(--ease-out)] object-cover"
             />
             {/* Scrim de lisibilité sous le nom : dégradé noir → transparent. */}
             <div
@@ -962,7 +974,7 @@ function GroupSidebar({ groupId }: { groupId: string }) {
             aria-expanded={serverMenuOpen}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={() => setServerMenuOpen((open) => !open)}
-            className={`flex min-w-0 flex-1 items-center gap-1 rounded-md py-0.5 pr-1 text-left transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
+            className={`flex h-9 min-w-0 flex-1 items-center gap-1 rounded-md pr-1 text-left transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
               hasBanner ? 'hover:bg-white/10' : 'hover:bg-chat-hover'
             }`}
           >
@@ -1045,7 +1057,7 @@ function GroupSidebar({ groupId }: { groupId: string }) {
               aria-label={t.groups.addChannel}
               title={t.groups.addChannel}
               onClick={() => openModal({ kind: 'createChannel', groupId })}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-faint transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar active:scale-95"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-faint transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar active:scale-95"
             >
               <svg
                 width="16"
@@ -1094,7 +1106,11 @@ function GroupSidebar({ groupId }: { groupId: string }) {
                     groupId={groupId}
                     canManage={hasPerm(myPerms, PERMISSIONS.MANAGE_CHANNELS)}
                     restricted={isChannelRestricted(state, ch.channel_id)}
-                    level={channelLevel({ serverLevels, channelLevels }, groupId, ch.channel_id)}
+                    level={channelLevel(
+                      { serverLevels, channelLevels },
+                      groupId,
+                      ch.channel_id,
+                    )}
                     onOpen={openChannel}
                   />
                 ))}

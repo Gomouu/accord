@@ -2,6 +2,25 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [1.2.3] — 2026-07-14
+
+### Added
+
+- **Be invited without opening a router port.** First contact behind a
+  (symmetric) NAT now works through an authenticated self-announce and a
+  relay/hole-punch rendezvous, so a brand-new user behind a home box can be
+  invited without ever forwarding a port. Hardened against announce-flooding
+  and forged relay-eligibility (per-session control-message rate limit,
+  reachability-verified relays, observer-identity vote de-duplication).
+
+### Changed
+
+- Interface polish pass: genuinely responsive conversations, threads, member
+  lists and attachments; no overflow across Friends/DMs, modals, onboarding and
+  settings; AA contrast, restored native controls, stronger focus rings and
+  touch targets; refined active/loading/offline/error/notification states; more
+  reliable message scrolling and async search.
+
 ## [1.2.2] — 2026-07-14
 
 ### Fixed

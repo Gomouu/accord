@@ -187,7 +187,7 @@ function RailButton({
        */}
       <span
         aria-hidden
-        className={`absolute left-0 top-1/2 h-10 w-1 -translate-y-1/2 rounded-r bg-white transition-transform duration-normal ease-spring ${
+        className={`absolute left-0 top-1/2 h-10 w-1 -translate-y-1/2 rounded-r bg-header transition-transform duration-normal ease-spring ${
           active ? 'scale-y-100' : 'scale-y-0 group-hover:scale-y-50'
         }`}
       />
@@ -572,7 +572,9 @@ export function ServerRail() {
             channelId: channelToRestore(states[id], lastChannelByServer[id]),
           })
         }
-        onMenu={(x, y) => useContextMenu.getState().openMenu(x, y, buildServerItems(x, y))}
+        onMenu={(x, y) =>
+          useContextMenu.getState().openMenu(x, y, buildServerItems(x, y))
+        }
       >
         <ServerIcon icon={states[id]?.icon ?? null} name={name} />
       </RailButton>

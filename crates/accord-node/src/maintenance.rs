@@ -450,6 +450,22 @@ async fn presence_publish_tick(rt: &Runtime, _cfg: &MaintenanceConfig) {
     // adresses publiques observées ; les réponses `ObservedAddr` sont agrégées
     // par le runtime et déduisent cone (consensus) vs symétrique (divergence).
     request_observations(rt).await;
+    // Éligibilité relais (SPEC §11.3, premier contact) : ré-évaluée à chaque
+    // passe à partir de la joignabilité constatée (mapping actif ou consensus
+    // observé au port local). En cas de changement, ré-annonce aux sessions
+    // directes pour que les pairs mettent à jour leur table de routage.
+    let eligible = relay::relay_eligible(
+        rt.observed_consensus(),
+        rt.endpoint().local_addr().port(),
+        rt.nat_mapping_external(),
+    );
+    if rt
+        .endpoint()
+        .set_local_flags(relay::announce_flags(eligible))
+    {
+        tracing::debug!(eligible, "relais : éligibilité changée, ré-annonce");
+        rt.endpoint().reannounce_direct_sessions().await;
+    }
     let addrs = rt.presence_addrs();
     if addrs.is_empty() {
         tracing::debug!("présence : aucune adresse publiable");
@@ -517,37 +533,44 @@ async fn presence_resolve_tick(rt: &Runtime, cfg: &MaintenanceConfig) {
     let mut punched = 0usize;
     for i in window {
         let peer = cibles[i];
-        let Some(record) = rt.dht().get(rt.dht_rpc(), presence_key(&peer), now).await else {
-            continue;
+        // Résolution de présence : best-effort. Un pair derrière un NAT
+        // symétrique peut n'avoir AUCUN record résoluble (rien de répliqué,
+        // pas encore publié) — le repli relais ci-dessous n'en dépend pas.
+        let addrs = match rt.dht().get(rt.dht_rpc(), presence_key(&peer), now).await {
+            Some(record) => match verify_presence_record(&peer, &record, now) {
+                Ok(addrs) => addrs,
+                Err(e) => {
+                    tracing::debug!(erreur = %e, "présence : record rejeté");
+                    Vec::new()
+                }
+            },
+            None => Vec::new(),
         };
-        let addrs = match verify_presence_record(&peer, &record, now) {
-            Ok(addrs) if !addrs.is_empty() => addrs,
-            Ok(_) => continue, // record valide mais sans adresse : rien à essayer
-            Err(e) => {
-                tracing::debug!(erreur = %e, "présence : record rejeté");
-                continue;
-            }
-        };
-        resolved += 1;
-        // Cible de repli pour l'outbox, sans écraser une adresse déjà prouvée.
-        rt.register_peer_if_absent(peer, addrs[0]);
-        // Poinçonnage best-effort vers TOUS les candidats classés, détaché pour
-        // ne pas bloquer la résolution des cibles suivantes.
-        let candidats: Vec<Candidate> = addrs.into_iter().map(classer_candidat).collect();
-        let endpoint = rt.endpoint_arc();
-        tokio::spawn(async move {
-            if let Err(e) = endpoint.punch(&candidats, peer).await {
-                tracing::debug!(erreur = %e, "présence : poinçonnage échoué");
-            }
-        });
-        punched += 1;
+        if !addrs.is_empty() {
+            resolved += 1;
+            // Cible de repli pour l'outbox, sans écraser une adresse déjà
+            // prouvée.
+            rt.register_peer_if_absent(peer, addrs[0]);
+            // Poinçonnage best-effort vers TOUS les candidats classés, détaché
+            // pour ne pas bloquer la résolution des cibles suivantes.
+            let candidats: Vec<Candidate> = addrs.into_iter().map(classer_candidat).collect();
+            let endpoint = rt.endpoint_arc();
+            tokio::spawn(async move {
+                if let Err(e) = endpoint.punch(&candidats, peer).await {
+                    tracing::debug!(erreur = %e, "présence : poinçonnage échoué");
+                }
+            });
+            punched += 1;
+        }
 
-        // Repli relais (SPEC §11.3) : si le poinçonnage n'établit pas de session
-        // dans le délai imparti — NAT symétrique où le punch ne peut pas passer,
-        // ou NAT cone dont le punch a échoué — on bascule sur un relais partagé
-        // (clé de paire, puis relais domicile du pair pour un premier contact).
-        // Détaché et idempotent : `ensure_relay_to` ne fait rien si le pair est
-        // déjà joignable (session directe/relayée) ou si un circuit existe déjà.
+        // Repli relais (SPEC §11.3), INCONDITIONNEL : si aucune session n'existe
+        // dans le délai imparti — poinçonnage impossible (NAT symétrique),
+        // échoué, ou jamais tenté faute de présence résoluble — on bascule sur
+        // un relais partagé (clé de paire, puis relais domicile du pair pour un
+        // premier contact ; le rendez-vous domicile ne dépend que de la clé
+        // publique du pair, pas de sa présence). Détaché et idempotent :
+        // `ensure_relay_to` ne fait rien si le pair est déjà joignable (session
+        // directe/relayée) ou si un circuit existe déjà.
         let est_ami = amis.contains(&peer);
         if let Some(rt_arc) = rt.arc() {
             tokio::spawn(async move {
@@ -595,6 +618,14 @@ async fn presence_resolve_tick(rt: &Runtime, cfg: &MaintenanceConfig) {
 /// (25 s ≪ idle 120 s) maintient la session de lui-même.
 async fn home_relay_tick(rt: &Runtime, _cfg: &MaintenanceConfig) {
     let me = rt.node().public_key();
+    // Aligne la vue locale sur la vue GLOBALE autour de notre identifiant
+    // avant la sélection : un expéditeur inconnu dérive nos relais domicile de
+    // la vue globale — nous devons entretenir des sessions vers les MÊMES
+    // nœuds (rendez-vous), pas vers ceux d'une table locale clairsemée.
+    let _ = rt
+        .dht()
+        .lookup_node(rt.dht_rpc(), accord_crypto::node_id_of(&me))
+        .await;
     let mut entretenus = 0usize;
     for info in rt.home_relays_of(&me) {
         let Some(addr) = info.addrs.first().map(|a| a.0) else {
@@ -638,7 +669,6 @@ async fn outbox_tick(rt: &Runtime, cfg: &MaintenanceConfig) {
         by_dest.entry(item.dest).or_default().push(item);
     }
     for (dest, items) in by_dest {
-        let addr = rt.addr_of(&dest);
         let mut want_deposit = false;
         for item in items {
             let msg = match decode_core(&item.payload) {
@@ -652,14 +682,11 @@ async fn outbox_tick(rt: &Runtime, cfg: &MaintenanceConfig) {
             // Un DirectMsg n'est retiré que sur accusé applicatif (MsgAck) ;
             // les autres natures sont retirées dès l'envoi transport réussi.
             let await_ack = matches!(msg, CoreMsg::DirectMsg { .. });
-            let sent = match addr {
-                Some(a) => rt
-                    .endpoint()
-                    .send_to(a, Some(dest), &ChannelMsg::Core(msg))
-                    .await
-                    .is_ok(),
-                None => false,
-            };
+            // Meilleur lien : session directe liée à l'identité, sinon circuit
+            // relais (SPEC §11.3 — indispensable au premier contact : une
+            // session relayée a pour adresse celle du relais et l'envoi par
+            // adresse y échoue en liaison d'identité).
+            let sent = rt.send_via_best_link(&dest, &ChannelMsg::Core(msg)).await;
             if sent && !await_ack {
                 let _ = node.outbox_remove(item.id);
             } else {
@@ -692,8 +719,11 @@ async fn outbox_tick(rt: &Runtime, cfg: &MaintenanceConfig) {
     }
 }
 
-/// Vide immédiatement la file d'un pair qui vient de se connecter.
-pub(crate) async fn flush_peer(rt: &Runtime, peer: &[u8; 32], addr: SocketAddr) {
+/// Vide immédiatement la file d'un pair qui vient de se connecter. La session
+/// peut être RELAYÉE (premier contact via circuit) : l'envoi passe par le
+/// meilleur lien, jamais par la seule adresse (celle du relais échouerait en
+/// liaison d'identité).
+pub(crate) async fn flush_peer(rt: &Runtime, peer: &[u8; 32], _addr: SocketAddr) {
     let now = now_ms();
     let items = match rt.node().outbox_for(peer) {
         Ok(items) => items,
@@ -714,12 +744,7 @@ pub(crate) async fn flush_peer(rt: &Runtime, peer: &[u8; 32], addr: SocketAddr) 
             continue;
         };
         let await_ack = matches!(msg, CoreMsg::DirectMsg { .. });
-        if rt
-            .endpoint()
-            .send_to(addr, Some(*peer), &ChannelMsg::Core(msg))
-            .await
-            .is_ok()
-        {
+        if rt.send_via_best_link(peer, &ChannelMsg::Core(msg)).await {
             pushed += 1;
             if await_ack {
                 let _ = rt.node().outbox_reschedule(item.id, now);
@@ -817,14 +842,12 @@ async fn profile_tick(rt: &Runtime, _cfg: &MaintenanceConfig) {
     };
     let mut annonces = 0usize;
     for friend in friends {
-        let Some(addr) = rt.addr_of(&friend) else {
-            continue;
-        };
+        if rt.addr_of(&friend).is_none() {
+            continue; // ami sans lien connu : l'outbox couvre déjà ce cas
+        }
         if rt
-            .endpoint()
-            .send_to(addr, Some(friend), &ChannelMsg::Core(msg.clone()))
+            .send_via_best_link(&friend, &ChannelMsg::Core(msg.clone()))
             .await
-            .is_ok()
         {
             annonces += 1;
         }
@@ -864,14 +887,12 @@ async fn group_sync_tick(rt: &Runtime, _cfg: &MaintenanceConfig) {
             digest: offer.digest,
         };
         for member in members.keys().filter(|m| **m != me) {
-            let Some(addr) = rt.addr_of(member) else {
-                continue;
-            };
+            if rt.addr_of(member).is_none() {
+                continue; // membre sans lien connu : rien à offrir cette passe
+            }
             if rt
-                .endpoint()
-                .send_to(addr, Some(*member), &ChannelMsg::Core(msg.clone()))
+                .send_via_best_link(member, &ChannelMsg::Core(msg.clone()))
                 .await
-                .is_ok()
             {
                 offers += 1;
             }

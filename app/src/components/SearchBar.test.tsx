@@ -5,7 +5,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 vi.mock('../lib/client', () => ({
   rpc: { call: vi.fn(), onEvent: vi.fn(), onStatus: vi.fn() },
@@ -150,5 +150,33 @@ describe('SearchBar — résultats et saut', () => {
       msgId: 'm1',
       view: { kind: 'dm', peer: 'peer' },
     });
+  });
+
+  it('ignore une réponse devenue obsolète après modification de la recherche', async () => {
+    let resolveSearch:
+      ((value: { msg_ids: string[]; hits: (typeof dmHit)[] }) => void) | null = null;
+    searchMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSearch = resolve;
+      }),
+    );
+    render(<SearchBar />);
+
+    const input = screen.getByLabelText('Rechercher');
+    fireEvent.change(input, { target: { value: 'ancienne recherche' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getByText('Chargement…')).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: 'nouvelle recherche' } });
+    expect(screen.queryByText('Chargement…')).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveSearch?.({ msg_ids: ['m1'], hits: [dmHit] });
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByText('Aller au message')).not.toBeInTheDocument(),
+    );
+    expect(input).toHaveValue('nouvelle recherche');
   });
 });

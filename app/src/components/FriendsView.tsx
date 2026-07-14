@@ -35,7 +35,7 @@ function FriendRow({ contact }: { contact: Contact }) {
   const statusText = contact.status_text ?? null;
 
   return (
-    <div className="group flex h-11 items-center gap-3 rounded-lg px-3 transition-colors duration-fast hover:bg-chat-hover">
+    <div className="group flex min-h-14 flex-wrap items-center gap-x-3 gap-y-2 rounded-lg px-3 py-2 transition-colors duration-fast hover:bg-chat-hover">
       <div className="relative shrink-0">
         <Avatar
           id={contact.pubkey}
@@ -53,7 +53,7 @@ function FriendRow({ contact }: { contact: Contact }) {
           />
         )}
       </div>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-[8rem] flex-1">
         <div className="truncate font-medium text-header">
           {contact.display_name || contact.friend_code}
         </div>
@@ -69,24 +69,26 @@ function FriendRow({ contact }: { contact: Contact }) {
                   : contact.friend_code}
         </div>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
         {isFriend && confirmRemove && (
           <>
-            <span className="text-sm text-muted">{t.friends.removeQuestion}</span>
+            <span className="whitespace-nowrap text-sm text-muted">
+              {t.friends.removeQuestion}
+            </span>
             <button
               type="button"
               onClick={() => {
                 setConfirmRemove(false);
                 act(() => remove(contact.pubkey));
               }}
-              className="rounded-sm bg-red px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:brightness-110 active:scale-95"
+              className="h-9 shrink-0 whitespace-nowrap rounded-sm bg-red px-3 text-sm font-medium text-white transition-colors duration-fast hover:brightness-110 active:scale-95"
             >
               {t.friends.remove}
             </button>
             <button
               type="button"
               onClick={() => setConfirmRemove(false)}
-              className="rounded-sm bg-sidebar px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input active:scale-95"
+              className="h-9 shrink-0 whitespace-nowrap rounded-sm bg-sidebar px-3 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input active:scale-95"
             >
               {t.app.cancel}
             </button>
@@ -167,14 +169,14 @@ function FriendRow({ contact }: { contact: Contact }) {
             <button
               type="button"
               onClick={() => act(() => respond(contact.pubkey, true))}
-              className="rounded-sm bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover active:scale-95"
+              className="h-9 shrink-0 whitespace-nowrap rounded-sm bg-blurple px-3 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover active:scale-95"
             >
               {t.friends.accept}
             </button>
             <button
               type="button"
               onClick={() => act(() => respond(contact.pubkey, false))}
-              className="rounded-sm bg-sidebar px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input active:scale-95"
+              className="h-9 shrink-0 whitespace-nowrap rounded-sm bg-sidebar px-3 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input active:scale-95"
             >
               {t.friends.decline}
             </button>
@@ -184,7 +186,7 @@ function FriendRow({ contact }: { contact: Contact }) {
           <button
             type="button"
             onClick={() => act(() => unblock(contact.pubkey))}
-            className="rounded-sm bg-sidebar px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input active:scale-95"
+            className="h-9 shrink-0 whitespace-nowrap rounded-sm bg-sidebar px-3 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input active:scale-95"
           >
             {t.friends.unblock}
           </button>
@@ -264,7 +266,10 @@ function AddFriend() {
 function EmptyFriends({ label }: { label: string }) {
   return (
     <div className="flex flex-col items-center gap-3 py-12 text-center text-muted">
-      <span aria-hidden className="flex h-11 w-11 items-center justify-center rounded-full bg-sidebar text-faint">
+      <span
+        aria-hidden
+        className="flex h-11 w-11 items-center justify-center rounded-full bg-sidebar text-faint"
+      >
         <svg
           width="22"
           height="22"
@@ -320,8 +325,8 @@ export function FriendsView() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-4 border-b border-rail px-4 shadow-1">
-        <div className="flex items-center gap-2 font-semibold text-header">
+      <header className="flex h-12 min-w-0 shrink-0 items-center gap-4 border-b border-rail px-4 shadow-1">
+        <div className="flex shrink-0 items-center gap-2 font-semibold text-header">
           <svg
             width="20"
             height="20"
@@ -339,8 +344,11 @@ export function FriendsView() {
           </svg>
           {t.friends.title}
         </div>
-        <div className="h-6 w-px bg-input" role="separator" />
-        <nav className="flex gap-1.5" aria-label={t.friends.title}>
+        <div className="h-6 w-px shrink-0 bg-input" role="separator" />
+        <nav
+          className="flex h-11 min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          aria-label={t.friends.title}
+        >
           {tabs.map(({ id, label, badge }) => (
             <button
               key={id}
@@ -352,9 +360,9 @@ export function FriendsView() {
                   ? `${label} — ${interpolate(t.invitations.badge, { count: String(badge) })}`
                   : undefined
               }
-              className={`flex h-7 items-center rounded-full px-3 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat ${
+              className={`flex h-9 shrink-0 items-center rounded-full px-3 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat ${
                 tab === id
-                  ? 'bg-chat-hover text-header'
+                  ? 'bg-blurple/15 text-header ring-1 ring-inset ring-blurple/20'
                   : 'text-muted hover:bg-chat-hover hover:text-norm'
               }`}
             >
@@ -373,8 +381,10 @@ export function FriendsView() {
             type="button"
             aria-current={tab === 'add' ? 'page' : undefined}
             onClick={() => setTab('add')}
-            className={`flex h-7 items-center rounded-full px-3 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green focus-visible:ring-offset-2 focus-visible:ring-offset-chat ${
-              tab === 'add' ? 'bg-green/20 text-green' : 'bg-green text-white hover:brightness-110'
+            className={`flex h-9 shrink-0 items-center rounded-full px-3 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green focus-visible:ring-offset-2 focus-visible:ring-offset-chat ${
+              tab === 'add'
+                ? 'bg-green/20 text-green'
+                : 'bg-green text-white hover:brightness-110'
             }`}
           >
             {t.friends.add}

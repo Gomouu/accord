@@ -84,7 +84,7 @@ export function PrivacyTab() {
         title={t.settings.startupPresenceTitle}
         hint={t.settings.startupPresenceHint}
       >
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <OptionPill
             selected={startupPresence === 'online'}
             onSelect={() => toggleStartupPresence('online')}

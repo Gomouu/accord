@@ -158,11 +158,31 @@ pub mod sim {
     type Datagram = (Vec<u8>, SocketAddr);
     type Inbox = mpsc::UnboundedSender<Datagram>;
 
+    /// Premier port externe attribué par un NAT simulé (croissant ensuite :
+    /// mapping distinct par destination, sémantique symétrique).
+    const NAT_FIRST_PORT: u16 = 50_000;
+
+    /// État d'un NAT symétrique simulé devant un nœud : chaque destination
+    /// contactée obtient son propre mapping externe `(ip_externe, port frais)`.
+    /// Un mapping n'accepte en entrant QUE des datagrammes émanant exactement
+    /// de sa destination d'origine (filtrage adresse+port, le plus strict).
+    /// L'adresse interne du nœud n'est jamais joignable de l'extérieur.
+    struct NatState {
+        external_ip: std::net::IpAddr,
+        /// destination → adresse externe du mapping.
+        mappings: HashMap<SocketAddr, SocketAddr>,
+        next_port: u16,
+    }
+
     #[derive(Default)]
     struct Fabric {
         inboxes: HashMap<SocketAddr, Inbox>,
         conditions: HashMap<SocketAddr, NetConditions>,
         down: HashMap<SocketAddr, bool>,
+        /// NAT symétrique par nœud (clé : adresse interne).
+        nat: HashMap<SocketAddr, NatState>,
+        /// Adresse externe d'un mapping → `(interne, destination d'origine)`.
+        nat_reverse: HashMap<SocketAddr, (SocketAddr, SocketAddr)>,
     }
 
     /// Réseau simulé partagé entre plusieurs [`SimSocket`].
@@ -209,13 +229,66 @@ pub mod sim {
             f.conditions.insert(addr, c);
         }
 
+        /// Place un nœud (adresse interne `internal`) derrière un NAT
+        /// SYMÉTRIQUE simulé d'IP externe `external_ip` : mapping par
+        /// destination, filtrage entrant strict, aucun entrant non sollicité.
+        pub fn set_symmetric_nat(&self, internal: SocketAddr, external_ip: std::net::IpAddr) {
+            let mut f = self.fabric.lock().expect("fabric mutex");
+            f.nat.insert(
+                internal,
+                NatState {
+                    external_ip,
+                    mappings: HashMap::new(),
+                    next_port: NAT_FIRST_PORT,
+                },
+            );
+        }
+
         fn deliver(&self, from: SocketAddr, to: SocketAddr, buf: Vec<u8>) {
-            let (inbox, delay) = {
-                let f = self.fabric.lock().expect("fabric mutex");
-                if *f.down.get(&from).unwrap_or(&false) || *f.down.get(&to).unwrap_or(&false) {
+            let (inbox, src, delay) = {
+                let mut f = self.fabric.lock().expect("fabric mutex");
+                if *f.down.get(&from).unwrap_or(&false) {
                     return;
                 }
-                let cond = f.conditions.get(&to).copied().unwrap_or_default();
+                // Source effective : l'adresse du mapping NAT (créé à la
+                // demande, un par destination — sémantique symétrique) si
+                // l'émetteur est NATé, son adresse interne sinon.
+                let src = match f.nat.get_mut(&from) {
+                    Some(nat) => match nat.mappings.get(&to) {
+                        Some(mapped) => *mapped,
+                        None => {
+                            let mapped = SocketAddr::new(nat.external_ip, nat.next_port);
+                            nat.next_port = nat.next_port.wrapping_add(1);
+                            nat.mappings.insert(to, mapped);
+                            f.nat_reverse.insert(mapped, (from, to));
+                            mapped
+                        }
+                    },
+                    None => from,
+                };
+                // Destination effective : la traduction inverse si `to` est un
+                // mapping NAT — livré à l'adresse interne SEULEMENT si la
+                // source est exactement la destination d'origine du mapping
+                // (filtrage adresse+port du NAT symétrique). L'adresse interne
+                // d'un nœud NATé n'est pas joignable de l'extérieur.
+                let dest = match f.nat_reverse.get(&to) {
+                    Some((internal, expected_remote)) => {
+                        if src != *expected_remote {
+                            return; // entrant non sollicité : jeté par le NAT
+                        }
+                        *internal
+                    }
+                    None => {
+                        if f.nat.contains_key(&to) {
+                            return; // adresse interne injoignable de l'extérieur
+                        }
+                        to
+                    }
+                };
+                if *f.down.get(&dest).unwrap_or(&false) {
+                    return;
+                }
+                let cond = f.conditions.get(&dest).copied().unwrap_or_default();
                 let mut rng = self.rng.lock().expect("rng mutex");
                 if rng.gen::<f64>() < cond.loss {
                     return; // datagramme perdu
@@ -225,17 +298,17 @@ pub mod sim {
                 } else {
                     cond.latency_min_ms
                 };
-                match f.inboxes.get(&to) {
-                    Some(tx) => (tx.clone(), delay),
+                match f.inboxes.get(&dest) {
+                    Some(tx) => (tx.clone(), src, delay),
                     None => return,
                 }
             };
             if delay == 0 {
-                let _ = inbox.send((buf, from));
+                let _ = inbox.send((buf, src));
             } else {
                 tokio::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-                    let _ = inbox.send((buf, from));
+                    let _ = inbox.send((buf, src));
                 });
             }
         }
@@ -265,6 +338,98 @@ pub mod sim {
 
         fn local_addr(&self) -> SocketAddr {
             self.local
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::time::Duration;
+
+        fn addr(s: &str) -> SocketAddr {
+            s.parse().unwrap()
+        }
+
+        async fn recv_or_timeout(sock: &SimSocket) -> Option<Datagram> {
+            tokio::time::timeout(Duration::from_millis(100), sock.recv_from())
+                .await
+                .ok()
+                .and_then(Result::ok)
+        }
+
+        /// Sémantique du NAT symétrique simulé : mapping par destination,
+        /// filtrage entrant strict, adresse interne injoignable.
+        #[tokio::test]
+        async fn nat_symetrique_mapping_par_destination_et_filtrage() {
+            let net = SimNet::new(42, NetConditions::default());
+            let nated = net.bind(addr("10.0.0.2:4001"));
+            let pub1 = net.bind(addr("127.1.0.1:4000"));
+            let pub2 = net.bind(addr("127.2.0.1:4000"));
+            net.set_symmetric_nat(nated.local_addr(), "127.9.0.1".parse().unwrap());
+
+            // Sortant vers deux destinations : deux mappings DISTINCTS, jamais
+            // l'adresse interne.
+            nated.send_to(b"a", pub1.local_addr()).await.unwrap();
+            nated.send_to(b"b", pub2.local_addr()).await.unwrap();
+            let (_, m1) = recv_or_timeout(&pub1).await.expect("reçu par pub1");
+            let (_, m2) = recv_or_timeout(&pub2).await.expect("reçu par pub2");
+            assert_eq!(m1.ip(), "127.9.0.1".parse::<std::net::IpAddr>().unwrap());
+            assert_ne!(m1, m2, "mapping par destination (symétrique)");
+            assert_ne!(m1, nated.local_addr());
+
+            // Retour depuis la destination d'origine : traverse le mapping.
+            pub1.send_to(b"pong", m1).await.unwrap();
+            let (buf, from) = recv_or_timeout(&nated).await.expect("réponse reçue");
+            assert_eq!(&buf, b"pong");
+            assert_eq!(from, pub1.local_addr());
+
+            // Un TIERS qui vise le mapping d'un autre pair : jeté.
+            pub2.send_to(b"intrus", m1).await.unwrap();
+            assert!(recv_or_timeout(&nated).await.is_none(), "filtrage strict");
+
+            // L'adresse interne n'est jamais joignable de l'extérieur.
+            pub1.send_to(b"direct", nated.local_addr()).await.unwrap();
+            assert!(
+                recv_or_timeout(&nated).await.is_none(),
+                "interne inaccessible"
+            );
+
+            // Le mapping est STABLE pour une même destination.
+            nated.send_to(b"c", pub1.local_addr()).await.unwrap();
+            let (_, m1bis) = recv_or_timeout(&pub1).await.expect("reçu");
+            assert_eq!(m1, m1bis);
+        }
+
+        /// Deux nœuds derrière deux NAT symétriques distincts ne peuvent PAS
+        /// se poinçonner : les salves croisées vers les mappings observés par
+        /// un tiers sont toutes jetées (mapping lié à sa destination d'origine).
+        #[tokio::test]
+        async fn nat_symetrique_croise_bloque_le_poinconnage() {
+            let net = SimNet::new(7, NetConditions::default());
+            let a = net.bind(addr("10.0.0.2:4001"));
+            let b = net.bind(addr("10.0.1.2:4002"));
+            let rdv = net.bind(addr("127.1.0.1:4000"));
+            net.set_symmetric_nat(a.local_addr(), "127.8.0.1".parse().unwrap());
+            net.set_symmetric_nat(b.local_addr(), "127.9.0.1".parse().unwrap());
+
+            // Chacun contacte le point de rendez-vous, qui observe les mappings.
+            a.send_to(b"hi", rdv.local_addr()).await.unwrap();
+            b.send_to(b"hi", rdv.local_addr()).await.unwrap();
+            let (_, map_a) = recv_or_timeout(&rdv).await.unwrap();
+            let (_, map_b) = recv_or_timeout(&rdv).await.unwrap();
+
+            // Salves croisées vers les mappings observés : aucune ne passe
+            // (la source de A vers map_b est un NOUVEAU mapping ≠ rdv).
+            a.send_to(b"punch", map_b).await.unwrap();
+            b.send_to(b"punch", map_a).await.unwrap();
+            assert!(recv_or_timeout(&a).await.is_none());
+            assert!(recv_or_timeout(&b).await.is_none());
+
+            // Le chemin par le rendez-vous, lui, reste ouvert dans les deux sens.
+            rdv.send_to(b"ok-a", map_a).await.unwrap();
+            rdv.send_to(b"ok-b", map_b).await.unwrap();
+            assert_eq!(recv_or_timeout(&a).await.unwrap().0, b"ok-a");
+            assert_eq!(recv_or_timeout(&b).await.unwrap().0, b"ok-b");
         }
     }
 }

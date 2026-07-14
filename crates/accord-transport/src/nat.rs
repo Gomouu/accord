@@ -28,9 +28,18 @@ pub struct Candidate {
 
 /// Agrège les observations d'adresse publique depuis plusieurs pairs pour
 /// détecter un NAT symétrique (SPEC §11 : réponses croisées de 3 nœuds).
+///
+/// Les votes sont indexés par IDENTITÉ d'observateur (clé publique), pas par
+/// message : un pair unique ne compte que pour UN vote, quelle que soit la
+/// quantité d'`ObserveAddrResp` qu'il envoie, et son vote le plus récent
+/// remplace le précédent. Sans cette déduplication, un seul pair connecté
+/// pourrait fabriquer un « consensus » (≥ 2 votes concordants) en envoyant
+/// deux réponses, et faire basculer l'éligibilité relais d'une victime NATée
+/// (M1b).
 #[derive(Default)]
 pub struct ObservedAddrs {
-    votes: HashMap<SocketAddr, u32>,
+    /// clé publique de l'observateur → dernière adresse qu'il a rapportée.
+    by_observer: HashMap<[u8; 32], SocketAddr>,
 }
 
 impl ObservedAddrs {
@@ -39,29 +48,41 @@ impl ObservedAddrs {
         Self::default()
     }
 
-    /// Enregistre une adresse observée par un pair.
-    pub fn observe(&mut self, addr: SocketAddr) {
-        *self.votes.entry(addr).or_insert(0) += 1;
+    /// Enregistre l'adresse que `observer` rapporte avoir vue pour nous. Un
+    /// même observateur ne détient qu'un seul vote (le plus récent).
+    pub fn observe(&mut self, observer: [u8; 32], addr: SocketAddr) {
+        self.by_observer.insert(observer, addr);
     }
 
-    /// Adresse publique consensuelle si ≥ 2 pairs concordent (sur 3).
+    /// Compte des votes par adresse (un par observateur distinct).
+    fn tally(&self) -> HashMap<SocketAddr, u32> {
+        let mut counts: HashMap<SocketAddr, u32> = HashMap::new();
+        for addr in self.by_observer.values() {
+            *counts.entry(*addr).or_insert(0) += 1;
+        }
+        counts
+    }
+
+    /// Adresse publique consensuelle si ≥ 2 pairs DISTINCTS concordent.
     pub fn consensus(&self) -> Option<SocketAddr> {
-        self.votes
-            .iter()
-            .filter(|(_, &v)| v >= 2)
-            .max_by_key(|(_, &v)| v)
-            .map(|(addr, _)| *addr)
+        self.tally()
+            .into_iter()
+            .filter(|(_, v)| *v >= 2)
+            .max_by_key(|(_, v)| *v)
+            .map(|(addr, _)| addr)
     }
 
-    /// Vrai si les observations divergent : NAT symétrique probable
-    /// (adresses/ports différents selon le pair interrogé).
+    /// Vrai si les observations de pairs DISTINCTS divergent : NAT symétrique
+    /// probable (adresses/ports différents selon le pair interrogé). Exige au
+    /// moins deux adresses distinctes rapportées et aucun consensus.
     pub fn is_symmetric(&self) -> bool {
-        self.votes.len() >= 2 && self.consensus().is_none()
+        let counts = self.tally();
+        counts.len() >= 2 && !counts.values().any(|&v| v >= 2)
     }
 
-    /// Nombre total d'observations distinctes.
+    /// Nombre d'adresses distinctes rapportées (tous observateurs confondus).
     pub fn distinct(&self) -> usize {
-        self.votes.len()
+        self.tally().len()
     }
 }
 
@@ -109,22 +130,56 @@ mod tests {
         s.parse().unwrap()
     }
 
+    fn peer(n: u8) -> [u8; 32] {
+        [n; 32]
+    }
+
     #[test]
-    fn consensus_needs_two_votes() {
+    fn consensus_needs_two_distinct_peers() {
         let mut o = ObservedAddrs::new();
-        o.observe(addr("1.2.3.4:5"));
+        o.observe(peer(1), addr("1.2.3.4:5"));
         assert_eq!(o.consensus(), None);
-        o.observe(addr("1.2.3.4:5"));
+        // Deux pairs DISTINCTS concordent : consensus.
+        o.observe(peer(2), addr("1.2.3.4:5"));
         assert_eq!(o.consensus(), Some(addr("1.2.3.4:5")));
+    }
+
+    #[test]
+    fn un_seul_pair_ne_fabrique_pas_de_consensus() {
+        // M1b : un pair unique qui vote deux fois (ou change de vote) ne peut
+        // pas fabriquer un consensus — son vote le plus récent remplace le
+        // précédent, il ne compte jamais que pour un.
+        let mut o = ObservedAddrs::new();
+        o.observe(peer(1), addr("9.9.9.9:5"));
+        o.observe(peer(1), addr("9.9.9.9:5"));
+        assert_eq!(o.consensus(), None, "un pair = un seul vote");
+        assert_eq!(o.distinct(), 1);
+        // Même en changeant d'adresse, un pair seul ne franchit pas le seuil.
+        o.observe(peer(1), addr("8.8.8.8:5"));
+        assert_eq!(o.consensus(), None);
+        assert_eq!(o.distinct(), 1, "dernier vote remplace le précédent");
+        // Il faut un DEUXIÈME pair concordant pour un consensus.
+        o.observe(peer(2), addr("8.8.8.8:5"));
+        assert_eq!(o.consensus(), Some(addr("8.8.8.8:5")));
     }
 
     #[test]
     fn divergent_observations_flag_symmetric() {
         let mut o = ObservedAddrs::new();
-        o.observe(addr("1.2.3.4:5"));
-        o.observe(addr("1.2.3.4:6"));
+        o.observe(peer(1), addr("1.2.3.4:5"));
+        o.observe(peer(2), addr("1.2.3.4:6"));
         assert!(o.is_symmetric());
         assert_eq!(o.consensus(), None);
+    }
+
+    #[test]
+    fn un_seul_pair_divergent_ne_flag_pas_symmetric() {
+        // Un pair unique qui rapporte deux adresses successives ne suffit pas à
+        // conclure au NAT symétrique (son vote est dédupliqué).
+        let mut o = ObservedAddrs::new();
+        o.observe(peer(1), addr("1.2.3.4:5"));
+        o.observe(peer(1), addr("1.2.3.4:6"));
+        assert!(!o.is_symmetric());
     }
 
     #[test]

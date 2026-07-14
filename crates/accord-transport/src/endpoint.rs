@@ -10,7 +10,7 @@ use crate::clock::Clock;
 use crate::error::TransportError;
 use crate::frag::{self, Reassembler};
 use crate::nat::Candidate;
-use crate::ratelimit::RateLimiter;
+use crate::ratelimit::{Bucket, RateLimiter};
 use crate::relay::{RelayDecision, RelayTable, DEFAULT_RELAY_CAP_BPS};
 use crate::socket::DatagramSocket;
 use accord_crypto::handshake::{respond, CookieJar, Initiator, NonceCache};
@@ -24,7 +24,7 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use subtle::ConstantTimeEq;
 use tokio::sync::{mpsc, oneshot};
@@ -49,6 +49,18 @@ const REJECT_FULL: u8 = 0x03;
 /// mémoire de `client_circuits` — en particulier les circuits ouverts par des
 /// HELLO tunnelés entrants, insérés AVANT tout PoW/rate-limit (FAILLE C).
 const MAX_CLIENT_CIRCUITS: usize = crate::relay::MAX_CIRCUITS;
+
+/// Capacité (rafale) du seau de messages de contrôle changeant l'état par
+/// session : couvre l'annonce initiale, quelques ré-annonces et les
+/// observations d'adresse d'un cycle de présence sans jamais bloquer un pair
+/// honnête.
+const CTRL_MSG_BURST: f64 = 8.0;
+/// Recharge du seau de contrôle (messages/s) : au-delà, les messages
+/// excédentaires sont ignorés silencieusement. À 1/s, un pair hostile qui
+/// inonde est ramené à un filet négligeable (≈ 1 insertion de table/s),
+/// trivialement absorbé, tout en laissant passer le trafic légitime (une
+/// poignée de messages par minute au plus).
+const CTRL_MSG_REFILL_PER_S: f64 = 1.0;
 
 /// Délai au-delà duquel un circuit client dont le handshake bout-en-bout n'a
 /// jamais abouti (`session_id == None`) est balayé par la maintenance (FAILLE C).
@@ -92,9 +104,14 @@ pub enum TransportEvent {
         /// Adresse telle que vue localement pour ce pair.
         addr: SocketAddr,
     },
-    /// Un pair nous a communiqué notre adresse publique observée.
+    /// Un pair nous a communiqué notre adresse publique observée (SPEC §11.1),
+    /// sur une session DIRECTE authentifiée. Porte l'identité de l'OBSERVATEUR
+    /// pour que l'agrégat de consensus déduplique les votes par pair (un même
+    /// pair ne peut pas fabriquer un consensus à lui seul).
     ObservedAddr {
-        /// Notre adresse vue par le pair.
+        /// Clé publique Ed25519 du pair qui rapporte l'observation.
+        observer: [u8; 32],
+        /// Notre adresse vue par ce pair.
         observed: SocketAddr,
     },
     /// Un pair demande un poinçonnage coordonné vers ses candidats
@@ -116,6 +133,20 @@ pub enum TransportEvent {
         token: u64,
         /// Candidats d'adresse du répondeur (déjà bornés au décodage).
         candidates: Vec<SocketAddr>,
+    },
+    /// Un pair s'est auto-annoncé dans une session DIRECTE (SPEC §11.3,
+    /// `NODE_ANNOUNCE`) : de quoi construire un `NodeInfo` vérifiable —
+    /// identité authentifiée par la session, adresse OBSERVÉE (jamais
+    /// déclarée), preuve de travail à re-vérifier par la couche DHT.
+    NodeAnnounced {
+        /// Clé publique Ed25519 du pair (session authentifiée).
+        static_pub: [u8; 32],
+        /// Adresse source observée de la session directe.
+        addr: SocketAddr,
+        /// Nonce de preuve de travail annoncé.
+        pow_nonce: u64,
+        /// Drapeaux de capacité annoncés.
+        flags: u8,
     },
     /// Session fermée (CLOSE reçu ou expiration).
     Disconnected {
@@ -160,6 +191,22 @@ struct Session {
     /// (table `client_circuits`). Les ENVOIS vers ce pair sont ré-enveloppés dans
     /// `RelayMsg::Data{circuit, blob}` (voir `send_packet_via_link`).
     relay_circuit: Option<u32>,
+    /// Vrai une fois notre `NODE_ANNOUNCE` émis dans cette session : borne
+    /// l'échange d'annonces à une par session et par sens (un pair qui
+    /// re-demande n'obtient pas de nouvelle réponse). Toujours vrai sur une
+    /// session tunnelée (aucune annonce n'y circule : l'adresse observée
+    /// serait celle du relais).
+    announced: bool,
+    /// Seau à jetons des messages de contrôle CHANGEANT L'ÉTAT côté récepteur
+    /// (`NODE_ANNOUNCE`, `OBSERVE_ADDR_RESP`) : bornage post-handshake par
+    /// session (donc par identité authentifiée). Sans lui, un pair déjà
+    /// authentifié pourrait inonder ces messages à plein débit UDP — chaque
+    /// remontée déclenchant une insertion de table de routage et un événement
+    /// sur un canal non borné (contention de verrous + croissance mémoire).
+    /// Le débit légitime est minuscule (une annonce initiale, de rares
+    /// ré-annonces, ~3 observations par cycle de présence) : la capacité
+    /// couvre les rafales normales, la recharge lente écrête tout flood.
+    ctrl_bucket: Bucket,
 }
 
 /// Désigne le lien par lequel joindre un pair : soit un datagramme direct, soit
@@ -313,6 +360,12 @@ pub struct Endpoint {
     state: Mutex<State>,
     events: mpsc::UnboundedSender<TransportEvent>,
     shutdown: AtomicBool,
+    /// Drapeaux de capacité annoncés dans `NODE_ANNOUNCE` (SPEC §11.3). Mis à
+    /// jour par la couche nœud quand l'éligibilité relais change (voir
+    /// `accord-node::node::relay::relay_eligible`) ; 0 au démarrage — un nœud
+    /// ne s'annonce jamais relais tant que sa joignabilité publique n'est pas
+    /// établie.
+    local_flags: AtomicU8,
 }
 
 impl Endpoint {
@@ -348,8 +401,47 @@ impl Endpoint {
             }),
             events: tx,
             shutdown: AtomicBool::new(false),
+            local_flags: AtomicU8::new(0),
         });
         (ep, rx)
+    }
+
+    /// Drapeaux de capacité annoncés dans `NODE_ANNOUNCE`. Rend vrai si la
+    /// valeur a changé (l'appelant ré-annonce alors aux sessions directes).
+    pub fn set_local_flags(&self, flags: u8) -> bool {
+        self.local_flags.swap(flags, Ordering::SeqCst) != flags
+    }
+
+    /// Drapeaux de capacité couramment annoncés.
+    pub fn local_flags(&self) -> u8 {
+        self.local_flags.load(Ordering::SeqCst)
+    }
+
+    /// Message d'auto-annonce courant (preuve de travail de l'identité +
+    /// drapeaux de capacité).
+    fn announce_msg(&self) -> ChannelMsg {
+        ChannelMsg::Control(ControlMsg::NodeAnnounce {
+            pow_nonce: self.identity.pow_nonce(),
+            flags: self.local_flags(),
+        })
+    }
+
+    /// Ré-émet l'auto-annonce vers toutes les sessions DIRECTES établies
+    /// (après un changement de drapeaux — ex. éligibilité relais acquise).
+    /// Borné par le nombre de sessions ; best-effort.
+    pub async fn reannounce_direct_sessions(&self) {
+        let addrs: Vec<SocketAddr> = {
+            let st = self.state.lock().expect("state mutex");
+            st.sessions_by_id
+                .values()
+                .filter(|s| s.relay_circuit.is_none())
+                .map(|s| s.peer_addr)
+                .collect()
+        };
+        let msg = self.announce_msg();
+        for addr in addrs {
+            let _ = self.send(addr, &msg).await;
+        }
     }
 
     /// Adresse locale liée.
@@ -610,10 +702,55 @@ impl Endpoint {
     /// reste de l'endpoint). Publique : le runtime s'en sert pour décider s'il
     /// faut tenter un poinçonnage d'upgrade quand seul un relais est en place.
     pub fn has_direct_session_with(&self, static_pub: &[u8; 32]) -> bool {
+        self.direct_session_addr(static_pub).is_some()
+    }
+
+    /// Adresse de la session établie DIRECTE (non relayée) avec le pair
+    /// d'identité `static_pub`, le cas échéant. Contrairement au carnet
+    /// d'adresses de la couche nœud, ne rend JAMAIS une adresse sans session :
+    /// un envoi vers cette adresse scelle réellement (aucune mise en file de
+    /// handshake spéculatif) — c'est ce qui permet aux boucles de maintenance
+    /// de ne consommer l'outbox que sur une livraison effective.
+    pub fn direct_session_addr(&self, static_pub: &[u8; 32]) -> Option<SocketAddr> {
         let st = self.state.lock().expect("state mutex");
         st.sessions_by_id
             .values()
-            .any(|s| s.relay_circuit.is_none() && bool::from(s.peer_static.ct_eq(static_pub)))
+            .find(|s| s.relay_circuit.is_none() && bool::from(s.peer_static.ct_eq(static_pub)))
+            .map(|s| s.peer_addr)
+    }
+
+    /// Consomme un jeton du seau de contrôle de la session DIRECTE à `addr`
+    /// (bornage post-handshake des messages de contrôle changeant l'état,
+    /// H1/M1b). Rend `false` si aucune session directe n'existe à cette adresse
+    /// ou si le quota par session est épuisé — l'appelant ignore alors le
+    /// message. Le verrou n'est jamais tenu pendant un `await`.
+    fn take_ctrl_token(&self, addr: SocketAddr, now: u64) -> bool {
+        let mut st = self.state.lock().expect("state mutex");
+        match st
+            .id_by_addr
+            .get(&addr)
+            .copied()
+            .and_then(|sid| st.sessions_by_id.get_mut(&sid))
+        {
+            Some(session) => session.ctrl_bucket.try_take(now),
+            None => false,
+        }
+    }
+
+    /// Sous UN verrou (H1) : consomme un jeton de contrôle pour la session
+    /// DIRECTE à `addr` et rend s'il faut RÉPONDRE (première annonce de la
+    /// session). `None` = pas de session directe à cette adresse ou quota de
+    /// contrôle épuisé (l'annonce est alors ignorée sans aucune remontée).
+    fn accept_announce(&self, addr: SocketAddr, now: u64) -> Option<bool> {
+        let mut st = self.state.lock().expect("state mutex");
+        let sid = st.id_by_addr.get(&addr).copied()?;
+        let session = st.sessions_by_id.get_mut(&sid)?;
+        if !session.ctrl_bucket.try_take(now) {
+            return None;
+        }
+        let reply = !session.announced;
+        session.announced = true;
+        Some(reply)
     }
 
     async fn recv_loop(self: Arc<Self>) {
@@ -790,6 +927,10 @@ impl Endpoint {
                     next_frag_id: 0,
                     reasm: Reassembler::new(),
                     relay_circuit: link.circuit(),
+                    // Répondeur : l'annonce partira en réponse à celle de
+                    // l'initiateur (jamais sur un tunnel).
+                    announced: link.circuit().is_some(),
+                    ctrl_bucket: Bucket::new(CTRL_MSG_BURST, CTRL_MSG_REFILL_PER_S, now),
                 },
                 established.session_id,
             );
@@ -860,6 +1001,10 @@ impl Endpoint {
                 next_frag_id: 0,
                 reasm: Reassembler::new(),
                 relay_circuit: link.circuit(),
+                // Initiateur : notre annonce part immédiatement après (lien
+                // direct seulement), le pair y répondra avec la sienne.
+                announced: true,
+                ctrl_bucket: Bucket::new(CTRL_MSG_BURST, CTRL_MSG_REFILL_PER_S, now),
             };
             // Vider la file d'attente sous la nouvelle session (fragmentée au
             // besoin).
@@ -878,6 +1023,14 @@ impl Endpoint {
         }
         for bytes in to_send {
             self.send_packet_via_link(bytes, link).await?;
+        }
+        // Auto-annonce DHT (SPEC §11.3) : l'initiateur d'une session DIRECTE
+        // s'annonce dès l'établissement ; le répondeur — dont la session existe
+        // déjà (il a émis le WELCOME), aucun risque de course — répondra avec
+        // la sienne. Jamais sur un tunnel (l'adresse observée serait celle du
+        // relais et empoisonnerait la table du pair).
+        if let PeerLink::Direct(addr) = link {
+            let _ = self.send(addr, &self.announce_msg()).await;
         }
         Ok(())
     }
@@ -1005,9 +1158,21 @@ impl Endpoint {
                     return Ok(());
                 }
                 ControlMsg::ObserveAddrResp { addr } => {
-                    let _ = self
-                        .events
-                        .send(TransportEvent::ObservedAddr { observed: addr.0 });
+                    // Observation d'adresse : UNIQUEMENT sur session directe (sur
+                    // un tunnel, le pair observerait l'adresse du relais, pas la
+                    // nôtre) et bornée par le seau de contrôle de la session
+                    // (M1b : anti-flood). Portée par l'identité du pair pour que
+                    // le consensus dédoublonne les votes par pair (M1b).
+                    let PeerLink::Direct(addr_from) = link else {
+                        return Ok(());
+                    };
+                    if !self.take_ctrl_token(addr_from, self.clock.now_ms()) {
+                        return Ok(()); // pas de session / quota épuisé : ignoré
+                    }
+                    let _ = self.events.send(TransportEvent::ObservedAddr {
+                        observer: peer_static,
+                        observed: addr.0,
+                    });
                     return Ok(());
                 }
                 ControlMsg::PunchRequest { token, candidates } => {
@@ -1026,6 +1191,32 @@ impl Endpoint {
                         token: *token,
                         candidates: candidates.iter().map(|a| a.0).collect(),
                     });
+                    return Ok(());
+                }
+                ControlMsg::NodeAnnounce { pow_nonce, flags } => {
+                    // Uniquement sur session DIRECTE : sur un tunnel, l'adresse
+                    // observée serait celle du relais (empoisonnement de table).
+                    let PeerLink::Direct(addr) = link else {
+                        return Ok(());
+                    };
+                    // H1 : consomme un jeton du seau de contrôle de la session ET
+                    // décide de la réponse (première annonce) sous UN verrou. Au-
+                    // delà du quota par session, l'annonce est ignorée AVANT toute
+                    // remontée d'événement — un pair authentifié ne peut plus
+                    // inonder le canal d'événements ni marteler la table de
+                    // routage à plein débit UDP.
+                    let Some(reply) = self.accept_announce(addr, self.clock.now_ms()) else {
+                        return Ok(()); // pas de session directe / quota épuisé
+                    };
+                    let _ = self.events.send(TransportEvent::NodeAnnounced {
+                        static_pub: peer_static,
+                        addr,
+                        pow_nonce: *pow_nonce,
+                        flags: *flags,
+                    });
+                    if reply {
+                        let _ = self.send(addr, &self.announce_msg()).await;
+                    }
                     return Ok(());
                 }
             }

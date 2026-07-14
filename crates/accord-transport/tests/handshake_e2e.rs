@@ -103,6 +103,83 @@ async fn two_nodes_handshake_and_exchange() {
     }
 }
 
+/// H1 : `NODE_ANNOUNCE` est un message de contrôle traité DANS la couche
+/// transport (il ne passe pas par les token-buckets DHT). Sans bornage par
+/// session, un pair déjà authentifié pourrait inonder des annonces à plein
+/// débit — chaque remontée déclenchant une insertion de table et un événement
+/// sur un canal non borné. Le seau de contrôle par session (horloge figée : pas
+/// de recharge) écrête le flot : au plus `CTRL_MSG_BURST` annonces sont
+/// ACCEPTÉES (événements émis) sur toute la vie de la session, pas une par
+/// message reçu.
+#[tokio::test]
+async fn node_announce_flood_borne_par_session() {
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(101, NetConditions::default());
+    let mut victim = spawn_node(&net, &clock, "10.0.9.1:4000");
+    let attacker = spawn_node(&net, &clock, "10.0.9.2:4000");
+
+    // Établit une session directe (l'attaquant initie).
+    attacker
+        .ep
+        .send(
+            victim.addr,
+            &ChannelMsg::Control(ControlMsg::Ping { token: 1 }),
+        )
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if attacker.ep.session_count() == 1 && victim.ep.session_count() == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("session établie");
+
+    // Inonde 200 NODE_ANNOUNCE (bien au-delà du quota de rafale).
+    const FLOOD: usize = 200;
+    for i in 0..FLOOD {
+        attacker
+            .ep
+            .send(
+                victim.addr,
+                &ChannelMsg::Control(ControlMsg::NodeAnnounce {
+                    pow_nonce: i as u64,
+                    flags: 0,
+                }),
+            )
+            .await
+            .unwrap();
+    }
+
+    // Draine les événements de la victime et compte les annonces ACCEPTÉES
+    // (émises) émanant de l'attaquant, jusqu'au silence.
+    let mut accepted = 0usize;
+    loop {
+        match tokio::time::timeout(Duration::from_millis(300), victim.events.recv()).await {
+            Ok(Some(TransportEvent::NodeAnnounced { static_pub, .. }))
+                if static_pub == attacker.static_pub =>
+            {
+                accepted += 1;
+            }
+            Ok(Some(_)) => continue,
+            Ok(None) => break,
+            Err(_) => break, // plus rien ne vient : le flot a été écrêté
+        }
+    }
+
+    // Horloge figée ⇒ aucune recharge : au plus la capacité de rafale du seau
+    // de contrôle (8) est acceptée, TRÈS en deçà des 200 émises. Sans le
+    // correctif, `accepted` vaudrait ~200 (une par message).
+    assert!(
+        accepted <= 8,
+        "flood non borné : {accepted} annonces acceptées sur {FLOOD} (attendu ≤ 8)"
+    );
+    assert!(accepted >= 1, "l'annonce initiale légitime doit passer");
+}
+
 #[tokio::test]
 async fn message_survives_packet_loss() {
     let clock = ManualClock::new(1_000_000);
@@ -255,7 +332,7 @@ async fn observe_addr_reports_public_address() {
 
     let observed = tokio::time::timeout(Duration::from_secs(2), async {
         loop {
-            if let Some(TransportEvent::ObservedAddr { observed }) = alice.events.recv().await {
+            if let Some(TransportEvent::ObservedAddr { observed, .. }) = alice.events.recv().await {
                 break observed;
             }
         }

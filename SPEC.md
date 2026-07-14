@@ -181,7 +181,19 @@ Every DATA plaintext begins with:
 
 CONTROL: `0x00 PING{token:u64}`, `0x01 PONG{token:u64}`, `0x02 CLOSE{reason:u8}`,
 `0x03 REKEY{new_epoch:u8}`, `0x04 OBSERVE_ADDR_REQ{}`,
-`0x05 OBSERVE_ADDR_RESP{addr: SockAddr}` (SockAddr = `family:u8(4|6) ‖ ip ‖ port:u16`).
+`0x05 OBSERVE_ADDR_RESP{addr: SockAddr}` (SockAddr = `family:u8(4|6) ‖ ip ‖ port:u16`),
+`0x06 PUNCH_REQUEST{token:u64, candidates: list<SockAddr>}`,
+`0x07 PUNCH_RESPONSE{token:u64, candidates: list<SockAddr>}` (§11.2),
+`0x08 NODE_ANNOUNCE{pow_nonce:u64, flags:u8}` — self-announcement on DIRECT
+sessions only (never tunneled): the receiver rebuilds a `NodeInfo` whose
+identity is the session's AUTHENTICATED static key and whose address is the
+OBSERVED source address (never a declared one), re-verifies the PoW, and
+inserts it into its routing table (organic DHT population, §11.3 first
+contact). Sent by the initiator right after the handshake; the responder
+replies with its own announcement at most once per session. A node only
+announces the RELAY flag when plausibly publicly reachable (active port
+mapping, or observed-address consensus on the local port); it re-announces to
+established direct sessions when this eligibility changes.
 
 ## 4. DHT (channel 0x01) — 256-bit Kademlia
 

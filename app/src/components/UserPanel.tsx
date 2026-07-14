@@ -71,9 +71,9 @@ function MicIcon({ muted }: { muted: boolean }) {
   );
 }
 
-/** Bouton d'action carré du bandeau vocal (icon spec, 32 px). */
+/** Bouton d'action carré du bandeau vocal. */
 const ICON_BUTTON_CLASS =
-  'flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-rail active:scale-95';
+  'flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-rail active:scale-95';
 
 /** Bandeau « Vocal connecté » : nom du groupe, mute micro, raccrocher. */
 function VoiceBanner() {
@@ -97,9 +97,7 @@ function VoiceBanner() {
   return (
     <div className="flex items-center justify-between gap-2 border-b border-[color:var(--glass-border)] bg-rail/60 px-2 py-2">
       <div className="min-w-0">
-        <div className="truncate text-sm font-medium text-green">
-          {t.voice.connected}
-        </div>
+        <div className="truncate text-sm font-medium text-green">{t.voice.connected}</div>
         <div className="truncate text-xs text-muted">{groupName ?? '…'}</div>
       </div>
       <div className="flex shrink-0 items-center gap-0.5">
@@ -311,7 +309,7 @@ export function UserPanel() {
           aria-label={t.settings.title}
           title={t.settings.title}
           onClick={() => openModal({ kind: 'settings' })}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-rail active:scale-95"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-rail active:scale-95"
         >
           <svg
             width="18"

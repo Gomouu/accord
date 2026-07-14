@@ -54,6 +54,16 @@ describe('AccountPicker — liste', () => {
 
     expect(screen.getByText(/deadbeef/)).toBeInTheDocument();
   });
+
+  it('borne la liste et garde le panneau accessible à faible hauteur', () => {
+    const { container } = render(<AccountPicker />);
+
+    expect(screen.getByRole('list')).toHaveClass('max-h-64', 'overflow-y-auto');
+    expect(container.firstElementChild).toHaveClass('overflow-y-auto');
+    expect(screen.getByRole('button', { name: 'Ajouter un compte' })).not.toHaveClass(
+      'transition-all',
+    );
+  });
 });
 
 describe('AccountPicker — déverrouillage', () => {

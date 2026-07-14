@@ -58,6 +58,17 @@ pub enum ControlMsg {
         /// Candidats d'adresse du répondeur (même borne qu'à la demande).
         candidates: Vec<WireAddr>,
     },
+    /// Auto-annonce DHT dans une session directe (SPEC §11.3, premier
+    /// contact) : porte la preuve de travail et les drapeaux de capacité du
+    /// nœud émetteur. Le récepteur reconstruit un `NodeInfo` dont l'identité
+    /// est celle, AUTHENTIFIÉE, de la session et l'adresse celle OBSERVÉE
+    /// (jamais déclarée), puis l'insère dans sa table de routage.
+    NodeAnnounce {
+        /// Nonce de preuve de travail de l'identité (re-vérifié à l'insertion).
+        pow_nonce: u64,
+        /// Drapeaux de capacité ([`crate::types::node_flags`]).
+        flags: u8,
+    },
 }
 
 impl WireEncode for ControlMsg {
@@ -94,6 +105,11 @@ impl WireEncode for ControlMsg {
                 w.put_u64(*token);
                 w.put_list(candidates, |w, a| a.encode(w));
             }
+            ControlMsg::NodeAnnounce { pow_nonce, flags } => {
+                w.put_u8(0x08);
+                w.put_u64(*pow_nonce);
+                w.put_u8(*flags);
+            }
         }
     }
 }
@@ -124,6 +140,10 @@ impl WireDecode for ControlMsg {
                     "punch.candidates",
                     WireAddr::decode,
                 )?,
+            }),
+            0x08 => Ok(ControlMsg::NodeAnnounce {
+                pow_nonce: r.u64()?,
+                flags: r.u8()?,
             }),
             _ => Err(DecodeError::InvalidValue("control kind")),
         }

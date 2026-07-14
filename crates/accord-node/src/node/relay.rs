@@ -16,6 +16,8 @@ use accord_proto::types::{node_flags, NodeId, NodeInfo};
 use accord_transport::nat::ObservedAddrs;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
+use std::net::SocketAddr;
 
 /// Délai laissé au poinçonnage pour établir une session avant de basculer sur
 /// le relais (SPEC §11.3). Constante nommée plutôt que magique : au-delà, on
@@ -76,6 +78,37 @@ pub fn classify_nat(observed: &ObservedAddrs) -> NatKind {
     }
 }
 
+/// Décide si ce nœud peut s'annoncer RELAIS (drapeau `NODE_ANNOUNCE`,
+/// SPEC §11.3) : il doit être plausiblement joignable de l'extérieur, sinon
+/// les « relais domicile » élus par dérivation déterministe seraient
+/// injoignables et le rendez-vous du premier contact échouerait. Critères :
+/// - un mapping de port automatique (UPnP/NAT-PMP) est actif ; ou
+/// - le consensus d'adresse observée (≥ 2 pairs concordants) porte le MÊME
+///   port que le port local — nœud public, redirection manuelle, ou NAT
+///   préservant le port (joignable tant que ses sessions entretiennent le
+///   mapping).
+///
+/// Fonction pure — testable sans horloge ni réseau.
+pub fn relay_eligible(
+    observed_consensus: Option<SocketAddr>,
+    local_port: u16,
+    mapping_external: Option<SocketAddr>,
+) -> bool {
+    if mapping_external.is_some() {
+        return true;
+    }
+    matches!(observed_consensus, Some(a) if a.port() == local_port)
+}
+
+/// Drapeaux de capacité à annoncer selon l'éligibilité relais.
+pub fn announce_flags(eligible: bool) -> u8 {
+    if eligible {
+        node_flags::RELAY
+    } else {
+        0
+    }
+}
+
 /// Clé de paire DÉTERMINISTE et symétrique pour deux nœuds (SPEC §11.3) :
 /// `sha256(min(a, b) ‖ max(a, b))`. L'ordre canonique (min/max sur l'identifiant
 /// Kademlia) garantit `pair_key(a, b) == pair_key(b, a)` : les DEUX amis
@@ -125,17 +158,44 @@ pub fn select_home_relays(candidates: Vec<NodeInfo>, exclude: &[[u8; 32]]) -> Ve
     relays
 }
 
+/// Réordonne des candidats relais pour placer EN TÊTE ceux dont la
+/// joignabilité a été ACTIVEMENT vérifiée (session directe confirmée), en
+/// préservant l'ordre relatif au sein de chaque groupe (M1a).
+///
+/// Le drapeau RELAY d'un `NODE_ANNOUNCE` est auto-déclaré et gratuit : un pair
+/// hostile peut le poser sans être un relais utile. On ne s'y fie donc qu'après
+/// une PREUVE de joignabilité (session directe établie, `verified`). Cette
+/// priorisation empêche un flot de faux relais injoignables d'évincer un relais
+/// réellement joignable de la fenêtre bornée d'essais ([`RELAY_TRY_MAX`]). Les
+/// candidats non vérifiés restent en repli — la numérotation à l'usage les
+/// vérifie activement (`connect` puis ouverture de circuit), un injoignable y
+/// échoue proprement. Fonction pure.
+pub fn prioritize_reachable(relays: Vec<NodeInfo>, verified: &HashSet<[u8; 32]>) -> Vec<NodeInfo> {
+    let (mut yes, no): (Vec<NodeInfo>, Vec<NodeInfo>) = relays
+        .into_iter()
+        .partition(|r| verified.contains(&r.static_pub));
+    yes.extend(no);
+    yes
+}
+
 /// Liste ordonnée des candidats relais à essayer pour joindre un pair : les
 /// candidats de clé de paire d'abord (chemin historique, convergent entre
 /// amis), puis les relais domicile du pair (repli premier contact), sans
-/// doublon (par identifiant de nœud) et bornée à [`RELAY_TRY_MAX`].
-pub fn merge_relay_candidates(pair: Vec<NodeInfo>, home: Vec<NodeInfo>) -> Vec<NodeInfo> {
+/// doublon (par identifiant de nœud). Les relais activement vérifiés joignables
+/// ([`prioritize_reachable`], M1a) passent en tête AVANT le bornage à
+/// [`RELAY_TRY_MAX`], pour survivre à un éventuel flot de faux relais.
+pub fn merge_relay_candidates(
+    pair: Vec<NodeInfo>,
+    home: Vec<NodeInfo>,
+    verified: &HashSet<[u8; 32]>,
+) -> Vec<NodeInfo> {
     let mut out = pair;
     for info in home {
         if !out.iter().any(|c| c.node_id == info.node_id) {
             out.push(info);
         }
     }
+    let mut out = prioritize_reachable(out, verified);
     out.truncate(RELAY_TRY_MAX);
     out
 }
@@ -144,10 +204,51 @@ pub fn merge_relay_candidates(pair: Vec<NodeInfo>, home: Vec<NodeInfo>) -> Vec<N
 mod tests {
     use super::*;
     use accord_proto::types::WireAddr;
-    use std::net::SocketAddr;
 
     fn addr(s: &str) -> SocketAddr {
         s.parse().unwrap()
+    }
+
+    #[test]
+    fn eligibilite_relais_mapping_ou_port_preserve() {
+        // Mapping UPnP/NAT-PMP actif : éligible quoi qu'il en soit.
+        assert!(relay_eligible(None, 48016, Some(addr("203.0.113.7:48016"))));
+        // Consensus observé au MÊME port que le port local : éligible
+        // (public, redirection, ou NAT préservant le port).
+        assert!(relay_eligible(Some(addr("203.0.113.7:48016")), 48016, None));
+        // Consensus à un port DIFFÉRENT (NAT réécrivant le port) : refusé.
+        assert!(!relay_eligible(
+            Some(addr("203.0.113.7:50001")),
+            48016,
+            None
+        ));
+        // Sans consensus ni mapping : refusé (joignabilité non établie).
+        assert!(!relay_eligible(None, 48016, None));
+        // Traduction en drapeaux d'annonce.
+        assert_eq!(announce_flags(true), node_flags::RELAY);
+        assert_eq!(announce_flags(false), 0);
+    }
+
+    #[test]
+    fn un_pair_seul_ne_rend_pas_une_victime_natee_eligible() {
+        // M1b : sans mapping, l'éligibilité relais dépend d'un consensus
+        // d'adresse observée au port local. Un pair UNIQUE qui envoie deux
+        // observations forgées au port local ne doit PAS fabriquer ce
+        // consensus, donc ne doit pas faire basculer `relay_eligible` d'une
+        // victime NATée (qui s'annoncerait alors relais et serait élue relais
+        // domicile tout en étant injoignable).
+        let mut o = ObservedAddrs::new();
+        o.observe([7; 32], addr("203.0.113.7:48016"));
+        o.observe([7; 32], addr("203.0.113.7:48016"));
+        assert_eq!(o.consensus(), None, "un pair seul ne fait pas consensus");
+        assert!(
+            !relay_eligible(o.consensus(), 48016, None),
+            "un pair seul ne rend pas la victime éligible relais"
+        );
+        // Deux pairs DISTINCTS concordants : consensus légitime ⇒ éligible.
+        o.observe([8; 32], addr("203.0.113.7:48016"));
+        assert_eq!(o.consensus(), Some(addr("203.0.113.7:48016")));
+        assert!(relay_eligible(o.consensus(), 48016, None));
     }
 
     fn node(id: u8, flags: u8, addrs: &[&str]) -> NodeInfo {
@@ -163,8 +264,9 @@ mod tests {
     #[test]
     fn nat_kind_consensus_donne_cone() {
         let mut o = ObservedAddrs::new();
-        o.observe(addr("203.0.113.7:5000"));
-        o.observe(addr("203.0.113.7:5000"));
+        // Deux pairs DISTINCTS concordent sur la même adresse.
+        o.observe([1; 32], addr("203.0.113.7:5000"));
+        o.observe([2; 32], addr("203.0.113.7:5000"));
         assert_eq!(classify_nat(&o), NatKind::Cone);
         assert_eq!(o.consensus(), Some(addr("203.0.113.7:5000")));
     }
@@ -172,9 +274,19 @@ mod tests {
     #[test]
     fn nat_kind_divergence_donne_symmetric() {
         let mut o = ObservedAddrs::new();
-        o.observe(addr("203.0.113.7:5000"));
-        o.observe(addr("203.0.113.7:6001")); // port différent selon le pair
+        o.observe([1; 32], addr("203.0.113.7:5000"));
+        o.observe([2; 32], addr("203.0.113.7:6001")); // port différent selon le pair
         assert_eq!(classify_nat(&o), NatKind::Symmetric);
+    }
+
+    #[test]
+    fn nat_kind_un_seul_pair_ne_bascule_pas() {
+        // M1b : un pair unique ne peut faire conclure ni cone ni symétrique,
+        // quel que soit le nombre d'observations qu'il envoie.
+        let mut o = ObservedAddrs::new();
+        o.observe([1; 32], addr("203.0.113.7:5000"));
+        o.observe([1; 32], addr("203.0.113.7:5000"));
+        assert_eq!(classify_nat(&o), NatKind::Unknown, "un pair = pas de cone");
     }
 
     #[test]
@@ -182,7 +294,7 @@ mod tests {
         let vide = ObservedAddrs::new();
         assert_eq!(classify_nat(&vide), NatKind::Unknown);
         let mut une = ObservedAddrs::new();
-        une.observe(addr("203.0.113.7:5000"));
+        une.observe([1; 32], addr("203.0.113.7:5000"));
         assert_eq!(classify_nat(&une), NatKind::Unknown);
     }
 
@@ -252,10 +364,11 @@ mod tests {
     #[test]
     fn fusion_candidats_pair_puis_domicile_sans_doublon_et_bornee() {
         let r = |id: u8| node(id, node_flags::RELAY, &["203.0.113.7:5000"]);
+        let vide = HashSet::new();
         // Le relais 2 apparaît des deux côtés : une seule occurrence, côté paire.
         let pair = vec![r(1), r(2)];
         let home = vec![r(2), r(3)];
-        let merged = merge_relay_candidates(pair, home);
+        let merged = merge_relay_candidates(pair, home, &vide);
         let ids: Vec<u8> = merged.iter().map(|i| i.node_id.0[0]).collect();
         assert_eq!(
             ids,
@@ -266,12 +379,49 @@ mod tests {
         // Bornée à RELAY_TRY_MAX même sur des entrées trop longues.
         let pair: Vec<NodeInfo> = (1..=RELAY_SELECT_K as u8 + 2).map(r).collect();
         let home: Vec<NodeInfo> = (100..=100 + HOME_RELAY_COUNT as u8 + 2).map(r).collect();
-        let merged = merge_relay_candidates(pair, home);
+        let merged = merge_relay_candidates(pair, home, &vide);
         assert!(merged.len() <= RELAY_TRY_MAX, "borne dure des tentatives");
 
         // Sans candidat de paire (premier contact pur) : le domicile suffit.
-        let merged = merge_relay_candidates(Vec::new(), vec![r(7)]);
+        let merged = merge_relay_candidates(Vec::new(), vec![r(7)], &vide);
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0].node_id, NodeId([7; 32]));
+    }
+
+    #[test]
+    fn priorisation_relais_verifies_survit_au_flot_de_faux() {
+        // M1a : un flot de faux relais (drapeau auto-déclaré, jamais vérifiés)
+        // ne doit pas évincer le SEUL relais réellement joignable de la fenêtre
+        // bornée d'essais. Le relais vérifié (id 42) est noyé en fin de liste ;
+        // après priorisation il passe en tête et survit à la troncature.
+        let r = |id: u8| node(id, node_flags::RELAY, &["203.0.113.7:5000"]);
+        let faux: Vec<NodeInfo> = (1..=RELAY_SELECT_K as u8 + 4).map(r).collect();
+        let verifie = r(42);
+        let mut tous = faux.clone();
+        tous.push(verifie.clone());
+        let verified: HashSet<[u8; 32]> = [verifie.static_pub].into_iter().collect();
+
+        let merged = merge_relay_candidates(tous, Vec::new(), &verified);
+        assert!(merged.len() <= RELAY_TRY_MAX, "borne respectée");
+        assert_eq!(
+            merged[0].node_id,
+            NodeId([42; 32]),
+            "le relais vérifié passe en tête et n'est pas évincé"
+        );
+
+        // Sans aucun vérifié : l'ordre d'entrée est préservé (repli inchangé).
+        let ordre = prioritize_reachable(vec![r(1), r(2), r(3)], &HashSet::new());
+        assert_eq!(
+            ordre.iter().map(|i| i.node_id.0[0]).collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
+        // Priorisation stable : vérifiés en tête, ordre relatif conservé partout.
+        let v: HashSet<[u8; 32]> = [[2; 32], [4; 32]].into_iter().collect();
+        let ordre = prioritize_reachable(vec![r(1), r(2), r(3), r(4)], &v);
+        assert_eq!(
+            ordre.iter().map(|i| i.node_id.0[0]).collect::<Vec<_>>(),
+            vec![2, 4, 1, 3],
+            "vérifiés (2,4) en tête, non-vérifiés (1,3) ensuite, ordre relatif gardé"
+        );
     }
 }

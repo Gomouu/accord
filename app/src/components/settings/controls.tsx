@@ -188,7 +188,7 @@ export function ColorSwatchPicker({
             aria-label={interpolate(t.settings.colorSwatchLabel, { hex })}
             onClick={() => onPick(color)}
             style={{ backgroundColor: hex }}
-            className={`h-8 w-8 shrink-0 rounded-full transition-transform duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50 ${
+            className={`h-9 w-9 shrink-0 rounded-full border border-input transition-transform duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50 ${
               selected
                 ? 'ring-2 ring-header ring-offset-2 ring-offset-sidebar'
                 : 'hover:scale-105'
@@ -198,7 +198,7 @@ export function ColorSwatchPicker({
       })}
       <label
         title={t.settings.colorCustom}
-        className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-faint bg-rail text-faint transition-colors duration-fast hover:text-norm has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-blurple has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-sidebar"
+        className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-faint bg-rail text-faint transition-colors duration-fast hover:text-norm has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-blurple has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-sidebar"
       >
         <input
           type="color"
@@ -216,7 +216,7 @@ export function ColorSwatchPicker({
         disabled={busy || value === null}
         aria-label={t.settings.colorNone}
         onClick={() => onPick(null)}
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-faint text-faint transition-colors duration-fast hover:border-red hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-faint text-faint transition-colors duration-fast hover:border-red hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
       >
         <NoColorIcon />
       </button>
@@ -239,7 +239,7 @@ export function OptionPill({
       type="button"
       aria-pressed={selected}
       onClick={onSelect}
-      className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
+      className={`inline-flex min-h-9 items-center rounded-full px-3 py-1.5 text-center text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
         selected
           ? 'bg-blurple text-white'
           : 'bg-rail text-norm hover:bg-input hover:text-header'

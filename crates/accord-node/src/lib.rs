@@ -194,26 +194,60 @@ pub async fn run_with_maintenance(
     config: NodeConfig,
     maintenance: MaintenanceConfig,
 ) -> Result<RunningNode, NodeError> {
+    run_node(unlocked, config, maintenance, None).await
+}
+
+/// Démarre un nœud complet sur un socket datagramme FOURNI (mesh simulé des
+/// tests d'intégration — ex. NAT symétrique simulé, voir
+/// `accord_transport::socket::sim`). Ni liaison UDP réelle, ni écouteur TCP de
+/// repli, ni mapping de port/mDNS : le nœud entier (DHT, maintenance, outbox,
+/// relais) tourne sur le transport injecté.
+///
+/// **RÉSERVÉ AUX TESTS (M2).** `#[doc(hidden)]` : ne PAS câbler en production —
+/// le socket injecté n'a subi aucun durcissement de liaison (pas de stratégie
+/// de port stable, pas de repli TCP, pas de mapping/mDNS). La production passe
+/// exclusivement par [`run`] / [`run_with_maintenance`].
+#[doc(hidden)]
+pub async fn run_with_socket(
+    unlocked: Unlocked,
+    config: NodeConfig,
+    maintenance: MaintenanceConfig,
+    socket: Arc<dyn DatagramSocket>,
+) -> Result<RunningNode, NodeError> {
+    run_node(unlocked, config, maintenance, Some(socket)).await
+}
+
+async fn run_node(
+    unlocked: Unlocked,
+    config: NodeConfig,
+    maintenance: MaintenanceConfig,
+    socket_override: Option<Arc<dyn DatagramSocket>>,
+) -> Result<RunningNode, NodeError> {
     let db = Db::open(&config.paths.db(), &unlocked.db_key)?;
     let identity = Arc::new(unlocked.identity);
+    let injected = socket_override.is_some();
 
-    // Port P2P stable (B2) : port explicite de la config s'il est fourni,
-    // sinon le port retenu au précédent lancement, sinon la stratégie par
-    // défaut (48016, plage de repli, puis port éphémère).
-    let explicit_port = config.p2p_addr.port();
-    let preferred_port = if explicit_port != 0 {
-        Some(explicit_port)
-    } else {
-        node::network::read_stored_port(&db)?
+    // Transport chiffré : socket injecté (tests) ou UDP réel, multiplexé avec
+    // les liens TCP de repli (SPEC §11.3) : l'endpoint voit un unique socket
+    // datagramme ; un datagramme vers une adresse couverte par un lien TCP
+    // poinçonné part encadré sur le flux, tout le reste part en UDP.
+    let datagram: Arc<dyn DatagramSocket> = match socket_override {
+        Some(socket) => socket,
+        None => {
+            // Port P2P stable (B2) : port explicite de la config s'il est
+            // fourni, sinon le port retenu au précédent lancement, sinon la
+            // stratégie par défaut (48016, plage de repli, puis port éphémère).
+            let explicit_port = config.p2p_addr.port();
+            let preferred_port = if explicit_port != 0 {
+                Some(explicit_port)
+            } else {
+                node::network::read_stored_port(&db)?
+            };
+            Arc::new(bind_p2p(config.p2p_addr.ip(), preferred_port).await?)
+        }
     };
-
-    // Transport chiffré sur UDP réel, multiplexé avec les liens TCP de repli
-    // (SPEC §11.3) : l'endpoint voit un unique socket datagramme ; un
-    // datagramme vers une adresse couverte par un lien TCP poinçonné part
-    // encadré sur le flux, tout le reste part en UDP.
-    let udp = Arc::new(bind_p2p(config.p2p_addr.ip(), preferred_port).await?);
-    let p2p_port = udp.local_addr().port();
-    let (socket, tcp_links) = accord_transport::MuxSocket::new(udp);
+    let p2p_port = datagram.local_addr().port();
+    let (socket, tcp_links) = accord_transport::MuxSocket::new(datagram);
     let clock = Arc::new(accord_transport::SystemClock);
     let ep_config = EndpointConfig {
         pow_bits: config.pow_bits,
@@ -230,8 +264,11 @@ pub async fn run_with_maintenance(
     };
     let (endpoint, events) = Endpoint::new(socket, Arc::clone(&identity), clock, ep_config);
     endpoint.spawn();
-    // Retient le port effectivement lié pour les prochains lancements (B2).
-    node::network::store_port(&db, endpoint.local_addr().port())?;
+    // Retient le port effectivement lié pour les prochains lancements (B2) —
+    // sans objet pour un socket injecté (adresse du mesh simulé).
+    if !injected {
+        node::network::store_port(&db, endpoint.local_addr().port())?;
+    }
 
     // Nœud DHT local.
     let local_info = NodeInfo {
@@ -309,7 +346,15 @@ pub async fn run_with_maintenance(
     // via SO_REUSEADDR/SO_REUSEPORT). Best-effort : un échec de liaison ne
     // désactive que les liens TCP entrants, le poinçonnage sortant demeure.
     runtime.set_tcp_links(Arc::clone(&tcp_links));
-    match bind_tcp_listener(config.p2p_addr.ip(), p2p_port) {
+    match if injected {
+        // Socket injecté (mesh simulé) : aucun écouteur TCP réel — le repli
+        // TCP entrant est simplement désactivé, comme documenté ci-dessus.
+        Err(std::io::Error::other(
+            "transport injecté, repli TCP désactivé",
+        ))
+    } else {
+        bind_tcp_listener(config.p2p_addr.ip(), p2p_port)
+    } {
         Ok(listener) => {
             let links = Arc::clone(&tcp_links);
             let mut stop = runtime.stop_signal();
@@ -349,7 +394,7 @@ pub async fn run_with_maintenance(
     // bloquantes. Ignorés en écoute loopback (rien à exposer ni à annoncer, cas
     // des tests) et désactivables par la configuration. Tout échec dégrade
     // proprement : le nœud reste utilisable via l'amorçage manuel.
-    if !config.p2p_addr.ip().is_loopback() {
+    if !injected && !config.p2p_addr.ip().is_loopback() {
         let p2p_port = endpoint.local_addr().port();
         let local_ips = runtime::discover_local_ips();
         if config.nat_enabled {

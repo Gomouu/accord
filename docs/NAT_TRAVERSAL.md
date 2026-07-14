@@ -124,9 +124,40 @@ paquet** transite sur TCP :
 - Le mapping UPnP ne couvre que l'UDP ; un mapping TCP dédié serait un gain
   marginal (si UPnP marche, l'UDP direct marche déjà) — non retenu.
 
+## 5. Premier contact sans port ouvert (`NODE_ANNOUNCE`, éligibilité relais)
+
+Voir [`NAT-FIRST-CONTACT.md`](NAT-FIRST-CONTACT.md) pour le diagnostic complet
+(le rendez-vous relais domicile était conçu mais mort en production). En bref :
+
+- **`NODE_ANNOUNCE` (CONTROL 0x08)** : auto-annonce `{pow_nonce, flags}` à
+  l'établissement de chaque session DIRECTE (initiateur, puis réponse unique du
+  répondeur). Le récepteur reconstruit un `NodeInfo` — identité authentifiée
+  par la session, adresse OBSERVÉE, PoW re-vérifiée — et peuple sa table de
+  routage : c'est l'apprentissage organique qui rend `home_relays_of` et
+  `select_relay_for` non vides en conditions réelles. Jamais sur un tunnel
+  (l'adresse du relais empoisonnerait la table).
+- **Éligibilité relais** (`relay_eligible`) : RELAY annoncé seulement si
+  mapping de port actif ou consensus d'adresse observée au port local ;
+  ré-annonce aux sessions directes au changement. Un nœud NATé symétrique ne
+  s'annonce jamais relais (les relais domicile élus doivent être joignables).
+- **Repli relais inconditionnel** : déclenché pour chaque cible de résolution
+  même sans record de présence (le rendez-vous domicile ne dépend que de la
+  clé publique) ; `ensure_relay_to` et `home_relay_tick` font un `lookup_node`
+  réseau avant sélection (convergence des deux côtés sur la vue globale).
+- **Livraison sur lien établi** (`send_via_best_link`) : l'outbox, le vidage à
+  la connexion, le profil et l'anti-entropie n'émettent que sur une session
+  directe établie ou un circuit relais — jamais via le handshake spéculatif,
+  dont le `Ok` faisait disparaître des messages en file vers des adresses
+  injoignables.
+
+Test reproductible : `crates/accord-node/tests/nat_first_contact_e2e.rs`
+(A et B derrière deux NAT symétriques simulés — mapping par destination,
+aucun entrant non sollicité —, R seul nœud public : demande d'ami, amitié et
+DM aller-retour sans aucune ouverture de port).
+
 ## Compatibilité filaire
 
-`ControlMsg` 0x06/0x07 sont additifs : un pair ancien qui les reçoit les
+`ControlMsg` 0x06/0x07/0x08 sont additifs : un pair ancien qui les reçoit les
 rejette au décodage (`MALFORMED`, silencieux par SPEC §12) et le comportement
 retombe sur la baseline. Aucun champ existant n'est modifié.
 

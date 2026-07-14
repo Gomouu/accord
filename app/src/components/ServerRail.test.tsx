@@ -310,7 +310,9 @@ describe('ServerRail — accessibilité clavier', () => {
 
     render(<ServerRail />);
 
-    expect(screen.getByLabelText('Guilde')).toHaveAttribute('aria-current', 'page');
+    const serverButton = screen.getByLabelText('Guilde');
+    expect(serverButton).toHaveAttribute('aria-current', 'page');
+    expect(serverButton.previousElementSibling).toHaveClass('bg-header');
     // Le bouton Accueil/MP, inactif, ne porte pas l'attribut.
     expect(screen.getByLabelText('Messages privés')).not.toHaveAttribute('aria-current');
   });

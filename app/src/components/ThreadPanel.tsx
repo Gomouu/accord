@@ -78,13 +78,16 @@ export function ThreadPanel({
   return (
     <aside
       aria-label={interpolate(t.threads.panelLabel, { name: thread.name })}
-      className="flex w-96 max-w-[85vw] shrink-0 flex-col border-l border-[color:var(--glass-border)] bg-chat/95"
+      className="thread-panel flex shrink-0 flex-col border-l border-[color:var(--glass-border)] bg-chat/95"
     >
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-[color:var(--glass-border)] px-3 shadow-1">
         <span aria-hidden className="shrink-0 text-base leading-none">
           💬
         </span>
-        <span className="min-w-0 flex-1 truncate font-semibold text-header" title={thread.name}>
+        <span
+          className="min-w-0 flex-1 truncate font-semibold text-header"
+          title={thread.name}
+        >
           {thread.name}
         </span>
         {thread.archived && (
@@ -108,7 +111,7 @@ export function ThreadPanel({
           aria-label={t.app.close}
           title={t.app.close}
           onClick={onClose}
-          className="flex shrink-0 items-center justify-center rounded-full p-1 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat active:scale-95"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-faint transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat active:scale-95"
         >
           <CloseIcon size={16} />
         </button>

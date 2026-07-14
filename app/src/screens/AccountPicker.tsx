@@ -159,7 +159,7 @@ export function AccountPicker() {
       <p className="mb-5 text-center text-sm text-muted">{t.onboarding.welcomeHint}</p>
       {error !== null && <p className="mb-4 text-center text-sm text-red">{error}</p>}
       {accounts.length > 0 && (
-        <ul className="mb-5 flex flex-col gap-2">
+        <ul className="mb-5 flex max-h-64 flex-col gap-2 overflow-y-auto overscroll-contain pr-1">
           {accounts.map((account) => (
             <AccountRow
               key={account.id}

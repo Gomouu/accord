@@ -382,9 +382,12 @@ export function MessageInput({
       setErreur(null);
     }
     if (bilan.acceptes.length === 0) return;
-    const nouvelles = bilan.acceptes.map(
-      (file): PieceEnvoi => ({ id: prochainId++, kind: 'file', file, url: null }),
-    );
+    const nouvelles = bilan.acceptes.map((file): PieceEnvoi => ({
+      id: prochainId++,
+      kind: 'file',
+      file,
+      url: null,
+    }));
     setPieces((p) => [...p, ...nouvelles]);
     // Aperçus image en data: URL, chargés hors du rendu (blob: non rendue
     // par la WKWebView packagée). Une pièce retirée entre-temps est ignorée.
@@ -439,7 +442,12 @@ export function MessageInput({
         setErreur(t.errors.sendFailed);
         continue;
       }
-      const piece: PieceEnvoi = { id: prochainId++, kind: 'ready', attachment, url: null };
+      const piece: PieceEnvoi = {
+        id: prochainId++,
+        kind: 'ready',
+        attachment,
+        url: null,
+      };
       setPieces((p) => [...p, piece]);
       if (!estImage(attachment.mime)) continue;
       void lireFichier(attachment.merkle_root)
@@ -481,7 +489,10 @@ export function MessageInput({
       }
       // Commandes slash (`/shrug`, `/me`…) : transforme le texte final juste
       // avant l'envoi, sans toucher à l'état affiché ni à la saisie en cours.
-      await onSend(applySlashCommand(trimmed), attachments.length > 0 ? attachments : undefined);
+      await onSend(
+        applySlashCommand(trimmed),
+        attachments.length > 0 ? attachments : undefined,
+      );
       setPieces([]);
       setText('');
       setErreur(null);
@@ -684,10 +695,13 @@ export function MessageInput({
     );
   }
 
+  const canSend =
+    (text.trim() !== '' || pieces.length > 0) && !sending && !slowmodeActive;
+
   return (
     <div className="px-4 pb-3">
       {pieces.length > 0 && (
-        <div className="flex flex-wrap gap-2 rounded-t-xl border border-b-0 border-rail/60 bg-sidebar px-3 py-2.5">
+        <div className="flex max-h-40 flex-wrap gap-2 overflow-y-auto overscroll-contain rounded-t-xl border border-b-0 border-rail/60 bg-sidebar px-3 py-2.5">
           {pieces.map((piece) => {
             const nom = piece.kind === 'ready' ? piece.attachment.name : piece.file.name;
             const taille =
@@ -695,7 +709,7 @@ export function MessageInput({
             return (
               <div
                 key={piece.id}
-                className="relative flex items-center gap-2 rounded-lg bg-rail px-2 py-1.5"
+                className="relative flex min-w-0 max-w-full items-center gap-2 rounded-lg bg-rail px-2 py-1.5"
               >
                 {piece.url !== null ? (
                   <img
@@ -703,7 +717,7 @@ export function MessageInput({
                     alt={nom}
                     width={40}
                     height={40}
-                    className="h-10 w-10 rounded-md object-cover"
+                    className="h-10 w-10 shrink-0 rounded-md object-cover"
                   />
                 ) : (
                   <svg
@@ -722,7 +736,7 @@ export function MessageInput({
                     <path d="M14 2v4a2 2 0 0 0 2 2h4" />
                   </svg>
                 )}
-                <div className="min-w-0 max-w-40">
+                <div className="min-w-0 max-w-40 flex-1">
                   <div className="truncate text-xs font-medium text-header">{nom}</div>
                   <div className="text-[10px] text-faint">
                     {tailleLisible(taille, lang)}
@@ -734,7 +748,7 @@ export function MessageInput({
                   title={interpolate(t.fichiers.retirerPiece, { name: nom })}
                   disabled={sending}
                   onClick={() => retirer(piece.id)}
-                  className="rounded-full p-0.5 text-faint transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
+                  className="shrink-0 rounded-full p-0.5 text-faint transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
                 >
                   <CloseIcon size={14} />
                 </button>
@@ -802,7 +816,7 @@ export function MessageInput({
               aria-label={t.vocal.annuler}
               title={t.vocal.annuler}
               onClick={annulerEnregistrement}
-              className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast hover:scale-105 hover:bg-red/10 hover:text-red active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+              className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-[color,background-color,transform] duration-fast hover:scale-105 hover:bg-red/10 hover:text-red active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
             >
               <svg
                 width="18"
@@ -864,7 +878,7 @@ export function MessageInput({
               aria-label={t.vocal.envoyer}
               title={t.vocal.envoyer}
               onClick={arreterEtEnvoyer}
-              className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blurple text-white shadow-1 transition-all duration-fast hover:scale-105 hover:bg-blurple-hover active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-input"
+              className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blurple text-white shadow-1 transition-[color,background-color,transform,box-shadow] duration-fast hover:scale-105 hover:bg-blurple-hover active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-input"
             >
               <svg
                 width="18"
@@ -883,133 +897,141 @@ export function MessageInput({
           </div>
         ) : (
           <>
-        {/* À gauche : unique bouton « + ». En salon il déplie le menu de
+            {/* À gauche : unique bouton « + ». En salon il déplie le menu de
             création (joindre / sonder) ; en MP il ouvre le sélecteur direct. */}
-        <button
-          ref={plusRef}
-          type="button"
-          aria-label={t.fichiers.joindre}
-          title={t.fichiers.joindre}
-          {...(hasCreateMenu ? { 'aria-haspopup': 'menu' as const } : {})}
-          disabled={sending}
-          onClick={ouvrirMenuAjout}
-          className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95 disabled:opacity-40"
-        >
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <path d="M12 5v14" />
-            <path d="M5 12h14" />
-          </svg>
-        </button>
-        <textarea
-          ref={textareaRef}
-          aria-label={placeholder}
-          placeholder={placeholder}
-          value={text}
-          rows={1}
-          onChange={(e) => {
-            const value = e.target.value;
-            setText(value);
-            notifyTyping(value);
-            // Real edits recompute the mention and reset the highlight.
-            setMention(findActiveMention(value, e.target.selectionStart ?? value.length));
-            setMentionIndex(0);
-          }}
-          onClick={(e) => syncCaret(e.currentTarget)}
-          onKeyUp={(e) => {
-            if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
-              syncCaret(e.currentTarget);
-            }
-          }}
-          onPaste={(e) => {
-            const fichiers = Array.from(e.clipboardData.files);
-            if (fichiers.length === 0) return;
-            e.preventDefault();
-            ajouter(fichiers);
-          }}
-          onKeyDown={(e) => {
-            // The autocomplete captures navigation keys before send/newline.
-            if (mentionOpen) {
-              if (e.key === 'ArrowDown') {
-                e.preventDefault();
-                setMentionIndex((i) => (i + 1) % suggestions.length);
-                return;
-              }
-              if (e.key === 'ArrowUp') {
-                e.preventDefault();
-                setMentionIndex((i) => (i - 1 + suggestions.length) % suggestions.length);
-                return;
-              }
-              if (e.key === 'Enter' || e.key === 'Tab') {
-                e.preventDefault();
-                chooseMention(suggestions[activeIndex]);
-                return;
-              }
-              if (e.key === 'Escape') {
-                e.preventDefault();
-                setMention(null);
-                return;
-              }
-            }
-            // Composeur vide + Haut : édite le dernier de ses propres
-            // messages texte (comportement Discord). N'agit jamais si
-            // l'autocomplétion de mentions est ouverte (gérée ci-dessus) ni
-            // si le composeur contient déjà du texte — sinon la navigation
-            // native du curseur resterait sans effet de toute façon (champ
-            // vide), donc rien n'est perdu à intercepter la touche ici.
-            if (e.key === 'ArrowUp' && !mentionOpen && text === '') {
-              const ownMessages = typingTarget?.kind === 'dm' ? dmMessages : groupMessages;
-              const msgId = lastOwnEditableMessageId(ownMessages, self?.pubkey ?? null);
-              if (msgId !== null) {
-                e.preventDefault();
-                useMessageEdit.getState().requestEdit(msgId);
-              }
-              return;
-            }
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void submit();
-            }
-          }}
-          className="max-h-48 min-h-[36px] flex-1 resize-none self-center bg-transparent px-1 py-2 text-[15px] leading-5 text-norm placeholder-faint outline-none"
-        />
-        {slowmodeActive && (
-          <span
-            role="status"
-            title={interpolate(t.groups.slowmodeWait, {
-              seconds: String(slowmodeRemaining),
-            })}
-            aria-label={interpolate(t.groups.slowmodeWait, {
-              seconds: String(slowmodeRemaining),
-            })}
-            className="mx-1 flex shrink-0 select-none items-center gap-1 self-center text-[13px] tabular-nums text-muted"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
+            <button
+              ref={plusRef}
+              type="button"
+              aria-label={t.fichiers.joindre}
+              title={t.fichiers.joindre}
+              {...(hasCreateMenu ? { 'aria-haspopup': 'menu' as const } : {})}
+              disabled={sending}
+              onClick={ouvrirMenuAjout}
+              className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-[color,background-color,transform,opacity] duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-input disabled:opacity-40"
             >
-              <circle cx="12" cy="12" r="10" />
-              <polyline points="12 6 12 12 16 14" />
-            </svg>
-            <span aria-hidden>{slowmodeRemaining}s</span>
-          </span>
-        )}
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M12 5v14" />
+                <path d="M5 12h14" />
+              </svg>
+            </button>
+            <textarea
+              ref={textareaRef}
+              aria-label={placeholder}
+              placeholder={placeholder}
+              value={text}
+              rows={1}
+              onChange={(e) => {
+                const value = e.target.value;
+                setText(value);
+                notifyTyping(value);
+                // Real edits recompute the mention and reset the highlight.
+                setMention(
+                  findActiveMention(value, e.target.selectionStart ?? value.length),
+                );
+                setMentionIndex(0);
+              }}
+              onClick={(e) => syncCaret(e.currentTarget)}
+              onKeyUp={(e) => {
+                if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+                  syncCaret(e.currentTarget);
+                }
+              }}
+              onPaste={(e) => {
+                const fichiers = Array.from(e.clipboardData.files);
+                if (fichiers.length === 0) return;
+                e.preventDefault();
+                ajouter(fichiers);
+              }}
+              onKeyDown={(e) => {
+                // The autocomplete captures navigation keys before send/newline.
+                if (mentionOpen) {
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setMentionIndex((i) => (i + 1) % suggestions.length);
+                    return;
+                  }
+                  if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setMentionIndex(
+                      (i) => (i - 1 + suggestions.length) % suggestions.length,
+                    );
+                    return;
+                  }
+                  if (e.key === 'Enter' || e.key === 'Tab') {
+                    e.preventDefault();
+                    chooseMention(suggestions[activeIndex]);
+                    return;
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setMention(null);
+                    return;
+                  }
+                }
+                // Composeur vide + Haut : édite le dernier de ses propres
+                // messages texte (comportement Discord). N'agit jamais si
+                // l'autocomplétion de mentions est ouverte (gérée ci-dessus) ni
+                // si le composeur contient déjà du texte — sinon la navigation
+                // native du curseur resterait sans effet de toute façon (champ
+                // vide), donc rien n'est perdu à intercepter la touche ici.
+                if (e.key === 'ArrowUp' && !mentionOpen && text === '') {
+                  const ownMessages =
+                    typingTarget?.kind === 'dm' ? dmMessages : groupMessages;
+                  const msgId = lastOwnEditableMessageId(
+                    ownMessages,
+                    self?.pubkey ?? null,
+                  );
+                  if (msgId !== null) {
+                    e.preventDefault();
+                    useMessageEdit.getState().requestEdit(msgId);
+                  }
+                  return;
+                }
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  void submit();
+                }
+              }}
+              className="max-h-48 min-h-[36px] min-w-0 flex-1 resize-none self-center bg-transparent px-1 py-2 text-[15px] leading-5 text-norm placeholder-faint outline-none"
+            />
+            {slowmodeActive && (
+              <span
+                role="status"
+                title={interpolate(t.groups.slowmodeWait, {
+                  seconds: String(slowmodeRemaining),
+                })}
+                aria-label={interpolate(t.groups.slowmodeWait, {
+                  seconds: String(slowmodeRemaining),
+                })}
+                className="mx-1 flex shrink-0 select-none items-center gap-1 self-center text-[13px] tabular-nums text-muted"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+                <span aria-hidden>{slowmodeRemaining}s</span>
+              </span>
+            )}
             {/* Grappe de droite (façon Discord) : message vocal, émojis /
                 stickers, puis envoi. */}
             <button
@@ -1018,7 +1040,7 @@ export function MessageInput({
               title={t.vocal.enregistrer}
               disabled={sending}
               onClick={demarrerEnregistrement}
-              className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95 disabled:opacity-40"
+              className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-[color,background-color,transform,opacity] duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-input disabled:opacity-40"
             >
               <svg
                 width="18"
@@ -1045,7 +1067,7 @@ export function MessageInput({
                 aria-expanded={emojiOpen}
                 disabled={sending}
                 onClick={() => setEmojiOpen((open) => !open)}
-                className={`m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all duration-fast disabled:opacity-40 ${
+                className={`m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-[color,background-color,transform,opacity] duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-input disabled:opacity-40 ${
                   emojiOpen
                     ? 'bg-blurple/15 text-blurple'
                     : 'text-muted enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-norm enabled:active:scale-95'
@@ -1091,11 +1113,14 @@ export function MessageInput({
               type="button"
               aria-label={t.app.send}
               title={t.app.send}
-              disabled={
-                (text.trim() === '' && pieces.length === 0) || sending || slowmodeActive
-              }
+              aria-busy={sending}
+              disabled={!canSend}
               onClick={() => void submit()}
-              className="m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast enabled:hover:scale-105 enabled:hover:bg-chat-hover enabled:hover:text-blurple enabled:active:scale-95 disabled:opacity-40"
+              className={`m-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-[color,background-color,transform,box-shadow,opacity] duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-input ${
+                canSend
+                  ? 'bg-blurple text-white shadow-1 hover:scale-105 hover:bg-blurple-hover active:scale-95'
+                  : 'text-faint opacity-40'
+              }`}
             >
               <svg
                 width="18"

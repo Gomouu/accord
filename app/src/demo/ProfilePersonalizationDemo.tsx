@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Avatar } from '../components/Avatar';
 import { AVATAR_DECORATIONS, PROFILE_EFFECTS, effectById } from '../lib/decorations';
 import '../styles/global.css';
+import '../styles/theme-scenes.css';
 import '../styles/profile-personalization.css';
 import '../styles/profile-surfaces.css';
 

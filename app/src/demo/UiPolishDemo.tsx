@@ -17,6 +17,7 @@ import { useSession } from '../stores/session';
 import { useUi, type Theme, type View } from '../stores/ui';
 import { useVoice } from '../stores/voice';
 import '../styles/global.css';
+import '../styles/theme-scenes.css';
 import '../styles/profile-personalization.css';
 import '../styles/profile-surfaces.css';
 
@@ -412,6 +413,16 @@ function DemoToolbar() {
   const themes: Array<{ label: string; theme: Theme }> = [
     { label: 'Sombre', theme: 'dark' },
     { label: 'Clair', theme: 'light' },
+    { label: 'Minuit', theme: 'midnight' },
+    { label: 'Tempête', theme: 'storm' },
+    { label: 'Forêt', theme: 'forest' },
+    { label: 'Crépuscule', theme: 'sunset' },
+    { label: 'Océan', theme: 'ocean' },
+    { label: 'Cramoisi', theme: 'crimson' },
+    { label: 'Boréal', theme: 'boreal' },
+    { label: 'Papier solaire', theme: 'paper' },
+    { label: 'Topographie', theme: 'topography' },
+    { label: 'Signal fantôme', theme: 'signal' },
   ];
 
   return (
@@ -450,26 +461,21 @@ function DemoToolbar() {
       >
         Réglages
       </button>
-      <div
-        className="ml-auto flex items-center gap-1"
-        aria-label="Thème de démonstration"
-      >
-        {themes.map((item) => (
-          <button
-            key={item.theme}
-            type="button"
-            aria-pressed={theme === item.theme}
-            onClick={() => setTheme(item.theme)}
-            className={`min-h-8 rounded-full px-3 text-xs font-medium transition-colors duration-fast ${
-              theme === item.theme
-                ? 'bg-sidebar text-header shadow-1'
-                : 'text-muted hover:text-header'
-            }`}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
+      <label className="ml-auto flex items-center gap-2 text-xs font-medium text-muted">
+        Thème
+        <select
+          aria-label="Thème de démonstration"
+          value={theme}
+          onChange={(event) => setTheme(event.target.value as Theme)}
+          className="min-h-8 max-w-44 rounded-md border border-input bg-sidebar px-2 text-xs font-medium text-header outline-none transition-colors duration-fast focus:border-blurple/50 focus:ring-1 focus:ring-blurple/30"
+        >
+          {themes.map((item) => (
+            <option key={item.theme} value={item.theme}>
+              {item.label}
+            </option>
+          ))}
+        </select>
+      </label>
     </div>
   );
 }

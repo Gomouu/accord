@@ -1041,7 +1041,7 @@ function GroupSidebar({ groupId }: { groupId: string }) {
               aria-label={interpolate(t.groups.eventsBadge, {
                 count: String(upcomingCount),
               })}
-              className="badge-pop ml-auto min-w-4 shrink-0 rounded-full bg-red px-1.5 text-center text-[11px] font-semibold leading-4 text-white"
+              className="badge-pop ml-auto min-w-4 shrink-0 rounded-full bg-red px-1.5 text-center text-[11px] font-semibold leading-4 text-on-red"
             >
               {upcomingCount}
             </span>
@@ -1132,7 +1132,7 @@ export function Sidebar() {
   return (
     <aside
       aria-label={t.layout.sidebarLabel}
-      className="flex h-full shrink-0 flex-col bg-sidebar"
+      className="theme-surface-sidebar flex h-full shrink-0 flex-col bg-sidebar"
       style={{ width: sidebarWidth }}
     >
       {view.kind === 'group' ? (

@@ -247,10 +247,10 @@ export function VoiceTab() {
             type="button"
             aria-pressed={testing}
             onClick={testing ? stopTest : startTest}
-            className={`shrink-0 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
+            className={`shrink-0 rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
               testing
-                ? 'bg-red hover:brightness-110 focus-visible:ring-red'
-                : 'bg-blurple hover:bg-blurple-hover focus-visible:ring-blurple'
+                ? 'bg-red text-on-red hover:brightness-110 focus-visible:ring-red'
+                : 'bg-blurple text-white hover:bg-blurple-hover focus-visible:ring-blurple'
             }`}
           >
             {testing ? t.settings.micTestStop : t.settings.micTestStart}

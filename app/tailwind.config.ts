@@ -37,6 +37,8 @@ export default {
         red: themed('--color-red'),
         yellow: themed('--color-yellow'),
         link: themed('--color-link'),
+        'on-green': themed('--color-on-green'),
+        'on-red': themed('--color-on-red'),
       },
       fontFamily: {
         // Native system stack (no bundled/CDN font — CSP forbids external

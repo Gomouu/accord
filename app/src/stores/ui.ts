@@ -90,6 +90,10 @@ export const THEME_IDS = [
   'sunset',
   'ocean',
   'crimson',
+  'boreal',
+  'paper',
+  'topography',
+  'signal',
 ] as const;
 export type Theme = (typeof THEME_IDS)[number];
 export type Density = 'comfortable' | 'compact';

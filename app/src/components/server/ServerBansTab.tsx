@@ -51,7 +51,7 @@ export function ServerBansTab({ groupId }: { groupId: string }) {
                     toast('error', messageOf(e, t.errors.actionFailed)),
                   );
                 }}
-                className="shrink-0 rounded-lg border border-green px-3 py-1 text-sm font-medium text-green transition-colors hover:bg-green hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+                className="shrink-0 rounded-lg border border-green px-3 py-1 text-sm font-medium text-green transition-colors hover:bg-green hover:text-on-green focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
               >
                 {t.serveur.unban}
               </button>

@@ -10,7 +10,7 @@ import type { Contact, SelfProfile } from '../../lib/api';
 import { APP_VERSION } from '../../lib/meta';
 import { useFriends } from '../../stores/friends';
 import { useSession } from '../../stores/session';
-import { useUi } from '../../stores/ui';
+import { THEME_IDS, useUi } from '../../stores/ui';
 import { SettingsModal } from './SettingsModal';
 
 const self: SelfProfile = {
@@ -156,11 +156,37 @@ describe('SettingsModal — apparence', () => {
 
     const group = screen.getByRole('radiogroup', { name: 'Thème' });
     expect(group).toBeInTheDocument();
-    expect(screen.getAllByRole('radio')).toHaveLength(8);
+    expect(screen.getAllByRole('radio')).toHaveLength(THEME_IDS.length);
     expect(screen.getByRole('radio', { name: 'Sombre' })).toHaveAttribute(
       'aria-checked',
       'true',
     );
+  });
+
+  it('applique un thème immersif et expose sa scène dans la vignette', () => {
+    render(<SettingsModal />);
+    openTab('Apparence');
+
+    const signal = screen.getByRole('radio', { name: 'Signal fantôme' });
+    expect(signal.querySelector('[data-theme="signal"]')).toBeInTheDocument();
+    fireEvent.click(signal);
+
+    expect(document.documentElement.dataset.theme).toBe('signal');
+    expect(window.localStorage.getItem('accord.theme')).toBe('signal');
+    expect(signal).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('parcourt les thèmes dans l’ordre avec les flèches', () => {
+    render(<SettingsModal />);
+    openTab('Apparence');
+
+    fireEvent.keyDown(screen.getByRole('radiogroup', { name: 'Thème' }), {
+      key: 'ArrowDown',
+    });
+
+    const light = screen.getByRole('radio', { name: 'Clair' });
+    expect(light).toHaveAttribute('aria-checked', 'true');
+    expect(light).toHaveFocus();
   });
 
   it('bascule la densité compacte, l’applique à la racine et la persiste', () => {

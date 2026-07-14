@@ -217,7 +217,7 @@
     rgb(var(--color-modal) / 0.42);
 }
 
-[data-theme='light'] .profile-effect--aurora {
+:is([data-theme='light'], [data-theme='paper']) .profile-effect--aurora {
   background:
     linear-gradient(145deg, rgba(224, 247, 255, 0.78), rgba(241, 228, 255, 0.62)),
     rgb(var(--color-modal) / 0.55);
@@ -269,7 +269,7 @@
     linear-gradient(160deg, rgba(8, 18, 38, 0.94), rgba(31, 24, 58, 0.78));
 }
 
-[data-theme='light'] .profile-effect--starfield {
+:is([data-theme='light'], [data-theme='paper']) .profile-effect--starfield {
   background:
     radial-gradient(circle at 72% 8%, rgba(114, 92, 235, 0.24), transparent 32%),
     linear-gradient(160deg, rgba(223, 233, 255, 0.92), rgba(238, 228, 255, 0.84));
@@ -286,7 +286,7 @@
   vector-effect: non-scaling-stroke;
 }
 
-[data-theme='light'] .profile-effect__constellation {
+:is([data-theme='light'], [data-theme='paper']) .profile-effect__constellation {
   stroke: rgba(66, 68, 142, 0.25);
 }
 
@@ -300,7 +300,7 @@
   animation: profile-star-twinkle 3s ease-in-out infinite;
 }
 
-[data-theme='light'] .profile-effect__star {
+:is([data-theme='light'], [data-theme='paper']) .profile-effect__star {
   background: #6557b8;
   box-shadow: 0 0 4px rgba(101, 87, 184, 0.38);
 }
@@ -371,7 +371,7 @@
     linear-gradient(155deg, rgba(74, 31, 57, 0.82), rgba(38, 30, 61, 0.6));
 }
 
-[data-theme='light'] .profile-effect--petals {
+:is([data-theme='light'], [data-theme='paper']) .profile-effect--petals {
   background:
     radial-gradient(circle at 12% 0, rgba(255, 166, 207, 0.42), transparent 38%),
     linear-gradient(155deg, rgba(255, 234, 244, 0.9), rgba(239, 232, 255, 0.76));
@@ -455,7 +455,7 @@
     linear-gradient(145deg, rgba(48, 28, 36, 0.84), rgba(19, 29, 48, 0.7));
 }
 
-[data-theme='light'] .profile-effect--embers {
+:is([data-theme='light'], [data-theme='paper']) .profile-effect--embers {
   background:
     radial-gradient(circle at 82% 14%, rgba(238, 153, 54, 0.24), transparent 34%),
     linear-gradient(145deg, rgba(255, 240, 223, 0.9), rgba(229, 238, 252, 0.8));

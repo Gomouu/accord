@@ -424,7 +424,7 @@ export function UserMenu({ onClose }: { onClose: () => void }) {
                       tabIndex={confirmIndex === activeIndex ? 0 : -1}
                       onMouseEnter={() => setActiveIndex(confirmIndex)}
                       onClick={confirmLogout}
-                      className="flex-1 rounded-sm bg-red px-2 py-1.5 text-xs font-medium text-white transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+                      className="flex-1 rounded-sm bg-red px-2 py-1.5 text-xs font-medium text-on-red transition-opacity duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
                     >
                       {t.settings.logoutConfirm}
                     </button>

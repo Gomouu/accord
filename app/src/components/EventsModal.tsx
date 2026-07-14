@@ -316,7 +316,7 @@ export function EventsModal({ groupId }: { groupId: string }) {
                             onClick={() => onToggleRsvp(event)}
                             className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
                               event.rsvped
-                                ? 'bg-green text-white hover:brightness-110'
+                                ? 'bg-green text-on-green hover:brightness-110'
                                 : 'border border-input text-muted hover:text-norm'
                             }`}
                           >

@@ -16,7 +16,7 @@ export function UnreadBadge({ count }: { count: number }) {
   return (
     <span
       aria-label={interpolate(t.dm.unreadBadge, { count: String(count) })}
-      className="badge-pop min-w-4 shrink-0 rounded-full bg-red px-1.5 text-center text-[11px] font-semibold leading-4 text-white"
+      className="badge-pop min-w-4 shrink-0 rounded-full bg-red px-1.5 text-center text-[11px] font-semibold leading-4 text-on-red"
     >
       {count}
     </span>
@@ -30,7 +30,7 @@ export function MentionBadge({ count }: { count: number }) {
   return (
     <span
       aria-label={interpolate(t.mentions.badge, { count: String(count) })}
-      className="badge-pop flex shrink-0 items-center gap-0.5 rounded-full bg-red px-1.5 text-center text-[11px] font-semibold leading-4 text-white"
+      className="badge-pop flex shrink-0 items-center gap-0.5 rounded-full bg-red px-1.5 text-center text-[11px] font-semibold leading-4 text-on-red"
     >
       <span aria-hidden className="font-semibold leading-none">
         @

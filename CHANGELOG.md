@@ -2,6 +2,22 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [1.2.2] — 2026-07-14
+
+### Fixed
+
+- **Avatar decorations and profile effects now actually render** (they were
+  invisible: SVGs had no explicit size, animations barely moved, and the effect
+  sat behind an opaque card). They now show on every avatar surface — profile
+  card, user panel, messages, DMs, member lists, calls, invitations, quick
+  switcher and server views.
+
+### Changed
+
+- Redesigned personalization: a premium built-in catalogue (6 avatar
+  decorations, 4 profile effects, static & secure CSS/SVG) and reworked profile
+  cards + personalization picker, tuned for both light and dark themes.
+
 ## [1.2.1] — 2026-07-14
 
 ### Added

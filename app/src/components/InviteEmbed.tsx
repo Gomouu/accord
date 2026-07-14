@@ -26,7 +26,15 @@ interface InviteInfo {
 }
 
 /** Icône du serveur (blob P2P via l'inviteur) ou repli sur les initiales. */
-function InviteIcon({ hash, hint, name }: { hash: string | null; hint: string; name: string }) {
+function InviteIcon({
+  hash,
+  hint,
+  name,
+}: {
+  hash: string | null;
+  hint: string;
+  name: string;
+}) {
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -128,7 +136,7 @@ export function InviteEmbed({ link }: { link: string }) {
           type="button"
           disabled={busy}
           onClick={() => (isMember ? ouvrir() : void rejoindre())}
-          className="mt-1 shrink-0 rounded-md bg-green px-4 py-1.5 text-sm font-medium text-white shadow-sm transition-all duration-fast hover:-translate-y-px hover:brightness-110 hover:shadow-md active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-60"
+          className="mt-1 shrink-0 rounded-md bg-green px-4 py-2 text-sm font-medium text-white shadow-sm transition-[transform,filter,box-shadow,opacity] duration-fast hover:-translate-y-px hover:brightness-110 hover:shadow-md active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-60"
         >
           {isMember ? t.inviteEmbed.open : t.inviteEmbed.join}
         </button>

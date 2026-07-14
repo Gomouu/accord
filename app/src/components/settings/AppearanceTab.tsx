@@ -187,7 +187,7 @@ export function AppearanceTab() {
       </SettingsSection>
 
       <SettingsSection title={t.settings.density} hint={t.settings.densityHint}>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <OptionPill
             selected={density === 'comfortable'}
             onSelect={() => setDensity('comfortable')}

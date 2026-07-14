@@ -52,7 +52,7 @@ export function Toasts() {
 
   return (
     <div
-      className="pointer-events-none fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 flex-col gap-2"
+      className="pointer-events-none fixed bottom-6 left-1/2 z-50 flex w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 flex-col gap-2"
       role="status"
       aria-live="polite"
     >
@@ -61,7 +61,7 @@ export function Toasts() {
           key={toast.id}
           type="button"
           onClick={() => dismiss(toast.id)}
-          className={`glass-strong pointer-events-auto flex items-center gap-2.5 rounded-lg px-4 py-2.5 text-sm font-medium text-norm shadow-2 transition-transform duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95 ${
+          className={`glass-strong pointer-events-auto flex min-h-11 w-full items-center gap-2.5 rounded-lg px-4 py-2.5 text-left text-sm font-medium text-norm shadow-2 transition-transform duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-[0.98] ${
             toast.leaving === true ? 'toast-leaving' : 'toast-enter'
           }`}
         >
@@ -73,7 +73,7 @@ export function Toasts() {
           >
             {toast.kind === 'error' ? <ErrorToastIcon /> : <InfoToastIcon />}
           </span>
-          {toast.text}
+          <span className="min-w-0 flex-1 break-words text-pretty">{toast.text}</span>
         </button>
       ))}
     </div>

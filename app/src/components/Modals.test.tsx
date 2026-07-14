@@ -220,6 +220,9 @@ describe('CreateGroupModal (Modals.tsx) — créer ou rejoindre en deux onglets'
   it('affiche l’onglet Créer par défaut, avec le formulaire de nom', () => {
     render(<Modals />);
 
+    const dialog = screen.getByRole('dialog', { name: 'Créer votre groupe' });
+    expect(dialog).toHaveClass('flex', 'max-h-[calc(100vh-2rem)]', 'overflow-hidden');
+    expect(dialog.querySelector('.overflow-y-auto')).not.toBeNull();
     expect(screen.getByRole('tab', { name: 'Créer un serveur' })).toHaveAttribute(
       'aria-selected',
       'true',
@@ -250,9 +253,7 @@ describe('CreateGroupModal (Modals.tsx) — créer ou rejoindre en deux onglets'
     fireEvent.click(screen.getByRole('button', { name: 'Rejoindre' }));
 
     await vi.waitFor(() =>
-      expect(api.groupsInviteLinkRedeem).toHaveBeenCalledWith(
-        'accord://invite/CODE123',
-      ),
+      expect(api.groupsInviteLinkRedeem).toHaveBeenCalledWith('accord://invite/CODE123'),
     );
     await vi.waitFor(() => expect(useUi.getState().modal).toBeNull());
   });

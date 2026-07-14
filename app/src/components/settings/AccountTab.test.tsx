@@ -328,6 +328,18 @@ describe('AccountTab — couleurs de profil', () => {
     const group = screen.getByRole('group', { name: 'Couleur de bannière' });
     expect(within(group).getByRole('button', { name: 'Aucune couleur' })).toBeDisabled();
   });
+
+  it('garde la pastille blanche visible et suffisamment grande en thème clair', () => {
+    render(<AccountTab />);
+
+    const group = screen.getByRole('group', { name: 'Couleur d’accent' });
+    expect(within(group).getByRole('button', { name: 'Couleur #ffffff' })).toHaveClass(
+      'h-9',
+      'w-9',
+      'border',
+      'border-input',
+    );
+  });
 });
 
 describe('AccountTab — personnalisation', () => {

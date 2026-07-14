@@ -423,7 +423,10 @@ describe('Sidebar — menu du nom de serveur', () => {
 
     render(<Sidebar />);
     fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
-    expect(screen.getByRole('menu', { name: 'Menu du serveur' })).toBeInTheDocument();
+    expect(screen.getByRole('menu', { name: 'Menu du serveur' })).toHaveClass(
+      'overflow-y-auto',
+      'overscroll-contain',
+    );
 
     fireEvent.keyDown(window, { key: 'Escape' });
 
@@ -527,7 +530,9 @@ describe('Sidebar — sourdine des notifications (salon)', () => {
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Rien' }));
 
     expect(useMute.getState().channelLevels).toEqual({ 'g1/c1': 'none' });
-    const rows = screen.getAllByLabelText('Salon en sourdine : notifications désactivées');
+    const rows = screen.getAllByLabelText(
+      'Salon en sourdine : notifications désactivées',
+    );
     expect(rows).toHaveLength(1);
   });
 });
@@ -538,6 +543,23 @@ describe('Sidebar — bannière du serveur', () => {
   beforeEach(() => {
     useUi.setState({ view: { kind: 'group', groupId: 'g1', channelId: 'c1' } });
     lireFichierMock.mockReset();
+  });
+
+  it("réserve immédiatement la hauteur du bandeau pendant le chargement de l'image", () => {
+    lireFichierMock.mockReturnValue(new Promise(() => {}));
+    useGroups.setState({
+      ids: ['g1'],
+      states: { g1: groupState({ banner: BANNER_HASH }) },
+    });
+
+    render(<Sidebar />);
+
+    expect(screen.getByTestId('server-header')).toHaveClass('h-32', 'bg-tooltip');
+    expect(screen.getByTestId('server-header')).toHaveStyle({
+      backgroundImage:
+        'linear-gradient(135deg, rgb(var(--color-blurple) / 0.72), rgb(var(--color-tooltip)))',
+    });
+    expect(screen.queryByTestId('server-banner')).not.toBeInTheDocument();
   });
 
   it('affiche le bandeau image avec scrim, nom par-dessus et menu intact', async () => {
@@ -554,6 +576,7 @@ describe('Sidebar — bannière du serveur', () => {
     // Assert — image chargée par sa racine Merkle, scrim de lisibilité posé.
     const img = await screen.findByTestId('server-banner');
     expect(img).toHaveAttribute('src', 'data:image/png;base64,YWJj');
+    expect(img).toHaveClass('animate-[fade-in_var(--duration-normal)_var(--ease-out)]');
     expect(lireFichierMock).toHaveBeenCalledWith(BANNER_HASH);
     expect(screen.getByTestId('server-banner-scrim')).toBeInTheDocument();
 
@@ -569,11 +592,12 @@ describe('Sidebar — bannière du serveur', () => {
 
     expect(screen.queryByTestId('server-banner')).not.toBeInTheDocument();
     expect(screen.queryByTestId('server-banner-scrim')).not.toBeInTheDocument();
+    expect(screen.getByTestId('server-header')).toHaveClass('h-12', 'bg-sidebar');
     expect(lireFichierMock).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: /Guilde/ })).toBeInTheDocument();
   });
 
-  it("retombe en silence sur l'en-tête simple si la lecture échoue", async () => {
+  it('conserve le bandeau de repli sans saut si la lecture échoue', async () => {
     lireFichierMock.mockRejectedValue(new Error('indisponible'));
     useGroups.setState({
       ids: ['g1'],
@@ -584,6 +608,7 @@ describe('Sidebar — bannière du serveur', () => {
 
     await waitFor(() => expect(lireFichierMock).toHaveBeenCalled());
     expect(screen.queryByTestId('server-banner')).not.toBeInTheDocument();
+    expect(screen.getByTestId('server-header')).toHaveClass('h-32', 'bg-tooltip');
     // Une seule tentative — les reprises vivent dans lib/files, pas ici.
     expect(lireFichierMock).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: /Guilde/ })).toBeInTheDocument();

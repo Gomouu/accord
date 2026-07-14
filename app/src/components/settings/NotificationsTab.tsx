@@ -119,7 +119,7 @@ export function NotificationsTab() {
       </SettingsSection>
 
       <SettingsSection title={t.settings.notifSoundModeTitle}>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {soundModes.map(({ id, label }) => (
             <OptionPill
               key={id}

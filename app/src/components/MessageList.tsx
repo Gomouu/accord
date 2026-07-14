@@ -1,10 +1,3 @@
-/**
- * Fil de messages : séparateurs de jour, regroupement par auteur (fenêtre de
- * 5 minutes), horodatages, mentions d'édition/suppression — disposition
- * calquée sur Discord. Le défilement vers le haut charge l'historique plus
- * ancien (pagination `before_lamport`) en préservant la position de lecture.
- */
-
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { interpolate } from '../i18n';
 import type { DeliveryState, GroupThread } from '../lib/api';
@@ -61,6 +54,9 @@ const GROUP_WINDOW_MS = 5 * 60 * 1000;
 /** Distance au haut du fil (px) sous laquelle on charge la page précédente. */
 const LOAD_OLDER_THRESHOLD_PX = 80;
 
+/** Distance au bas (px) sous laquelle les nouveaux messages restent suivis. */
+const FOLLOW_BOTTOM_THRESHOLD_PX = 80;
+
 /** Durée de la surbrillance d'un message atteint par un saut (ms). */
 const HIGHLIGHT_MS = 1600;
 
@@ -82,32 +78,17 @@ function sameDay(a: number, b: number): boolean {
 
 export interface MessageListProps {
   messages: DisplayMessage[];
-  /** Vrai si un historique plus ancien peut encore être chargé. */
   hasMore?: boolean;
-  /** Charge la page précédente (déclenché en approchant du haut du fil). */
   onLoadOlder?: () => void;
-  /** Actions de message ; absentes = fil en lecture seule. */
   actions?: MessageListActions;
-  /** Identifiants des messages épinglés du salon (état de l'épingle). */
   pinnedIds?: ReadonlySet<string>;
-  /** Couleur du nom d'un auteur (rôle le plus haut) ; `null` = thème. */
   colorOf?: (author: string) => string | null;
-  /** Émojis du serveur (nom → racine Merkle) pour corps et réactions. */
   emojiMap?: ReadonlyMap<string, string> | undefined;
-  /** Noms connus (minuscules) mis en « pill » dans les mentions. */
   knownMentions?: ReadonlySet<string> | undefined;
-  /** Mots filtrés par l'AutoMod du serveur, masqués au rendu (absent en MP). */
   automodWords?: readonly string[] | undefined;
-  /** Contexte serveur (rôles au clic, émojis custom des réactions). */
   groupId?: string | null | undefined;
-  /** Message à révéler (défilement + surbrillance) ; `nonce` rejoue le saut. */
   scrollTarget?: { msgId: string; nonce: number } | null;
-  /**
-   * Fils du salon courant : une pastille « fil » s'affiche sous chaque message
-   * racine (`root_msg`). Absent en MP et dans un fil (pas de fils imbriqués).
-   */
   threads?: readonly GroupThread[] | undefined;
-  /** Ouvre (ou crée puis ouvre) le fil ancré sur ce message (salons seulement). */
   onOpenThread?: ((message: DisplayMessage) => void) | undefined;
   /**
    * Position lue capturée à l'ouverture (lamport) : le séparateur « nouveaux
@@ -190,9 +171,7 @@ export function MessageList({
   const groupState = useGroups((s) => (groupId !== null ? s.states[groupId] : undefined));
   const votePoll = useGroups((s) => s.votePoll);
   const closePoll = useGroups((s) => s.closePoll);
-  /** Message en cours de transfert (null : aucun). */
   const [forwarding, setForwarding] = useState<DisplayMessage | null>(null);
-  /** Requête externe d'édition en place (voir l'effet plus bas). */
   const editRequest = useMessageEdit((s) => s.request);
   const clearEditRequest = useMessageEdit((s) => s.clearEditRequest);
 
@@ -220,8 +199,10 @@ export function MessageList({
     dmPeer === null ? undefined : s.conversations[dmPeer],
   );
   const containerRef = useRef<HTMLDivElement>(null);
+  const firstIdRef = useRef<string | null>(null);
   const lastIdRef = useRef<string | null>(null);
-  /** Position mémorisée avant l'insertion d'une page ancienne en tête. */
+  const scrollConversationRef = useRef<string | null>(null);
+  const followsBottomRef = useRef(true);
   const anchorRef = useRef<{ height: number; top: number } | null>(null);
   /** Message en cours d'édition en place (null : aucun). */
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -313,16 +294,31 @@ export function MessageList({
     const el = containerRef.current;
     if (!el) return;
     const anchor = anchorRef.current;
-    anchorRef.current = null;
-    if (lastId !== lastIdRef.current) {
-      // Nouveau message en fin de fil (ou premier rendu) : on colle en bas.
+    const conversationChanged = scrollConversationRef.current !== conversationKey;
+    const firstIdChanged = firstIdRef.current !== null && firstId !== firstIdRef.current;
+    if (conversationChanged) {
+      anchorRef.current = null;
       el.scrollTop = el.scrollHeight;
-    } else if (anchor !== null) {
-      // Page ancienne insérée en tête : le message lu reste sous les yeux.
+      followsBottomRef.current = true;
+    } else if (anchor !== null && firstIdChanged) {
       el.scrollTop = anchor.top + (el.scrollHeight - anchor.height);
+      anchorRef.current = null;
+    } else if (lastId !== lastIdRef.current) {
+      // Premier rendu, ou arrivée pendant que la lecture suivait déjà le bas :
+      // on colle en bas. Une personne remontée dans l'historique garde sa
+      // position, même lorsqu'un nouveau message est reçu.
+      if (lastIdRef.current === null || followsBottomRef.current) {
+        el.scrollTop = el.scrollHeight;
+        followsBottomRef.current = true;
+        anchorRef.current = null;
+      } else if (anchor !== null) {
+        anchorRef.current = { height: el.scrollHeight, top: el.scrollTop };
+      }
     }
+    scrollConversationRef.current = conversationKey;
+    firstIdRef.current = firstId;
     lastIdRef.current = lastId;
-  }, [firstId, lastId]);
+  }, [conversationKey, firstId, lastId]);
 
   // Message dont l'arrivée doit jouer l'entrée `.msg-append` : uniquement un
   // nouveau dernier message dans la même conversation (jamais le premier
@@ -341,7 +337,10 @@ export function MessageList({
 
   const handleScroll = (): void => {
     const el = containerRef.current;
-    if (!el || hasMore !== true || onLoadOlder === undefined) return;
+    if (!el) return;
+    followsBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_BOTTOM_THRESHOLD_PX;
+    if (hasMore !== true || onLoadOlder === undefined) return;
     if (el.scrollTop > LOAD_OLDER_THRESHOLD_PX) return;
     anchorRef.current = { height: el.scrollHeight, top: el.scrollTop };
     onLoadOlder();

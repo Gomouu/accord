@@ -1,6 +1,7 @@
 /** Vue conversation : MP (deux personnes) ou salon de groupe + membres. */
 
 import { useEffect, useRef, useState } from 'react';
+import '../styles/chat-polish.css';
 import { interpolate } from '../i18n';
 import type { Contact, GroupThread, PresenceStatus, SelfProfile } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
@@ -172,7 +173,7 @@ function HeaderIconButton({
       aria-expanded={ariaExpanded}
       disabled={disabled}
       onClick={onClick}
-      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent ${
+      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent ${
         active ? 'text-header' : 'text-muted hover:text-norm'
       }`}
     >
@@ -334,7 +335,7 @@ export function DmView({ peer }: { peer: string }) {
           type="button"
           aria-label={interpolate(t.profil.openProfile, { name })}
           onClick={(e) => ouvrirProfil(e.currentTarget)}
-          className="flex items-center gap-3 rounded-md px-1 py-0.5 transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-md px-1 py-0.5 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
         >
           <Avatar
             id={peer}
@@ -349,14 +350,16 @@ export function DmView({ peer }: { peer: string }) {
                 : undefined
             }
           />
-          <span className="font-semibold text-header">{name}</span>
+          <span className="min-w-0 truncate font-semibold text-header" title={name}>
+            {name}
+          </span>
           {inCallWithPeer && (
             <span className="rounded-full bg-green/15 px-2 py-0.5 text-xs font-medium text-green">
               {t.calls.inCall}
             </span>
           )}
         </button>
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           {isFriend && (
             <HeaderIconButton
               label={callOngoing ? t.calls.callAlreadyOngoing : t.calls.startCall}
@@ -1151,9 +1154,7 @@ export function GroupView({
   const purgeSelected = (): void => {
     const ids = [...selectedIds];
     if (ids.length === 0 || ids.length > PURGE_MAX) return;
-    purge(groupId, channelId, ids)
-      .then(exitSelection)
-      .catch(onActionError);
+    purge(groupId, channelId, ids).then(exitSelection).catch(onActionError);
   };
 
   // AutoMod du serveur : mots masqués au rendu du fil et avertissement
@@ -1275,8 +1276,12 @@ export function GroupView({
   }
 
   return (
-    <div className="flex h-full">
-      <div className="relative flex min-w-0 flex-1 flex-col">
+    <div
+      className={`group-chat-layout relative flex h-full min-w-0 overflow-hidden ${
+        openThread !== null ? 'thread-is-open' : ''
+      }`}
+    >
+      <div className="group-chat-main relative flex min-w-0 flex-1 flex-col">
         <header className="flex h-12 shrink-0 items-center gap-2 border-b border-[color:var(--glass-border)] bg-chat/90 px-4 shadow-1">
           <span
             aria-hidden
@@ -1284,7 +1289,12 @@ export function GroupView({
           >
             #
           </span>
-          <span className="shrink-0 font-semibold text-header">{channel.name}</span>
+          <span
+            className="min-w-0 truncate font-semibold text-header"
+            title={channel.name}
+          >
+            {channel.name}
+          </span>
           {channel.topic !== '' && (
             <>
               <span aria-hidden className="h-5 w-px shrink-0 bg-input" />
@@ -1293,7 +1303,7 @@ export function GroupView({
               </span>
             </>
           )}
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex shrink-0 items-center gap-1">
             <HeaderIconButton
               label={t.threads.threadsList}
               active={threadsListOpen}
@@ -1471,17 +1481,19 @@ export function GroupView({
           onClose={() => setOpenThreadId(null)}
         />
       )}
-      <ResizeHandle
-        value={membersWidth}
-        min={MEMBERS_WIDTH_MIN}
-        max={MEMBERS_WIDTH_MAX}
-        defaultValue={MEMBERS_WIDTH_DEFAULT}
-        onChange={setMembersWidth}
-        ariaLabel={t.layout.resizeMembers}
-        panelSide="right"
-        ringOffsetClassName="ring-offset-sidebar"
-      />
-      <MemberList groupId={groupId} />
+      <div className="group-chat-members flex min-w-0 shrink-0">
+        <ResizeHandle
+          value={membersWidth}
+          min={MEMBERS_WIDTH_MIN}
+          max={MEMBERS_WIDTH_MAX}
+          defaultValue={MEMBERS_WIDTH_DEFAULT}
+          onChange={setMembersWidth}
+          ariaLabel={t.layout.resizeMembers}
+          panelSide="right"
+          ringOffsetClassName="ring-offset-sidebar"
+        />
+        <MemberList groupId={groupId} />
+      </div>
     </div>
   );
 }

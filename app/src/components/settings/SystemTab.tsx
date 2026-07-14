@@ -109,7 +109,7 @@ export function SystemTab() {
           type="button"
           disabled={permsBusy}
           onClick={reRequestPermissions}
-          className="rounded-md bg-blurple px-4 py-2 text-sm font-medium text-white shadow-sm transition-all duration-fast hover:-translate-y-px hover:bg-blurple-hover hover:shadow-md active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:opacity-60"
+          className="rounded-md bg-blurple px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-[transform,background-color,box-shadow,opacity] duration-fast hover:-translate-y-px hover:bg-blurple-hover hover:shadow-md active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:opacity-60"
         >
           {t.settings.systemPermsButton}
         </button>

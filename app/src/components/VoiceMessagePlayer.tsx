@@ -117,8 +117,7 @@ function RetryIcon() {
 
 /** Rejet de `audio.play()` transitoire (pause concurrente, geste requis) ? */
 function isTransientPlayError(err: unknown): boolean {
-  const name =
-    err instanceof DOMException || err instanceof Error ? err.name : '';
+  const name = err instanceof DOMException || err instanceof Error ? err.name : '';
   return name === 'AbortError' || name === 'NotAllowedError';
 }
 
@@ -208,7 +207,7 @@ export function VoiceMessagePlayer({
   /** Durée embarquée dans le nom de la pièce (`voice-12.4s.m4a`), s'il suit la convention. */
   const dureeDuNom = voiceDurationFromName(piece.name);
   const dureeSure =
-    Number.isFinite(duration) && duration > 0 ? duration : dureeDuNom ?? 0;
+    Number.isFinite(duration) && duration > 0 ? duration : (dureeDuNom ?? 0);
   const ratioActuel = dureeSure > 0 ? Math.min(1, currentTime / dureeSure) : 0;
 
   const chercher = (ratio: number): void => {
@@ -234,7 +233,7 @@ export function VoiceMessagePlayer({
           aria-label={t.vocal.reessayer}
           title={t.vocal.reessayer}
           onClick={reessayer}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-fast hover:scale-105 hover:bg-chat-hover hover:text-norm active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-input"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted transition-[color,background-color,transform] duration-fast hover:scale-105 hover:bg-chat-hover hover:text-norm active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-input"
         >
           <RetryIcon />
         </button>
@@ -313,7 +312,7 @@ export function VoiceMessagePlayer({
         aria-label={playing ? t.vocal.pause : t.vocal.lire}
         title={playing ? t.vocal.pause : t.vocal.lire}
         onClick={basculerLecture}
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blurple text-white transition-all duration-fast hover:scale-105 hover:bg-blurple-hover active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-input"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blurple text-white transition-[color,background-color,transform] duration-fast hover:scale-105 hover:bg-blurple-hover active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-input"
       >
         {playing ? <PauseIcon /> : <PlayIcon />}
       </button>

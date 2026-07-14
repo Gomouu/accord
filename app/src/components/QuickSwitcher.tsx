@@ -123,20 +123,26 @@ function ResultRow({
       onMouseDown={(e) => e.preventDefault()}
       onClick={() => onSelect(item)}
       className={`flex h-11 w-full cursor-pointer items-center gap-2.5 rounded-md px-2 transition-colors duration-fast ${
-        active ? 'bg-chat-hover text-norm' : 'text-muted'
+        active
+          ? 'bg-blurple/15 text-header ring-1 ring-inset ring-blurple/20'
+          : 'text-muted'
       }`}
     >
       <ItemIcon item={item} />
       <span className="min-w-0 flex-1">
         <span className="block truncate font-medium">{item.label}</span>
         {item.kind === 'server' && (
-          <span className="block truncate text-xs text-faint">{t.quickSwitch.serverHint}</span>
+          <span className="block truncate text-xs text-faint">
+            {t.quickSwitch.serverHint}
+          </span>
         )}
         {item.kind === 'channel' && (
           <span className="flex items-center gap-1 truncate text-xs text-faint">
             <ServerInitialBadge name={item.subtitle} />
             <span className="truncate">{item.subtitle}</span>
-            {item.channelKind === 'voice' && <span> · {t.quickSwitch.voiceChannelHint}</span>}
+            {item.channelKind === 'voice' && (
+              <span> · {t.quickSwitch.voiceChannelHint}</span>
+            )}
           </span>
         )}
       </span>
@@ -186,7 +192,8 @@ export function QuickSwitcher() {
   // rend le focus à l'élément qui l'avait (déclencheur du raccourci).
   useEffect(() => {
     if (!open) return;
-    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const trigger =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setQuery('');
     setActiveIndex(0);
     inputRef.current?.focus();
@@ -206,14 +213,20 @@ export function QuickSwitcher() {
   if (!open) return null;
 
   const select = (item: QuickSwitchItem): void => {
-    if (item.kind === 'server' || (item.kind === 'channel' && item.channelKind === 'voice')) {
+    if (
+      item.kind === 'server' ||
+      (item.kind === 'channel' && item.channelKind === 'voice')
+    ) {
       // Serveur : même destination qu'un clic sur son icône dans le rail
       // (dernier salon consulté). Salon vocal : ne jamais rejoindre la voix
       // depuis le sélecteur, on navigue vers le serveur de la même façon.
       setView({
         kind: 'group',
         groupId: item.groupId,
-        channelId: channelToRestore(groupStates[item.groupId], lastChannelByServer[item.groupId]),
+        channelId: channelToRestore(
+          groupStates[item.groupId],
+          lastChannelByServer[item.groupId],
+        ),
       });
     } else {
       setView(item.view);
@@ -262,7 +275,10 @@ export function QuickSwitcher() {
         className="glass-strong modal-panel-enter flex max-h-[60vh] w-[560px] max-w-[92vw] flex-col overflow-hidden rounded-xl shadow-3"
       >
         <div className="flex items-center gap-2 border-b border-transparent px-3 focus-within:border-blurple/50">
-          <span aria-hidden className="flex h-4 w-4 shrink-0 items-center justify-center text-faint">
+          <span
+            aria-hidden
+            className="flex h-4 w-4 shrink-0 items-center justify-center text-faint"
+          >
             <SearchIcon size={16} />
           </span>
           <input
@@ -271,7 +287,9 @@ export function QuickSwitcher() {
             aria-expanded="true"
             aria-controls="quick-switch-listbox"
             aria-autocomplete="list"
-            aria-activedescendant={activeItem !== undefined ? optionDomId(activeItem.id) : undefined}
+            aria-activedescendant={
+              activeItem !== undefined ? optionDomId(activeItem.id) : undefined
+            }
             aria-label={t.quickSwitch.placeholder}
             placeholder={t.quickSwitch.placeholder}
             value={query}
@@ -292,7 +310,9 @@ export function QuickSwitcher() {
             </div>
           )}
           {results.length === 0 && (
-            <p className="px-2 py-6 text-center text-sm text-muted">{t.quickSwitch.noResults}</p>
+            <p className="px-2 py-6 text-center text-sm text-muted">
+              {t.quickSwitch.noResults}
+            </p>
           )}
           {results.map((item, i) => (
             <ResultRow

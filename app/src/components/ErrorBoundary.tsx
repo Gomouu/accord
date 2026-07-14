@@ -46,16 +46,39 @@ class ErrorBoundaryInner extends Component<InnerProps, InnerState> {
     return (
       <div
         role="alert"
-        className="flex h-full flex-col items-center justify-center gap-4 p-8"
+        className="app-ambient flex h-full items-center justify-center bg-chat p-8"
       >
-        <p className="text-lg font-semibold text-header">{this.props.title}</p>
-        <button
-          type="button"
-          onClick={() => window.location.reload()}
-          className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
-        >
-          {this.props.reloadLabel}
-        </button>
+        <div className="flex max-w-sm flex-col items-center rounded-xl border border-[color:var(--glass-border)] bg-sidebar px-8 py-7 text-center shadow-2">
+          <span
+            aria-hidden
+            className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red/10 text-red ring-1 ring-red/20"
+          >
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z" />
+              <path d="M12 9v4" />
+              <path d="M12 17h.01" />
+            </svg>
+          </span>
+          <p className="text-balance text-lg font-semibold text-header">
+            {this.props.title}
+          </p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="mt-5 min-h-10 rounded-lg bg-blurple px-5 py-2 text-sm font-medium text-white shadow-1 transition-[transform,background-color,box-shadow] duration-fast hover:-translate-y-px hover:bg-blurple-hover hover:shadow-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar active:translate-y-0 active:scale-[0.98]"
+          >
+            {this.props.reloadLabel}
+          </button>
+        </div>
       </div>
     );
   }

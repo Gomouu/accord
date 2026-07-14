@@ -91,7 +91,8 @@
   /* Texte. */
   --color-norm: 219 222 225;
   --color-muted: 181 186 193;
-  --color-faint: 128 132 142;
+  /* Métadonnées compactes : contraste AA, y compris sur les champs sombres. */
+  --color-faint: 164 169 179;
   --color-header: 242 243 245;
   /* Accents. */
   --color-blurple: 88 101 242;
@@ -181,7 +182,7 @@
   --color-tooltip: 17 18 20;
   --color-norm: 49 51 56;
   --color-muted: 78 80 88;
-  --color-faint: 109 111 120;
+  --color-faint: 100 102 111;
   --color-header: 6 6 7;
   --color-blurple: 88 101 242;
   --color-blurple-hover: 71 82 196;
@@ -379,19 +380,63 @@ textarea {
  * `-webkit-appearance`, pas à l'outline. L'état actif d'un champ est rendu
  * par notre convention (léger éclaircissement de bordure), jamais par le
  * halo système.
+ *
+ * Le reset est volontairement limité aux saisies textuelles. Les contrôles
+ * qui portent une affordance native (case, curseur, couleur, date, liste)
+ * gardent leur apparence système : `accent-color` et les anneaux Tailwind
+ * restent ainsi visibles sur toutes les plateformes.
  */
-input,
-textarea,
-select {
+:where(
+  input:not([type]),
+  input[type='text'],
+  input[type='password'],
+  input[type='search'],
+  input[type='email'],
+  input[type='url'],
+  input[type='tel'],
+  input[type='number'],
+  textarea
+) {
   -webkit-appearance: none;
   appearance: none;
 }
-input:focus,
-input:focus-visible,
-textarea:focus,
-textarea:focus-visible,
-select:focus,
-select:focus-visible {
+
+:where(
+  select,
+  input[type='checkbox'],
+  input[type='radio'],
+  input[type='range'],
+  input[type='color'],
+  input[type='date'],
+  input[type='datetime-local'],
+  input[type='time']
+) {
+  -webkit-appearance: auto;
+  appearance: auto;
+}
+
+:where(
+  input:not([type]),
+  input[type='text'],
+  input[type='password'],
+  input[type='search'],
+  input[type='email'],
+  input[type='url'],
+  input[type='tel'],
+  input[type='number'],
+  textarea
+):focus,
+:where(
+  input:not([type]),
+  input[type='text'],
+  input[type='password'],
+  input[type='search'],
+  input[type='email'],
+  input[type='url'],
+  input[type='tel'],
+  input[type='number'],
+  textarea
+):focus-visible {
   outline: none;
   box-shadow: none;
 }

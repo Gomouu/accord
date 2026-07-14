@@ -165,11 +165,11 @@ export function ModalFrame({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={`glass w-[440px] max-w-[92vw] rounded-xl shadow-3 focus:outline-none ${
+        className={`glass flex max-h-[calc(100vh-2rem)] w-[440px] max-w-[92vw] flex-col overflow-hidden rounded-xl shadow-3 focus:outline-none ${
           closing ? 'modal-panel-exit' : 'modal-panel-enter'
         }`}
       >
-        <div className="p-5">
+        <div className="shrink-0 px-5 pt-5">
           <div className="flex items-start justify-between">
             <h2 id={titleId} className="text-lg font-semibold text-header">
               {title}
@@ -184,6 +184,8 @@ export function ModalFrame({
             </button>
           </div>
           {hint && <p className="mt-1 text-sm text-muted">{hint}</p>}
+        </div>
+        <div className="min-h-0 overflow-y-auto px-5 pb-5">
           <div className="mt-4">{children}</div>
         </div>
       </div>
@@ -337,21 +339,21 @@ function CreateGroupModal() {
         id={`${idBase}-panel`}
         aria-labelledby={`${idBase}-tab-${tab}`}
       >
-      {tab === 'create' ? (
-        <NameForm
-          placeholder={t.groups.namePlaceholder}
-          action={t.groups.createAction}
-          onSubmit={async (name) => {
-            const groupId = await create(name, 'général');
-            await loadState(groupId);
-            const channelId =
-              useGroups.getState().states[groupId]?.channels[0]?.channel_id ?? null;
-            setView({ kind: 'group', groupId, channelId });
-          }}
-        />
-      ) : (
-        <JoinServerForm />
-      )}
+        {tab === 'create' ? (
+          <NameForm
+            placeholder={t.groups.namePlaceholder}
+            action={t.groups.createAction}
+            onSubmit={async (name) => {
+              const groupId = await create(name, 'général');
+              await loadState(groupId);
+              const channelId =
+                useGroups.getState().states[groupId]?.channels[0]?.channel_id ?? null;
+              setView({ kind: 'group', groupId, channelId });
+            }}
+          />
+        ) : (
+          <JoinServerForm />
+        )}
       </div>
     </ModalFrame>
   );
@@ -833,7 +835,9 @@ function CreatePollModal({ groupId, channelId }: { groupId: string; channelId: s
         className="glass modal-panel-enter flex max-h-[85vh] w-[440px] max-w-[92vw] flex-col overflow-hidden rounded-xl shadow-3"
       >
         <div className="flex items-center justify-between border-b border-input/50 p-5 pb-4">
-          <h2 className="text-lg font-semibold text-header">{t.groups.pollCreateTitle}</h2>
+          <h2 className="text-lg font-semibold text-header">
+            {t.groups.pollCreateTitle}
+          </h2>
           <button
             type="button"
             aria-label={t.app.close}

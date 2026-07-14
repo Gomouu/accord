@@ -6,7 +6,7 @@
  * Cliquer un résultat saute au message (fenêtre `history_around` au besoin).
  */
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { SearchQueryHit } from '../lib/api';
 import { api } from '../lib/client';
 import { formatTimestamp, shortId } from '../lib/format';
@@ -42,10 +42,11 @@ function ChipRow({ chips }: { chips: SearchChip[] }) {
       {chips.map((chip, i) => (
         <span
           key={`${chip.type}:${chip.value}:${i}`}
-          className="rounded-xs bg-rail px-1.5 py-0.5 text-[11px] text-muted"
+          className="flex max-w-full items-center rounded-xs bg-rail px-1.5 py-0.5 text-[11px] text-muted"
+          title={`${chip.type}:${chip.value}`}
         >
-          <span className="font-medium text-blurple">{chip.type}:</span>
-          {chip.value}
+          <span className="shrink-0 font-medium text-blurple">{chip.type}:</span>
+          <span className="min-w-0 truncate">{chip.value}</span>
         </span>
       ))}
     </div>
@@ -109,29 +110,44 @@ export function SearchBar() {
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
   const [rows, setRows] = useState<SearchHitRow[] | null>(null);
+  /** Identifie la seule requête encore autorisée à modifier l'interface. */
+  const requestIdRef = useRef(0);
 
   const chips = parseSearchChips(query);
 
   const clear = (): void => {
+    requestIdRef.current += 1;
     setQuery('');
+    setBusy(false);
+    setRows(null);
+  };
+
+  /** Toute modification invalide la réponse d'une recherche déjà partie. */
+  const changeQuery = (value: string): void => {
+    requestIdRef.current += 1;
+    setQuery(value);
+    setBusy(false);
     setRows(null);
   };
 
   const submit = async (): Promise<void> => {
     const trimmed = query.trim();
     if (trimmed === '' || busy) return;
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
     setBusy(true);
     try {
       const { hits } = await api.searchQuery(trimmed);
+      if (requestIdRef.current !== requestId) return;
       const index = indexMessageText(
         useDms.getState().conversations,
         useGroups.getState().messages,
       );
       setRows(buildHitRows(hits, index));
     } catch {
-      toast('error', t.errors.loadFailed);
+      if (requestIdRef.current === requestId) toast('error', t.errors.loadFailed);
     } finally {
-      setBusy(false);
+      if (requestIdRef.current === requestId) setBusy(false);
     }
   };
 
@@ -153,7 +169,7 @@ export function SearchBar() {
           aria-label={t.search.placeholder}
           placeholder={t.search.placeholder}
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => changeQuery(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') void submit();
             if (e.key === 'Escape') clear();
@@ -166,7 +182,7 @@ export function SearchBar() {
             aria-label={t.search.clear}
             title={t.search.clear}
             onClick={clear}
-            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar active:scale-90"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-faint transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar active:scale-90"
           >
             <CloseIcon size={14} />
           </button>
@@ -175,7 +191,10 @@ export function SearchBar() {
       {chips.length > 0 && <ChipRow chips={chips} />}
       {busy && <p className="px-1 pt-2 text-xs text-faint">{t.app.loading}</p>}
       {rows !== null && !busy && (
-        <div className="glass-strong popover-enter absolute inset-x-2 top-full z-10 mt-1 flex max-h-96 flex-col overflow-hidden rounded-lg">
+        <div
+          className="glass-strong popover-enter absolute inset-x-2 top-full z-10 mt-1 flex flex-col overflow-hidden rounded-lg"
+          style={{ maxHeight: 'min(24rem, calc(100vh - 7rem))' }}
+        >
           <div className="min-h-0 overflow-y-auto p-2">
             <div className="px-2 pb-1 text-xs font-medium uppercase tracking-wide text-faint">
               {t.search.results} — {rows.length}

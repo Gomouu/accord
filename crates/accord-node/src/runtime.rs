@@ -191,6 +191,12 @@ pub struct Runtime {
     rpc: Arc<TransportDhtRpc>,
     node: Arc<Node>,
     book: Mutex<AddressBook>,
+    /// Annonces authentifiées reçues (`NODE_ANNOUNCE`) : clé publique →
+    /// `(pow_nonce, flags)`. Source de vérité pour reconstruire le `NodeInfo`
+    /// d'un émetteur de RPC entrant ([`Runtime::route_dht`]) : sans elle, un
+    /// `pow_nonce`/`flags` synthétisés à zéro écraseraient l'entrée de table
+    /// (drapeau relais perdu). Bornée comme le carnet ([`MAX_BOOK`]).
+    announces: Mutex<HashMap<[u8; 32], (u64, u8)>>,
     maintenance: MaintenanceConfig,
     /// Notre adresse publique telle qu'observée par un pair (SPEC §11) : le
     /// consensus des observations quand il existe, sinon la dernière reçue.
@@ -279,6 +285,7 @@ impl Runtime {
             rpc,
             node,
             book: Mutex::new(AddressBook::default()),
+            announces: Mutex::new(HashMap::new()),
             maintenance,
             observed: Mutex::new(None),
             observed_addrs: Mutex::new(ObservedAddrs::new()),
@@ -554,6 +561,28 @@ impl Runtime {
         }
     }
 
+    /// Mémorise l'annonce authentifiée d'un pair (borné façon [`MAX_BOOK`] :
+    /// au-delà, une entrée arbitraire est évincée — cache best-effort,
+    /// ré-alimenté à la prochaine annonce du pair concerné).
+    fn remember_announce(&self, pubkey: [u8; 32], pow_nonce: u64, flags: u8) {
+        let mut cache = self.announces.lock().unwrap_or_else(|e| e.into_inner());
+        if cache.len() >= MAX_BOOK && !cache.contains_key(&pubkey) {
+            if let Some(victim) = cache.keys().next().copied() {
+                cache.remove(&victim);
+            }
+        }
+        cache.insert(pubkey, (pow_nonce, flags));
+    }
+
+    /// Annonce authentifiée connue d'un pair, le cas échéant.
+    fn announce_of(&self, pubkey: &[u8; 32]) -> Option<(u64, u8)> {
+        self.announces
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(pubkey)
+            .copied()
+    }
+
     fn remember(&self, pubkey: [u8; 32], addr: SocketAddr) {
         let mut book = self.book.lock().unwrap_or_else(|e| e.into_inner());
         // Borne mémoire (anti-croissance non bornée) : au-delà de [`MAX_BOOK`],
@@ -631,6 +660,20 @@ impl Runtime {
         self.emit_network_if_changed();
     }
 
+    /// Consensus d'adresse publique observée (≥ 2 pairs concordants), s'il
+    /// existe (SPEC §11.1). Alimente l'éligibilité relais.
+    pub(crate) fn observed_consensus(&self) -> Option<SocketAddr> {
+        self.observed_addrs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .consensus()
+    }
+
+    /// Adresse externe du mapping de port automatique (UPnP/NAT-PMP), si actif.
+    pub(crate) fn nat_mapping_external(&self) -> Option<SocketAddr> {
+        self.nat.snapshot().external
+    }
+
     /// Jusqu'à `count` adresses distinctes de pairs connus (carnet d'adresses),
     /// pour solliciter plusieurs observations d'adresse (SPEC §11.1).
     pub(crate) fn known_peer_addrs(&self, count: usize) -> Vec<SocketAddr> {
@@ -700,6 +743,12 @@ impl Runtime {
         if self.is_peer_live(&friend) || self.endpoint.circuit_for_peer(friend_node).is_some() {
             return;
         }
+        // Aligne la vue locale sur la vue GLOBALE autour de l'identifiant du
+        // pair avant la sélection : les relais domicile sont un rendez-vous —
+        // les deux côtés doivent dériver le MÊME ensemble, ce qu'une table
+        // locale clairsemée ne garantit pas. Lookup itératif borné (α, k) qui
+        // peuple la table via `observe`.
+        let _ = self.dht.lookup_node(&*self.rpc, friend_node).await;
         let candidats = relay::merge_relay_candidates(
             self.select_relay_for(&friend),
             self.home_relays_of(&friend),
@@ -785,16 +834,28 @@ impl Runtime {
             token,
             candidates: candidates.into_iter().map(WireAddr).collect(),
         });
-        if self.send_control_to(&friend, &msg).await {
+        if self.send_via_best_link(&friend, &msg).await {
             tracing::debug!("poinçonnage : demande coordonnée émise");
         }
     }
 
-    /// Achemine un message de contrôle vers un ami par le meilleur lien
-    /// existant : session liée à l'identité d'abord, circuit relais sinon.
-    /// Rend vrai si un envoi est parti (sans garantie de livraison).
-    async fn send_control_to(&self, to: &[u8; 32], msg: &ChannelMsg) -> bool {
-        if let Some(addr) = self.addr_of(to) {
+    /// Achemine un message vers un pair par le meilleur lien existant :
+    /// session liée à l'identité d'abord, circuit relais sinon (SPEC §11.3 —
+    /// une session relayée a pour adresse celle du relais et n'est pas
+    /// indexée par adresse : l'envoi direct y échoue en liaison d'identité et
+    /// DOIT retomber sur le circuit). Rend vrai si un envoi est parti (sans
+    /// garantie de livraison). Utilisé par la signalisation de poinçonnage et
+    /// par les boucles de maintenance (outbox, profil, anti-entropie).
+    pub(crate) async fn send_via_best_link(&self, to: &[u8; 32], msg: &ChannelMsg) -> bool {
+        // Session directe ÉTABLIE seulement (adresse tenue par l'endpoint, pas
+        // par le carnet) : un `send_to` vers une adresse sans session mettrait
+        // le message en file d'un handshake spéculatif et rendrait Ok — trou
+        // noir si l'adresse (issue d'un record de présence) est injoignable,
+        // alors que l'appelant retire le message de l'outbox sur ce
+        // « succès ». Ici : pas de session ⇒ on tente le circuit relais,
+        // sinon échec franc (le message reste en file, relivré au prochain
+        // lien — `flush_peer` à la connexion, ou la passe d'outbox suivante).
+        if let Some(addr) = self.endpoint.direct_session_addr(to) {
             if self.endpoint.send_to(addr, Some(*to), msg).await.is_ok() {
                 return true;
             }
@@ -838,7 +899,7 @@ impl Runtime {
             token,
             candidates: ours,
         });
-        let _ = self.send_control_to(&from, &resp).await;
+        let _ = self.send_via_best_link(&from, &resp).await;
         self.spawn_punch(from, candidates);
     }
 
@@ -973,6 +1034,28 @@ impl Runtime {
                 TransportEvent::ObservedAddr { observed } => {
                     self.observe_addr(observed);
                 }
+                TransportEvent::NodeAnnounced {
+                    static_pub,
+                    addr,
+                    pow_nonce,
+                    flags,
+                } => {
+                    // Apprentissage DHT organique (SPEC §11.3) : l'identité est
+                    // celle, AUTHENTIFIÉE, de la session ; l'adresse est celle
+                    // OBSERVÉE (un pair ne peut pas faire pointer une entrée
+                    // vers un tiers) ; la preuve de travail est re-vérifiée par
+                    // `KademliaNode::observe` (via `valid_node`).
+                    self.remember_announce(static_pub, pow_nonce, flags);
+                    let info = NodeInfo {
+                        node_id: node_id_of(&static_pub),
+                        static_pub,
+                        pow_nonce,
+                        flags,
+                        addrs: vec![WireAddr(addr)],
+                    };
+                    self.dht.observe(info, crate::node::now_ms());
+                    self.emit_network_if_changed();
+                }
                 TransportEvent::PunchRequested {
                     static_pub,
                     token,
@@ -1100,12 +1183,17 @@ impl Runtime {
             self.rpc.complete(dht_msg.rpc_id, dht_msg.body);
             return;
         }
-        // Requête : construit le NodeInfo de l'émetteur et répond.
+        // Requête : construit le NodeInfo de l'émetteur et répond. La preuve
+        // de travail et les drapeaux proviennent de l'annonce AUTHENTIFIÉE du
+        // pair (`NODE_ANNOUNCE`) quand elle est connue : c'est ce qui permet à
+        // `handle_rpc` d'apprendre l'émetteur (`valid_node`) sans jamais
+        // écraser son drapeau relais par des valeurs synthétisées à zéro.
+        let (pow_nonce, flags) = self.announce_of(&static_pub).unwrap_or((0, 0));
         let from = NodeInfo {
             node_id: accord_crypto::node_id_of(&static_pub),
             static_pub,
-            pow_nonce: 0,
-            flags: 0,
+            pow_nonce,
+            flags,
             addrs: vec![accord_proto::types::WireAddr(addr)],
         };
         let now = crate::node::now_ms();

@@ -16,6 +16,7 @@ use accord_proto::types::{node_flags, NodeId, NodeInfo};
 use accord_transport::nat::ObservedAddrs;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use std::net::SocketAddr;
 
 /// Délai laissé au poinçonnage pour établir une session avant de basculer sur
 /// le relais (SPEC §11.3). Constante nommée plutôt que magique : au-delà, on
@@ -73,6 +74,37 @@ pub fn classify_nat(observed: &ObservedAddrs) -> NatKind {
         NatKind::Cone
     } else {
         NatKind::Unknown
+    }
+}
+
+/// Décide si ce nœud peut s'annoncer RELAIS (drapeau `NODE_ANNOUNCE`,
+/// SPEC §11.3) : il doit être plausiblement joignable de l'extérieur, sinon
+/// les « relais domicile » élus par dérivation déterministe seraient
+/// injoignables et le rendez-vous du premier contact échouerait. Critères :
+/// - un mapping de port automatique (UPnP/NAT-PMP) est actif ; ou
+/// - le consensus d'adresse observée (≥ 2 pairs concordants) porte le MÊME
+///   port que le port local — nœud public, redirection manuelle, ou NAT
+///   préservant le port (joignable tant que ses sessions entretiennent le
+///   mapping).
+///
+/// Fonction pure — testable sans horloge ni réseau.
+pub fn relay_eligible(
+    observed_consensus: Option<SocketAddr>,
+    local_port: u16,
+    mapping_external: Option<SocketAddr>,
+) -> bool {
+    if mapping_external.is_some() {
+        return true;
+    }
+    matches!(observed_consensus, Some(a) if a.port() == local_port)
+}
+
+/// Drapeaux de capacité à annoncer selon l'éligibilité relais.
+pub fn announce_flags(eligible: bool) -> u8 {
+    if eligible {
+        node_flags::RELAY
+    } else {
+        0
     }
 }
 
@@ -144,10 +176,29 @@ pub fn merge_relay_candidates(pair: Vec<NodeInfo>, home: Vec<NodeInfo>) -> Vec<N
 mod tests {
     use super::*;
     use accord_proto::types::WireAddr;
-    use std::net::SocketAddr;
 
     fn addr(s: &str) -> SocketAddr {
         s.parse().unwrap()
+    }
+
+    #[test]
+    fn eligibilite_relais_mapping_ou_port_preserve() {
+        // Mapping UPnP/NAT-PMP actif : éligible quoi qu'il en soit.
+        assert!(relay_eligible(None, 48016, Some(addr("203.0.113.7:48016"))));
+        // Consensus observé au MÊME port que le port local : éligible
+        // (public, redirection, ou NAT préservant le port).
+        assert!(relay_eligible(Some(addr("203.0.113.7:48016")), 48016, None));
+        // Consensus à un port DIFFÉRENT (NAT réécrivant le port) : refusé.
+        assert!(!relay_eligible(
+            Some(addr("203.0.113.7:50001")),
+            48016,
+            None
+        ));
+        // Sans consensus ni mapping : refusé (joignabilité non établie).
+        assert!(!relay_eligible(None, 48016, None));
+        // Traduction en drapeaux d'annonce.
+        assert_eq!(announce_flags(true), node_flags::RELAY);
+        assert_eq!(announce_flags(false), 0);
     }
 
     fn node(id: u8, flags: u8, addrs: &[&str]) -> NodeInfo {

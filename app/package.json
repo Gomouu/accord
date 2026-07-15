@@ -1,7 +1,7 @@
 {
   "name": "accord-app",
   "private": true,
-  "version": "1.2.5",
+  "version": "1.2.6",
   "description": "Accord desktop app (Tauri + React)",
   "type": "module",
   "scripts": {

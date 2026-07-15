@@ -210,6 +210,39 @@ confidentialité relais, no-drop) et relevé trois points corrigés avant releas
 - **M2 (footgun)** : `run_with_socket` (injection d'un socket non durci) est
   `#[doc(hidden)]` et documenté réservé aux tests ; `run_node` reste privé.
 
+## 3ter. « Code ami introuvable sur le réseau » — rendez-vous partagé (défaut)
+
+Symptôme rapporté en production : à l'invitation, l'inviteur voit « Code ami
+introuvable sur le réseau » ; ouvrir un port chez l'invité corrige.
+
+**Diagnostic.** C'est un chemin DISTINCT du premier-contact ci-dessus : le VRAI
+premier pas d'une invitation est la RÉSOLUTION du code ami — un `FIND_VALUE` DHT
+du record d'identité de l'invité (`Runtime::resolve` → `dht_key(code)`), pas une
+clé publique déjà connue. La résolution est solide dès qu'un nœud JOIGNABLE
+partagé existe (le lookup exclut déjà les nœuds injoignables, `find_node` →
+`closest_k` sans les `Failed` ; prouvé par `nat_code_resolution_e2e` et les
+sondes 60-fillers / cross-relais). Elle échoue quand l'inviteur et l'invité
+n'ont **aucun rendez-vous joignable commun** — cas typique de deux amis qui ne
+s'amorcent QUE l'un sur l'autre, tous deux derrière un NAT symétrique : aucun
+n'est joignable, l'inviteur ne peut atteindre aucun nœud détenant le record
+(reproduit : `dht_nodes = 0`). Ouvrir un port fait de ce pair le rendez-vous.
+
+**Correctif.** Nœuds d'amorçage/relais **par défaut**
+(`NodeConfig::default_bootstrap`, peuplés via la variable `ACCORD_BOOTSTRAP` —
+exécution ou build), fusionnés avec les pairs de l'utilisateur pour le seeding,
+la reconnexion et le repli de résolution (`Runtime::all_bootstrap_peers`). Deux
+amis rejoignent alors automatiquement un réseau commun — comme les bootstrap
+nodes d'IPFS/BitTorrent, sans serveur central (ces nœuds ne voient que du
+chiffré et ne font que router/relayer). Test : `nat_default_bootstrap_e2e`
+(deux NAT symétriques, AUCUN amorçage manuel entre amis, R en défaut →
+résolution du code + demande + acceptation + DM).
+
+**Déploiement.** Le build/release doit fournir au moins une adresse d'entrée
+joignable via `ACCORD_BOOTSTRAP="ip:port,ip:port"`. Sans rendez-vous partagé,
+deux pairs tous deux en NAT symétrique restent structurellement injoignables
+(voir limite ci-dessous) : c'est une contrainte du serverless, pas un défaut
+d'implémentation.
+
 ## 4. Limites connues (documentées, non masquées)
 
 - **Premier contact hors ligne** : si B est éteint au moment de l'invitation,

@@ -2,6 +2,18 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [1.2.6] — 2026-07-14
+
+### Added
+
+- **Default bootstrap nodes** for peer discovery. Friend-code resolution (the
+  first step of any invitation, a DHT `FIND_VALUE`) can now fall back to
+  always-on rendezvous nodes, so two peers both behind a symmetric NAT can find
+  each other without opening a port. Addresses are supplied via
+  `ACCORD_BOOTSTRAP` (`ip:port,…`, runtime env or baked at build); with none
+  configured behaviour is unchanged. Bootstrap nodes only route ciphertext —
+  no central server, no plaintext. See `docs/NAT-FIRST-CONTACT.md` §3ter.
+
 ## [1.2.5] — 2026-07-14
 
 ### Changed

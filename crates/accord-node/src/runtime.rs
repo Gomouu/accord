@@ -252,6 +252,12 @@ pub struct Runtime {
     /// État de la découverte LAN (mDNS), publié par la tâche [`discovery`] et
     /// lu par le statut réseau.
     lan: Arc<discovery::LanShared>,
+    /// Nœuds d'amorçage/relais PAR DÉFAUT (points d'entrée du réseau livrés avec
+    /// l'app), fusionnés avec les pairs ajoutés par l'utilisateur pour le
+    /// seeding, la reconnexion et le repli de résolution de code ami. Câblés une
+    /// seule fois au démarrage ; jamais persistés (une valeur périmée d'une
+    /// version antérieure ne s'accumule pas en base).
+    default_bootstrap: OnceLock<Vec<SocketAddr>>,
     /// Référence faible sur soi-même, posée au démarrage ([`Runtime::spawn`]) :
     /// permet aux boucles de maintenance (qui n'ont qu'un `&Runtime`) de
     /// détacher une tâche possédant un `Arc<Runtime>` — typiquement le repli
@@ -310,6 +316,7 @@ impl Runtime {
             files_repli: Mutex::new(HashMap::new()),
             net_last: Mutex::new(None),
             boot_backoff: Mutex::new(HashMap::new()),
+            default_bootstrap: OnceLock::new(),
             nat: Arc::new(nat::NatShared::default()),
             lan: Arc::new(discovery::LanShared::default()),
             self_ref: OnceLock::new(),
@@ -433,9 +440,30 @@ impl Runtime {
         true
     }
 
-    /// Ensemence tous les pairs d'amorçage persistés (au démarrage).
-    pub(crate) async fn bootstrap_all(&self) {
+    /// Câble les nœuds d'amorçage par défaut (une seule fois, au démarrage).
+    pub fn set_default_bootstrap(&self, peers: Vec<SocketAddr>) {
+        let _ = self.default_bootstrap.set(peers);
+    }
+
+    /// Liste EFFECTIVE des pairs d'amorçage : pairs par défaut (points d'entrée
+    /// livrés avec l'app) fusionnés avec ceux ajoutés par l'utilisateur, sans
+    /// doublon, bornée. C'est ce rendez-vous partagé qui rend le premier contact
+    /// possible entre deux pairs tous deux NATés (aucun n'étant joignable, ils
+    /// ne peuvent se joindre qu'à travers un nœud commun).
+    pub(crate) fn all_bootstrap_peers(&self) -> Vec<SocketAddr> {
+        let mut out: Vec<SocketAddr> = self.default_bootstrap.get().cloned().unwrap_or_default();
         for addr in self.node.bootstrap_peers().unwrap_or_default() {
+            if !out.contains(&addr) {
+                out.push(addr);
+            }
+        }
+        out.truncate(crate::node::network::MAX_BOOTSTRAP_PEERS);
+        out
+    }
+
+    /// Ensemence tous les pairs d'amorçage effectifs (au démarrage).
+    pub(crate) async fn bootstrap_all(&self) {
+        for addr in self.all_bootstrap_peers() {
             self.seed_peer(addr).await;
         }
         self.emit_network_if_changed();
@@ -445,7 +473,7 @@ impl Runtime {
     /// (appelée périodiquement par la maintenance).
     pub(crate) async fn reconnect_bootstrap(&self, base: Duration) {
         let now = crate::node::now_ms();
-        let peers = self.node.bootstrap_peers().unwrap_or_default();
+        let peers = self.all_bootstrap_peers();
         // Oublie le backoff des pairs retirés de la configuration.
         self.boot_backoff
             .lock()
@@ -1903,9 +1931,12 @@ impl crate::service::CodeResolver for Runtime {
             }
         }
         // Repli d'amorçage : au tout début la table de routage peut être vide.
-        // On interroge alors directement les pairs d'amorçage (FIND_VALUE), en
-        // réutilisant leur service DHT et la vérification du record d'identité.
-        for addr in self.node.bootstrap_peers().unwrap_or_default() {
+        // On interroge alors directement les pairs d'amorçage EFFECTIFS (défaut
+        // + utilisateur) via FIND_VALUE, en réutilisant leur service DHT et la
+        // vérification du record d'identité. Inclure les nœuds par défaut est ce
+        // qui permet de résoudre le code d'un invité NATé sans rendez-vous
+        // configuré manuellement.
+        for addr in self.all_bootstrap_peers() {
             let synth = direct_target(addr);
             if let Some(DhtBody::FoundValue { value, nodes }) =
                 self.rpc.send_rpc(&synth, DhtBody::FindValue { key }).await

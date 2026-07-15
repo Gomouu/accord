@@ -59,6 +59,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         p2p_addr,
         api_port,
         pow_bits,
+        // Rendez-vous partagé du premier contact (variable ACCORD_BOOTSTRAP).
+        default_bootstrap: accord_node::default_bootstrap_env(),
         ..NodeConfig::default()
     };
     let running = accord_node::run(unlocked, config).await?;

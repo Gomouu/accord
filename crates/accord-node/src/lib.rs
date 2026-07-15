@@ -66,6 +66,19 @@ pub struct NodeConfig {
     /// Active l'annonce et la découverte de pairs Accord sur le réseau local
     /// (mDNS). Sans effet si l'écoute est en loopback.
     pub mdns_enabled: bool,
+    /// Nœuds d'amorçage/relais PAR DÉFAUT livrés avec l'application (points
+    /// d'entrée du réseau, à la manière des bootstrap nodes d'IPFS/BitTorrent —
+    /// ce ne sont PAS des serveurs centraux : ils ne voient que du trafic
+    /// chiffré et ne font que router/relayer). Fusionnés avec les pairs
+    /// d'amorçage ajoutés par l'utilisateur.
+    ///
+    /// Indispensable au premier contact « zéro port » entre deux pairs tous
+    /// deux derrière un NAT symétrique : sans rendez-vous joignable COMMUN,
+    /// deux amis qui ne s'amorcent que l'un sur l'autre ne peuvent jamais se
+    /// joindre (aucun des deux n'est joignable). Ces nœuds fournissent ce
+    /// rendez-vous partagé automatiquement. L'hôte les peuple depuis une
+    /// constante de build ou la variable d'environnement `ACCORD_BOOTSTRAP`.
+    pub default_bootstrap: Vec<SocketAddr>,
 }
 
 impl Default for NodeConfig {
@@ -78,7 +91,35 @@ impl Default for NodeConfig {
             voice_backend: VoiceBackend::default(),
             nat_enabled: true,
             mdns_enabled: true,
+            default_bootstrap: Vec::new(),
         }
+    }
+}
+
+/// Analyse une liste de nœuds d'amorçage par défaut depuis une chaîne
+/// `"ip:port,ip:port"` (variable `ACCORD_BOOTSTRAP` ou constante de build).
+/// Les entrées invalides sont ignorées. Bornée à
+/// [`node::network::MAX_BOOTSTRAP_PEERS`]. Fonction pure — testable.
+pub fn parse_default_bootstrap(raw: &str) -> Vec<SocketAddr> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .filter_map(|s| s.parse::<SocketAddr>().ok())
+        .take(node::network::MAX_BOOTSTRAP_PEERS)
+        .collect()
+}
+
+/// Nœuds d'amorçage/relais par défaut à câbler dans [`NodeConfig`], résolus
+/// depuis l'environnement : la variable d'EXÉCUTION `ACCORD_BOOTSTRAP` (permet
+/// d'ajuster un déploiement sans recompiler) prime sur la constante de BUILD
+/// `ACCORD_BOOTSTRAP` (`option_env!`, injectée à la compilation du release).
+/// Vide si aucune n'est définie — le nœud démarre alors sans rendez-vous par
+/// défaut (les amis doivent partager un pair joignable manuellement).
+pub fn default_bootstrap_env() -> Vec<SocketAddr> {
+    let runtime = std::env::var("ACCORD_BOOTSTRAP").ok();
+    match runtime.as_deref().or(option_env!("ACCORD_BOOTSTRAP")) {
+        Some(raw) => parse_default_bootstrap(raw),
+        None => Vec::new(),
     }
 }
 
@@ -311,6 +352,10 @@ async fn run_node(
         Arc::clone(&node),
         maintenance,
     );
+    // Nœuds d'amorçage/relais par défaut (rendez-vous partagé du premier
+    // contact) : fusionnés avec ceux de l'utilisateur pour le seeding, la
+    // reconnexion et le repli de résolution de code ami.
+    runtime.set_default_bootstrap(config.default_bootstrap.clone());
 
     // Sous-système voix (D-025) : tâche cadencée à 20 ms, trames via les
     // sessions du runtime, signalisation via le canal d'actions sortantes.
@@ -571,6 +616,29 @@ async fn bind_p2p(ip: IpAddr, preferred: Option<u16>) -> Result<UdpDatagram, Nod
 mod tests {
     use super::*;
     use crate::node::network::{DEFAULT_P2P_PORT, P2P_PORT_FALLBACK_END};
+
+    #[test]
+    fn parse_default_bootstrap_filtre_et_borne() {
+        // Adresses valides, séparateurs et espaces tolérés.
+        let v = parse_default_bootstrap(" 203.0.113.7:48016, [2001:db8::1]:5000 ");
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0], "203.0.113.7:48016".parse().unwrap());
+        // Entrées invalides et vides ignorées, valides conservées.
+        let v = parse_default_bootstrap("pasunehote,,10.0.0.1:9000,x:y");
+        assert_eq!(v, vec!["10.0.0.1:9000".parse().unwrap()]);
+        // Chaîne vide ⇒ aucun nœud.
+        assert!(parse_default_bootstrap("").is_empty());
+        assert!(parse_default_bootstrap("   ").is_empty());
+        // Bornée à MAX_BOOTSTRAP_PEERS.
+        let many = (0..node::network::MAX_BOOTSTRAP_PEERS + 10)
+            .map(|i| format!("10.0.0.1:{}", 1000 + i))
+            .collect::<Vec<_>>()
+            .join(",");
+        assert_eq!(
+            parse_default_bootstrap(&many).len(),
+            node::network::MAX_BOOTSTRAP_PEERS
+        );
+    }
 
     #[test]
     fn ports_candidats_ordre_et_repli() {

@@ -231,6 +231,10 @@ async fn demarrer(etat: &EtatHote, deverrouille: Unlocked) -> Result<InfoSession
     // stratégie de port stable (et non un port réellement aléatoire).
     let config = NodeConfig {
         paths: etat.chemins(),
+        // Rendez-vous partagé du premier contact (ACCORD_BOOTSTRAP) : sans lui,
+        // deux amis tous deux derrière un NAT symétrique ne peuvent pas se
+        // joindre (aucun n'est joignable).
+        default_bootstrap: accord_node::default_bootstrap_env(),
         ..NodeConfig::default()
     };
     let noeud = accord_node::run(deverrouille, config).await?;

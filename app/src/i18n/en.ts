@@ -924,13 +924,19 @@ export const en: Dict = {
   reseau: {
     title: 'Your address',
     intro:
-      'Accord works without a central server: to talk to a friend, one of you shares their address, the other adds it below. Then add each other by friend code as usual.',
-    myAddress: 'Address to share',
+      'Normally, just add your friend by their code above — no address to exchange. If the connection does not go through (you are both behind a router), one of you shares a PUBLIC address below, which the other adds.',
+    myAddress: 'Your address',
+    publicAddress: 'Public address (reachable from the internet)',
+    noPublicAddress:
+      'No public address known yet. A local address only helps a friend on the same network: connect to the network first, or open/forward your port.',
+    localAddress: 'Local address (same Wi-Fi network only)',
     noAddress: 'No reachable address detected yet.',
     port: 'P2P port',
     connectedPeers: 'Connected peers',
     dhtNodes: 'Known DHT nodes',
     addPeer: 'Add a friend by their address',
+    addPeerHint:
+      'Fallback when the code is not enough: paste the PUBLIC address your friend shared with you.',
     addPeerPlaceholder: 'ip:port (e.g. 203.0.113.4:48016)',
     addPeerButton: 'Add',
     addPeerError: 'Invalid or unreachable address.',

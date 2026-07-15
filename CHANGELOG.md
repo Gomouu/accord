@@ -2,6 +2,21 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [1.2.7] — 2026-07-15
+
+### Changed
+
+- All networking now lives in the **"Add friend"** tab (your address, add-by-address,
+  peer/DHT counters, automatic connection UPnP/mDNS, firewall panel); the separate
+  "Network" settings tab was removed.
+
+### Fixed
+
+- Your **address list now distinguishes public (internet-reachable, incl. your
+  global IPv6) from local (same-Wi-Fi) addresses**, so you no longer share a LAN
+  address that a friend can't reach. Trying your public IPv6 often works without
+  any port forwarding.
+
 ## [1.2.6] — 2026-07-14
 
 ### Added

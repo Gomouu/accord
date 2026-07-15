@@ -8,6 +8,7 @@ import { useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import { Avatar } from './Avatar';
+import { NetworkPanel } from './NetworkPanel';
 import { PendingInvites } from './PendingInvites';
 import { PresenceDot } from './PresenceDot';
 
@@ -216,48 +217,57 @@ function AddFriend() {
   };
 
   return (
-    <div className="max-w-2xl p-6">
-      <h2 className="mb-1 font-semibold uppercase text-header">{t.friends.addTitle}</h2>
-      <p className="mb-4 text-sm text-muted">{t.friends.addHint}</p>
-      <div className="flex gap-3 rounded-lg bg-rail p-3">
-        <input
-          aria-label={t.friends.addPlaceholder}
-          placeholder={t.friends.addPlaceholder}
-          value={code}
-          onChange={(e) => {
-            setCode(e.target.value);
-            setStatus('idle');
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') void submit();
-          }}
-          className="flex-1 bg-transparent text-norm placeholder-faint outline-none"
-        />
-        <button
-          type="button"
-          disabled={code.trim() === '' || status === 'busy'}
-          onClick={() => void submit()}
-          className="rounded-sm bg-blurple px-4 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover disabled:opacity-50 active:scale-95"
-        >
-          {t.friends.addSend}
-        </button>
-      </div>
-      {status === 'sent' && (
-        <p className="mt-2 text-sm text-green">{t.friends.addSent}</p>
-      )}
-      {status === 'error' && (
-        <p className="mt-2 text-sm text-red">{t.friends.addNotFound}</p>
-      )}
-      {self && (
-        <div className="mt-8 rounded-lg bg-sidebar p-4">
-          <div className="text-xs font-medium uppercase text-faint">
-            {t.friends.myCode}
-          </div>
-          <div className="selectable mt-1 font-mono text-lg text-header">
-            {self.friend_code}
-          </div>
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-2xl p-6">
+        <h2 className="mb-1 font-semibold uppercase text-header">{t.friends.addTitle}</h2>
+        <p className="mb-4 text-sm text-muted">{t.friends.addHint}</p>
+        <div className="flex gap-3 rounded-lg bg-rail p-3">
+          <input
+            aria-label={t.friends.addPlaceholder}
+            placeholder={t.friends.addPlaceholder}
+            value={code}
+            onChange={(e) => {
+              setCode(e.target.value);
+              setStatus('idle');
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void submit();
+            }}
+            className="flex-1 bg-transparent text-norm placeholder-faint outline-none"
+          />
+          <button
+            type="button"
+            disabled={code.trim() === '' || status === 'busy'}
+            onClick={() => void submit()}
+            className="rounded-sm bg-blurple px-4 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover disabled:opacity-50 active:scale-95"
+          >
+            {t.friends.addSend}
+          </button>
         </div>
-      )}
+        {status === 'sent' && (
+          <p className="mt-2 text-sm text-green">{t.friends.addSent}</p>
+        )}
+        {status === 'error' && (
+          <p className="mt-2 text-sm text-red">{t.friends.addNotFound}</p>
+        )}
+        {self && (
+          <div className="mb-8 mt-8 rounded-lg bg-sidebar p-4">
+            <div className="text-xs font-medium uppercase text-faint">
+              {t.friends.myCode}
+            </div>
+            <div className="selectable mt-1 font-mono text-lg text-header">
+              {self.friend_code}
+            </div>
+          </div>
+        )}
+
+        {/* Toute la partie réseau (ton adresse, ajout par adresse, état de la
+            connexion) vit désormais ici : « se connecter à un ami » au même
+            endroit que l'ajout par code. */}
+        <div className="border-t border-rail pt-6">
+          <NetworkPanel />
+        </div>
+      </div>
     </div>
   );
 }

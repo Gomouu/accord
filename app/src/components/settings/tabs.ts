@@ -10,7 +10,6 @@ import { AccountTab } from './AccountTab';
 import { AdvancedTab } from './AdvancedTab';
 import { AppearanceTab } from './AppearanceTab';
 import { LanguageTab } from './LanguageTab';
-import { NetworkTab } from './NetworkTab';
 import { NotificationsTab } from './NotificationsTab';
 import { PrivacyTab } from './PrivacyTab';
 import { ShortcutsTab } from './ShortcutsTab';
@@ -28,7 +27,6 @@ export type SettingsTabId =
   | 'shortcuts'
   | 'voice'
   | 'notifications'
-  | 'network'
   | 'system'
   | 'advanced';
 
@@ -83,7 +81,6 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
         label: (t) => t.settings.notifications,
         Content: NotificationsTab,
       },
-      { id: 'network', label: (t) => t.settings.network, Content: NetworkTab },
       { id: 'system', label: (t) => t.settings.system, Content: SystemTab },
       { id: 'advanced', label: (t) => t.settings.advanced, Content: AdvancedTab },
     ],

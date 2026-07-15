@@ -936,13 +936,19 @@ export const fr = {
   reseau: {
     title: 'Ton adresse',
     intro:
-      'Accord fonctionne sans serveur central : pour parler à un ami, l’un de vous communique son adresse à l’autre, qui l’ajoute ci-dessous. Ensuite, ajoutez-vous par code ami comme d’habitude.',
-    myAddress: 'Adresse à communiquer',
+      'Normalement, ajoute simplement ton ami par son code ci-dessus — aucune adresse à échanger. Si la connexion ne se fait pas (vous êtes tous les deux derrière une box), l’un de vous communique une adresse PUBLIQUE ci-dessous, que l’autre ajoute.',
+    myAddress: 'Ton adresse',
+    publicAddress: 'Adresse publique (joignable depuis Internet)',
+    noPublicAddress:
+      'Aucune adresse publique connue pour l’instant. Une adresse locale ne sert qu’à un ami sur le même réseau : connecte-toi d’abord au réseau, ou ouvre/redirige ton port.',
+    localAddress: 'Adresse locale (même réseau Wi-Fi seulement)',
     noAddress: 'Aucune adresse joignable détectée pour l’instant.',
     port: 'Port P2P',
     connectedPeers: 'Pairs connectés',
     dhtNodes: 'Nœuds DHT connus',
     addPeer: 'Ajouter un ami par son adresse',
+    addPeerHint:
+      'Repli quand le code ne suffit pas : colle l’adresse PUBLIQUE que ton ami t’a communiquée.',
     addPeerPlaceholder: 'ip:port (ex. 203.0.113.4:48016)',
     addPeerButton: 'Ajouter',
     addPeerError: 'Adresse invalide ou injoignable.',

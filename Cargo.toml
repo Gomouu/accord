@@ -9,6 +9,7 @@ members = [
     "crates/accord-api",
     "crates/accord-node",
     "crates/accord-voice",
+    "crates/accord-macos",
     "app/src-tauri",
 ]
 

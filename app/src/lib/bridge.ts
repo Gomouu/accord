@@ -289,3 +289,29 @@ export async function openSystemSettings(section: SystemSettingsSection): Promis
   if (!isTauri()) throw new Error('hors Tauri');
   await invoke('ouvrir_reglages_systeme', { section });
 }
+
+/** État de l'autorisation micro système (aligné sur AVAuthorizationStatus). */
+export type MicPermissionState =
+  'granted' | 'denied' | 'undetermined' | 'restricted' | 'unsupported';
+
+/**
+ * État RÉEL de l'autorisation micro, sans jamais déclencher l'invite.
+ * `unsupported` hors Tauri ou hors macOS — l'UI n'affiche alors pas d'état.
+ */
+export async function micPermissionState(): Promise<MicPermissionState> {
+  if (!isTauri()) return 'unsupported';
+  try {
+    return await invoke<MicPermissionState>('micro_autorisation_etat');
+  } catch {
+    return 'unsupported';
+  }
+}
+
+/**
+ * Déclenche l'invite micro système (utile à l'état « indéterminé » seulement)
+ * et rend l'issue. Sans invite possible, l'OS répond immédiatement.
+ */
+export async function micPermissionRequest(): Promise<boolean> {
+  if (!isTauri()) throw new Error('hors Tauri');
+  return invoke<boolean>('micro_autorisation_demander');
+}

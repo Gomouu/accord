@@ -11,31 +11,55 @@ import { useEffect, useState } from 'react';
 import {
   autostartIsEnabled,
   autostartSetEnabled,
+  micPermissionRequest,
+  micPermissionState,
   openSystemSettings,
+  type MicPermissionState,
   type SystemSettingsSection,
 } from '../../lib/bridge';
-import { api } from '../../lib/client';
 import { requestNotificationPermission } from '../../lib/notifications';
 import { useUi, useT } from '../../stores/ui';
 import { SettingsSection, ToggleRow } from './controls';
 
-/** Durée de la capture-éclair qui matérialise l'invite micro système. */
-const MIC_PROMPT_PULSE_MS = 1500;
+/** Pastille d'état d'une autorisation (accordée / refusée / à demander). */
+function PermissionBadge({ state }: { state: 'granted' | 'denied' | 'ask' }) {
+  const t = useT();
+  const style =
+    state === 'granted'
+      ? 'bg-green/15 text-green'
+      : state === 'denied'
+        ? 'bg-red/15 text-red'
+        : 'bg-input text-muted';
+  const label =
+    state === 'granted'
+      ? t.settings.systemPermsStateGranted
+      : state === 'denied'
+        ? t.settings.systemPermsStateDenied
+        : t.settings.systemPermsStateAsk;
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${style}`}>
+      {label}
+    </span>
+  );
+}
 
 /**
- * Ligne d'autorisation : intitulé + explication, action de demande facultative
- * (l'OS n'affiche son invite qu'à l'état « indéterminé ») et raccourci vers le
- * panneau des réglages système — seul recours après un refus.
+ * Ligne d'autorisation : intitulé + explication, état facultatif, action de
+ * demande facultative (l'OS n'affiche son invite qu'à l'état « indéterminé »)
+ * et raccourci vers le panneau des réglages système — seul recours après un
+ * refus.
  */
 function PermissionRow({
   title,
   hint,
+  badge,
   action,
   section,
 }: {
   title: string;
   hint: string;
-  action?: { label: string; busy: boolean; onClick: () => void };
+  badge?: 'granted' | 'denied' | 'ask' | undefined;
+  action?: { label: string; busy: boolean; onClick: () => void } | undefined;
   section: SystemSettingsSection;
 }) {
   const t = useT();
@@ -48,7 +72,10 @@ function PermissionRow({
   return (
     <div className="flex items-start justify-between gap-4 rounded-lg bg-sidebar px-4 py-3">
       <div className="min-w-0">
-        <div className="text-sm font-medium text-header">{title}</div>
+        <div className="flex items-center gap-2 text-sm font-medium text-header">
+          {title}
+          {badge !== undefined && <PermissionBadge state={badge} />}
+        </div>
         <p className="mt-0.5 text-xs leading-relaxed text-faint">{hint}</p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
@@ -86,11 +113,15 @@ export function SystemTab() {
   const [autostartBusy, setAutostartBusy] = useState(false);
   const [notifBusy, setNotifBusy] = useState(false);
   const [micBusy, setMicBusy] = useState(false);
+  const [micState, setMicState] = useState<MicPermissionState>('unsupported');
 
   useEffect(() => {
     let cancelled = false;
     void autostartIsEnabled().then((enabled) => {
       if (!cancelled) setAutostart(enabled);
+    });
+    void micPermissionState().then((state) => {
+      if (!cancelled) setMicState(state);
     });
     return () => {
       cancelled = true;
@@ -123,20 +154,27 @@ export function SystemTab() {
       .finally(() => setNotifBusy(false));
   };
 
-  // Capture-éclair d'une seconde : l'unique moyen côté app de matérialiser
-  // l'invite micro de l'OS (elle n'apparaît qu'à la première VRAIE capture).
-  // Une seule à la fois — le verrou évite d'empiler des invites.
+  // Demande NATIVE (AVFoundation), sans ouvrir de capture : l'invite système
+  // n'apparaît qu'à l'état « indéterminé » ; à tout autre état l'OS répond
+  // immédiatement — impossible de redemander en boucle. L'état affiché est
+  // rafraîchi avec la réponse.
   const requestMicrophone = (): void => {
     setMicBusy(true);
-    void api
-      .voiceMicTest(true)
-      .catch(() => undefined)
-      .then(() => {
-        window.setTimeout(() => {
-          void api.voiceMicTest(false).catch(() => undefined);
-          setMicBusy(false);
-        }, MIC_PROMPT_PULSE_MS);
-        toast('info', t.settings.systemPermsMicRequested);
+    void micPermissionRequest()
+      .then((granted) => {
+        toast(
+          granted ? 'info' : 'error',
+          granted
+            ? t.settings.systemPermsStateGranted
+            : t.settings.systemPermsMicDeniedToast,
+        );
+      })
+      .catch(() => {
+        toast('info', t.settings.systemPermsSettingsUnavailable);
+      })
+      .finally(() => {
+        void micPermissionState().then(setMicState);
+        setMicBusy(false);
       });
   };
 
@@ -193,11 +231,24 @@ export function SystemTab() {
           <PermissionRow
             title={t.settings.systemPermsMicTitle}
             hint={t.settings.systemPermsMicHint}
-            action={{
-              label: t.settings.systemPermsMicButton,
-              busy: micBusy,
-              onClick: requestMicrophone,
-            }}
+            badge={
+              micState === 'granted'
+                ? 'granted'
+                : micState === 'denied' || micState === 'restricted'
+                  ? 'denied'
+                  : micState === 'undetermined'
+                    ? 'ask'
+                    : undefined
+            }
+            action={
+              micState === 'undetermined'
+                ? {
+                    label: t.settings.systemPermsMicButton,
+                    busy: micBusy,
+                    onClick: requestMicrophone,
+                  }
+                : undefined
+            }
             section="microphone"
           />
           <PermissionRow

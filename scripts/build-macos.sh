@@ -57,11 +57,16 @@ fi
 if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
   echo "Identité de signature : $APPLE_SIGNING_IDENTITY"
 else
+  # « - » = signature ad-hoc COMPLÈTE du bundle par Tauri (Info.plist lié,
+  # ressources scellées, identifiant = fr.accord.desktop). Sans elle, le
+  # bundle sort simplement « linker-signed » : TCC ne peut pas rattacher
+  # durablement l'accord micro et macOS REDEMANDE même après acceptation.
+  export APPLE_SIGNING_IDENTITY="-"
   cat <<'AVERTISSEMENT'
-AVERTISSEMENT : aucune identité de signature — signature ad-hoc.
-  Conséquences : macOS redemandera l'autorisation micro après CHAQUE build,
-  et le pare-feu redemandera les connexions entrantes à CHAQUE lancement.
-  Pour une identité stable locale (une seule fois) :
+Signature ad-hoc complète (aucune identité stable trouvée).
+  L'accord micro et pare-feu persiste pour CE build, mais macOS redemandera
+  après chaque REBUILD (empreinte différente). Pour une identité stable
+  locale (une seule fois) :
     voir DISTRIBUTION.md § « Signature locale stable (macOS) ».
 AVERTISSEMENT
 fi

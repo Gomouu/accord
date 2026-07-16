@@ -888,10 +888,13 @@ export const fr = {
       'Refusées : activez-les pour Accord dans les réglages système.',
     systemPermsMicTitle: 'Microphone',
     systemPermsMicHint:
-      'Salons vocaux, appels et messages vocaux. La demande déclenche une capture d’une seconde pour faire apparaître l’invite système.',
+      'Salons vocaux, appels et messages vocaux. L’état affiché est celui du système ; l’invite ne peut apparaître qu’à l’état « à demander ».',
     systemPermsMicButton: 'Demander',
-    systemPermsMicRequested:
-      'Demande envoyée. Si aucune invite n’apparaît, l’autorisation a déjà été accordée ou refusée : passez par les réglages système.',
+    systemPermsMicDeniedToast:
+      'Micro refusé : activez-le pour Accord dans les réglages système.',
+    systemPermsStateGranted: 'Autorisé',
+    systemPermsStateDenied: 'Refusé',
+    systemPermsStateAsk: 'À demander',
     systemPermsNetTitle: 'Connexions entrantes (pare-feu)',
     systemPermsNetHint:
       'Accord est pair-à-pair : vos amis se connectent DIRECTEMENT à votre machine. Si le pare-feu bloque les connexions entrantes — ou redemande à chaque lancement quand l’app n’est pas signée — autorisez Accord dans le panneau du pare-feu.',

@@ -875,10 +875,13 @@ export const en: Dict = {
     systemPermsNotifDenied: 'Denied: enable them for Accord in the system settings.',
     systemPermsMicTitle: 'Microphone',
     systemPermsMicHint:
-      'Voice channels, calls and voice messages. Requesting triggers a one-second capture so the system prompt can appear.',
+      'Voice channels, calls and voice messages. The displayed state is the system’s; the prompt can only appear in the “to request” state.',
     systemPermsMicButton: 'Request',
-    systemPermsMicRequested:
-      'Request sent. If no prompt appears, the permission was already granted or denied: use the system settings.',
+    systemPermsMicDeniedToast:
+      'Microphone denied: enable it for Accord in the system settings.',
+    systemPermsStateGranted: 'Allowed',
+    systemPermsStateDenied: 'Denied',
+    systemPermsStateAsk: 'To request',
     systemPermsNetTitle: 'Incoming connections (firewall)',
     systemPermsNetHint:
       'Accord is peer-to-peer: your friends connect DIRECTLY to your machine. If the firewall blocks incoming connections — or asks again at every launch when the app is unsigned — allow Accord in the firewall pane.',

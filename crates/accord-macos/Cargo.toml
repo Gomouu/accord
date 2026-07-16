@@ -1,0 +1,12 @@
+[package]
+name = "accord-macos"
+description = "Pont macOS natif (AVFoundation) : état et demande de l'autorisation micro"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+block2 = "0.6"

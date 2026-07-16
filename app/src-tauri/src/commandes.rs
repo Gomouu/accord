@@ -208,6 +208,27 @@ pub async fn lock(etat: State<'_, EtatHote>) -> Result<StatutCoffre, ErreurHote>
     Ok(etat.statut_coffre())
 }
 
+/// État de l'autorisation micro : `granted` / `denied` / `undetermined` /
+/// `restricted` / `unsupported` (plateformes sans TCC : toujours
+/// `unsupported`, l'UI n'affiche alors pas d'état). Ne déclenche jamais
+/// l'invite — c'est le point : l'UI ne redemande qu'à l'état indéterminé,
+/// jamais en boucle (voir `accord-macos`).
+#[tauri::command]
+pub fn micro_autorisation_etat() -> &'static str {
+    accord_macos::micro_etat()
+}
+
+/// Déclenche l'invite micro système (utile à l'état « indéterminé » seulement
+/// — sinon l'OS répond immédiatement sans invite). Rend l'issue. L'attente de
+/// la réponse utilisateur est bloquante : fil dédié, jamais le fil principal.
+#[tauri::command]
+pub async fn micro_autorisation_demander() -> Result<bool, ErreurHote> {
+    tauri::async_runtime::spawn_blocking(accord_macos::micro_demander_bloquant)
+        .await
+        .map_err(|e| ErreurHote::Tache(e.to_string()))?
+        .map_err(ErreurHote::Tache)
+}
+
 /// Ouvre le panneau des réglages système correspondant à une autorisation.
 ///
 /// Après un refus (micro, notifications) l'OS ne ré-affiche plus jamais son

@@ -29,6 +29,11 @@ tauri-plugin-autostart = "2"
 # plafonné passe par `files.share`/`files.save`, qui exigent un chemin disque.
 tauri-plugin-dialog = "2"
 
+# Autorisation micro macOS (TCC) : lecture de l'état réel et demande unique
+# via AVFoundation — l'UI ne redéclenche jamais l'invite hors état
+# « indéterminé » (boucle de dialogues sinon). Hors macOS : valeurs neutres.
+accord-macos = { path = "../../crates/accord-macos" }
+
 [dev-dependencies]
 serde_json.workspace = true
 tempfile = "3"

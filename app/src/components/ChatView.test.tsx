@@ -39,7 +39,12 @@ import { useDms } from '../stores/dms';
 import { useFriends } from '../stores/friends';
 import { useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
-import { useTyping, dmTypingKey, TYPING_EXPIRY_MS } from '../stores/typing';
+import {
+  useTyping,
+  dmTypingKey,
+  groupTypingKey,
+  TYPING_EXPIRY_MS,
+} from '../stores/typing';
 import { useUi } from '../stores/ui';
 import { DmView, GroupView } from './ChatView';
 
@@ -376,6 +381,45 @@ describe('GroupView — statut personnalisé dans la liste des membres', () => {
     expect(screen.queryByText('En pleine partie')).not.toBeInTheDocument();
   });
 
+  it('sépare la saisie du composeur et utilise le surnom du serveur', async () => {
+    useGroups.setState({
+      ids: ['g1'],
+      states: {
+        g1: makeGroupState({
+          channels: [
+            {
+              channel_id: 'c1',
+              name: 'général',
+              kind: 'text',
+              category: null,
+              position: 0,
+              topic: '',
+            },
+          ],
+          members: [{ pubkey: PEER, roles: [], nickname: 'Alicia' }],
+        }),
+      },
+    });
+    useTyping.setState({
+      writers: {
+        [groupTypingKey('g1', 'c1')]: {
+          [PEER]: Date.now() + TYPING_EXPIRY_MS,
+        },
+      },
+    });
+
+    render(<GroupView groupId="g1" channelId="c1" />);
+
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent('Alicia est en train d’écrire…');
+    expect(status.parentElement).toHaveClass('h-5', 'shrink-0');
+    expect(status.parentElement).not.toHaveClass('-mt-5');
+    expect(
+      screen.getByRole('textbox').compareDocumentPosition(status) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+  });
+
   it('ouvre la liste des membres dans un volet compact', async () => {
     useGroups.setState({
       ids: ['g1'],
@@ -404,6 +448,41 @@ describe('GroupView — statut personnalisé dans la liste des membres', () => {
     expect(dialog).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Fermer' }));
     expect(trigger).toHaveFocus();
+  });
+
+  it('ne superpose pas les fils et les messages épinglés', () => {
+    useGroups.setState({
+      ids: ['g1'],
+      states: {
+        g1: makeGroupState({
+          channels: [
+            {
+              channel_id: 'c1',
+              name: 'général',
+              kind: 'text',
+              category: null,
+              position: 0,
+              topic: '',
+            },
+          ],
+        }),
+      },
+    });
+
+    render(<GroupView groupId="g1" channelId="c1" />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fils' }));
+    expect(screen.getByRole('menu', { name: 'Fils' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Messages épinglés' }));
+    expect(screen.queryByRole('menu', { name: 'Fils' })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Messages épinglés' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fils' }));
+    expect(
+      screen.queryByRole('dialog', { name: 'Messages épinglés' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('menu', { name: 'Fils' })).toBeInTheDocument();
   });
 
   it('affiche son propre texte de statut personnalisé dans la liste des membres', async () => {

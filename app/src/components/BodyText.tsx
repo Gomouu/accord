@@ -40,7 +40,7 @@ export function BodyText({
       ? maskFiltered(text, automodWords)
       : text;
   return (
-    <span className="selectable whitespace-pre-wrap break-words">
+    <div className="selectable whitespace-pre-wrap break-words">
       <MarkdownText
         text={masked}
         emojis={emojiMap}
@@ -51,6 +51,6 @@ export function BodyText({
       {message.edited !== null && (
         <span className="ml-1 text-[10px] text-faint">{t.dm.edited}</span>
       )}
-    </span>
+    </div>
   );
 }

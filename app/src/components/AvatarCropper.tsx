@@ -227,7 +227,7 @@ export function AvatarCropper({
         aria-describedby="recadreur-instructions"
         tabIndex={-1}
         onKeyDown={onKeyDown}
-        className="w-[340px] max-w-[92vw] rounded-lg bg-modal p-5 shadow-modal outline-none"
+        className="max-h-[92vh] w-[340px] max-w-[92vw] overflow-y-auto rounded-lg bg-modal p-5 shadow-modal outline-none"
       >
         <h2 className="mb-1 text-lg font-semibold text-header">{titre}</h2>
         <p id="recadreur-instructions" className="mb-4 text-sm text-muted">

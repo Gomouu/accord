@@ -583,6 +583,24 @@ function HeaderChevronIcon({
   );
 }
 
+function MenuChevronIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.25"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="m9 18 6-6-6-6" />
+    </svg>
+  );
+}
+
 interface ServerMenuItem {
   label: string;
   icon: React.ReactNode;
@@ -629,7 +647,7 @@ function ServerHeaderMenu({
   const self = useSession((s) => s.self);
   const ref = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const [activeIndex, setActiveIndex] = useState(-1);
+  const [activeIndex, setActiveIndex] = useState(0);
 
   // Fermeture au clic extérieur et à Échap (même approche que ContextMenu/UserMenu).
   useEffect(() => {
@@ -652,7 +670,7 @@ function ServerHeaderMenu({
     // serveur) à la fermeture — sauf s'il a quitté le DOM entre-temps.
     const precedent =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    ref.current?.focus();
+    itemRefs.current[0]?.focus();
     return () => {
       if (precedent !== null && precedent.isConnected) precedent.focus();
     };
@@ -720,7 +738,6 @@ function ServerHeaderMenu({
   items.push({
     label: t.serveur.hideMutedChannels,
     icon: <BellOffMenuIcon />,
-    separatorBefore: true,
     checked: hideMutedChannels,
     onClick: () => useUi.getState().toggleHideMutedChannels(),
   });
@@ -780,12 +797,30 @@ function ServerHeaderMenu({
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
-    if (e.key === 'ArrowDown') {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      onClose();
+    } else if (e.key === 'Tab') {
+      onClose();
+    } else if (e.key === 'ArrowDown') {
       e.preventDefault();
       moveActive(activeIndex + 1);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       moveActive(activeIndex - 1);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      moveActive(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      moveActive(items.length - 1);
+    } else if (e.key === 'ArrowRight') {
+      const item = items[activeIndex];
+      const trigger = itemRefs.current[activeIndex];
+      if (item?.submenu !== undefined && trigger !== null && trigger !== undefined) {
+        e.preventDefault();
+        openSubmenu(item, trigger);
+      }
     }
   };
 
@@ -796,50 +831,67 @@ function ServerHeaderMenu({
       aria-label={t.serveur.serverMenu}
       tabIndex={-1}
       onKeyDown={onKeyDown}
-      className="glass-strong context-menu-enter absolute inset-x-3 top-[calc(100%+4px)] z-50 max-h-[calc(100vh-9rem)] origin-top overflow-y-auto overscroll-contain rounded-lg p-1.5 focus:outline-none"
+      className="server-menu-surface context-menu-enter absolute left-3 top-[calc(100%+6px)] z-50 w-[min(17rem,calc(100vw-6rem))] origin-top overflow-hidden rounded-lg focus:outline-none"
     >
-      {items.map((item, i) => (
-        <div key={`${i}-${item.label}`}>
-          {item.separatorBefore === true && (
-            <div className="my-1.5 h-px bg-input/60" role="separator" />
-          )}
-          <button
-            ref={(el) => {
-              itemRefs.current[i] = el;
-            }}
-            type="button"
-            role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
-            aria-checked={item.checked}
-            aria-haspopup={item.submenu !== undefined ? 'menu' : undefined}
-            tabIndex={i === activeIndex ? 0 : -1}
-            onMouseEnter={() => setActiveIndex(i)}
-            onClick={(e) =>
-              item.submenu !== undefined
-                ? openSubmenu(item, e.currentTarget)
-                : activate(item)
-            }
-            className={`flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm font-medium transition-colors duration-fast focus-visible:outline-none ${
-              item.danger === true
-                ? 'text-red hover:bg-red/10 focus-visible:bg-red/10'
-                : 'text-norm hover:bg-chat-hover focus-visible:bg-chat-hover'
-            }`}
-          >
-            <span className="min-w-0 flex-1 truncate">{item.label}</span>
-            {/* Icône en fin de ligne, façon menu de serveur Discord ; pour une
-                case cochée, la coche remplace l'icône quand l'option est active. */}
-            <span
-              aria-hidden
-              className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-faint"
+      <div className="server-menu-scroll max-h-[calc(100dvh-9rem)] overflow-y-auto overscroll-contain p-2">
+        {items.map((item, i) => (
+          <div key={`${i}-${item.label}`}>
+            {item.separatorBefore === true && (
+              <div className="mx-2 my-1.5 h-px bg-input/70" role="separator" />
+            )}
+            <button
+              ref={(el) => {
+                itemRefs.current[i] = el;
+              }}
+              type="button"
+              role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+              aria-checked={item.checked}
+              aria-haspopup={item.submenu !== undefined ? 'menu' : undefined}
+              tabIndex={i === activeIndex ? 0 : -1}
+              onMouseEnter={() => setActiveIndex(i)}
+              onFocus={() => setActiveIndex(i)}
+              onClick={(e) =>
+                item.submenu !== undefined
+                  ? openSubmenu(item, e.currentTarget)
+                  : activate(item)
+              }
+              className={`flex h-10 w-full items-center gap-3 rounded-sm px-3 text-left text-[15px] font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-header/40 ${
+                item.danger === true
+                  ? 'server-menu-danger hover:bg-red/10 focus-visible:bg-red/10'
+                  : 'text-norm hover:bg-chat-hover focus-visible:bg-chat-hover'
+              }`}
             >
+              <span className="min-w-0 flex-1 truncate">{item.label}</span>
               {item.checked === undefined ? (
-                item.icon
-              ) : item.checked ? (
-                <CheckMenuIcon />
-              ) : null}
-            </span>
-          </button>
-        </div>
-      ))}
+                <span
+                  aria-hidden
+                  className={`flex shrink-0 items-center gap-1 ${item.danger === true ? '' : 'text-muted'}`}
+                >
+                  <span className="flex h-5 w-5 items-center justify-center [&>svg]:h-[19px] [&>svg]:w-[19px]">
+                    {item.icon}
+                  </span>
+                  {item.submenu !== undefined && (
+                    <span className="flex h-4 w-3.5 items-center justify-center text-faint">
+                      <MenuChevronIcon />
+                    </span>
+                  )}
+                </span>
+              ) : (
+                <span
+                  aria-hidden
+                  className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-xs border transition-colors duration-fast [&>svg]:h-3.5 [&>svg]:w-3.5 ${
+                    item.checked
+                      ? 'border-blurple bg-blurple text-white'
+                      : 'border-faint/70 bg-transparent'
+                  }`}
+                >
+                  {item.checked && <CheckMenuIcon />}
+                </span>
+              )}
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -975,7 +1027,13 @@ function GroupSidebar({ groupId }: { groupId: string }) {
             onMouseDown={(e) => e.stopPropagation()}
             onClick={() => setServerMenuOpen((open) => !open)}
             className={`flex h-9 min-w-0 flex-1 items-center gap-1 rounded-md pr-1 text-left transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
-              hasBanner ? 'hover:bg-white/10' : 'hover:bg-chat-hover'
+              serverMenuOpen
+                ? hasBanner
+                  ? 'bg-black/25'
+                  : 'bg-chat-hover'
+                : hasBanner
+                  ? 'hover:bg-white/10'
+                  : 'hover:bg-chat-hover'
             }`}
           >
             <span

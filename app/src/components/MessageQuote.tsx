@@ -30,15 +30,20 @@ export function MessageQuote({ quoted, nameOf, onJump }: MessageQuoteProps) {
         className="ml-1 h-2 w-6 shrink-0 rounded-tl-md border-l-2 border-t-2 border-input"
       />
       {quoted !== undefined && (
-        <span className="shrink-0 font-medium text-header">{nameOf(quoted.author)}</span>
+        <span className="min-w-0 max-w-[35%] truncate font-medium text-header">
+          {nameOf(quoted.author)}
+        </span>
       )}
-      <span className={`truncate ${quoted === undefined ? 'italic text-faint' : ''}`}>
+      <span
+        className={`min-w-0 flex-1 truncate ${quoted === undefined ? 'italic text-faint' : ''}`}
+      >
         {snippet}
       </span>
     </>
   );
 
-  const className = 'mb-0.5 flex items-center gap-1.5 text-xs text-muted';
+  const className =
+    'mb-0.5 flex w-full min-w-0 max-w-full items-center gap-1.5 overflow-hidden text-xs text-muted';
   if (onJump === undefined) return <div className={className}>{inner}</div>;
   return (
     <button

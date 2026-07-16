@@ -84,7 +84,11 @@ function makeActions(): MessageListActions {
 }
 
 beforeEach(() => {
-  useUi.setState({ lang: 'fr', view: { kind: 'friends' } });
+  useUi.setState({
+    lang: 'fr',
+    view: { kind: 'friends' },
+    reducedMotion: 'system',
+  });
   useSession.setState({ self: null });
   useFriends.setState({ contacts: [] });
   useGroups.setState({ ids: [], states: {} });
@@ -500,6 +504,12 @@ describe('MessageList — citations et réactions', () => {
 
     // Le texte original apparaît dans son message et dans la citation.
     expect(screen.getAllByText('message original')).toHaveLength(2);
+    expect(screen.getByRole('button', { name: /message original/ })).toHaveClass(
+      'w-full',
+      'min-w-0',
+      'max-w-full',
+      'overflow-hidden',
+    );
   });
 
   it('signale une citation dont l’original n’est pas chargé', () => {
@@ -751,6 +761,41 @@ describe('MessageList — état de livraison', () => {
 });
 
 describe('MessageList — saut au message', () => {
+  it.each([
+    ['on', false, 'auto'],
+    ['off', true, 'auto'],
+    ['system', true, 'auto'],
+    ['off', false, 'smooth'],
+  ] as const)(
+    'adapte le défilement avec le réglage %s et la préférence système %s',
+    (preference, reducedBySystem, expectedBehavior) => {
+      const originalScrollIntoView = Element.prototype.scrollIntoView;
+      const originalMatchMedia = window.matchMedia;
+      const scrollIntoView = vi.fn();
+      Element.prototype.scrollIntoView = scrollIntoView;
+      window.matchMedia = vi.fn(() => ({ matches: reducedBySystem }) as MediaQueryList);
+      useUi.setState({ reducedMotion: preference });
+
+      try {
+        render(
+          <MessageList
+            messages={[textMsg('m1', BASE_MS, 'cible')]}
+            scrollTarget={{ msgId: 'm1', nonce: 1 }}
+          />,
+        );
+
+        expect(scrollIntoView).toHaveBeenCalledWith({
+          block: 'center',
+          behavior: expectedBehavior,
+        });
+      } finally {
+        Element.prototype.scrollIntoView = originalScrollIntoView;
+        window.matchMedia = originalMatchMedia;
+        useUi.setState({ reducedMotion: 'system' });
+      }
+    },
+  );
+
   it('met en surbrillance la cible d’un scrollTarget', () => {
     const messages = [
       textMsg('m1', BASE_MS, 'premier'),

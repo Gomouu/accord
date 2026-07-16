@@ -233,7 +233,7 @@ export function VoiceTab() {
             value={masterVolume}
             aria-label={t.settings.outputVolumeLabel}
             onChange={(e) => onMasterVolume(Number(e.target.value))}
-            className="h-1 w-full rounded-full accent-blurple outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+            className="h-5 w-full rounded-full accent-blurple outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
           />
           <span className="w-12 shrink-0 text-right text-sm tabular-nums text-norm">
             {masterVolume}%
@@ -265,7 +265,9 @@ export function VoiceTab() {
           hint={t.settings.noiseSuppressionHint}
           checked={dsp.noiseSuppression}
           onChange={(enabled) => {
-            setNoiseSuppression(enabled).catch(() => toast('error', t.errors.actionFailed));
+            setNoiseSuppression(enabled).catch(() =>
+              toast('error', t.errors.actionFailed),
+            );
           }}
         />
         <ToggleRow

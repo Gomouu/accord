@@ -221,7 +221,7 @@ function AddFriend() {
       <div className="max-w-2xl p-6">
         <h2 className="mb-1 font-semibold uppercase text-header">{t.friends.addTitle}</h2>
         <p className="mb-4 text-sm text-muted">{t.friends.addHint}</p>
-        <div className="flex gap-3 rounded-lg bg-rail p-3">
+        <div className="flex gap-3 rounded-lg border border-transparent bg-rail p-3 transition-colors duration-fast focus-within:border-header/60">
           <input
             aria-label={t.friends.addPlaceholder}
             placeholder={t.friends.addPlaceholder}

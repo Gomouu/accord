@@ -460,7 +460,7 @@ export function ProfilePopover() {
                           () => toast('error', t.errors.actionFailed),
                         )
                       }
-                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-xs text-faint transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-1 focus-visible:ring-offset-sidebar active:scale-95"
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xs text-faint transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-1 focus-visible:ring-offset-sidebar active:scale-95"
                     >
                       <CopyMenuIcon />
                     </button>

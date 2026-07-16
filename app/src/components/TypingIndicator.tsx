@@ -13,30 +13,50 @@ import { useT } from '../stores/ui';
 /** Au-delà de ce nombre d'écrivains, les noms ne sont plus détaillés. */
 const MAX_NAMED_WRITERS = 2;
 
-export function TypingIndicator({ typingKey }: { typingKey: string }) {
+export function TypingIndicator({
+  typingKey,
+  nameOf,
+}: {
+  typingKey: string;
+  nameOf?: ((pubkey: string) => string) | undefined;
+}) {
   const t = useT();
   const contacts = useFriends((s) => s.contacts);
   const writers = useTyping((s) => s.writers[typingKey]);
   const pubkeys = Object.keys(writers ?? {});
-  if (pubkeys.length === 0) return null;
 
-  const names = pubkeys.map((pubkey) => displayNameOf(contacts, pubkey));
+  const names = pubkeys.map(
+    (pubkey) => nameOf?.(pubkey) ?? displayNameOf(contacts, pubkey),
+  );
   const label =
-    names.length === 1
-      ? interpolate(t.dm.typingOne, { name: names[0] ?? '' })
-      : names.length === MAX_NAMED_WRITERS
-        ? interpolate(t.dm.typingTwo, { a: names[0] ?? '', b: names[1] ?? '' })
-        : t.dm.typingMany;
+    names.length === 0
+      ? null
+      : names.length === 1
+        ? interpolate(t.dm.typingOne, { name: names[0] ?? '' })
+        : names.length === MAX_NAMED_WRITERS
+          ? interpolate(t.dm.typingTwo, { a: names[0] ?? '', b: names[1] ?? '' })
+          : t.dm.typingMany;
 
   return (
-    <div
-      role="status"
-      className="view-enter -mt-5 flex h-5 items-center gap-1.5 px-6 text-xs text-muted"
-    >
-      <span aria-hidden className="animate-pulse font-medium tracking-widest">
-        …
-      </span>
-      <span className="truncate">{label}</span>
+    <div className="flex h-5 shrink-0 items-center px-6">
+      {label !== null && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="view-enter flex min-w-0 items-center gap-2 text-xs text-muted"
+        >
+          <span aria-hidden className="flex shrink-0 items-center gap-0.5">
+            {[0, 1, 2].map((index) => (
+              <span
+                key={index}
+                className="typing-dot h-1 w-1 rounded-full bg-muted"
+                style={{ animationDelay: `${index * 120}ms` }}
+              />
+            ))}
+          </span>
+          <span className="truncate">{label}</span>
+        </div>
+      )}
     </div>
   );
 }

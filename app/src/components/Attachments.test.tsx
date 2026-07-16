@@ -104,14 +104,21 @@ describe('Pièces jointes — vignette d’image', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     // Fermeture différée (animation de sortie) : le dialogue se démonte après
     // l'animation, pas de façon synchrone.
-    await waitFor(() =>
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
   it('signale une image indisponible sans casser le fil', async () => {
     lireMock.mockRejectedValueOnce(new Error('introuvable'));
     render(<MessageList messages={[message([piece()])]} />);
+
+    expect(await screen.findByText('Image indisponible')).toBeInTheDocument();
+  });
+
+  it('signale une image illisible après son chargement', async () => {
+    lireMock.mockResolvedValueOnce('blob:image-invalide');
+    render(<MessageList messages={[message([piece()])]} />);
+
+    fireEvent.error(await screen.findByAltText('photo.png'));
 
     expect(await screen.findByText('Image indisponible')).toBeInTheDocument();
   });

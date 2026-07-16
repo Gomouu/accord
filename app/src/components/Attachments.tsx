@@ -224,6 +224,7 @@ function VignetteImage({
           src={url}
           alt={piece.name}
           className="h-full w-full rounded-lg object-contain"
+          onError={() => setEchec(true)}
         />
       </button>
       {pleinEcran && (

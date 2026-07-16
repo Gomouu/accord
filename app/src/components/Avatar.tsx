@@ -45,10 +45,12 @@ export function Avatar({
   decorationMotion,
 }: AvatarProps) {
   const [url, setUrl] = useState<string | null>(null);
+  const [imageFailed, setImageFailed] = useState(false);
 
   useEffect(() => {
     let alive = true;
     setUrl(null);
+    setImageFailed(false);
     if (avatarHash === null || imageUrl !== null) return undefined;
     lireFichier(avatarHash, hint)
       .then((blobUrl) => {
@@ -62,7 +64,7 @@ export function Avatar({
     };
   }, [avatarHash, hint, imageUrl]);
 
-  const resolvedUrl = imageUrl ?? url;
+  const resolvedUrl = imageFailed ? null : (imageUrl ?? url);
   const motion = decorationMotion ?? (size >= 54 ? 'full' : 'interaction');
 
   const cercle = (
@@ -74,7 +76,12 @@ export function Avatar({
       {resolvedUrl === null ? (
         initials(name)
       ) : (
-        <img src={resolvedUrl} alt="" className="h-full w-full object-cover" />
+        <img
+          src={resolvedUrl}
+          alt=""
+          className="h-full w-full object-cover"
+          onError={() => setImageFailed(true)}
+        />
       )}
     </div>
   );

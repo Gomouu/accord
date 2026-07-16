@@ -60,6 +60,14 @@ const FOLLOW_BOTTOM_THRESHOLD_PX = 80;
 /** Durée de la surbrillance d'un message atteint par un saut (ms). */
 const HIGHLIGHT_MS = 1600;
 
+function messageScrollBehavior(): ScrollBehavior {
+  const preference = useUi.getState().reducedMotion;
+  if (preference === 'on') return 'auto';
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true
+    ? 'auto'
+    : 'smooth';
+}
+
 /** État de livraison effectif : le champ explicite prime, l'ack le complète. */
 function deliveryOf(message: DisplayMessage): DeliveryState {
   if (message.delivery !== undefined) return message.delivery;
@@ -222,7 +230,7 @@ export function MessageList({
     const el = rowRefs.current.get(scrollTarget.msgId);
     if (el === undefined) return;
     try {
-      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      el.scrollIntoView({ block: 'center', behavior: messageScrollBehavior() });
     } catch {
       // Environnement de test sans mise en page (jsdom) : défilement ignoré.
     }
@@ -413,7 +421,7 @@ export function MessageList({
     if (target === undefined) return;
     const el = rowRefs.current.get(target.msg_id);
     try {
-      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      el?.scrollIntoView({ block: 'center', behavior: messageScrollBehavior() });
     } catch {
       // jsdom sans mise en page : défilement ignoré.
     }
@@ -604,7 +612,7 @@ export function MessageList({
                           }}
                         />
                       )}
-                      <div className="flex items-baseline gap-2">
+                      <div className="flex min-w-0 items-baseline gap-2">
                         <button
                           type="button"
                           onClick={(e) => ouvrirProfil(m.author, e.currentTarget)}
@@ -619,12 +627,12 @@ export function MessageList({
                                 buildUserItems(menuDeps, m.author, e.currentTarget),
                               );
                           }}
-                          className="font-semibold text-header hover:underline focus-visible:underline focus-visible:outline-none"
+                          className="min-w-0 truncate font-semibold text-header hover:underline focus-visible:underline focus-visible:outline-none"
                           style={nameColor !== null ? { color: nameColor } : undefined}
                         >
                           {name}
                         </button>
-                        <span className="text-xs text-faint">
+                        <span className="shrink-0 whitespace-nowrap text-xs text-faint">
                           {formatTimestamp(m.sent_ms, lang, undefined, timeFormat)}
                         </span>
                         {pinned && (

@@ -12,10 +12,12 @@ import { interpolate } from '../i18n';
 import type { GroupThread } from '../lib/api';
 import { channelKey, useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
+import { groupTypingKey } from '../stores/typing';
 import { useT, useUi } from '../stores/ui';
 import { CloseIcon } from './ContextMenu';
 import { MessageInput } from './MessageInput';
 import { MessageList, type DisplayMessage } from './MessageList';
+import { TypingIndicator } from './TypingIndicator';
 import { displayText } from './messageModel';
 
 export interface ThreadPanelProps {
@@ -194,6 +196,7 @@ export function ThreadPanel({
           setReplyTo(null);
         }}
       />
+      <TypingIndicator typingKey={groupTypingKey(groupId, threadId)} nameOf={nameOf} />
     </aside>
   );
 }

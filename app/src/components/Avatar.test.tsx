@@ -6,7 +6,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Avatar } from './Avatar';
 
 vi.mock('../lib/files', () => ({ lireFichier: vi.fn() }));
@@ -101,5 +101,20 @@ describe('Avatar', () => {
       'data:image/png;base64,AA==',
     );
     expect(lireMock).not.toHaveBeenCalled();
+  });
+
+  it("retombe sur les initiales si l'image ne peut pas être décodée", () => {
+    const { container, rerender } = render(
+      <Avatar id="x" name="Alice" imageUrl="blob:invalide" />,
+    );
+
+    fireEvent.error(container.querySelector('img') as HTMLImageElement);
+
+    expect(screen.getByText('A')).toBeInTheDocument();
+    expect(container.querySelector('img')).not.toBeInTheDocument();
+
+    rerender(<Avatar id="x" name="Alice" imageUrl="blob:valide" />);
+
+    expect(container.querySelector('img')).toHaveAttribute('src', 'blob:valide');
   });
 });

@@ -669,7 +669,7 @@ export function MessageInput({
 
   if (notice !== null) {
     return (
-      <div className="px-4 pb-3">
+      <div className="px-4 pb-1">
         <div
           role="status"
           className="flex items-center gap-2.5 rounded-xl bg-input px-4 py-3 text-sm text-muted"
@@ -699,7 +699,7 @@ export function MessageInput({
     (text.trim() !== '' || pieces.length > 0) && !sending && !slowmodeActive;
 
   return (
-    <div className="px-4 pb-3">
+    <div className="px-4 pb-1">
       {pieces.length > 0 && (
         <div className="flex max-h-40 flex-wrap gap-2 overflow-y-auto overscroll-contain rounded-t-xl border border-b-0 border-rail/60 bg-sidebar px-3 py-2.5">
           {pieces.map((piece) => {
@@ -748,7 +748,7 @@ export function MessageInput({
                   title={interpolate(t.fichiers.retirerPiece, { name: nom })}
                   disabled={sending}
                   onClick={() => retirer(piece.id)}
-                  className="shrink-0 rounded-full p-0.5 text-faint transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-faint transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
                 >
                   <CloseIcon size={14} />
                 </button>

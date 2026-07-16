@@ -47,10 +47,12 @@ beforeEach(() => {
 describe('TypingIndicator', () => {
   it("n'affiche rien sans écrivain", () => {
     // Arrange / Act
-    render(<TypingIndicator typingKey={KEY} />);
+    const { container } = render(<TypingIndicator typingKey={KEY} />);
 
     // Assert
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(container.firstElementChild).toHaveClass('h-5', 'shrink-0');
+    expect(container.firstElementChild).not.toHaveClass('-mt-5');
   });
 
   it('nomme le seul écrivain', () => {
@@ -58,10 +60,24 @@ describe('TypingIndicator', () => {
     setWriters(['alice-pk']);
 
     // Act
-    render(<TypingIndicator typingKey={KEY} />);
+    const { container } = render(<TypingIndicator typingKey={KEY} />);
 
     // Assert
     expect(screen.getByRole('status')).toHaveTextContent('Alice est en train d’écrire…');
+    expect(container.querySelectorAll('.typing-dot')).toHaveLength(3);
+  });
+
+  it('utilise le nom fourni par le contexte du serveur', () => {
+    setWriters(['alice-pk']);
+
+    render(
+      <TypingIndicator
+        typingKey={KEY}
+        nameOf={(pubkey) => (pubkey === 'alice-pk' ? 'Alicia' : pubkey)}
+      />,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent('Alicia est en train d’écrire…');
   });
 
   it('nomme les deux écrivains', () => {

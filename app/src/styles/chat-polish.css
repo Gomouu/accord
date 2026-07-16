@@ -19,6 +19,29 @@
   max-width: min(85cqw, 24rem);
 }
 
+.group-chat-members {
+  display: flex;
+}
+
+.group-chat-members-toggle,
+.group-chat-members-overlay {
+  display: none;
+}
+
+@container group-chat (max-width: 55rem) {
+  .group-chat-members {
+    display: none;
+  }
+
+  .group-chat-members-toggle {
+    display: inline-flex;
+  }
+
+  .group-chat-members-overlay {
+    display: block;
+  }
+}
+
 /*
  * Dans la fenêtre courante de l'application, trois colonnes ne laissent pas
  * une largeur de lecture suffisante. La liste des membres disparaît et le fil
@@ -27,6 +50,14 @@
 @container group-chat (max-width: 68rem) {
   .group-chat-layout.thread-is-open .group-chat-members {
     display: none;
+  }
+
+  .group-chat-layout.thread-is-open .group-chat-members-toggle {
+    display: inline-flex;
+  }
+
+  .group-chat-layout.thread-is-open .group-chat-members-overlay {
+    display: block;
   }
 
   .group-chat-layout.thread-is-open .thread-panel {

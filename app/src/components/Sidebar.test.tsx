@@ -287,9 +287,9 @@ describe('Sidebar — menu du nom de serveur', () => {
     expect(
       screen.getByRole('menuitem', { name: 'Copier l’ID du serveur' }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole('menuitem', { name: 'Quitter le serveur' }),
-    ).toBeInTheDocument();
+    const leave = screen.getByRole('menuitem', { name: 'Quitter le serveur' });
+    expect(leave).toHaveClass('server-menu-danger');
+    expect(screen.getAllByRole('separator')).toHaveLength(3);
     // Ni invitation ni création de salon/catégorie sans les permissions requises.
     expect(
       screen.queryByRole('menuitem', { name: 'Inviter des personnes' }),
@@ -380,6 +380,11 @@ describe('Sidebar — menu du nom de serveur', () => {
       name: 'Masquer les salons muets',
     });
     expect(item).toHaveAttribute('aria-checked', 'false');
+    expect(item.querySelector('span[aria-hidden]')).toHaveClass(
+      'h-[18px]',
+      'w-[18px]',
+      'border-faint/70',
+    );
 
     fireEvent.click(item);
     expect(useUi.getState().hideMutedChannels).toBe(true);
@@ -396,7 +401,9 @@ describe('Sidebar — menu du nom de serveur', () => {
       </>,
     );
     fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Notifications' }));
+    const notifications = screen.getByRole('menuitem', { name: 'Notifications' });
+    expect(notifications.querySelectorAll('svg')).toHaveLength(2);
+    fireEvent.click(notifications);
 
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Rien' }));
     expect(useMute.getState().serverLevels.g1).toBe('none');
@@ -423,13 +430,37 @@ describe('Sidebar — menu du nom de serveur', () => {
 
     render(<Sidebar />);
     fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
-    expect(screen.getByRole('menu', { name: 'Menu du serveur' })).toHaveClass(
+    const menu = screen.getByRole('menu', { name: 'Menu du serveur' });
+    expect(menu).toHaveClass('server-menu-surface', 'overflow-hidden');
+    expect(menu.querySelector('.server-menu-scroll')).toHaveClass(
       'overflow-y-auto',
       'overscroll-contain',
     );
 
     fireEvent.keyDown(window, { key: 'Escape' });
 
+    expect(
+      screen.queryByRole('menu', { name: 'Menu du serveur' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('gère le focus, Home, End et Tab au clavier', () => {
+    useGroups.setState({ ids: ['g1'], states: { g1: groupState() } });
+
+    render(<Sidebar />);
+    fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
+
+    const settings = screen.getByRole('menuitem', { name: 'Paramètres du serveur' });
+    expect(settings).toHaveFocus();
+
+    fireEvent.keyDown(settings, { key: 'End' });
+    const leave = screen.getByRole('menuitem', { name: 'Quitter le serveur' });
+    expect(leave).toHaveFocus();
+
+    fireEvent.keyDown(leave, { key: 'Home' });
+    expect(settings).toHaveFocus();
+
+    fireEvent.keyDown(settings, { key: 'Tab' });
     expect(
       screen.queryByRole('menu', { name: 'Menu du serveur' }),
     ).not.toBeInTheDocument();

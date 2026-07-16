@@ -108,6 +108,17 @@ WebKitGTK 4.1 may be missing — prefer Ubuntu 22.04 or newer.
 # Artifacts: target/universal-apple-darwin/release/bundle/{dmg,macos}
 ```
 
+> Building the voice stack compiles the vendored Opus codec via CMake. With
+> CMake ≥ 4 (e.g. current Homebrew), `audiopus_sys`'s bundled CMakeLists is
+> rejected as too old — export `CMAKE_POLICY_VERSION_MINIMUM=3.5` before any
+> `cargo`/`ci.sh` invocation (or install `cmake@3`).
+>
+> The frontend test suite (vitest 2.x + jsdom) requires a Node LTS in the
+> `>=20 <25` range (declared in `app/package.json` `engines`); Node 26+
+> breaks the jsdom environment (`window.localStorage` undefined). With
+> Homebrew: `brew install node@22` and prefix
+> `PATH="/opt/homebrew/opt/node@22/bin:$PATH"`.
+
 ### 3. Windows (run on Windows, in PowerShell)
 
 ```powershell

@@ -155,13 +155,44 @@ fn op_content_id(op: &GroupOp) -> [u8; 16] {
     id
 }
 
+/// Vrai si le groupe est « hérité » (créé avant l'`op_id` contenu-adressé) :
+/// son op CREATE canonique — la première au sens de [`sort_canonical`], celle
+/// que [`GroupState::fold`] applique — porte un `op_id` aléatoire d'époque.
+/// Un tel groupe est *grandfathered* : ses ops à `op_id` libre restent
+/// acceptées (sinon toute jonction, restauration ou anti-entropie d'un groupe
+/// pré-1.3 casserait). Il conserve donc la faiblesse historique de collision
+/// d'`op_id` — inchangée par rapport aux versions antérieures — tandis que
+/// tout groupe créé depuis bénéficie de l'invariant fort. Sans CREATE local,
+/// le régime strict s'applique — et [`should_pull`] force alors un pull
+/// complet depuis 0, garantissant que le CREATE finit par arriver (en tête de
+/// l'ordre canonique) et que les ops refusées sont représentées ensuite.
+fn group_is_legacy(db: &Db, group_id: &[u8; 16]) -> Result<bool, CoreError> {
+    let mut ops = db.group_ops(group_id)?;
+    sort_canonical(&mut ops);
+    Ok(ops
+        .iter()
+        .find(|o| o.kind == GroupOpBody::CREATE_KIND)
+        .map(|create| create.op_id != op_content_id(create))
+        .unwrap_or(false))
+}
+
 /// Ingère une op reçue du réseau : vérification de signature, cohérence de
 /// l'`op_id` avec le contenu, insertion idempotente, avance de l'horloge de
 /// Lamport locale et application des suppressions de modération à l'historique.
 pub fn ingest_op(db: &Db, op: &GroupOp) -> Result<IngestOutcome, CoreError> {
     verify_signature(&op.author, &op.signable_bytes(), &op.sig)?;
-    // Intégrité (SPEC §6.2) : l'`op_id` DOIT être le hash du contenu.
-    if op.op_id != op_content_id(op) {
+    // Intégrité (SPEC §6.2) : l'`op_id` DOIT être le hash du contenu — sauf
+    // régime hérité. Une op CREATE à id libre est toujours ingérable (c'est
+    // elle qui établit le régime du groupe ; la refuser rendrait tout groupe
+    // pré-1.3 injoignable). L'accepter n'ouvre rien de neuf : une CREATE
+    // concurrente injectée par un membre malveillant — héritée OU
+    // contenu-adressée, l'invariant ne discrimine pas — est ignorée au repli
+    // (« groupe déjà créé ») à moins de précéder la vraie racine dans l'ordre
+    // canonique, vecteur préexistant et orthogonal à cet invariant.
+    if op.op_id != op_content_id(op)
+        && op.kind != GroupOpBody::CREATE_KIND
+        && !group_is_legacy(db, &op.group_id)?
+    {
         return Err(CoreError::Invalid("op_id incohérent avec le contenu"));
     }
     // Le corps doit être décodable : une op indéchiffrable ne sert à rien
@@ -196,6 +227,12 @@ pub fn sync_offer(db: &Db, group_id: &[u8; 16]) -> Result<SyncOffer, CoreError> 
 /// Décide de la borne d'un `GroupSyncPull` après réception d'une offre.
 ///
 /// - Offre identique au log local → `None` (rien à faire).
+/// - Log local sans op CREATE → pull complet depuis 0 : la racine du log a pu
+///   être perdue en transit (poussée d'invitation en UDP sans retransmission)
+///   alors qu'une op postérieure a déjà avancé notre lamport maximal. Un pull
+///   borné à `> max` ne re-livrerait JAMAIS le CREATE (famine permanente) et,
+///   sans lui, le régime hérité d'un groupe pré-1.3 est indéterminable —
+///   toutes ses ops à `op_id` libre seraient refusées à chaque tour.
 /// - Offre plus avancée → pull depuis notre lamport maximal.
 /// - Divergence à hauteur égale (empreintes différentes) → pull complet
 ///   depuis 0 ; l'insertion étant idempotente, seul le manquant est ajouté.
@@ -203,6 +240,13 @@ pub fn should_pull(db: &Db, offer: &SyncOffer) -> Result<Option<u64>, CoreError>
     let local = sync_offer(db, &offer.group_id)?;
     if local.digest == offer.digest && local.op_count == offer.op_count {
         return Ok(None);
+    }
+    let has_create = db
+        .group_ops(&offer.group_id)?
+        .iter()
+        .any(|o| o.kind == GroupOpBody::CREATE_KIND);
+    if !has_create {
+        return Ok(Some(0));
     }
     if offer.max_lamport > local.max_lamport {
         return Ok(Some(local.max_lamport));
@@ -421,6 +465,30 @@ mod tests {
         assert_eq!(db_b.group_ops(&created.group_id).unwrap().len(), 1);
     }
 
+    /// Fabrique une op signée à `op_id` LIBRE (non contenu-adressé), comme
+    /// l'émettait un client pré-1.3 — ou comme la forgerait un membre
+    /// malveillant cherchant une collision d'`op_id`.
+    fn craft_free_id_op(
+        identity: &Identity,
+        group_id: &[u8; 16],
+        body: &GroupOpBody,
+        lamport: u64,
+        op_id: [u8; 16],
+    ) -> GroupOp {
+        let mut op = GroupOp {
+            op_id,
+            group_id: *group_id,
+            lamport,
+            wall_ms: 0,
+            author: identity.public_key(),
+            kind: body.kind(),
+            body: body.encode_body(),
+            sig: [0u8; 64],
+        };
+        op.sig = identity.sign(&op.signable_bytes());
+        op
+    }
+
     #[test]
     fn op_id_lie_au_contenu_bloque_la_collision() {
         let (db, id) = setup();
@@ -437,12 +505,194 @@ mod tests {
         b.lamport = 11;
         b.op_id = op_content_id(&b);
         assert_ne!(a.op_id, b.op_id);
-        // Un `op_id` falsifié (ne correspondant pas au contenu), MÊME signé
-        // valablement par l'auteur, est rejeté à l'ingestion.
-        let mut forged = created.op.clone();
-        forged.op_id = [0xEE; 16];
-        forged.sig = id.sign(&forged.signable_bytes());
+        // Dans un groupe contenu-adressé, une op (non CREATE) à `op_id`
+        // falsifié, MÊME signée valablement par l'auteur, est rejetée.
+        let forged = craft_free_id_op(
+            &id,
+            &created.group_id,
+            &GroupOpBody::SetMeta {
+                name: "détourné".into(),
+                icon: None,
+                banner_color: None,
+            },
+            10,
+            [0xEE; 16],
+        );
         assert!(ingest_op(&db, &forged).is_err());
+        assert_eq!(group_state(&db, &created.group_id).unwrap().name, "G");
+    }
+
+    #[test]
+    fn groupe_herite_grandfathere_accepte_ops_a_id_libre() {
+        let (db_a, alice) = setup();
+        let group_id = new_id16();
+        // CREATE d'époque (client pré-1.3) : `op_id` aléatoire.
+        let create = craft_free_id_op(
+            &alice,
+            &group_id,
+            &GroupOpBody::Create {
+                name: "Vieux".into(),
+            },
+            1,
+            new_id16(),
+        );
+        assert_eq!(ingest_op(&db_a, &create).unwrap(), IngestOutcome::Inserted);
+        // Le groupe est en régime hérité : les ops à id libre passent encore
+        // (jonction, restauration et rattrapage des groupes pré-1.3 intacts).
+        let legacy = craft_free_id_op(
+            &alice,
+            &group_id,
+            &GroupOpBody::SetMeta {
+                name: "Vieux 2".into(),
+                icon: None,
+                banner_color: None,
+            },
+            2,
+            new_id16(),
+        );
+        assert_eq!(ingest_op(&db_a, &legacy).unwrap(), IngestOutcome::Inserted);
+        // Un client à jour écrivant dans ce même groupe (id contenu-adressé)
+        // passe aussi : les régimes cohabitent dans un groupe hérité.
+        let mut modern = craft_free_id_op(
+            &alice,
+            &group_id,
+            &GroupOpBody::SetMeta {
+                name: "Vieux 3".into(),
+                icon: None,
+                banner_color: None,
+            },
+            3,
+            [0u8; 16],
+        );
+        modern.op_id = op_content_id(&modern);
+        modern.sig = alice.sign(&modern.signable_bytes());
+        assert_eq!(ingest_op(&db_a, &modern).unwrap(), IngestOutcome::Inserted);
+        assert_eq!(group_state(&db_a, &group_id).unwrap().name, "Vieux 3");
+    }
+
+    #[test]
+    fn op_heritee_refusee_avant_le_create_puis_acceptee_apres() {
+        let (db, alice) = setup();
+        let group_id = new_id16();
+        let create = craft_free_id_op(
+            &alice,
+            &group_id,
+            &GroupOpBody::Create {
+                name: "Vieux".into(),
+            },
+            1,
+            new_id16(),
+        );
+        let meta = craft_free_id_op(
+            &alice,
+            &group_id,
+            &GroupOpBody::SetMeta {
+                name: "Renommé".into(),
+                icon: None,
+                banner_color: None,
+            },
+            2,
+            new_id16(),
+        );
+        // Sans CREATE local, impossible d'établir le régime hérité : refus
+        // strict. L'anti-entropie livre le CREATE en premier (ordre canonique)
+        // et représentera l'op au tour suivant — convergence préservée.
+        assert!(ingest_op(&db, &meta).is_err());
+        ingest_op(&db, &create).unwrap();
+        assert_eq!(ingest_op(&db, &meta).unwrap(), IngestOutcome::Inserted);
+        assert_eq!(group_state(&db, &group_id).unwrap().name, "Renommé");
+    }
+
+    #[test]
+    fn pull_repart_de_zero_quand_le_create_manque_au_log_local() {
+        // Réplique complète d'un groupe hérité chez A : CREATE(1) et une op
+        // d'époque (2), puis une op contenu-adressée d'un membre à jour (3)
+        // et une nouvelle op d'époque (4).
+        let (db_a, alice) = setup();
+        let group_id = new_id16();
+        let meta = |name: &str| GroupOpBody::SetMeta {
+            name: name.into(),
+            icon: None,
+            banner_color: None,
+        };
+        let create = craft_free_id_op(
+            &alice,
+            &group_id,
+            &GroupOpBody::Create {
+                name: "Vieux".into(),
+            },
+            1,
+            new_id16(),
+        );
+        let old2 = craft_free_id_op(&alice, &group_id, &meta("v2"), 2, new_id16());
+        let mut modern = craft_free_id_op(&alice, &group_id, &meta("v3"), 3, [0u8; 16]);
+        modern.op_id = op_content_id(&modern);
+        modern.sig = alice.sign(&modern.signable_bytes());
+        let old4 = craft_free_id_op(&alice, &group_id, &meta("v4"), 4, new_id16());
+        for op in [&create, &old2, &modern, &old4] {
+            ingest_op(&db_a, op).unwrap();
+        }
+
+        // B (invité fraîchement accepté) n'a reçu QUE l'op contenu-adressée :
+        // la poussée du log (CREATE en tête) s'est perdue en transit. Son
+        // lamport maximal (3) dépasse celui du CREATE — un pull borné à
+        // `> max` ne re-livrerait jamais la racine, et chaque op d'époque
+        // resterait refusée (régime indéterminable) : famine permanente.
+        let db_b = Db::open_in_memory(&[4u8; 32]).unwrap();
+        ingest_op(&db_b, &modern).unwrap();
+
+        let offer_a = sync_offer(&db_a, &group_id).unwrap();
+        assert_eq!(should_pull(&db_b, &offer_a).unwrap(), Some(0));
+
+        // Le pull complet livre le log dans l'ordre canonique : le CREATE
+        // établit le régime hérité, puis tout est accepté et B converge.
+        for op in ops_for_pull(&db_a, &group_id, 0).unwrap() {
+            if op.op_id != modern.op_id {
+                ingest_op(&db_b, &op).unwrap();
+            }
+        }
+        assert_eq!(sync_offer(&db_b, &group_id).unwrap().digest, offer_a.digest);
+        assert_eq!(group_state(&db_b, &group_id).unwrap().name, "v4");
+    }
+
+    #[test]
+    fn create_concurrente_ne_bascule_pas_un_groupe_moderne_en_regime_herite() {
+        let (db, alice) = setup();
+        let mallory = Identity::generate_with_pow_bits(1);
+        let created = create_group(&db, &alice, "G", 0).unwrap();
+        // Une CREATE concurrente à id libre reste ingérable (elle pourrait
+        // fonder un groupe hérité légitime) mais, arrivant APRÈS la racine
+        // dans l'ordre canonique, elle est ignorée au repli et ne change pas
+        // le régime : le groupe reste contenu-adressé.
+        let rogue_create = craft_free_id_op(
+            &mallory,
+            &created.group_id,
+            &GroupOpBody::Create {
+                name: "usurpé".into(),
+            },
+            created.op.lamport + 1,
+            new_id16(),
+        );
+        assert_eq!(
+            ingest_op(&db, &rogue_create).unwrap(),
+            IngestOutcome::Inserted
+        );
+        let state = group_state(&db, &created.group_id).unwrap();
+        assert_eq!(state.founder, Some(alice.public_key()));
+        assert_eq!(state.name, "G");
+        // Le régime strict tient toujours : op à id libre rejetée.
+        let legacy = craft_free_id_op(
+            &alice,
+            &created.group_id,
+            &GroupOpBody::SetMeta {
+                name: "détourné".into(),
+                icon: None,
+                banner_color: None,
+            },
+            created.op.lamport + 2,
+            new_id16(),
+        );
+        assert!(ingest_op(&db, &legacy).is_err());
     }
 
     #[test]

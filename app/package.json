@@ -1,9 +1,12 @@
 {
   "name": "accord-app",
   "private": true,
-  "version": "1.2.8",
+  "version": "1.3.0",
   "description": "Accord desktop app (Tauri + React)",
   "type": "module",
+  "engines": {
+    "node": ">=20 <25"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

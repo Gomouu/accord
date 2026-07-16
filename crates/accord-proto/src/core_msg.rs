@@ -974,10 +974,16 @@ pub enum GroupOpBody {
 }
 
 impl GroupOpBody {
+    /// Discriminant filaire de l'op CREATE (SPEC §6.2) — exposé car la racine
+    /// du log a un rôle spécial : elle fonde le groupe et détermine le régime
+    /// de validation des `op_id` (contenu-adressé ou hérité, voir
+    /// `accord-core::group::ingest_op`).
+    pub const CREATE_KIND: u8 = 0x01;
+
     /// Discriminant filaire de l'opération.
     pub fn kind(&self) -> u8 {
         match self {
-            Self::Create { .. } => 0x01,
+            Self::Create { .. } => Self::CREATE_KIND,
             Self::SetMeta { .. } => 0x02,
             Self::AddChannel { .. } => 0x03,
             Self::EditChannel { .. } => 0x04,

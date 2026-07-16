@@ -2,6 +2,25 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [1.3.0] — 2026-07-16
+
+### Security
+
+- **Group op-log integrity (audit A): content-addressed op ids.** A group
+  operation's `op_id` is now the truncated SHA-256 of its content, and any op
+  whose id doesn't match is rejected at ingest. Previously ids were random, so
+  a malicious member could sign two different valid ops sharing one id —
+  peers folding different ones diverged permanently while anti-entropy saw
+  identical digests. Groups created before 1.3.0 are grandfathered: they keep
+  working exactly as before (joins, backup restores and sync catch-up intact),
+  and keep the historical weakness — recreate a server to get the new
+  guarantee. Writers in a group created under 1.3.0+ must be up to date: a
+  pre-1.3.0 client's writes there are silently rejected by updated peers and
+  keep the logs re-syncing periodically until it upgrades (see
+  docs/THREAT-MODEL.md §6). Anti-entropy now re-pulls a group's log from
+  zero whenever the local copy lacks its CREATE op, so a lost initial push
+  can no longer strand a fresh joiner.
+
 ## [1.2.8] — 2026-07-15
 
 ### Added

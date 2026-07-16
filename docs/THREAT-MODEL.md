@@ -6,7 +6,7 @@
 > surfaced by an internal adversarial review before public distribution.
 > For each one: the risk, why it is acceptable in v0, and the hardening
 > path. Every claim below is grounded in the current code (file references
-> given). Last reviewed: 2026-07-12. No external audit has been performed.
+> given). Last reviewed: 2026-07-16. No external audit has been performed.
 
 ## 1. Trust architecture (recap)
 
@@ -207,34 +207,48 @@ through disjoint paths (already done for identity records); longer-term
 options (lookup indirection, private information retrieval techniques)
 are research-grade and explicitly out of scope for v0.
 
-## 6. Accepted trade-off: op-log reconciliation trusts author-set op ids
+## 6. Accepted trade-off: legacy groups keep author-set op ids (grandfathered)
 
 **What it is.** Group state is a replicated log of signed operations,
 reconciled by anti-entropy: peers exchange a digest over their op ids
 (`sync_offer` in `crates/accord-core/src/group/mod.rs`) and pull what
-differs. Each op carries a 16-byte `op_id` chosen by its author, and
-`insert_group_op` is idempotent on that id.
+differs. `insert_group_op` is idempotent on the 16-byte `op_id`.
 
-**Risk.** A **malicious member** can sign two different, individually
-valid operations that share one `op_id`. Two honest peers that each folded
-a different one of the pair keep divergent state, yet compute the *same*
-reconciliation digest (identical id sets) — so anti-entropy believes they
-are in sync and never repairs the split.
+**Since 1.3.0 the id is content-addressed**: `op_id` must equal the
+truncated SHA-256 of the op's content (everything except `op_id`/`sig`,
+domain-separated), enforced at ingest (`ingest_op`). A malicious member can
+no longer sign two different, individually valid ops sharing one `op_id`
+(the historical silent-divergence attack: peers folding different ops kept
+divergent state while computing identical reconciliation digests).
 
-**Why acceptable in v1.**
+**Residual risk — grandfathered groups.** A group whose canonical-first
+CREATE op carries a pre-1.3.0 random `op_id` stays in the *legacy regime*:
+free-id ops remain accepted there, so joins, backup restores and
+anti-entropy catch-up of existing groups keep working — and the historical
+collision weakness remains, unchanged, **inside those groups only**.
+Recreating the server moves it to the enforced regime. CREATE ops
+themselves are always ingestible (they establish the regime); a concurrent
+CREATE is ignored at fold unless it precedes the genuine root in canonical
+order — a pre-existing insider vector that content-addressing neither
+opens nor closes.
+
+**Residual risk — mixed-version fleets.** A pre-1.3.0 client writing into
+a group created under 1.3.0+ produces free-id ops that up-to-date peers
+reject forever (the id is covered by the author's signature and cannot be
+repaired). The stale writer gets no feedback, and its extra op keeps
+reconciliation digests permanently unequal, causing a periodic full-log
+re-pull between it and each up-to-date peer (bounded by log size, every
+sync tick) until it leaves/rejoins with an updated client. Accepted for a
+friend-circle fleet that updates together; a protocol version gate or
+rejection memo is the hardening path if this ever matters in practice.
+
+**Why the remaining insider surface is acceptable in v1.**
 
 - The attacker must already be an **authenticated member** of the server —
   an insider abusing trust, not an outside attacker.
 - No confidentiality or integrity of **messages** breaks; the effect is a
   server-settings/membership view that can differ between members.
-- Both ops are **signed and attributable** to the same author.
-
-**Hardening path.** Bind `op_id` to a hash of the operation's signed
-content and reject ops whose id does not match: two divergent bodies then
-have distinct ids, both replicate, and last-writer-wins converges
-everywhere. This is a **breaking wire change** (existing random op ids no
-longer validate, so groups must be recreated), scheduled for a release
-that resets group history rather than shipped silently.
+- All ops are **signed and attributable** to their author.
 
 ## 7. Out of scope for v0
 

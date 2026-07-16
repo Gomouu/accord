@@ -372,6 +372,21 @@ Kinds: 0x01 CREATE, 0x02 SET_META, 0x03 ADD_CHANNEL, 0x04 EDIT_CHANNEL,
 
 - Total order: `(lamport, author_node_id)` ascending. Deterministic application;
   an op not authorized by the current state ⇒ ignored (all honest peers converge).
+- **Content-addressed `op_id`** (since 1.3.0): `op_id = SHA-256(content)[..16]`
+  where `content` is the domain-separated encoding of every field except
+  `op_id`/`sig` (`accord-groupop-id-v1` prefix). Enforced at ingest: an op whose
+  `op_id` does not match is rejected. This makes it infeasible for a malicious
+  member to sign two different, individually-valid ops sharing one `op_id`
+  (insertion is idempotent on `op_id` and anti-entropy digests hash `op_id`s,
+  so such a collision caused silent permanent state divergence).
+  **Grandfathering**: a group whose canonical-first CREATE op carries a
+  non-content-addressed `op_id` (created pre-1.3.0) is *legacy* — free-`op_id`
+  ops remain accepted there so joins, restores and anti-entropy catch-up of
+  existing groups keep working (they keep the historical collision weakness,
+  unchanged). CREATE ops are always ingestible (they establish the regime); a
+  concurrent CREATE is ignored at fold unless it precedes the genuine root in
+  canonical order, a pre-existing vector orthogonal to this invariant. Writers
+  in a post-1.3.0 group must be updated (their legacy-form ops are rejected).
 - Permissions (u32 bitfield): VIEW=1, SEND=2, MANAGE_MESSAGES=4, MANAGE_CHANNELS=8,
   INVITE=16, KICK=32, BAN=64, MANAGE_ROLES=128, ADMIN=256 (implies everything),
   MANAGE_EMOJIS=512.

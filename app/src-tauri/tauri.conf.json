@@ -28,6 +28,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "macOS": {
+      "entitlements": "entitlements.plist"
+    },
     "category": "SocialNetworking",
     "copyright": "© 2026 Projet Accord — licence MIT",
     "license": "MIT",

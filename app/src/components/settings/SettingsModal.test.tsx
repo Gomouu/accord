@@ -26,6 +26,7 @@ const self: SelfProfile = {
   banner_color: null,
   avatar_decoration: null,
   profile_effect: null,
+  profile_frame: null,
 };
 
 function blockedContact(pubkey: string, name: string): Contact {

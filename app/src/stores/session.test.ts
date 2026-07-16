@@ -92,6 +92,7 @@ const self: SelfProfile = {
   banner_color: null,
   avatar_decoration: null,
   profile_effect: null,
+  profile_frame: null,
 };
 
 /**
@@ -143,6 +144,21 @@ describe('useSession — personnalisation du profil', () => {
     await useSession.getState().setProfileEffect('aurora');
 
     expect(profileSetMock).toHaveBeenCalledWith({ profile_effect: 'aurora' });
+    expect(identitySelfMock).toHaveBeenCalledTimes(1);
+    expect(profileSetMock.mock.invocationCallOrder[0]!).toBeLessThan(
+      identitySelfMock.mock.invocationCallOrder[0]!,
+    );
+    expect(useSession.getState().self).toEqual(updated);
+  });
+
+  it('fixe le cadre puis recharge identity.self', async () => {
+    const updated = { ...self, profile_frame: 'crystal_crown' };
+    profileSetMock.mockResolvedValueOnce({});
+    identitySelfMock.mockResolvedValueOnce(updated);
+
+    await useSession.getState().setProfileFrame('crystal_crown');
+
+    expect(profileSetMock).toHaveBeenCalledWith({ profile_frame: 'crystal_crown' });
     expect(identitySelfMock).toHaveBeenCalledTimes(1);
     expect(profileSetMock.mock.invocationCallOrder[0]!).toBeLessThan(
       identitySelfMock.mock.invocationCallOrder[0]!,

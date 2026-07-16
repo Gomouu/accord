@@ -9,7 +9,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PresenceStatus } from '../lib/api';
 import { profileCardGradient, profileColorCss } from '../lib/color';
-import { effectById } from '../lib/decorations';
+import { effectById, frameById } from '../lib/decorations';
 import { copyToClipboard } from '../lib/clipboard';
 import { bouclerTab, focusables } from '../lib/focus';
 import { displayNameOf, presenceOf, useFriends } from '../stores/friends';
@@ -249,16 +249,16 @@ export function ProfilePopover() {
     isSelf && self !== null ? self.accent_color : (contact?.accent_color ?? null);
   const bannerColor =
     isSelf && self !== null ? self.banner_color : (contact?.banner_color ?? null);
-  // Personnalisation intégrée (rendue en CSS/SVG pur, aucun asset) : décoration
-  // d'avatar (cadre) et effet de profil (fond animé de la carte). Un id inconnu
-  // ou retiré rend simplement `undefined` (rien ne s'affiche).
   const avatarDecoration =
     isSelf && self !== null
       ? self.avatar_decoration
       : (contact?.avatar_decoration ?? null);
   const profileEffectId =
     isSelf && self !== null ? self.profile_effect : (contact?.profile_effect ?? null);
+  const profileFrameId =
+    isSelf && self !== null ? self.profile_frame : (contact?.profile_frame ?? null);
   const effect = effectById(profileEffectId);
+  const frame = frameById(profileFrameId);
   const accentHex = profileColorCss(accentColor);
   // Fond thématisé de la carte (façon Discord) : teinte subtile de la
   // couleur de bannière si connue, sinon de l'accent — `null` (aucune des
@@ -347,7 +347,7 @@ export function ProfilePopover() {
       }}
       className="profile-card-shell popover-enter z-50 origin-top focus:outline-none"
     >
-      {effect?.renderFrame?.()}
+      {frame?.render()}
       <div
         style={{ maxHeight: 'calc(100vh - 72px)' }}
         className="profile-card-canvas profile-card-shell__surface glass-strong overflow-y-auto overscroll-contain rounded-xl"

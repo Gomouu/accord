@@ -3,15 +3,17 @@ import {
   AVATAR_DECORATIONS,
   DECORATION_UI_TEXT,
   PROFILE_EFFECTS,
+  PROFILE_FRAMES,
   decorationById,
   effectById,
+  frameById,
 } from '../../lib/decorations';
 import { useSession } from '../../stores/session';
 import { useT, useUi } from '../../stores/ui';
 import { Avatar } from '../Avatar';
 import { SettingsSection } from './controls';
 
-type BusyKind = 'decoration' | 'effect' | null;
+type BusyKind = 'decoration' | 'effect' | 'frame' | null;
 
 function SelectedMark() {
   return (
@@ -28,6 +30,7 @@ export function ProfilePersonalization() {
   const self = useSession((state) => state.self);
   const setAvatarDecoration = useSession((state) => state.setAvatarDecoration);
   const setProfileEffect = useSession((state) => state.setProfileEffect);
+  const setProfileFrame = useSession((state) => state.setProfileFrame);
   const [busy, setBusy] = useState<BusyKind>(null);
 
   if (self === null) return null;
@@ -35,9 +38,11 @@ export function ProfilePersonalization() {
   const avatarName = self.name ?? self.friend_code;
   const selectedDecoration = decorationById(self.avatar_decoration);
   const selectedEffect = effectById(self.profile_effect);
+  const selectedFrame = frameById(self.profile_frame);
   const previewMeta = [
     selectedDecoration?.label[lang] ?? DECORATION_UI_TEXT.none[lang],
     selectedEffect?.label[lang] ?? DECORATION_UI_TEXT.none[lang],
+    selectedFrame?.label[lang] ?? DECORATION_UI_TEXT.none[lang],
   ].join(' · ');
 
   const apply = async (kind: Exclude<BusyKind, null>, action: () => Promise<void>) => {
@@ -63,6 +68,11 @@ export function ProfilePersonalization() {
     void apply('effect', () => setProfileEffect(id));
   };
 
+  const pickFrame = (id: string | null): void => {
+    if (id === self.profile_frame) return;
+    void apply('frame', () => setProfileFrame(id));
+  };
+
   return (
     <>
       <SettingsSection
@@ -71,7 +81,7 @@ export function ProfilePersonalization() {
       >
         <div className="mb-4 personalization-preview">
           {selectedEffect?.render()}
-          {selectedEffect?.renderFrame?.()}
+          {selectedFrame?.render()}
           <span className="personalization-preview__scrim" aria-hidden />
           <div className="personalization-preview__content">
             <Avatar
@@ -176,11 +186,48 @@ export function ProfilePersonalization() {
               onClick={() => pickEffect(effect.id)}
               className="personalization-choice"
             >
-              <span className="personalization-choice__effect">
-                {effect.render()}
-                {effect.renderFrame?.()}
-              </span>
+              <span className="personalization-choice__effect">{effect.render()}</span>
               <span className="personalization-choice__label">{effect.label[lang]}</span>
+              <SelectedMark />
+            </button>
+          ))}
+        </div>
+      </SettingsSection>
+
+      <SettingsSection
+        title={DECORATION_UI_TEXT.frameTitle[lang]}
+        hint={DECORATION_UI_TEXT.frameHint[lang]}
+      >
+        <div
+          role="group"
+          aria-label={DECORATION_UI_TEXT.frameTitle[lang]}
+          aria-busy={busy === 'frame'}
+          className="personalization-grid"
+        >
+          <button
+            type="button"
+            disabled={busy !== null}
+            aria-pressed={self.profile_frame === null}
+            onClick={() => pickFrame(null)}
+            className="personalization-choice"
+          >
+            <span className="personalization-choice__frame bg-rail" aria-hidden />
+            <span className="personalization-choice__label">
+              {DECORATION_UI_TEXT.none[lang]}
+            </span>
+            <SelectedMark />
+          </button>
+          {PROFILE_FRAMES.map((frame) => (
+            <button
+              key={frame.id}
+              type="button"
+              disabled={busy !== null}
+              aria-pressed={self.profile_frame === frame.id}
+              onClick={() => pickFrame(frame.id)}
+              className="personalization-choice"
+            >
+              <span className="personalization-choice__frame">{frame.render()}</span>
+              <span className="personalization-choice__label">{frame.label[lang]}</span>
               <SelectedMark />
             </button>
           ))}

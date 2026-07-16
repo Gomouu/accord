@@ -25,6 +25,7 @@ export interface ProfilAmi {
   avatar_decoration?: string | null;
   /** Absent : nœud pair ancien, effet inconnu (conservé tel quel). */
   profile_effect?: string | null;
+  profile_frame?: string | null;
 }
 
 interface FriendsState {
@@ -153,6 +154,9 @@ export const useFriends = create<FriendsState>((set, get) => ({
                 : {}),
               ...('profile_effect' in profil
                 ? { profile_effect: profil.profile_effect }
+                : {}),
+              ...('profile_frame' in profil
+                ? { profile_frame: profil.profile_frame }
                 : {}),
             }
           : c,

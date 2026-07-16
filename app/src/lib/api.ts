@@ -37,6 +37,7 @@ export interface SelfProfile {
    * catalogue ; `null` sans effet.
    */
   profile_effect: string | null;
+  profile_frame: string | null;
 }
 
 export type ContactState = 'pending_out' | 'pending_in' | 'friend' | 'blocked';
@@ -72,6 +73,7 @@ export interface Contact {
   avatar_decoration?: string | null;
   /** Id d'effet de profil annoncé par le pair, ou `null` (absent = inconnu). */
   profile_effect?: string | null;
+  profile_frame?: string | null;
   state: ContactState;
   last_seen_ms: number;
   /** Présence best-effort du pair (`friends.list`, D-027) ; absente = inconnue. */
@@ -662,6 +664,7 @@ export type AccordEvent =
         avatar_decoration?: string | null;
         /** Absent : nœud pair ancien, effet inconnu (conservé tel quel). */
         profile_effect?: string | null;
+        profile_frame?: string | null;
       };
     }
   | {
@@ -721,6 +724,7 @@ export class Api {
     banner_color: number | null;
     avatar_decoration: string | null;
     profile_effect: string | null;
+    profile_frame: string | null;
   }> {
     return this.rpc.call('profile.get');
   }
@@ -730,7 +734,7 @@ export class Api {
    * vide = effacer) et/ou les pronoms (≤ 40 caractères, chaîne vide =
    * effacer) — au moins un champ requis, tout ou rien.
    *
-   * `accent_color`/`banner_color`/`avatar_decoration`/`profile_effect` sont
+   * `accent_color`/`banner_color`/`avatar_decoration`/`profile_effect`/`profile_frame` sont
    * tri-états : absent du sous-objet = inchangé, `null` = effacé, valeur =
    * fixé. Utiliser `'key' in changes` (et non `!== undefined`, que
    * `exactOptionalPropertyTypes` interdit d'ailleurs pour ces champs) pour
@@ -744,6 +748,7 @@ export class Api {
     banner_color?: number | null;
     avatar_decoration?: string | null;
     profile_effect?: string | null;
+    profile_frame?: string | null;
   }): Promise<Record<string, never>> {
     return this.rpc.call('profile.set', {
       ...(changes.name !== undefined ? { name: changes.name } : {}),
@@ -755,6 +760,7 @@ export class Api {
         ? { avatar_decoration: changes.avatar_decoration }
         : {}),
       ...('profile_effect' in changes ? { profile_effect: changes.profile_effect } : {}),
+      ...('profile_frame' in changes ? { profile_frame: changes.profile_frame } : {}),
     });
   }
 

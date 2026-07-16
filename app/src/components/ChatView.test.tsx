@@ -539,6 +539,7 @@ describe('GroupView — statut personnalisé dans la liste des membres', () => {
         banner_color: null,
         avatar_decoration: null,
         profile_effect: null,
+        profile_frame: null,
       },
       phase: 'ready',
     });
@@ -618,6 +619,7 @@ describe('GroupView — purge (mode sélection)', () => {
         banner_color: null,
         avatar_decoration: null,
         profile_effect: null,
+        profile_frame: null,
       },
     });
     callMock.mockResolvedValue({ messages: [grpMsg('a', 5), grpMsg('b', 6)] });

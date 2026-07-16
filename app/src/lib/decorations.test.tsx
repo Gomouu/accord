@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
   AVATAR_DECORATIONS,
   PROFILE_EFFECTS,
+  PROFILE_FRAMES,
   decorationById,
   effectById,
+  frameById,
 } from './decorations';
 
 describe('catalogue de personnalisation', () => {
@@ -12,10 +14,12 @@ describe('catalogue de personnalisation', () => {
     const ids = [
       ...AVATAR_DECORATIONS.map((item) => item.id),
       ...PROFILE_EFFECTS.map((item) => item.id),
+      ...PROFILE_FRAMES.map((item) => item.id),
     ];
 
     expect(AVATAR_DECORATIONS).toHaveLength(14);
-    expect(PROFILE_EFFECTS).toHaveLength(13);
+    expect(PROFILE_EFFECTS).toHaveLength(12);
+    expect(PROFILE_FRAMES).toHaveLength(4);
     expect(new Set(ids).size).toBe(ids.length);
     for (const id of ids) {
       expect(id).toMatch(/^[a-z0-9_-]{1,24}$/);
@@ -25,9 +29,11 @@ describe('catalogue de personnalisation', () => {
   it('résout les nouveaux choix et ignore les identifiants inconnus', () => {
     expect(decorationById('moon_moths')?.label.fr).toBe('Papillons lunaires');
     expect(effectById('cosmic_portal')?.label.en).toBe('Cosmic Portal');
-    expect(effectById('lumen_bloom')?.label.fr).toBe('Jardin de lumière');
+    expect(frameById('lumen_bloom')?.label.fr).toBe('Jardin de lumière');
+    expect(effectById('lumen_bloom')).toBeUndefined();
     expect(decorationById('<style>')).toBeUndefined();
     expect(effectById('missing')).toBeUndefined();
+    expect(frameById('missing')).toBeUndefined();
   });
 
   it('rend les nouvelles familles sans contenu interactif', () => {
@@ -45,9 +51,19 @@ describe('catalogue de personnalisation', () => {
     expect(screen.getByTestId('profile-effect')).toHaveAttribute('aria-hidden', 'true');
   });
 
-  it('rend le cadre animé de carte comme contenu décoratif', () => {
-    render(<div>{effectById('lumen_bloom')?.renderFrame?.()}</div>);
+  it('rend chaque cadre de carte comme contenu décoratif distinct', () => {
+    render(
+      <div>
+        {PROFILE_FRAMES.map((frame) => (
+          <span key={frame.id}>{frame.render()}</span>
+        ))}
+      </div>,
+    );
 
-    expect(screen.getByTestId('profile-frame')).toHaveAttribute('aria-hidden', 'true');
+    const frames = screen.getAllByTestId('profile-frame');
+    expect(frames).toHaveLength(4);
+    for (const frame of frames) {
+      expect(frame).toHaveAttribute('aria-hidden', 'true');
+    }
   });
 });

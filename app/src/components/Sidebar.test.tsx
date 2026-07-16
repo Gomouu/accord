@@ -58,6 +58,7 @@ const SELF = {
   banner_color: null,
   avatar_decoration: null,
   profile_effect: null,
+  profile_frame: null,
 };
 
 function groupState(over: Partial<GroupStateJson> = {}): GroupStateJson {

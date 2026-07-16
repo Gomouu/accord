@@ -37,6 +37,7 @@ const self: SelfProfile = {
   banner_color: null,
   avatar_decoration: null,
   profile_effect: null,
+  profile_frame: null,
 };
 
 beforeEach(() => {
@@ -52,6 +53,7 @@ beforeEach(() => {
     setBannerColor: vi.fn(async () => {}),
     setAvatarDecoration: vi.fn(async () => {}),
     setProfileEffect: vi.fn(async () => {}),
+    setProfileFrame: vi.fn(async () => {}),
   });
 });
 
@@ -368,8 +370,8 @@ describe('AccountTab — personnalisation', () => {
     });
     render(<AccountTab />);
 
-    expect(screen.getByText('Orbite · Constellation')).toBeInTheDocument();
-    const group = screen.getByRole('group', { name: 'Effet et cadre de profil' });
+    expect(screen.getByText('Orbite · Constellation · Aucune')).toBeInTheDocument();
+    const group = screen.getByRole('group', { name: 'Effet de profil' });
     expect(within(group).getByRole('button', { name: 'Constellation' })).toHaveAttribute(
       'aria-pressed',
       'true',
@@ -377,5 +379,33 @@ describe('AccountTab — personnalisation', () => {
     await user.click(within(group).getByRole('button', { name: 'Braises' }));
 
     expect(setProfileEffect).toHaveBeenCalledWith('floating_particles');
+  });
+
+  it('enregistre un cadre indépendamment de l’effet', async () => {
+    const user = userEvent.setup();
+    const setProfileFrame = vi.fn(async () => {});
+    const setProfileEffect = vi.fn(async () => {});
+    useSession.setState({
+      self: {
+        ...self,
+        profile_effect: 'starfield',
+        profile_frame: 'lumen_bloom',
+      },
+      setProfileFrame,
+      setProfileEffect,
+    });
+    render(<AccountTab />);
+
+    expect(
+      screen.getByText('Aucune · Constellation · Jardin de lumière'),
+    ).toBeInTheDocument();
+    const group = screen.getByRole('group', { name: 'Cadre de profil' });
+    expect(
+      within(group).getByRole('button', { name: 'Jardin de lumière' }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    await user.click(within(group).getByRole('button', { name: 'Aucune' }));
+
+    expect(setProfileFrame).toHaveBeenCalledWith(null);
+    expect(setProfileEffect).not.toHaveBeenCalled();
   });
 });

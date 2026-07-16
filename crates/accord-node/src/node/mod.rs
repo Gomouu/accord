@@ -169,6 +169,7 @@ pub struct Node {
     /// Cadence des `SoundboardPlay` entrants par pair : `(début de fenêtre ms,
     /// compte)`. Anti-DoS sonore en mémoire, borné ([`SOUNDBOARD_SEEN_MAX_PEERS`]).
     soundboard_seen: Mutex<HashMap<[u8; 32], (u64, u32)>>,
+    profile_frame_migrated: OnceLock<()>,
 }
 
 impl Node {
@@ -198,6 +199,7 @@ impl Node {
             typing_seen: Mutex::new(HashMap::new()),
             redeem_seen: Mutex::new(HashMap::new()),
             soundboard_seen: Mutex::new(HashMap::new()),
+            profile_frame_migrated: OnceLock::new(),
         }
     }
 
@@ -615,6 +617,7 @@ impl Node {
                 banner_color,
                 avatar_decoration,
                 profile_effect,
+                profile_frame,
             } => {
                 // Anti-abus : seuls les amis sont pris en compte (ignoré
                 // silencieusement sinon) ; pseudo validé (2-32 caractères,
@@ -635,6 +638,7 @@ impl Node {
                         banner_color,
                         avatar_decoration.as_deref(),
                         profile_effect.as_deref(),
+                        profile_frame.as_deref(),
                         now_ms(),
                     )?)
                 })?;
@@ -670,6 +674,7 @@ impl Node {
                             "banner_color": applied.banner_color,
                             "avatar_decoration": applied.avatar_decoration,
                             "profile_effect": applied.profile_effect,
+                            "profile_frame": applied.profile_frame,
                         }),
                     );
                 }

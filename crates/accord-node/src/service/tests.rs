@@ -63,6 +63,7 @@ async fn identity_self_returns_profile() {
             "name",
             "node_id",
             "profile_effect",
+            "profile_frame",
             "pronouns",
             "pubkey"
         ]
@@ -100,6 +101,7 @@ fn profile_shape(
         "banner_color": banner_color,
         "avatar_decoration": avatar_decoration,
         "profile_effect": profile_effect,
+        "profile_frame": null,
     })
 }
 
@@ -191,31 +193,42 @@ async fn profile_get_set_exact_shapes() {
     // (chaîne = défini, `null` = effacé). Id invalide refusé à la frontière.
     s.call(
         "profile.set",
-        json!({ "avatar_decoration": "neon_ring", "profile_effect": "aurora" }),
+        json!({
+            "avatar_decoration": "neon_ring",
+            "profile_effect": "aurora",
+            "profile_frame": "crystal_edge"
+        }),
     )
     .await
     .unwrap();
-    assert_eq!(
-        s.call("profile.get", json!({})).await.unwrap(),
-        profile_shape(
-            Some("Anna"),
-            None,
-            None,
-            None,
-            None,
-            None,
-            Some(0x11_22_33),
-            Some("neon_ring"),
-            Some("aurora")
-        )
+    let mut expected = profile_shape(
+        Some("Anna"),
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(0x11_22_33),
+        Some("neon_ring"),
+        Some("aurora"),
     );
+    expected["profile_frame"] = json!("crystal_edge");
+    assert_eq!(s.call("profile.get", json!({})).await.unwrap(), expected);
     let err = s
         .call("profile.set", json!({ "avatar_decoration": "BAD ID!" }))
         .await
         .unwrap_err();
     assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+    let err = s
+        .call("profile.set", json!({ "profile_frame": "BAD FRAME!" }))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
     // `null` efface la décoration, l'effet reste.
     s.call("profile.set", json!({ "avatar_decoration": null }))
+        .await
+        .unwrap();
+    s.call("profile.set", json!({ "profile_frame": null }))
         .await
         .unwrap();
     assert_eq!(
@@ -242,6 +255,8 @@ async fn profile_get_set_exact_shapes() {
     assert_eq!(me["avatar"], json!(null));
     assert_eq!(me["banner"], json!(null));
     assert_eq!(me["banner_color"], json!(0x11_22_33));
+    assert_eq!(me["profile_effect"], json!("aurora"));
+    assert_eq!(me["profile_frame"], json!(null));
 }
 
 #[tokio::test]
@@ -467,6 +482,7 @@ async fn profile_of_friend_updates_friends_list() {
             banner_color: Some(0x11_22_33),
             avatar_decoration: Some("neon_ring".into()),
             profile_effect: Some("aurora".into()),
+            profile_frame: Some("crystal_edge".into()),
         },
     )
     .unwrap();
@@ -483,6 +499,7 @@ async fn profile_of_friend_updates_friends_list() {
     assert_eq!(contact["banner_color"], json!(0x11_22_33));
     assert_eq!(contact["avatar_decoration"], json!("neon_ring"));
     assert_eq!(contact["profile_effect"], json!("aurora"));
+    assert_eq!(contact["profile_frame"], json!("crystal_edge"));
     // Nouvelle annonce sans bannière, couleurs, décoration ni effet : les
     // champs s'effacent (null).
     node.ingest_core(
@@ -497,6 +514,7 @@ async fn profile_of_friend_updates_friends_list() {
             banner_color: None,
             avatar_decoration: None,
             profile_effect: None,
+            profile_frame: None,
         },
     )
     .unwrap();
@@ -507,6 +525,7 @@ async fn profile_of_friend_updates_friends_list() {
     assert_eq!(v["contacts"][0]["banner_color"], json!(null));
     assert_eq!(v["contacts"][0]["avatar_decoration"], json!(null));
     assert_eq!(v["contacts"][0]["profile_effect"], json!(null));
+    assert_eq!(v["contacts"][0]["profile_frame"], json!(null));
 }
 
 #[tokio::test]

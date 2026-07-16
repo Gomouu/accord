@@ -22,26 +22,33 @@ describe('profileSet — champs de personnalisation tri-état', () => {
     await api.profileSet({
       avatar_decoration: 'neon_ring',
       profile_effect: 'aurora',
+      profile_frame: 'crystal_crown',
     });
 
     expect(call).toHaveBeenCalledWith('profile.set', {
       avatar_decoration: 'neon_ring',
       profile_effect: 'aurora',
+      profile_frame: 'crystal_crown',
     });
   });
 
-  it('transmet explicitement null pour effacer les deux champs', async () => {
+  it('transmet explicitement null pour effacer les trois champs', async () => {
     const { api, call } = makeApi();
 
-    await api.profileSet({ avatar_decoration: null, profile_effect: null });
+    await api.profileSet({
+      avatar_decoration: null,
+      profile_effect: null,
+      profile_frame: null,
+    });
 
     expect(call).toHaveBeenCalledWith('profile.set', {
       avatar_decoration: null,
       profile_effect: null,
+      profile_frame: null,
     });
   });
 
-  it('omet les deux clés quand elles ne figurent pas dans les changements', async () => {
+  it('omet les trois clés quand elles ne figurent pas dans les changements', async () => {
     const { api, call } = makeApi();
 
     await api.profileSet({ bio: 'mise à jour' });
@@ -50,6 +57,7 @@ describe('profileSet — champs de personnalisation tri-état', () => {
     const params = call.mock.calls[0]![1] as Record<string, unknown>;
     expect('avatar_decoration' in params).toBe(false);
     expect('profile_effect' in params).toBe(false);
+    expect('profile_frame' in params).toBe(false);
   });
 });
 

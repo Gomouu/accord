@@ -9,7 +9,7 @@
 //! sont des champs additifs légers transportés directement dans le message
 //! `Profile`.
 
-use accord_core::profile;
+use accord_core::{db::Db, profile};
 use accord_crypto::{node_id_of, FriendCode};
 use accord_proto::core_msg::CoreMsg;
 
@@ -32,9 +32,23 @@ pub(crate) struct PeerPublicProfile {
     pub(crate) banner_color: Option<u32>,
     pub(crate) avatar_decoration: Option<String>,
     pub(crate) profile_effect: Option<String>,
+    pub(crate) profile_frame: Option<String>,
 }
 
 impl Node {
+    fn with_local_profile_db<T>(
+        &self,
+        f: impl FnOnce(&Db) -> Result<T, NodeError>,
+    ) -> Result<T, NodeError> {
+        self.with_db(|db| {
+            if self.profile_frame_migrated.get().is_none() {
+                profile::migrate_legacy_profile_frame(db)?;
+                let _ = self.profile_frame_migrated.set(());
+            }
+            f(db)
+        })
+    }
+
     /// Profil public local : node_id, clé, code ami, pseudo, bio, avatar,
     /// bannière, pronoms, couleurs.
     pub fn self_profile(&self) -> Result<SelfProfile, NodeError> {
@@ -52,58 +66,64 @@ impl Node {
             banner_color: self.profile_banner_color()?,
             avatar_decoration: self.profile_avatar_decoration()?,
             profile_effect: self.profile_profile_effect()?,
+            profile_frame: self.profile_profile_frame()?,
         })
     }
 
     /// Pseudo local, s'il a été défini (`profile.get`).
     pub fn profile_name(&self) -> Result<Option<String>, NodeError> {
-        self.with_db(|db| Ok(profile::local_name(db)?))
+        self.with_local_profile_db(|db| Ok(profile::local_name(db)?))
     }
 
     /// Bio locale, si elle est définie et non vide (`profile.get`).
     pub fn profile_bio(&self) -> Result<Option<String>, NodeError> {
-        self.with_db(|db| Ok(profile::local_bio(db)?))
+        self.with_local_profile_db(|db| Ok(profile::local_bio(db)?))
     }
 
     /// Hash d'avatar local (racine Merkle), s'il est défini (`profile.get`).
     pub fn profile_avatar(&self) -> Result<Option<[u8; 32]>, NodeError> {
-        self.with_db(|db| Ok(profile::local_avatar(db)?))
+        self.with_local_profile_db(|db| Ok(profile::local_avatar(db)?))
     }
 
     /// Hash de bannière local (racine Merkle), s'il est défini (`profile.get`).
     pub fn profile_banner(&self) -> Result<Option<[u8; 32]>, NodeError> {
-        self.with_db(|db| Ok(profile::local_banner(db)?))
+        self.with_local_profile_db(|db| Ok(profile::local_banner(db)?))
     }
 
     /// Pronoms locaux, s'ils sont définis et non vides (`profile.get`).
     pub fn profile_pronouns(&self) -> Result<Option<String>, NodeError> {
-        self.with_db(|db| Ok(profile::local_pronouns(db)?))
+        self.with_local_profile_db(|db| Ok(profile::local_pronouns(db)?))
     }
 
     /// Couleur d'accent locale, si elle est définie (`profile.get`).
     pub fn profile_accent_color(&self) -> Result<Option<u32>, NodeError> {
-        self.with_db(|db| Ok(profile::local_accent_color(db)?))
+        self.with_local_profile_db(|db| Ok(profile::local_accent_color(db)?))
     }
 
     /// Couleur de bannière locale, si elle est définie (`profile.get`).
     pub fn profile_banner_color(&self) -> Result<Option<u32>, NodeError> {
-        self.with_db(|db| Ok(profile::local_banner_color(db)?))
+        self.with_local_profile_db(|db| Ok(profile::local_banner_color(db)?))
     }
 
     /// Id de décoration d'avatar local, s'il est défini (`profile.get`).
     pub fn profile_avatar_decoration(&self) -> Result<Option<String>, NodeError> {
-        self.with_db(|db| Ok(profile::local_avatar_decoration(db)?))
+        self.with_local_profile_db(|db| Ok(profile::local_avatar_decoration(db)?))
     }
 
     /// Id d'effet de profil local, s'il est défini (`profile.get`).
     pub fn profile_profile_effect(&self) -> Result<Option<String>, NodeError> {
-        self.with_db(|db| Ok(profile::local_profile_effect(db)?))
+        self.with_local_profile_db(|db| Ok(profile::local_profile_effect(db)?))
+    }
+
+    #[allow(missing_docs)]
+    pub fn profile_profile_frame(&self) -> Result<Option<String>, NodeError> {
+        self.with_local_profile_db(|db| Ok(profile::local_profile_frame(db)?))
     }
 
     /// Définit le pseudo local (2 à 32 caractères après trim) puis l'annonce
     /// à tous les amis confirmés.
     pub fn profile_set_name(&self, name: &str) -> Result<(), NodeError> {
-        self.profile_update(Some(name), None, None, None, None, None, None)
+        self.profile_update(Some(name), None, None, None, None, None, None, None)
     }
 
     /// Met à jour un ou plusieurs champs du profil (`profile.set`) puis
@@ -123,6 +143,7 @@ impl Node {
         banner_color: Option<Option<u32>>,
         avatar_decoration: Option<Option<&str>>,
         profile_effect: Option<Option<&str>>,
+        profile_frame: Option<Option<&str>>,
     ) -> Result<(), NodeError> {
         if name.is_none()
             && bio.is_none()
@@ -131,12 +152,13 @@ impl Node {
             && banner_color.is_none()
             && avatar_decoration.is_none()
             && profile_effect.is_none()
+            && profile_frame.is_none()
         {
             return Err(NodeError::Invalid(
-                "profil : au moins un champ requis (name, bio, pronouns, accent_color, banner_color, avatar_decoration, profile_effect)",
+                "profil : au moins un champ requis (name, bio, pronouns, accent_color, banner_color, avatar_decoration, profile_effect, profile_frame)",
             ));
         }
-        self.with_db(|db| {
+        self.with_local_profile_db(|db| {
             if let Some(n) = name {
                 profile::validate_name(n)?;
             }
@@ -156,6 +178,9 @@ impl Node {
                 profile::validate_decoration_id(id)?;
             }
             if let Some(Some(id)) = profile_effect {
+                profile::validate_decoration_id(id)?;
+            }
+            if let Some(Some(id)) = profile_frame {
                 profile::validate_decoration_id(id)?;
             }
             if let Some(n) = name {
@@ -179,6 +204,9 @@ impl Node {
             if let Some(id) = profile_effect {
                 profile::set_local_profile_effect(db, id)?;
             }
+            if let Some(id) = profile_frame {
+                profile::set_local_profile_frame(db, id)?;
+            }
             Ok(())
         })?;
         self.announce_profile_to_friends()
@@ -198,7 +226,7 @@ impl Node {
             ),
             None => None,
         };
-        self.with_db(|db| Ok(profile::set_local_avatar(db, hash.as_ref())?))?;
+        self.with_local_profile_db(|db| Ok(profile::set_local_avatar(db, hash.as_ref())?))?;
         self.announce_profile_to_friends()?;
         Ok(hash)
     }
@@ -218,7 +246,7 @@ impl Node {
             ),
             None => None,
         };
-        self.with_db(|db| Ok(profile::set_local_banner(db, hash.as_ref())?))?;
+        self.with_local_profile_db(|db| Ok(profile::set_local_banner(db, hash.as_ref())?))?;
         self.announce_profile_to_friends()?;
         Ok(hash)
     }
@@ -240,6 +268,7 @@ impl Node {
                 banner_color: profile::peer_banner_color(db, node_id)?,
                 avatar_decoration: profile::peer_avatar_decoration(db, node_id)?,
                 profile_effect: profile::peer_profile_effect(db, node_id)?,
+                profile_frame: profile::peer_profile_frame(db, node_id)?,
             })
         })
     }
@@ -259,7 +288,8 @@ impl Node {
             banner_color,
             avatar_decoration,
             profile_effect,
-        ) = self.with_db(|db| {
+            profile_frame,
+        ) = self.with_local_profile_db(|db| {
             Ok((
                 profile::local_name(db)?,
                 profile::local_bio(db)?,
@@ -270,6 +300,7 @@ impl Node {
                 profile::local_banner_color(db)?,
                 profile::local_avatar_decoration(db)?,
                 profile::local_profile_effect(db)?,
+                profile::local_profile_frame(db)?,
             ))
         })?;
         Ok(name.map(|display_name| CoreMsg::Profile {
@@ -282,6 +313,7 @@ impl Node {
             banner_color,
             avatar_decoration,
             profile_effect,
+            profile_frame,
         }))
     }
 
@@ -343,6 +375,8 @@ pub struct SelfProfile {
     /// Id d'effet de profil (`null` si jamais défini), clé de catalogue
     /// intégré côté client.
     pub profile_effect: Option<String>,
+    #[allow(missing_docs)]
+    pub profile_frame: Option<String>,
 }
 
 #[cfg(test)]
@@ -393,7 +427,7 @@ mod tests {
     fn profile_update_requires_at_least_one_field() {
         let n = node();
         assert!(n
-            .profile_update(None, None, None, None, None, None, None)
+            .profile_update(None, None, None, None, None, None, None, None)
             .is_err());
         assert_eq!(n.profile_name().unwrap(), None);
     }
@@ -409,6 +443,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         // Bio invalide : le pseudo pourtant valide n'est pas écrit non plus.
@@ -416,6 +451,7 @@ mod tests {
             .profile_update(
                 Some("Bertrand"),
                 Some(&"x".repeat(2049)),
+                None,
                 None,
                 None,
                 None,
@@ -438,6 +474,7 @@ mod tests {
             Some(Some(0x11_22_33)),
             None,
             None,
+            None,
         )
         .unwrap();
         assert_eq!(n.profile_pronouns().unwrap(), Some("il/lui".into()));
@@ -453,13 +490,14 @@ mod tests {
                 Some(Some(0x0100_0000)),
                 None,
                 None,
+                None,
                 None
             )
             .is_err());
         assert_eq!(n.profile_pronouns().unwrap(), Some("il/lui".into()));
         // `Some(None)` efface une couleur ; absence (`None`) la laisse
         // inchangée.
-        n.profile_update(None, None, None, Some(None), None, None, None)
+        n.profile_update(None, None, None, Some(None), None, None, None, None)
             .unwrap();
         assert_eq!(n.profile_accent_color().unwrap(), None);
         assert_eq!(n.profile_banner_color().unwrap(), Some(0x11_22_33));
@@ -471,6 +509,7 @@ mod tests {
         n.profile_update(
             Some("  Anna  "),
             Some("  ma bio  "),
+            None,
             None,
             None,
             None,
@@ -490,14 +529,15 @@ mod tests {
         assert_eq!(p.banner_color, None);
         assert_eq!(p.avatar_decoration, None);
         assert_eq!(p.profile_effect, None);
+        assert_eq!(p.profile_frame, None);
         // Bio vide = effacée.
-        n.profile_update(None, Some(""), None, None, None, None, None)
+        n.profile_update(None, Some(""), None, None, None, None, None, None)
             .unwrap();
         assert_eq!(n.profile_bio().unwrap(), None);
     }
 
     #[test]
-    fn profile_update_decoration_and_effect_set_clear_and_validate() {
+    fn profile_update_decoration_effect_and_frame_set_clear_and_validate() {
         let n = node();
         n.profile_set_name("Anna").unwrap();
         // Définition d'ids bien formés puis reflet dans `self_profile`.
@@ -509,32 +549,97 @@ mod tests {
             None,
             Some(Some("neon_ring")),
             Some(Some("aurora")),
+            Some(Some("crystal_edge")),
         )
         .unwrap();
         let p = n.self_profile().unwrap();
         assert_eq!(p.avatar_decoration, Some("neon_ring".into()));
         assert_eq!(p.profile_effect, Some("aurora".into()));
+        assert_eq!(p.profile_frame, Some("crystal_edge".into()));
         // Id invalide : tout ou rien — rien n'est écrit, l'ancien reste.
         assert!(n
-            .profile_update(None, None, None, None, None, Some(Some("BAD ID!")), None)
+            .profile_update(
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(Some("BAD ID!")),
+                None,
+                None,
+            )
             .is_err());
         assert_eq!(
             n.profile_avatar_decoration().unwrap(),
             Some("neon_ring".into())
         );
         // `Some(None)` efface la décoration ; absence (`None`) laisse l'effet.
-        n.profile_update(None, None, None, None, None, Some(None), None)
+        n.profile_update(None, None, None, None, None, Some(None), None, None)
             .unwrap();
         assert_eq!(n.profile_avatar_decoration().unwrap(), None);
         assert_eq!(n.profile_profile_effect().unwrap(), Some("aurora".into()));
+        assert_eq!(
+            n.profile_profile_frame().unwrap(),
+            Some("crystal_edge".into())
+        );
+        assert!(n
+            .profile_update(
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(Some("BAD ID!")),
+            )
+            .is_err());
+        n.profile_update(None, None, None, None, None, None, None, Some(None))
+            .unwrap();
+        assert_eq!(n.profile_profile_frame().unwrap(), None);
+        assert_eq!(n.profile_profile_effect().unwrap(), Some("aurora".into()));
+    }
+
+    #[test]
+    fn legacy_lumen_bloom_migrates_before_local_read_and_announcement() {
+        let id = Identity::generate_with_pow_bits(1);
+        let db = Db::open_in_memory(&[1u8; 32]).unwrap();
+        profile::set_local_name(&db, "Anna").unwrap();
+        profile::set_local_profile_effect(&db, Some("lumen_bloom")).unwrap();
+        let n = Node::new(id, db, OutboundSink::null());
+
+        match n.own_profile_msg().unwrap().unwrap() {
+            CoreMsg::Profile {
+                profile_effect,
+                profile_frame,
+                ..
+            } => {
+                assert_eq!(profile_effect, None);
+                assert_eq!(profile_frame, Some("lumen_bloom".into()));
+            }
+            other => panic!("annonce inattendue : {other:?}"),
+        }
+
+        let profile = n.self_profile().unwrap();
+        assert_eq!(profile.profile_effect, None);
+        assert_eq!(profile.profile_frame, Some("lumen_bloom".into()));
     }
 
     #[test]
     fn own_profile_msg_requires_a_name() {
         let n = node();
         // Bio seule : rien à annoncer tant que le pseudo n'est pas défini.
-        n.profile_update(None, Some("bio sans pseudo"), None, None, None, None, None)
-            .unwrap();
+        n.profile_update(
+            None,
+            Some("bio sans pseudo"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         assert!(n.own_profile_msg().unwrap().is_none());
         n.profile_update(
             Some("Anna"),
@@ -544,6 +649,7 @@ mod tests {
             None,
             Some(Some("neon_ring")),
             None,
+            Some(Some("crystal_edge")),
         )
         .unwrap();
         match n.own_profile_msg().unwrap() {
@@ -557,6 +663,7 @@ mod tests {
                 banner_color,
                 avatar_decoration,
                 profile_effect,
+                profile_frame,
             }) => {
                 assert_eq!(display_name, "Anna");
                 assert_eq!(bio, "bio sans pseudo");
@@ -567,6 +674,7 @@ mod tests {
                 assert_eq!(banner_color, None);
                 assert_eq!(avatar_decoration, Some("neon_ring".into()));
                 assert_eq!(profile_effect, None);
+                assert_eq!(profile_frame, Some("crystal_edge".into()));
             }
             other => panic!("annonce inattendue : {other:?}"),
         }
@@ -575,8 +683,17 @@ mod tests {
     #[test]
     fn profile_change_announces_full_profile_to_friends() {
         let (n, peer, mut rx) = node_with_friend_and_channel();
-        n.profile_update(Some("Anna"), Some("ma bio"), None, None, None, None, None)
-            .unwrap();
+        n.profile_update(
+            Some("Anna"),
+            Some("ma bio"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         let (to, msg) = next_profile(&mut rx).expect("annonce attendue");
         assert_eq!(to, peer);
         match msg {
@@ -677,6 +794,7 @@ mod tests {
                 banner_color: Some(0x11_22_33),
                 avatar_decoration: Some("neon_ring".into()),
                 profile_effect: Some("aurora".into()),
+                profile_frame: Some("crystal_edge".into()),
             },
         )
         .unwrap();
@@ -690,6 +808,7 @@ mod tests {
         assert_eq!(profile.banner_color, Some(0x11_22_33));
         assert_eq!(profile.avatar_decoration, Some("neon_ring".into()));
         assert_eq!(profile.profile_effect, Some("aurora".into()));
+        assert_eq!(profile.profile_frame, Some("crystal_edge".into()));
         // Nouvelle annonce sans bio, avatar, bannière, pronoms, couleurs,
         // décoration ni effet : effacement.
         n.ingest_core(
@@ -704,6 +823,7 @@ mod tests {
                 banner_color: None,
                 avatar_decoration: None,
                 profile_effect: None,
+                profile_frame: None,
             },
         )
         .unwrap();

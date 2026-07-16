@@ -149,6 +149,7 @@ interface SessionState {
   setAvatarDecoration: (id: string | null) => Promise<void>;
   /** Fixe ou efface l'effet de profil (profile.set ; `null` = effacer). */
   setProfileEffect: (id: string | null) => Promise<void>;
+  setProfileFrame: (id: string | null) => Promise<void>;
   /**
    * Publie l'avatar (profile.set_avatar, PNG/JPEG/WebP en base64) puis
    * rafraîchit le profil local ; `null` retire l'avatar.
@@ -432,6 +433,12 @@ export const useSession = create<SessionState>((set) => {
 
     setProfileEffect: async (id) => {
       await api.profileSet({ profile_effect: id });
+      const self = await api.identitySelf();
+      set({ self });
+    },
+
+    setProfileFrame: async (id) => {
+      await api.profileSet({ profile_frame: id });
       const self = await api.identitySelf();
       set({ self });
     },

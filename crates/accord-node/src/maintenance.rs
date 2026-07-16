@@ -1062,6 +1062,7 @@ mod tests {
             banner_color: None,
             avatar_decoration: None,
             profile_effect: None,
+            profile_frame: None,
         }));
         // Invitations de groupe : mises en file (régression — un invité hors
         // ligne ou derrière un NAT ne recevait jamais le ticket).

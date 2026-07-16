@@ -102,6 +102,7 @@ fn profile_from_friend_updates_contact_name() {
                 banner_color: None,
                 avatar_decoration: None,
                 profile_effect: None,
+                profile_frame: None,
             },
         )
         .unwrap();
@@ -131,6 +132,7 @@ fn profile_from_non_friend_is_ignored() {
                 banner_color: None,
                 avatar_decoration: None,
                 profile_effect: None,
+                profile_frame: None,
             },
         )
         .unwrap();
@@ -154,6 +156,7 @@ fn invalid_profile_from_friend_is_rejected_without_effect() {
                 banner_color: None,
                 avatar_decoration: None,
                 profile_effect: None,
+                profile_frame: None,
             },
         )
         .is_err());
@@ -186,6 +189,7 @@ fn friendship_acceptance_replies_announce_profile() {
             banner_color: None,
             avatar_decoration: None,
             profile_effect: None,
+            profile_frame: None,
         }]
     );
 

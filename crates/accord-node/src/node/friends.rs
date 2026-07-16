@@ -332,6 +332,7 @@ mod tests {
                 banner_color: None,
                 avatar_decoration: None,
                 profile_effect: None,
+                profile_frame: None,
             },
         )
         .unwrap();

@@ -40,7 +40,8 @@ const SELF: SelfProfile = {
   accent_color: 0x7c6df2,
   banner_color: 0x27244a,
   avatar_decoration: 'golden_laurel',
-  profile_effect: 'lumen_bloom',
+  profile_effect: 'aurora',
+  profile_frame: 'lumen_bloom',
 };
 
 const CONTACTS: Contact[] = [
@@ -57,6 +58,7 @@ const CONTACTS: Contact[] = [
     banner_color: 0x173c3a,
     avatar_decoration: 'aurora_ring',
     profile_effect: 'starfield',
+    profile_frame: 'crystal_crown',
     state: 'friend',
     last_seen_ms: now,
     online: true,
@@ -79,6 +81,7 @@ const CONTACTS: Contact[] = [
     banner_color: 0x4a2437,
     avatar_decoration: 'sakura_arc',
     profile_effect: 'falling_petals',
+    profile_frame: 'celestial_wings',
     state: 'friend',
     last_seen_ms: now - 86_000,
     online: true,
@@ -96,6 +99,7 @@ const CONTACTS: Contact[] = [
     banner: null,
     avatar_decoration: 'pixel_crown',
     profile_effect: 'floating_particles',
+    profile_frame: 'neon_circuit',
     state: 'friend',
     last_seen_ms: now - 3_600_000,
     online: false,

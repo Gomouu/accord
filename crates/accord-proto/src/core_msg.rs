@@ -1601,6 +1601,8 @@ pub enum CoreMsg {
         /// Id d'effet de profil (fond animé de la carte de profil), champ
         /// additif ; mêmes règles et mêmes bornes que `avatar_decoration`.
         profile_effect: Option<String>,
+        #[allow(missing_docs)]
+        profile_frame: Option<String>,
     },
     /// 0x0A — Signalisation de salon vocal.
     VoiceSignal {
@@ -1850,6 +1852,7 @@ impl WireEncode for CoreMsg {
                 banner_color,
                 avatar_decoration,
                 profile_effect,
+                profile_frame,
             } => {
                 w.put_u8(0x09);
                 w.put_str(display_name);
@@ -1861,6 +1864,7 @@ impl WireEncode for CoreMsg {
                 w.put_opt(banner_color.as_ref(), |w, c| w.put_u32(*c));
                 w.put_opt(avatar_decoration.as_ref(), |w, s| w.put_str(s));
                 w.put_opt(profile_effect.as_ref(), |w, s| w.put_str(s));
+                w.put_opt(profile_frame.as_ref(), |w, s| w.put_str(s));
             }
             CoreMsg::VoiceSignal {
                 group_id,
@@ -2068,6 +2072,7 @@ impl WireDecode for CoreMsg {
                 avatar_decoration: r
                     .opt_tail_short_id(MAX_DECORATION_ID, is_valid_decoration_id)?,
                 profile_effect: r.opt_tail_short_id(MAX_DECORATION_ID, is_valid_decoration_id)?,
+                profile_frame: r.opt_tail_short_id(MAX_DECORATION_ID, is_valid_decoration_id)?,
             }),
             0x0A => Ok(CoreMsg::VoiceSignal {
                 group_id: r.arr()?,

@@ -108,7 +108,7 @@ describe('avatarDecorationOf', () => {
 });
 
 describe('useFriends.applyProfile', () => {
-  it('applique les ids de décoration et d’effet reçus', () => {
+  it('applique les ids de décoration, d’effet et de cadre reçus', () => {
     useFriends.setState({ contacts: [contact('alice-pk', 'Alice')] });
 
     useFriends.getState().applyProfile({
@@ -119,21 +119,24 @@ describe('useFriends.applyProfile', () => {
       banner: null,
       avatar_decoration: 'neon_ring',
       profile_effect: 'aurora',
+      profile_frame: 'crystal_crown',
     });
 
     expect(useFriends.getState().contacts[0]).toMatchObject({
       avatar_decoration: 'neon_ring',
       profile_effect: 'aurora',
+      profile_frame: 'crystal_crown',
     });
   });
 
-  it('efface la décoration et l’effet quand l’annonce contient null', () => {
+  it('efface la décoration, l’effet et le cadre quand l’annonce contient null', () => {
     useFriends.setState({
       contacts: [
         {
           ...contact('alice-pk', 'Alice'),
           avatar_decoration: 'neon_ring',
           profile_effect: 'aurora',
+          profile_frame: 'crystal_crown',
         },
       ],
     });
@@ -146,21 +149,24 @@ describe('useFriends.applyProfile', () => {
       banner: null,
       avatar_decoration: null,
       profile_effect: null,
+      profile_frame: null,
     });
 
     expect(useFriends.getState().contacts[0]).toMatchObject({
       avatar_decoration: null,
       profile_effect: null,
+      profile_frame: null,
     });
   });
 
-  it('conserve les valeurs connues quand les deux champs sont absents', () => {
+  it('conserve les valeurs connues quand les trois champs sont absents', () => {
     useFriends.setState({
       contacts: [
         {
           ...contact('alice-pk', 'Alice'),
           avatar_decoration: 'neon_ring',
           profile_effect: 'aurora',
+          profile_frame: 'crystal_crown',
         },
       ],
     });
@@ -176,6 +182,7 @@ describe('useFriends.applyProfile', () => {
     expect(useFriends.getState().contacts[0]).toMatchObject({
       avatar_decoration: 'neon_ring',
       profile_effect: 'aurora',
+      profile_frame: 'crystal_crown',
     });
   });
 

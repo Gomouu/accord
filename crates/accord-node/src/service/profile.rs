@@ -42,6 +42,7 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             "banner_color": node.profile_banner_color()?,
             "avatar_decoration": node.profile_avatar_decoration()?,
             "profile_effect": node.profile_profile_effect()?,
+            "profile_frame": node.profile_profile_frame()?,
         })),
         "profile.set" => {
             let name = param_opt_str(params, "name")?;
@@ -51,6 +52,7 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             let banner_color = param_opt_color(params, "banner_color")?;
             let avatar_decoration = param_opt_id(params, "avatar_decoration")?;
             let profile_effect = param_opt_id(params, "profile_effect")?;
+            let profile_frame = param_opt_id(params, "profile_frame")?;
             // `Option<Option<String>>` → `Option<Option<&str>>` sans copier :
             // le cœur revalide l'id (alphabet, borne) avant écriture.
             node.profile_update(
@@ -61,6 +63,7 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                 banner_color,
                 avatar_decoration.as_ref().map(|o| o.as_deref()),
                 profile_effect.as_ref().map(|o| o.as_deref()),
+                profile_frame.as_ref().map(|o| o.as_deref()),
             )?;
             Ok(json!({}))
         }

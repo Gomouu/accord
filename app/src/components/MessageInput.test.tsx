@@ -359,6 +359,7 @@ const SELF = {
   banner_color: null,
   avatar_decoration: null,
   profile_effect: null,
+  profile_frame: null,
 };
 
 const GROUP_TARGET = { kind: 'group', groupId: 'g1', channelId: 'c1' } as const;

@@ -34,6 +34,7 @@ const META_BANNER_COLOR_KEY: &str = "profile.banner_color";
 const META_AVATAR_DECORATION_KEY: &str = "profile.avatar_decoration";
 /// Clé de métadonnée de l'id d'effet de profil local dans `meta`.
 const META_PROFILE_EFFECT_KEY: &str = "profile.profile_effect";
+const META_PROFILE_FRAME_KEY: &str = "profile.profile_frame";
 /// Préfixe des métadonnées de profil des contacts (`profile.peer.<hex>.bio`,
 /// `profile.peer.<hex>.avatar`, `profile.peer.<hex>.banner`,
 /// `profile.peer.<hex>.pronouns`, `profile.peer.<hex>.accent_color`,
@@ -90,6 +91,8 @@ pub struct PeerProfile {
     /// Id d'effet de profil persisté (`None` si absent ou malformé, meilleur
     /// effort — mêmes règles que `avatar_decoration`).
     pub profile_effect: Option<String>,
+    #[allow(missing_docs)]
+    pub profile_frame: Option<String>,
     /// Vrai si le hash d'avatar DIFFÈRE de celui déjà stocké pour ce contact
     /// (nouveau ou retiré). Seule une vraie nouveauté justifie une
     /// récupération en arrière-plan : une ré-annonce du même profil (ou un
@@ -366,6 +369,41 @@ pub fn local_profile_effect(db: &Db) -> Result<Option<String>, CoreError> {
     )
 }
 
+#[allow(missing_docs)]
+pub fn set_local_profile_frame(db: &Db, id: Option<&str>) -> Result<(), CoreError> {
+    let validated = id.map(validate_decoration_id).transpose()?;
+    db.set_meta(META_PROFILE_FRAME_KEY, validated.unwrap_or("").as_bytes())
+}
+
+#[allow(missing_docs)]
+pub fn local_profile_frame(db: &Db) -> Result<Option<String>, CoreError> {
+    read_string(db, META_PROFILE_FRAME_KEY, "cadre de profil local corrompu")
+}
+
+#[allow(missing_docs)]
+pub fn migrate_legacy_profile_frame(db: &Db) -> Result<bool, CoreError> {
+    let frame = read_string(db, META_PROFILE_FRAME_KEY, "cadre de profil local corrompu")?;
+    let effect = read_string(
+        db,
+        META_PROFILE_EFFECT_KEY,
+        "effet de profil local corrompu",
+    )?;
+    if frame.is_some() || effect.as_deref() != Some("lumen_bloom") {
+        return Ok(false);
+    }
+    let tx = db.conn().unchecked_transaction()?;
+    tx.execute(
+        "INSERT INTO meta(key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        rusqlite::params![META_PROFILE_FRAME_KEY, b"lumen_bloom"],
+    )?;
+    tx.execute(
+        "INSERT INTO meta(key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        rusqlite::params![META_PROFILE_EFFECT_KEY, b""],
+    )?;
+    tx.commit()?;
+    Ok(true)
+}
+
 /// Bio persistée d'un contact (annoncée par lui), si non vide.
 pub fn peer_bio(db: &Db, node_id: &[u8; 32]) -> Result<Option<String>, CoreError> {
     read_bio(db, &peer_meta_key(node_id, "bio"))
@@ -420,6 +458,15 @@ pub fn peer_profile_effect(db: &Db, node_id: &[u8; 32]) -> Result<Option<String>
     )
 }
 
+#[allow(missing_docs)]
+pub fn peer_profile_frame(db: &Db, node_id: &[u8; 32]) -> Result<Option<String>, CoreError> {
+    read_string(
+        db,
+        &peer_meta_key(node_id, "profile_frame"),
+        "cadre de profil de pair corrompu",
+    )
+}
+
 /// Ingère le profil annoncé par un pair (message `Profile`, authentifié par
 /// la session chiffrée : `peer_pubkey` est la clé de session, pas un champ).
 ///
@@ -455,6 +502,7 @@ pub fn ingest_peer_profile(
     banner_color: Option<u32>,
     avatar_decoration: Option<&str>,
     profile_effect: Option<&str>,
+    profile_frame: Option<&str>,
     now_ms: u64,
 ) -> Result<Option<PeerProfile>, CoreError> {
     let node_id = node_id_of(peer_pubkey).0;
@@ -471,6 +519,7 @@ pub fn ingest_peer_profile(
             let canon_banner_color = banner_color.filter(|c| *c <= COLOR_MAX);
             let canon_decoration = avatar_decoration.and_then(sanitize_peer_decoration_id);
             let canon_effect = profile_effect.and_then(sanitize_peer_decoration_id);
+            let canon_frame = profile_frame.and_then(sanitize_peer_decoration_id);
 
             // Diff avant écriture : ne signaler « changé » (donc ne déclencher
             // une récupération) que si le hash diffère du hash déjà stocké.
@@ -507,6 +556,10 @@ pub fn ingest_peer_profile(
                 &peer_meta_key(&node_id, "profile_effect"),
                 canon_effect.as_deref().unwrap_or("").as_bytes(),
             )?;
+            db.set_meta(
+                &peer_meta_key(&node_id, "profile_frame"),
+                canon_frame.as_deref().unwrap_or("").as_bytes(),
+            )?;
             Ok(Some(PeerProfile {
                 name: canon_name.to_string(),
                 bio: (!canon_bio.is_empty()).then(|| canon_bio.to_string()),
@@ -517,6 +570,7 @@ pub fn ingest_peer_profile(
                 banner_color: canon_banner_color,
                 avatar_decoration: canon_decoration,
                 profile_effect: canon_effect,
+                profile_frame: canon_frame,
                 avatar_changed,
                 banner_changed,
             }))
@@ -826,25 +880,68 @@ mod tests {
     }
 
     #[test]
-    fn local_decoration_and_effect_roundtrip_and_none_clears() {
+    fn local_decoration_effect_and_frame_roundtrip_and_none_clears() {
         let db = db();
         assert_eq!(local_avatar_decoration(&db).unwrap(), None);
         assert_eq!(local_profile_effect(&db).unwrap(), None);
+        assert_eq!(local_profile_frame(&db).unwrap(), None);
         set_local_avatar_decoration(&db, Some("neon_ring")).unwrap();
         set_local_profile_effect(&db, Some("aurora")).unwrap();
+        set_local_profile_frame(&db, Some("crystal_edge")).unwrap();
         assert_eq!(
             local_avatar_decoration(&db).unwrap(),
             Some("neon_ring".into())
         );
         assert_eq!(local_profile_effect(&db).unwrap(), Some("aurora".into()));
+        assert_eq!(
+            local_profile_frame(&db).unwrap(),
+            Some("crystal_edge".into())
+        );
         // Retrait indépendant.
         set_local_avatar_decoration(&db, None).unwrap();
         assert_eq!(local_avatar_decoration(&db).unwrap(), None);
         assert_eq!(local_profile_effect(&db).unwrap(), Some("aurora".into()));
+        assert_eq!(
+            local_profile_frame(&db).unwrap(),
+            Some("crystal_edge".into())
+        );
         // Id invalide : refusé, l'ancienne valeur reste.
         set_local_profile_effect(&db, Some("starfield")).unwrap();
         assert!(set_local_profile_effect(&db, Some("BAD ID!")).is_err());
         assert_eq!(local_profile_effect(&db).unwrap(), Some("starfield".into()));
+        assert!(set_local_profile_frame(&db, Some("BAD ID!")).is_err());
+        assert_eq!(
+            local_profile_frame(&db).unwrap(),
+            Some("crystal_edge".into())
+        );
+        set_local_profile_frame(&db, None).unwrap();
+        assert_eq!(local_profile_frame(&db).unwrap(), None);
+    }
+
+    #[test]
+    fn legacy_lumen_bloom_migration_is_idempotent_and_preserves_explicit_frame() {
+        let legacy = db();
+        set_local_profile_effect(&legacy, Some("lumen_bloom")).unwrap();
+        assert!(migrate_legacy_profile_frame(&legacy).unwrap());
+        assert_eq!(local_profile_effect(&legacy).unwrap(), None);
+        assert_eq!(
+            local_profile_frame(&legacy).unwrap(),
+            Some("lumen_bloom".into())
+        );
+        assert!(!migrate_legacy_profile_frame(&legacy).unwrap());
+
+        let explicit = db();
+        set_local_profile_effect(&explicit, Some("lumen_bloom")).unwrap();
+        set_local_profile_frame(&explicit, Some("crystal_edge")).unwrap();
+        assert!(!migrate_legacy_profile_frame(&explicit).unwrap());
+        assert_eq!(
+            local_profile_effect(&explicit).unwrap(),
+            Some("lumen_bloom".into())
+        );
+        assert_eq!(
+            local_profile_frame(&explicit).unwrap(),
+            Some("crystal_edge".into())
+        );
     }
 
     #[test]
@@ -864,6 +961,7 @@ mod tests {
             Some(0x11_22_33),
             Some("neon_ring"),
             Some("aurora"),
+            Some("crystal_edge"),
             9,
         )
         .unwrap()
@@ -880,6 +978,7 @@ mod tests {
                 banner_color: Some(0x11_22_33),
                 avatar_decoration: Some("neon_ring".into()),
                 profile_effect: Some("aurora".into()),
+                profile_frame: Some("crystal_edge".into()),
                 avatar_changed: true,
                 banner_changed: true,
             }
@@ -902,6 +1001,10 @@ mod tests {
             peer_profile_effect(&db, &node_id).unwrap(),
             Some("aurora".into())
         );
+        assert_eq!(
+            peer_profile_frame(&db, &node_id).unwrap(),
+            Some("crystal_edge".into())
+        );
     }
 
     #[test]
@@ -911,7 +1014,7 @@ mod tests {
         friend(&db, &peer, ContactState::Friend);
         let ingest = |avatar, banner, ts| {
             ingest_peer_profile(
-                &db, &peer, "Anna", "bio", avatar, banner, None, None, None, None, None, ts,
+                &db, &peer, "Anna", "bio", avatar, banner, None, None, None, None, None, None, ts,
             )
             .unwrap()
             .unwrap()
@@ -944,13 +1047,14 @@ mod tests {
             Some(0x11_22_33),
             Some("neon_ring"),
             Some("aurora"),
+            Some("crystal_edge"),
             1,
         )
         .unwrap();
         // Nouvelle annonce sans bio, avatar, bannière, pronoms, couleurs,
         // décoration ni effet : les valeurs connues s'effacent.
         let applied = ingest_peer_profile(
-            &db, &peer, "Anna", "", None, None, None, None, None, None, None, 2,
+            &db, &peer, "Anna", "", None, None, None, None, None, None, None, None, 2,
         )
         .unwrap()
         .unwrap();
@@ -962,6 +1066,7 @@ mod tests {
         assert_eq!(applied.banner_color, None);
         assert_eq!(applied.avatar_decoration, None);
         assert_eq!(applied.profile_effect, None);
+        assert_eq!(applied.profile_frame, None);
         let node_id = node_id_of(&peer).0;
         assert_eq!(peer_bio(&db, &node_id).unwrap(), None);
         assert_eq!(peer_avatar(&db, &node_id).unwrap(), None);
@@ -971,6 +1076,7 @@ mod tests {
         assert_eq!(peer_banner_color(&db, &node_id).unwrap(), None);
         assert_eq!(peer_avatar_decoration(&db, &node_id).unwrap(), None);
         assert_eq!(peer_profile_effect(&db, &node_id).unwrap(), None);
+        assert_eq!(peer_profile_frame(&db, &node_id).unwrap(), None);
     }
 
     #[test]
@@ -979,7 +1085,7 @@ mod tests {
         let unknown = [8u8; 32];
         assert_eq!(
             ingest_peer_profile(
-                &db, &unknown, "Anna", "", None, None, None, None, None, None, None, 1
+                &db, &unknown, "Anna", "", None, None, None, None, None, None, None, None, 1
             )
             .unwrap(),
             None
@@ -1004,6 +1110,7 @@ mod tests {
                     Some(0x11_22_33),
                     Some("neon_ring"),
                     Some("aurora"),
+                    Some("crystal_edge"),
                     1
                 )
                 .unwrap(),
@@ -1039,6 +1146,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             1
         )
         .is_err());
@@ -1048,6 +1156,7 @@ mod tests {
             &peer,
             "Anna",
             &"x".repeat(2049),
+            None,
             None,
             None,
             None,
@@ -1078,6 +1187,7 @@ mod tests {
             &peer,
             "An\u{202E}na",
             "",
+            None,
             None,
             None,
             None,
@@ -1116,6 +1226,7 @@ mod tests {
             Some(0x00_11_22),  // dans les bornes
             Some("BAD ID!"),   // hors alphabet → ignoré
             Some("falling_petals"),
+            Some("crystal_edge"),
             1,
         )
         .unwrap()
@@ -1125,6 +1236,7 @@ mod tests {
         assert_eq!(applied.banner_color, Some(0x00_11_22));
         assert_eq!(applied.avatar_decoration, None);
         assert_eq!(applied.profile_effect, Some("falling_petals".into()));
+        assert_eq!(applied.profile_frame, Some("crystal_edge".into()));
         let node_id = node_id_of(&peer).0;
         assert_eq!(peer_pronouns(&db, &node_id).unwrap(), Some("il/lui".into()));
         assert_eq!(peer_accent_color(&db, &node_id).unwrap(), None);
@@ -1133,6 +1245,10 @@ mod tests {
         assert_eq!(
             peer_profile_effect(&db, &node_id).unwrap(),
             Some("falling_petals".into())
+        );
+        assert_eq!(
+            peer_profile_frame(&db, &node_id).unwrap(),
+            Some("crystal_edge".into())
         );
     }
 

@@ -615,13 +615,6 @@ export function MessageInput({
   // action possible, le clic ouvre directement le sélecteur de fichiers.
   const hasCreateMenu = groupId !== null && channelId !== null;
 
-  /**
-   * Clic sur « + » : en salon, ouvre le menu de création (joindre un fichier,
-   * créer un sondage) via le menu contextuel générique, ancré au coin haut-
-   * gauche du bouton (le rendu se borne au viewport, donc il remonte au-
-   * dessus du composeur). En MP — ou hors salon — le sélecteur de fichiers
-   * s'ouvre directement, comme le trombone d'avant (D-048).
-   */
   const ouvrirMenuAjout = (): void => {
     if (sending) return;
     const gid = groupId;
@@ -630,19 +623,35 @@ export function MessageInput({
       void choisirFichiers();
       return;
     }
-    const rect = plusRef.current?.getBoundingClientRect() ?? { left: 0, top: 0 };
-    openMenu(rect.left, rect.top, [
+    const trigger = plusRef.current;
+    if (trigger === null) return;
+    const rect = trigger.getBoundingClientRect();
+    openMenu(
+      rect.left,
+      rect.top,
+      [
+        {
+          label: t.fichiers.joindre,
+          icon: <TromboneMenuIcon />,
+          onClick: () => void choisirFichiers(),
+        },
+        {
+          label: t.groups.pollNew,
+          icon: <SondageMenuIcon />,
+          onClick: () => openModal({ kind: 'createPoll', groupId: gid, channelId: cid }),
+        },
+      ],
       {
-        label: t.fichiers.joindre,
-        icon: <TromboneMenuIcon />,
-        onClick: () => void choisirFichiers(),
+        anchor: {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+        },
+        preferredSide: 'top',
+        gap: 8,
       },
-      {
-        label: t.groups.pollNew,
-        icon: <SondageMenuIcon />,
-        onClick: () => openModal({ kind: 'createPoll', groupId: gid, channelId: cid }),
-      },
-    ]);
+    );
   };
 
   const selfMember =
@@ -1002,7 +1011,7 @@ export function MessageInput({
                   void submit();
                 }
               }}
-              className="max-h-48 min-h-[36px] min-w-0 flex-1 resize-none self-center bg-transparent px-1 py-2 text-[15px] leading-5 text-norm placeholder-faint outline-none"
+              className="max-h-48 min-h-[36px] min-w-0 flex-1 resize-none self-center bg-transparent px-1 py-2 text-[15px] leading-5 text-norm placeholder-faint outline-none focus-visible:outline-none"
             />
             {slowmodeActive && (
               <span

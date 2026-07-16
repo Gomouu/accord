@@ -26,7 +26,20 @@ export interface ContextMenuItem {
   checked?: boolean;
 }
 
-interface OpenContextMenu {
+export interface ContextMenuAnchor {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+export interface ContextMenuOptions {
+  anchor?: ContextMenuAnchor;
+  preferredSide?: 'top' | 'bottom';
+  gap?: number;
+}
+
+interface OpenContextMenu extends ContextMenuOptions {
   /** Position d'ouverture (coordonnées viewport, `e.clientX/Y`). */
   x: number;
   y: number;
@@ -35,13 +48,18 @@ interface OpenContextMenu {
 
 interface ContextMenuState {
   menu: OpenContextMenu | null;
-  openMenu: (x: number, y: number, items: ContextMenuItem[]) => void;
+  openMenu: (
+    x: number,
+    y: number,
+    items: ContextMenuItem[],
+    options?: ContextMenuOptions,
+  ) => void;
   closeMenu: () => void;
 }
 
 export const useContextMenu = create<ContextMenuState>((set) => ({
   menu: null,
-  openMenu: (x, y, items) => set({ menu: { x, y, items } }),
+  openMenu: (x, y, items, options = {}) => set({ menu: { x, y, items, ...options } }),
   closeMenu: () => set({ menu: null }),
 }));
 

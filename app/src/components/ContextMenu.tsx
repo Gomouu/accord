@@ -13,24 +13,78 @@
  */
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
+import {
+  useContextMenu,
+  type ContextMenuAnchor,
+  type ContextMenuItem,
+} from '../stores/contextMenu';
 import type { NotifLevel } from '../stores/mute';
 
 /** Marge minimale au bord du viewport (px), comme `ProfilePopover`. */
 const MARGE = 8;
 
 /** Position `fixed` (px) bornée au viewport, calée près du point de clic. */
-function clamp(
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-): { left: number; top: number } {
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
+export function placeContextMenu({
+  x,
+  y,
+  width,
+  height,
+  viewportWidth,
+  viewportHeight,
+  anchor,
+  preferredSide = 'top',
+  gap = MARGE,
+}: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  viewportWidth: number;
+  viewportHeight: number;
+  anchor?: ContextMenuAnchor | undefined;
+  preferredSide?: 'top' | 'bottom' | undefined;
+  gap?: number | undefined;
+}): {
+  left: number;
+  top: number;
+  side: 'point' | 'top' | 'bottom';
+  maxHeight: number | null;
+} {
+  let left = x;
+  let top = y;
+  let side: 'point' | 'top' | 'bottom' = 'point';
+  const viewportSpace = Math.max(0, viewportHeight - MARGE * 2);
+  let effectiveHeight = Math.min(height, viewportSpace);
+  let maxHeight = height > viewportSpace ? viewportSpace : null;
+
+  if (anchor !== undefined) {
+    left = anchor.left;
+    const aboveSpace = Math.max(0, anchor.top - gap - MARGE);
+    const belowSpace = Math.max(0, viewportHeight - anchor.bottom - gap - MARGE);
+    const fitsAbove = height <= aboveSpace;
+    const fitsBelow = height <= belowSpace;
+    const useAbove =
+      preferredSide === 'top'
+        ? fitsAbove || (!fitsBelow && aboveSpace >= belowSpace)
+        : !fitsBelow && (fitsAbove || aboveSpace > belowSpace);
+    const available = useAbove ? aboveSpace : belowSpace;
+    effectiveHeight = Math.min(height, available);
+    maxHeight = height > available ? available : null;
+
+    if (useAbove) {
+      top = anchor.top - gap - effectiveHeight;
+      side = 'top';
+    } else {
+      top = anchor.bottom + gap;
+      side = 'bottom';
+    }
+  }
+
   return {
-    left: Math.max(MARGE, Math.min(x, vw - width - MARGE)),
-    top: Math.max(MARGE, Math.min(y, vh - height - MARGE)),
+    left: Math.max(MARGE, Math.min(left, viewportWidth - width - MARGE)),
+    top: Math.max(MARGE, Math.min(top, viewportHeight - effectiveHeight - MARGE)),
+    side,
+    maxHeight,
   };
 }
 
@@ -41,8 +95,13 @@ export function ContextMenu() {
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   /** Élément focusé avant l'ouverture (ligne cliquée/menu clavier), pour restauration. */
   const declencheurRef = useRef<HTMLElement | null>(null);
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
-  const [activeIndex, setActiveIndex] = useState(-1);
+  const [pos, setPos] = useState<{
+    left: number;
+    top: number;
+    side: 'point' | 'top' | 'bottom';
+    maxHeight: number | null;
+  } | null>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
 
   // Repositionne après mesure réelle (largeur/hauteur variables selon les
   // items) et donne le focus au menu pour la navigation clavier. À la
@@ -57,13 +116,13 @@ export function ContextMenu() {
       if (
         declencheur !== null &&
         declencheur.isConnected &&
-        (actif === null || actif === document.body)
+        (actif === null || actif === document.body || !actif.isConnected)
       ) {
         declencheur.focus();
       }
       return;
     }
-    setActiveIndex(-1);
+    setActiveIndex(0);
     // Sous-menu (mêmes coordonnées, items remplacés) : le focus est déjà dans
     // le menu — on garde le déclencheur d'origine capturé à l'ouverture.
     const actif = document.activeElement;
@@ -72,8 +131,29 @@ export function ContextMenu() {
     }
     const el = ref.current;
     if (el === null) return;
-    setPos(clamp(menu.x, menu.y, el.offsetWidth, el.offsetHeight));
-    el.focus();
+    setPos(
+      placeContextMenu({
+        x: menu.x,
+        y: menu.y,
+        width: el.offsetWidth,
+        height: el.offsetHeight,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        anchor: menu.anchor,
+        preferredSide: menu.preferredSide,
+        gap: menu.gap,
+      }),
+    );
+    const focusFirst = (): void => {
+      const first = itemRefs.current[0];
+      if (first !== null && first !== undefined) first.focus();
+      else el.focus();
+    };
+    focusFirst();
+    queueMicrotask(() => {
+      if (useContextMenu.getState().menu !== menu) return;
+      focusFirst();
+    });
   }, [menu]);
 
   useEffect(() => {
@@ -88,10 +168,14 @@ export function ContextMenu() {
     window.addEventListener('mousedown', onDown);
     document.addEventListener('scroll', onScroll, true);
     window.addEventListener('blur', closeMenu);
+    window.addEventListener('resize', closeMenu);
+    window.visualViewport?.addEventListener('resize', closeMenu);
     return () => {
       window.removeEventListener('mousedown', onDown);
       document.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('blur', closeMenu);
+      window.removeEventListener('resize', closeMenu);
+      window.visualViewport?.removeEventListener('resize', closeMenu);
     };
   }, [menu, closeMenu]);
 
@@ -143,9 +227,12 @@ export function ContextMenu() {
         position: 'fixed',
         left: pos?.left ?? menu.x,
         top: pos?.top ?? menu.y,
+        maxHeight: pos?.maxHeight ?? undefined,
         visibility: pos === null ? 'hidden' : 'visible',
       }}
-      className="glass-strong context-menu-enter z-50 min-w-[210px] max-w-xs origin-top-left rounded-lg p-1.5 focus:outline-none"
+      className={`glass-strong context-menu-enter z-50 min-w-[210px] max-w-xs overflow-y-auto overscroll-contain rounded-lg p-1.5 focus:outline-none ${
+        pos?.side === 'top' ? 'origin-bottom-left' : 'origin-top-left'
+      }`}
     >
       {items.map((item, i) => (
         <div key={`${i}-${item.label}`}>
@@ -161,8 +248,9 @@ export function ContextMenu() {
             aria-checked={item.checked}
             tabIndex={i === activeIndex ? 0 : -1}
             onMouseEnter={() => setActiveIndex(i)}
+            onFocus={() => setActiveIndex(i)}
             onClick={() => activate(item)}
-            className={`flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm font-medium transition-colors duration-fast focus-visible:outline-none ${
+            className={`flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blurple ${
               item.danger === true
                 ? 'text-red hover:bg-red/10 focus-visible:bg-red/10'
                 : 'text-norm hover:bg-chat-hover focus-visible:bg-chat-hover'

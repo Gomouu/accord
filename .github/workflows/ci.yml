@@ -29,6 +29,10 @@ env:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    # Garde-fou : un test qui pend (ex. E/S réseau bloquante propre au runner)
+    # doit faire échouer le job en quelques minutes, pas tourner jusqu'au
+    # plafond de 6 h par défaut — et ne jamais bloquer la release (`needs: test`).
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository

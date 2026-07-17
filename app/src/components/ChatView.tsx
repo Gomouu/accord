@@ -44,6 +44,7 @@ import {
 } from '../stores/ui';
 import { AttachmentRow } from './Attachments';
 import { Avatar } from './Avatar';
+import { buildContactMenu } from './contactMenu';
 import {
   CloseIcon,
   CopyMenuIcon,
@@ -345,6 +346,18 @@ export function DmView({ peer }: { peer: string }) {
           type="button"
           aria-label={interpolate(t.profil.openProfile, { name })}
           onClick={(e) => ouvrirProfil(e.currentTarget)}
+          onContextMenu={(e) => {
+            const contact = contacts.find((c) => c.pubkey === peer);
+            if (contact === undefined) return;
+            e.preventDefault();
+            useContextMenu
+              .getState()
+              .openMenu(
+                e.clientX,
+                e.clientY,
+                buildContactMenu(t, contact, e.currentTarget),
+              );
+          }}
           className="flex min-w-0 flex-1 items-center gap-3 rounded-md px-1 py-0.5 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
         >
           <Avatar

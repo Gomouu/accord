@@ -3,11 +3,14 @@
 import { useEffect, useState } from 'react';
 import { interpolate } from '../i18n';
 import type { Contact } from '../lib/api';
+import { copyToClipboard } from '../lib/clipboard';
+import { buildFriendLink, parseFriendLink } from '../lib/friendLink';
 import { presenceOf, useFriends } from '../stores/friends';
 import { useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import { Avatar } from './Avatar';
+import { FriendQrModal } from './FriendQrModal';
 import { NetworkPanel } from './NetworkPanel';
 import { PendingInvites } from './PendingInvites';
 import { PresenceDot } from './PresenceDot';
@@ -199,21 +202,40 @@ function FriendRow({ contact }: { contact: Contact }) {
 
 function AddFriend() {
   const t = useT();
+  const toast = useUi((s) => s.toast);
   const self = useSession((s) => s.self);
   const addByCode = useFriends((s) => s.addByCode);
   const [code, setCode] = useState('');
   const [status, setStatus] = useState<'idle' | 'busy' | 'sent' | 'error'>('idle');
+  /** Modale QR du lien d'ami (ouverte depuis la carte « Mon code ami »). */
+  const [qrOpen, setQrOpen] = useState(false);
 
   const submit = async () => {
     if (code.trim() === '' || status === 'busy') return;
+    // Le champ accepte un lien collé (`accord://friend/…`) comme un code brut :
+    // extraction/normalisation avant l'appel existant, refus immédiat sinon.
+    const parsed = parseFriendLink(code);
+    if (parsed === null) {
+      setStatus('error');
+      return;
+    }
     setStatus('busy');
     try {
-      await addByCode(code, self?.friend_code ?? '');
+      await addByCode(parsed, self?.friend_code ?? '');
       setStatus('sent');
       setCode('');
     } catch {
       setStatus('error');
     }
+  };
+
+  const copyLink = (): void => {
+    if (!self) return;
+    copyToClipboard(
+      buildFriendLink(self.friend_code),
+      () => toast('info', t.friends.linkCopied),
+      () => toast('error', t.errors.actionFailed),
+    );
   };
 
   return (
@@ -255,10 +277,55 @@ function AddFriend() {
             <div className="text-xs font-medium uppercase text-faint">
               {t.friends.myCode}
             </div>
-            <div className="selectable mt-1 font-mono text-lg text-header">
-              {self.friend_code}
+            <div className="mt-1 flex flex-wrap items-center gap-3">
+              <div className="selectable min-w-0 flex-1 break-all font-mono text-lg text-header">
+                {self.friend_code}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={copyLink}
+                  className="h-9 whitespace-nowrap rounded-sm bg-blurple px-3 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
+                >
+                  {t.friends.copyLink}
+                </button>
+                <button
+                  type="button"
+                  title={t.friends.showQr}
+                  aria-label={t.friends.showQr}
+                  onClick={() => setQrOpen(true)}
+                  className="flex h-9 items-center gap-1.5 rounded-sm bg-input px-3 text-sm font-medium text-norm transition-colors duration-fast hover:bg-chat-hover active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                  >
+                    <rect x="3" y="3" width="7" height="7" rx="1" />
+                    <rect x="14" y="3" width="7" height="7" rx="1" />
+                    <rect x="3" y="14" width="7" height="7" rx="1" />
+                    <path d="M14 14h3v3h-3z" />
+                    <path d="M20 14h1v1h-1z" />
+                    <path d="M14 20h1v1h-1z" />
+                    <path d="M19 19h2v2h-2z" />
+                  </svg>
+                  QR
+                </button>
+              </div>
             </div>
           </div>
+        )}
+        {qrOpen && self && (
+          <FriendQrModal
+            link={buildFriendLink(self.friend_code)}
+            onClose={() => setQrOpen(false)}
+          />
         )}
 
         {/* Toute la partie réseau (ton adresse, ajout par adresse, état de la

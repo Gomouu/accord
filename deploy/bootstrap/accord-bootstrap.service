@@ -1,0 +1,29 @@
+# Unité systemd du nœud de rendez-vous Accord.
+# Installation :
+#   install -m 755 target/release/accord-bootstrap /usr/local/bin/
+#   install -m 644 deploy/bootstrap/accord-bootstrap.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now accord-bootstrap
+[Unit]
+Description=Accord bootstrap/rendezvous node (DHT + relay, no account)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/accord-bootstrap
+Environment=ACCORD_BOOTSTRAP_STATE=/var/lib/accord-bootstrap
+Environment=ACCORD_BOOTSTRAP_P2P_ADDR=0.0.0.0:48016
+# Maillage avec les AUTRES hôtes de rendez-vous (2 hôtes minimum au total) :
+# Environment=ACCORD_BOOTSTRAP=203.0.113.7:48016
+Environment=RUST_LOG=info
+DynamicUser=yes
+StateDirectory=accord-bootstrap
+Restart=on-failure
+RestartSec=5
+# Durcissement.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

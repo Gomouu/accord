@@ -137,6 +137,13 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Default rendezvous/bootstrap nodes baked into the release binary at
+          # compile time (option_env!("ACCORD_BOOTSTRAP") in accord-node).
+          # Format: "ip:port,ip:port" — at least TWO distinct hosts (the M1b
+          # ObservedAddrs consensus needs two distinct observers, otherwise
+          # nat_kind stays Unknown). Empty/unset secret = no default rendezvous
+          # (same behaviour as before). See docs/BOOTSTRAP.md.
+          ACCORD_BOOTSTRAP: ${{ secrets.ACCORD_BOOTSTRAP }}
         with:
           projectPath: ./app
           tagName: ${{ github.ref_name }}

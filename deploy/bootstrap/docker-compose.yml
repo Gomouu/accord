@@ -1,0 +1,21 @@
+# Un nœud de rendez-vous par hôte. IMPORTANT : il en faut AU MOINS DEUX sur
+# des hôtes (IP publiques) DISTINCTS — le consensus M1b des ObservedAddrs
+# exige deux observateurs distincts, sinon nat_kind reste Unknown côté client.
+# Sur chaque hôte, pointez ACCORD_BOOTSTRAP vers le ou les AUTRES hôtes.
+services:
+  bootstrap:
+    build:
+      context: ../..
+      dockerfile: deploy/bootstrap/Dockerfile
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      ACCORD_BOOTSTRAP_P2P_ADDR: "0.0.0.0:48016"
+      # Maillage avec les autres rendez-vous, ex. "203.0.113.7:48016".
+      ACCORD_BOOTSTRAP: "${ACCORD_BOOTSTRAP:-}"
+      RUST_LOG: "info"
+    volumes:
+      - bootstrap-state:/var/lib/accord-bootstrap
+
+volumes:
+  bootstrap-state:

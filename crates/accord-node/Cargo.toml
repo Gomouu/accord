@@ -45,3 +45,7 @@ futures-util.workspace = true
 [[bin]]
 name = "accord-noded"
 path = "src/bin/accord-noded.rs"
+
+[[bin]]
+name = "accord-bootstrap"
+path = "src/bin/accord-bootstrap.rs"

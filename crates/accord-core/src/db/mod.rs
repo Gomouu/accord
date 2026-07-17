@@ -84,10 +84,22 @@ impl Db {
         conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key(db_key)))?;
         // Vérifie que la clé ouvre bien la base (première lecture réelle).
         conn.query_row("SELECT count(*) FROM sqlite_master", [], |_| Ok(()))?;
+        // `synchronous = NORMAL` est sûr sous WAL : la base ne peut pas être
+        // corrompue ; au pire, le dernier commit est perdu sur une coupure de
+        // l'OS — acceptable pour un client, contre un fsync par message en
+        // FULL. `cache_size` négatif = Kio (~16 Mio de cache de pages).
+        // `mmap_size` est demandé mais SQLCipher désactive l'I/O mappée sur
+        // une base chiffrée (les pages doivent être déchiffrées) : sans effet
+        // ici, inoffensif, actif si la base devenait claire. `temp_store =
+        // MEMORY` garde tris et index temporaires hors disque.
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
              PRAGMA foreign_keys = ON;
-             PRAGMA busy_timeout = 5000;",
+             PRAGMA busy_timeout = 5000;
+             PRAGMA synchronous = NORMAL;
+             PRAGMA cache_size = -16000;
+             PRAGMA mmap_size = 268435456;
+             PRAGMA temp_store = MEMORY;",
         )?;
         let db = Self {
             conn,

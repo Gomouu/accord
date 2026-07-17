@@ -10,7 +10,7 @@
  * tokenizer. Token colors use the themed CSS variables (light and dark).
  */
 
-import { Fragment, useState, type ReactNode } from 'react';
+import { Fragment, memo, useMemo, useState, type ReactNode } from 'react';
 import { analyserMarkdown, type MdNode } from '../lib/markdown';
 import { highlightCode, type TokenKind } from '../lib/highlight';
 import { roleColorCss } from '../stores/groups';
@@ -275,8 +275,14 @@ function renderNode(node: MdNode, ctx: Ctx): ReactNode {
   }
 }
 
-/** Rend un texte de message en nœuds React (markdown + émojis + mentions). */
-export function MarkdownText({
+/**
+ * Rend un texte de message en nœuds React (markdown + émojis + mentions).
+ * Mémoïsé : `analyserMarkdown` (l'analyse coûteuse) ne re-tourne que si le
+ * texte change, et `memo` évite tout ré-rendu quand la vue parente se
+ * re-rend sans que les props de ce message bougent (arrivée d'un autre
+ * message, survol, édition d'une autre rangée…).
+ */
+function MarkdownTextInner({
   text,
   emojis,
   knownMentions,
@@ -284,8 +290,10 @@ export function MarkdownText({
   hint,
 }: MarkdownTextProps) {
   const emojiSize = useUi((s) => s.emojiSize);
-  const nodes = analyserMarkdown(text);
+  const nodes = useMemo(() => analyserMarkdown(text), [text]);
   return (
     <>{renderNodes(nodes, { emojis, knownMentions, roleColors, hint, emojiSize })}</>
   );
 }
+
+export const MarkdownText = memo(MarkdownTextInner);

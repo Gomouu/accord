@@ -4,6 +4,7 @@
  * pour les messages supprimés ou au corps non pris en charge.
  */
 
+import { memo } from 'react';
 import { maskFiltered } from '../lib/automod';
 import { useT } from '../stores/ui';
 import { MarkdownText } from './MarkdownText';
@@ -18,7 +19,7 @@ interface BodyTextProps {
   automodWords?: readonly string[] | undefined;
 }
 
-export function BodyText({
+function BodyTextInner({
   message,
   emojiMap,
   knownMentions,
@@ -54,3 +55,11 @@ export function BodyText({
     </div>
   );
 }
+
+/**
+ * Mémoïsé : le corps d'un message ne se re-rend pas quand la vue parente se
+ * re-rend sans changement de ce message (le `DisplayMessage` garde son
+ * identité tant qu'il n'est ni édité ni réagi — voir la fusion incrémentale
+ * des stores). Combiné à `MarkdownText`, coupe le re-parse du fil entier.
+ */
+export const BodyText = memo(BodyTextInner);

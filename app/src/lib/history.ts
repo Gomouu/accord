@@ -66,11 +66,28 @@ export interface MergeResult<T> {
   gapDetected: boolean;
 }
 
-/** Union par msg_id : les entrées de `fresh` remplacent celles de `base`. */
+/**
+ * Égalité structurelle « suffisante » : `base` et `fresh` proviennent du même
+ * sérialiseur du nœud (ordre des clés stable), donc une comparaison JSON
+ * détecte fidèlement un message inchangé. Bon marché sur une page (≤ 50).
+ */
+function sameContent<T>(a: T, b: T): boolean {
+  return a === b || JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * Union par msg_id : les entrées de `fresh` remplacent celles de `base`.
+ * Quand le contenu n'a pas changé, on CONSERVE l'objet de `base` (même
+ * référence) : les rangées mémoïsées (`BodyText`/`MarkdownText`) sautent alors
+ * leur ré-rendu au lieu de re-parser tout le fil à chaque rafraîchissement.
+ */
 function mergeById<T extends Sequenced>(base: readonly T[], fresh: readonly T[]): T[] {
   const byId = new Map<string, T>();
   for (const m of base) byId.set(m.msg_id, m);
-  for (const m of fresh) byId.set(m.msg_id, m);
+  for (const m of fresh) {
+    const prev = byId.get(m.msg_id);
+    byId.set(m.msg_id, prev !== undefined && sameContent(prev, m) ? prev : m);
+  }
   return sortAscending([...byId.values()]);
 }
 

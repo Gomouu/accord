@@ -89,6 +89,17 @@ describe('mergeRecentPage', () => {
     expect(messages[0]?.edited).toBe('nouveau texte');
   });
 
+  it('préserve l’identité de l’objet d’un message inchangé (memo efficace)', () => {
+    const kept = msg('a', 1, { edited: null });
+    const existing = [kept, msg('b', 2)];
+    // Page fraîche : même contenu pour « a » (nouvel objet), « b » modifié.
+    const page = [msg('a', 1, { edited: null }), msg('b', 2, { edited: 'x' })];
+    const { messages } = mergeRecentPage(existing, page, false);
+    const merged = new Map(messages.map((m) => [m.msg_id, m]));
+    expect(merged.get('a')).toBe(kept);
+    expect(merged.get('b')?.edited).toBe('x');
+  });
+
   it('détecte un trou : page pleine, disjointe et plus récente → remplacement', () => {
     const existing = [msg('a', 1), msg('b', 2)];
     const page = [msg('z', 100), msg('y', 99)];

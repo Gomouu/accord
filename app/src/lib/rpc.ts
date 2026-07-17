@@ -111,6 +111,23 @@ export class RpcClient {
     return () => this.statusHandlers.delete(handler);
   }
 
+  /**
+   * Force une tentative de reconnexion immédiate, sans attendre la fin du
+   * repli exponentiel en cours. Sans effet si la connexion n'est pas en
+   * attente de reprise (fermée par l'utilisateur, déjà prête, ou tentative
+   * déjà en vol) : seul le minuteur d'attente est court-circuité.
+   */
+  retryNow(): void {
+    if (this.closedByUser || this.retryTimer === null) return;
+    clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    this.retryMs = RETRY_MIN_MS;
+    const generation = this.generation;
+    void this.open(generation).catch(() => {
+      // Échec géré par onclose → nouvelle tentative planifiée.
+    });
+  }
+
   /** Ferme définitivement (pas de reconnexion). */
   close(): void {
     const ws = this.ws;

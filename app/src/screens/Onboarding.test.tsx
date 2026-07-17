@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useSession } from '../stores/session';
 import { useUi } from '../stores/ui';
-import { ChooseNameScreen } from './Onboarding';
+import { ChooseNameScreen, RecoveryPhraseScreen } from './Onboarding';
 
 // jsdom ne charge ni images ni canvas : on simule le chargement et l'encodage
 // pour exercer le vrai recadreur (géométrie réelle, sortie déterministe).
@@ -113,6 +113,54 @@ describe('ChooseNameScreen — actions', () => {
       expect(useUi.getState().toasts.some((t) => t.kind === 'error')).toBe(true);
     });
     expect(screen.getByRole('button', { name: 'C’est parti' })).toBeEnabled();
+  });
+});
+
+describe('RecoveryPhraseScreen — garde anti-perte', () => {
+  const PHRASE =
+    'alpha bravo charlie delta echo foxtrot golf hotel india juliett kilo lima';
+
+  beforeEach(() => {
+    useUi.setState({ lang: 'fr', toasts: [] });
+    useSession.setState({ ackRecoveryPhrase: vi.fn() });
+    // Mot-défi déterministe : index 0 → « alpha » (« mot n°1 »).
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+  });
+
+  it('bloque la confirmation tant que le mot-défi n’est pas retapé', () => {
+    render(<RecoveryPhraseScreen phrase={PHRASE} />);
+    const confirm = screen.getByRole('button', { name: 'Je les ai notés en lieu sûr' });
+    expect(confirm).toBeDisabled();
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'mauvais' } });
+    expect(screen.getByText('Ce mot ne correspond pas')).toBeInTheDocument();
+    expect(confirm).toBeDisabled();
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '  ALPHA  ' } });
+    expect(screen.queryByText('Ce mot ne correspond pas')).not.toBeInTheDocument();
+    expect(confirm).toBeEnabled();
+  });
+
+  it('confirme (ack) une fois le mot correct saisi', () => {
+    const ack = vi.fn();
+    useSession.setState({ ackRecoveryPhrase: ack });
+    render(<RecoveryPhraseScreen phrase={PHRASE} />);
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'alpha' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Je les ai notés en lieu sûr' }));
+
+    expect(ack).toHaveBeenCalledTimes(1);
+  });
+
+  it('copie la phrase dans le presse-papiers', async () => {
+    const writeText = vi.fn((_text: string) => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(<RecoveryPhraseScreen phrase={PHRASE} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copier' }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledOnce());
+    expect(writeText.mock.calls[0]?.[0]).toContain('1. alpha');
   });
 });
 

@@ -27,6 +27,21 @@ export default defineConfig({
   build: {
     target: 'es2022',
     outDir: 'dist',
+    rollupOptions: {
+      output: {
+        // Sépare le socle (React) et les dépendances lourdes ponctuelles
+        // (`qrcode`, seulement nécessaire pour le QR d'ami, chargé à la
+        // demande via React.lazy) du code applicatif : un changement d'UI
+        // n'invalide plus le cache du vendor, et `qrcode` ne pèse plus sur le
+        // chargement initial.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('qrcode')) return 'qrcode';
+          if (id.includes('/react') || id.includes('/scheduler/')) return 'react';
+          return 'vendor';
+        },
+      },
+    },
   },
   test: {
     globals: true,

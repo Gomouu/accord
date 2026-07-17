@@ -5,6 +5,7 @@
 
 import { create } from 'zustand';
 import { api, rpc } from '../lib/client';
+import type { RpcStatus } from '../lib/rpc';
 import type { SelfProfile } from '../lib/api';
 import {
   accountCreate,
@@ -99,6 +100,13 @@ export function selfDisplayName(self: SelfProfile): string {
 
 interface SessionState {
   phase: Phase;
+  /**
+   * Statut fin du lien RPC, distinct de `phase` : `phase` retombe sur
+   * `offline` dès que le lien n'est plus `ready`, mais `link` conserve la
+   * nuance (reconnexion automatique en cours vs. lien réellement coupé) pour
+   * que le bandeau la reflète et propose une reprise manuelle.
+   */
+  link: RpcStatus;
   self: SelfProfile | null;
   /** Comptes locaux connus (sélecteur de comptes), du plus récent au moins récent. */
   accounts: AccountMeta[];
@@ -117,6 +125,8 @@ interface SessionState {
    * a fresh launch on an existing vault.
    */
   lock: () => Promise<void>;
+  /** Force une tentative de reconnexion immédiate (bouton du bandeau hors-ligne). */
+  reconnect: () => void;
   /** Rafraîchit `accounts` (best-effort) depuis le registre local. */
   loadAccounts: () => Promise<void>;
   /** Depuis l'écran de déverrouillage à compte unique : bascule vers le sélecteur de comptes. */
@@ -182,15 +192,17 @@ function phaseForAccountCount(count: number): 'setup' | 'locked' | 'welcome' {
 
 export const useSession = create<SessionState>((set) => {
   rpc.onStatus((status) => {
-    // Une fois prêt, reflète les coupures de lien dans l'UI.
+    // `link` suit toujours le statut fin ; `phase` ne bascule ready/offline
+    // que depuis ces deux états (jamais depuis boot/setup/starting…).
     set((s) => {
-      if (s.phase !== 'ready' && s.phase !== 'offline') return s;
-      return { ...s, phase: status === 'ready' ? 'ready' : 'offline' };
+      if (s.phase !== 'ready' && s.phase !== 'offline') return { ...s, link: status };
+      return { ...s, link: status, phase: status === 'ready' ? 'ready' : 'offline' };
     });
   });
 
   return {
     phase: 'boot',
+    link: 'idle',
     self: null,
     accounts: [],
     recoveryPhrase: null,
@@ -277,6 +289,10 @@ export const useSession = create<SessionState>((set) => {
         // replaces any node that failed to stop.
         set({ error: e instanceof Error ? e.message : String(e) });
       }
+    },
+
+    reconnect: () => {
+      rpc.retryNow();
     },
 
     loadAccounts: async () => {

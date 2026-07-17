@@ -11,6 +11,8 @@
 import { useRef, useState } from 'react';
 import { type AvatarEncode } from '../lib/image';
 import { initials } from '../lib/format';
+import { interpolate } from '../i18n';
+import { copyToClipboard } from '../lib/clipboard';
 import { isValidName, useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import { AvatarCropper } from '../components/AvatarCropper';
@@ -199,9 +201,30 @@ export function RecoveryPhraseScreen({ phrase }: { phrase: string }) {
   const toast = useUi((s) => s.toast);
   const words = phrase.split(/\s+/).filter(Boolean);
 
+  // Mot-défi tiré une seule fois au montage : avant de faire disparaître à
+  // jamais cette information irremplaçable, on exige d'en retaper un mot
+  // précis — garde contre le clic distrait qui validerait sans l'avoir notée.
+  const [challenge] = useState(() =>
+    words.length > 0 ? Math.floor(Math.random() * words.length) : 0,
+  );
+  const [answer, setAnswer] = useState('');
+  const expected = words[challenge] ?? '';
+  const verified =
+    expected !== '' && answer.trim().toLowerCase() === expected.toLowerCase();
+  const mismatch = answer.trim() !== '' && !verified;
+
+  const body = words.map((w, i) => `${i + 1}. ${w}`).join('\n');
+
+  const copy = () => {
+    copyToClipboard(
+      body,
+      () => toast('info', t.onboarding.phraseCopied),
+      () => toast('error', t.errors.actionFailed),
+    );
+  };
+
   const download = () => {
-    const body = words.map((w, i) => `${i + 1}. ${w}`).join('\n') + '\n';
-    const url = URL.createObjectURL(new Blob([body], { type: 'text/plain' }));
+    const url = URL.createObjectURL(new Blob([body + '\n'], { type: 'text/plain' }));
     const a = document.createElement('a');
     a.href = url;
     a.download = 'accord-recovery-phrase.txt';
@@ -209,6 +232,9 @@ export function RecoveryPhraseScreen({ phrase }: { phrase: string }) {
     URL.revokeObjectURL(url);
     toast('info', t.onboarding.phraseDownloaded);
   };
+
+  const secondaryButton =
+    'flex flex-1 items-center justify-center gap-2 rounded-lg border border-input py-2.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-[0.98]';
 
   return (
     <Card>
@@ -227,28 +253,56 @@ export function RecoveryPhraseScreen({ phrase }: { phrase: string }) {
           </li>
         ))}
       </ol>
-      <button
-        type="button"
-        onClick={download}
-        className="mb-3 flex w-full items-center justify-center gap-2 rounded-lg border border-input py-2.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple active:scale-[0.98]"
-      >
-        <svg
-          width={16}
-          height={16}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-          <polyline points="7 10 12 15 17 10" />
-          <line x1="12" x2="12" y1="15" y2="3" />
-        </svg>
-        {t.onboarding.phraseDownload}
-      </button>
-      <PrimaryButton label={t.onboarding.phraseConfirm} onClick={ack} />
+      <div className="mb-4 flex gap-2">
+        <button type="button" onClick={copy} className={secondaryButton}>
+          <svg
+            width={16}
+            height={16}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+          </svg>
+          {t.onboarding.phraseCopy}
+        </button>
+        <button type="button" onClick={download} className={secondaryButton}>
+          <svg
+            width={16}
+            height={16}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" x2="12" y1="15" y2="3" />
+          </svg>
+          {t.onboarding.phraseDownload}
+        </button>
+      </div>
+      <Field
+        label={interpolate(t.onboarding.phraseVerify, { n: String(challenge + 1) })}
+        type="text"
+        value={answer}
+        onChange={setAnswer}
+        placeholder={t.onboarding.phraseVerifyPlaceholder}
+      />
+      {mismatch && (
+        <p className="mb-3 -mt-2 text-sm text-red">{t.onboarding.phraseVerifyMismatch}</p>
+      )}
+      <PrimaryButton
+        label={t.onboarding.phraseConfirm}
+        disabled={!verified}
+        onClick={ack}
+      />
     </Card>
   );
 }

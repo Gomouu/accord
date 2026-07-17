@@ -262,6 +262,38 @@ describe('RpcClient — reconnexion', () => {
     expect(sockets).toHaveLength(1);
   });
 
+  it('force une reconnexion immédiate sans attendre le repli (retryNow)', async () => {
+    const { client, sockets } = makeClient();
+    const ws = await connectReady(client, sockets);
+
+    ws.serverDrop();
+    expect(client.status).toBe('reconnecting');
+    expect(sockets).toHaveLength(1);
+
+    // Sans avancer les minuteurs : la reprise doit partir tout de suite.
+    client.retryNow();
+    expect(sockets).toHaveLength(2);
+    const ws2 = sockets[1];
+    ws2?.serverOpen();
+    ws2?.respond(0, { protocole: 1 });
+    expect(client.status).toBe('ready');
+  });
+
+  it('retryNow est sans effet hors attente de repli (prêt, puis fermé)', async () => {
+    const { client, sockets } = makeClient();
+    await connectReady(client, sockets);
+
+    // Lien prêt : aucune tentative en attente, rien à court-circuiter.
+    client.retryNow();
+    expect(sockets).toHaveLength(1);
+
+    // Fermé volontairement : ne relance jamais.
+    client.close();
+    client.retryNow();
+    expect(sockets).toHaveLength(1);
+    expect(client.status).toBe('closed');
+  });
+
   it("ignore la fermeture tardive de l'ancienne socket après remplacement", async () => {
     const { client, sockets } = makeClient();
     const old = await connectReady(client, sockets);

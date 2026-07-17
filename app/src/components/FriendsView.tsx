@@ -1,6 +1,6 @@
 /** Vue Amis : onglets Tous / En attente / Invitations / Bloqués / Ajouter, actions. */
 
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { interpolate } from '../i18n';
 import type { Contact } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
@@ -10,10 +10,15 @@ import { useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import { Avatar } from './Avatar';
-import { FriendQrModal } from './FriendQrModal';
 import { NetworkPanel } from './NetworkPanel';
 import { PendingInvites } from './PendingInvites';
 import { PresenceDot } from './PresenceDot';
+
+// Le QR d'ami embarque la librairie `qrcode` : chargé à la demande (à
+// l'ouverture de la modale) pour ne pas l'inclure dans le bundle initial.
+const FriendQrModal = lazy(() =>
+  import('./FriendQrModal').then((m) => ({ default: m.FriendQrModal })),
+);
 
 type Tab = 'all' | 'pending' | 'invitations' | 'blocked' | 'add';
 /** Onglets adossés à la liste de contacts (`byTab`) — distincts d'« invitations » et « add ». */
@@ -322,10 +327,12 @@ function AddFriend() {
           </div>
         )}
         {qrOpen && self && (
-          <FriendQrModal
-            link={buildFriendLink(self.friend_code)}
-            onClose={() => setQrOpen(false)}
-          />
+          <Suspense fallback={null}>
+            <FriendQrModal
+              link={buildFriendLink(self.friend_code)}
+              onClose={() => setQrOpen(false)}
+            />
+          </Suspense>
         )}
 
         {/* Toute la partie réseau (ton adresse, ajout par adresse, état de la
@@ -339,8 +346,19 @@ function AddFriend() {
   );
 }
 
-/** État vide d'un onglet de la liste d'amis : icône muette centrée + libellé. */
-function EmptyFriends({ label }: { label: string }) {
+/**
+ * État vide d'un onglet de la liste d'amis : icône centrée + libellé. Quand
+ * `action` est fourni (onglet « Tous », premier lancement), l'état devient
+ * actif — un appel à l'action fondatrice « Ajouter un ami » plutôt qu'une
+ * ligne morte.
+ */
+function EmptyFriends({
+  label,
+  action,
+}: {
+  label: string;
+  action?: { label: string; onClick: () => void };
+}) {
   return (
     <div className="flex flex-col items-center gap-3 py-12 text-center text-muted">
       <span
@@ -364,7 +382,30 @@ function EmptyFriends({ label }: { label: string }) {
           <path d="M16 3.13a4 4 0 0 1 0 7.75" />
         </svg>
       </span>
-      <p>{label}</p>
+      <p className="max-w-xs text-pretty">{label}</p>
+      {action !== undefined && (
+        <button
+          type="button"
+          onClick={action.onClick}
+          className="mt-1 inline-flex h-9 items-center gap-2 rounded-full bg-green px-4 text-sm font-medium text-on-green transition-colors duration-fast hover:brightness-110 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <line x1="12" x2="12" y1="5" y2="19" />
+            <line x1="5" x2="19" y1="12" y2="12" />
+          </svg>
+          {action.label}
+        </button>
+      )}
     </div>
   );
 }
@@ -482,7 +523,15 @@ export function FriendsView() {
           <div className="mb-2 px-1 text-[11px] font-medium uppercase tracking-wide text-muted">
             {tabs.find((x) => x.id === tab)?.label} — {byTab[tab].length}
           </div>
-          {byTab[tab].length === 0 && <EmptyFriends label={emptyLabel[tab]} />}
+          {byTab[tab].length === 0 &&
+            (tab === 'all' ? (
+              <EmptyFriends
+                label={emptyLabel[tab]}
+                action={{ label: t.friends.add, onClick: () => setTab('add') }}
+              />
+            ) : (
+              <EmptyFriends label={emptyLabel[tab]} />
+            ))}
           {byTab[tab].map((c) => (
             <FriendRow key={c.pubkey} contact={c} />
           ))}

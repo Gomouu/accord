@@ -28,7 +28,7 @@ use std::path::Path;
 /// Le lot de création est entièrement idempotent (`IF NOT EXISTS`) : monter
 /// la version suffit pour créer les nouvelles tables sur une base existante.
 /// Modifier des colonnes existantes exigera en revanche une vraie migration.
-const SCHEMA_VERSION: i64 = 9;
+const SCHEMA_VERSION: i64 = 10;
 
 /// Convertit un blob SQL en tableau de taille fixe.
 pub(crate) fn blob<const N: usize>(v: Vec<u8>) -> Result<[u8; N], CoreError> {
@@ -254,6 +254,12 @@ impl Db {
              );
              CREATE INDEX IF NOT EXISTS outbox_due
                ON outbox(next_attempt_ms);
+             -- Migration v10 : `outbox_for` (reconnexion d'un pair) et
+             -- `outbox_dests` filtrent/groupent par destinataire — sans cet
+             -- index, chaque ouverture de conversation balayait toute la
+             -- file. (dest, created_ms) couvre l'égalité ET l'ordre de tri.
+             CREATE INDEX IF NOT EXISTS outbox_by_dest
+               ON outbox(dest, created_ms);
              CREATE TABLE IF NOT EXISTS files (
                merkle_root BLOB PRIMARY KEY,
                name        TEXT NOT NULL,
@@ -339,7 +345,7 @@ impl Db {
                last_ms    INTEGER NOT NULL,
                PRIMARY KEY (group_id, channel_id, author)
              );
-             PRAGMA user_version = 9;
+             PRAGMA user_version = 10;
              COMMIT;",
         )?;
         Ok(())

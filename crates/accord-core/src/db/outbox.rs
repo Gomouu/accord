@@ -230,6 +230,56 @@ mod tests {
     }
 
     #[test]
+    fn outbox_for_utilise_l_index_par_destinataire() {
+        // Migration v10 : sans `outbox_by_dest`, `outbox_for` balayait toute
+        // la file (SCAN). Le plan doit passer par l'index, qui couvre aussi
+        // l'ordre `created_ms` (pas d'étape de tri résiduelle).
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        let plan: String = db
+            .conn()
+            .query_row(
+                "EXPLAIN QUERY PLAN SELECT id, dest, payload, created_ms, attempts, mailboxed_day
+                 FROM outbox WHERE dest = x'00' ORDER BY created_ms ASC",
+                [],
+                |row| row.get(3),
+            )
+            .unwrap();
+        assert!(plan.contains("outbox_by_dest"), "plan sans index : {plan}");
+    }
+
+    #[test]
+    fn migration_v10_cree_l_index_sur_une_base_v9() {
+        // Base persistée « v9 » : mêmes tables, sans l'index, version 9. La
+        // réouverture doit rejouer le lot idempotent et créer l'index sans
+        // toucher aux lignes existantes.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("core.db");
+        let key = [5u8; 32];
+        {
+            let db = Db::open(&path, &key).unwrap();
+            db.enqueue(&[7; 32], b"msg", 1000).unwrap();
+            db.conn()
+                .execute_batch("DROP INDEX outbox_by_dest; PRAGMA user_version = 9;")
+                .unwrap();
+        }
+        let db = Db::open(&path, &key).unwrap();
+        let n: i64 = db
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'outbox_by_dest'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1, "index recréé par la migration");
+        assert_eq!(
+            db.outbox_for(&[7; 32]).unwrap().len(),
+            1,
+            "données intactes"
+        );
+    }
+
+    #[test]
     fn expiry_purges_old_items() {
         let db = Db::open_in_memory(&[1; 32]).unwrap();
         db.enqueue(&[7; 32], b"vieux", 0).unwrap();

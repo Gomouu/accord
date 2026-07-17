@@ -23,7 +23,16 @@ permissions:
   contents: write
 
 jobs:
+  # Gate de validation : réutilise le workflow CI complet (Rust fmt/clippy/
+  # test + audits + frontend) via workflow_call. Aucun installateur n'est
+  # publié si la validation échoue.
+  test:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+
   publish-tauri:
+    needs: test
     permissions:
       contents: write
     strategy:

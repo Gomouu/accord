@@ -18,6 +18,21 @@ cargo clippy --workspace --all-targets -- -D warnings
 step "Rust: cargo test --workspace"
 cargo test --workspace --quiet
 
+# Audits de chaîne d'approvisionnement — optionnels en local (binaires non
+# fournis par rustup), obligatoires en CI (.github/workflows/ci.yml). Si un
+# binaire manque, on avertit sans faire échouer le gate local.
+step "Rust: cargo deny/audit (si installés)"
+if command -v cargo-deny >/dev/null 2>&1; then
+  cargo deny check
+else
+  printf 'avertissement: cargo-deny absent — étape sautée (cargo install cargo-deny)\n'
+fi
+if command -v cargo-audit >/dev/null 2>&1; then
+  cargo audit
+else
+  printf 'avertissement: cargo-audit absent — étape sautée (cargo install cargo-audit)\n'
+fi
+
 # --- Frontend (app/) ---
 
 if [ -d app ] && [ -f app/package.json ]; then

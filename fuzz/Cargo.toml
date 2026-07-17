@@ -1,0 +1,53 @@
+# Crate cargo-fuzz d'Accord — hors du workspace racine (voir exclude = ["fuzz"]).
+#
+# Usage (toolchain nightly requise par libFuzzer/ASan) :
+#   cargo install cargo-fuzz
+#   cargo +nightly fuzz run proto_decode
+#
+# Invariant fuzzé : aucun décodage accord-proto ne panique sur une entrée
+# arbitraire — toute entrée invalide retourne Err (SPEC §0, décodage strict).
+
+[package]
+name = "accord-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Workspace autonome explicite : empêche cargo de rattacher ce crate à un
+# manifeste parent (le workspace racine l'exclut déjà via exclude = ["fuzz"]).
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.accord-proto]
+path = "../crates/accord-proto"
+
+[[bin]]
+name = "proto_decode"
+path = "fuzz_targets/proto_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "group_op_body"
+path = "fuzz_targets/group_op_body.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "core_msg"
+path = "fuzz_targets/core_msg.rs"
+test = false
+doc = false
+bench = false
+
+# Profil release avec symboles de debug : indispensable pour des stacktraces
+# exploitables quand libFuzzer trouve un crash.
+[profile.release]
+debug = 1

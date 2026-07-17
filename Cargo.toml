@@ -1,5 +1,8 @@
 [workspace]
 resolver = "2"
+# fuzz/ est un crate cargo-fuzz autonome (toolchain nightly, profils dédiés) :
+# il vit hors du workspace pour ne pas imposer nightly au build normal.
+exclude = ["fuzz"]
 members = [
     "crates/accord-proto",
     "crates/accord-crypto",

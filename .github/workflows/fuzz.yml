@@ -1,0 +1,53 @@
+# Fuzzing nocturne accord-proto — cargo-fuzz (libFuzzer, toolchain nightly).
+#
+# Invariant vérifié : aucun décodage du protocole filaire ne panique sur une
+# entrée arbitraire (les cibles vivent dans fuzz/fuzz_targets/). Chaque cible
+# tourne 4 minutes ; un crash/panic fait échouer le job avec l'entrée fautive
+# dans les logs.
+#
+# Déclencheurs : cron nocturne + lancement manuel depuis l'onglet Actions.
+name: Fuzz
+
+on:
+  schedule:
+    # Tous les jours à 02:00 UTC (heure creuse, hors pics de release).
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # libFuzzer + sanitizers exigent nightly (flags -Z de rustc).
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      # Cache du crate fuzz (workspace autonome -> fuzz/target).
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "fuzz -> fuzz/target"
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+
+      - name: Build fuzz targets
+        run: cargo +nightly fuzz build
+
+      # accord-proto est pur (aucune I/O) : 4 min/cible suffisent à couvrir
+      # largement les chemins de décodage à chaque nuit.
+      - name: Fuzz proto_decode
+        run: cargo +nightly fuzz run proto_decode -- -max_total_time=240
+
+      - name: Fuzz group_op_body
+        run: cargo +nightly fuzz run group_op_body -- -max_total_time=240
+
+      - name: Fuzz core_msg
+        run: cargo +nightly fuzz run core_msg -- -max_total_time=240

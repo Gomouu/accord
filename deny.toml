@@ -1,0 +1,37 @@
+# Configuration cargo-deny — audits de chaîne d'approvisionnement (CI: ci.yml,
+# local: ci.sh si le binaire est installé).
+#
+# TODO: liste de licences établie sans exécution locale de `cargo deny check`
+# (binaire absent sur la machine de dev) — elle est volontairement large ;
+# resserrer à la première exécution CI si une entrée s'avère inutile, ou
+# ajouter la licence manquante si une dépendance légitime est rejetée.
+
+[advisories]
+# Comportement v2 par défaut (cargo-deny >= 0.16) : vulnérabilité connue =
+# erreur, crate non maintenu / unsound / notice = avertissement. On garde les
+# défauts, simples et suffisants.
+yanked = "deny"
+
+[licenses]
+# Seules les licences permissives (ou faiblement copyleft compatibles) sont
+# acceptées ; tout SPDX hors liste fait échouer la CI.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "CC0-1.0",
+  "Unicode-3.0",
+  "MPL-2.0",
+  # OpenSSL vendu par openssl-src (rusqlite bundled-sqlcipher-vendored-openssl)
+  # et licence historique de ring si ce crate entre dans l'arbre un jour.
+  "OpenSSL",
+]
+
+[bans]
+# Les versions multiples d'un même crate gonflent le binaire mais ne sont pas
+# une erreur : avertissement seulement.
+multiple-versions = "warn"

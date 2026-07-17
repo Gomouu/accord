@@ -284,40 +284,53 @@ pub async fn micro_autorisation_demander() -> Result<bool, ErreurHote> {
 /// connexions ENTRANTES, un pair ne peut pas nous joindre directement.
 #[tauri::command]
 pub fn ouvrir_reglages_systeme(section: String) -> Result<(), ErreurHote> {
+    // Un bloc-expression par plateforme : exactement un compile, il est donc
+    // l'expression finale de la fonction (aucun `return` final, aucun bloc-tail
+    // cfg ambigu — voir la mésaventure clippy Linux sur `needless_return`).
     #[cfg(target_os = "macos")]
-    let cible = match section.as_str() {
-        "microphone" => {
-            "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
-        }
-        "notifications" => "x-apple.systempreferences:com.apple.Notifications-Settings.extension",
-        "firewall" => "x-apple.systempreferences:com.apple.Network-Settings.extension?Firewall",
-        _ => return Err(ErreurHote::Tache("section inconnue".into())),
-    };
+    {
+        let cible = match section.as_str() {
+            "microphone" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+            }
+            "notifications" => {
+                "x-apple.systempreferences:com.apple.Notifications-Settings.extension"
+            }
+            "firewall" => "x-apple.systempreferences:com.apple.Network-Settings.extension?Firewall",
+            _ => return Err(ErreurHote::Tache("section inconnue".into())),
+        };
+        lancer_reglages(std::process::Command::new("open").arg(cible).spawn())
+    }
     #[cfg(target_os = "windows")]
-    let cible = match section.as_str() {
-        "microphone" => "ms-settings:privacy-microphone",
-        "notifications" => "ms-settings:notifications",
-        "firewall" => "windowsdefender://network/",
-        _ => return Err(ErreurHote::Tache("section inconnue".into())),
-    };
+    {
+        let cible = match section.as_str() {
+            "microphone" => "ms-settings:privacy-microphone",
+            "notifications" => "ms-settings:notifications",
+            "firewall" => "windowsdefender://network/",
+            _ => return Err(ErreurHote::Tache("section inconnue".into())),
+        };
+        lancer_reglages(
+            std::process::Command::new("cmd")
+                .args(["/C", "start", "", cible])
+                .spawn(),
+        )
+    }
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     {
         let _ = section;
-        return Err(ErreurHote::Tache(
+        Err(ErreurHote::Tache(
             "réglages système non pris en charge sur cette plateforme".into(),
-        ));
+        ))
     }
-    #[cfg(target_os = "macos")]
-    let lancement = std::process::Command::new("open").arg(cible).spawn();
-    #[cfg(target_os = "windows")]
-    let lancement = std::process::Command::new("cmd")
-        .args(["/C", "start", "", cible])
-        .spawn();
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    match lancement {
-        Ok(_) => Ok(()),
-        Err(e) => Err(ErreurHote::Tache(format!("ouverture des réglages : {e}"))),
-    }
+}
+
+/// Mappe le résultat de `spawn` d'un lanceur de réglages système en
+/// `Result` d'hôte (partagé macOS/Windows).
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn lancer_reglages(lancement: std::io::Result<std::process::Child>) -> Result<(), ErreurHote> {
+    lancement
+        .map(|_| ())
+        .map_err(|e| ErreurHote::Tache(format!("ouverture des réglages : {e}")))
 }
 
 /// Exécute un travail CPU lourd hors du fil principal.

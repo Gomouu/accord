@@ -17,11 +17,13 @@ import {
   displayNameOf,
   useFriends,
 } from '../stores/friends';
+import { useContextMenu } from '../stores/contextMenu';
 import { useGroups } from '../stores/groups';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import { useVoice } from '../stores/voice';
 import { Avatar } from './Avatar';
+import { buildOwnUserMenu } from './contactMenu';
 import { PhoneOffIcon } from './ContextMenu';
 import { PresenceDot } from './PresenceDot';
 import { SoundboardButton } from './SoundboardButton';
@@ -290,6 +292,14 @@ export function UserPanel() {
               null,
               'user-menu',
             );
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            useContextMenu
+              .getState()
+              .openMenu(e.clientX, e.clientY, buildOwnUserMenu(t, self, ownStatus), {
+                preferredSide: 'top',
+              });
           }}
           title={t.profil.userMenu}
           aria-label={t.profil.userMenu}

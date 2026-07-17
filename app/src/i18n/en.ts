@@ -1025,6 +1025,7 @@ export const en: Dict = {
     copyText: 'Copy text',
     copyMessageId: 'Copy message ID',
     copyUserId: 'Copy user ID',
+    copyFriendCode: 'Copy friend code',
     copyChannelId: 'Copy channel ID',
     copyServerId: 'Copy server ID',
     mention: 'Mention {name}',

@@ -5,11 +5,13 @@ import { interpolate } from '../i18n';
 import type { Contact } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
 import { buildFriendLink, parseFriendLink } from '../lib/friendLink';
+import { useContextMenu } from '../stores/contextMenu';
 import { presenceOf, useFriends } from '../stores/friends';
 import { useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import { Avatar } from './Avatar';
+import { buildContactMenu } from './contactMenu';
 import { NetworkPanel } from './NetworkPanel';
 import { PendingInvites } from './PendingInvites';
 import { PresenceDot } from './PresenceDot';
@@ -44,7 +46,15 @@ function FriendRow({ contact }: { contact: Contact }) {
   const statusText = contact.status_text ?? null;
 
   return (
-    <div className="group flex min-h-14 flex-wrap items-center gap-x-3 gap-y-2 rounded-lg px-3 py-2 transition-colors duration-fast hover:bg-chat-hover">
+    <div
+      onContextMenu={(e) => {
+        e.preventDefault();
+        useContextMenu
+          .getState()
+          .openMenu(e.clientX, e.clientY, buildContactMenu(t, contact, e.currentTarget));
+      }}
+      className="group flex min-h-14 flex-wrap items-center gap-x-3 gap-y-2 rounded-lg px-3 py-2 transition-colors duration-fast hover:bg-chat-hover"
+    >
       <div className="relative shrink-0">
         <Avatar
           id={contact.pubkey}

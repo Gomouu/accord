@@ -31,6 +31,7 @@ import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 import { useUi, useT } from '../stores/ui';
 import { useVoice } from '../stores/voice';
 import { Avatar } from './Avatar';
+import { buildContactMenu } from './contactMenu';
 import {
   BellOffMenuIcon,
   buildNotifLevelItems,
@@ -187,6 +188,16 @@ function HomeSidebar({ onOpenInbox }: { onOpenInbox: () => void }) {
               type="button"
               aria-current={active ? 'page' : undefined}
               onClick={() => setView({ kind: 'dm', peer: c.pubkey })}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                useContextMenu
+                  .getState()
+                  .openMenu(
+                    e.clientX,
+                    e.clientY,
+                    buildContactMenu(t, c, e.currentTarget),
+                  );
+              }}
               className={`flex ${hasStatusText ? 'h-11' : 'h-9'} w-full items-center gap-2.5 rounded-md px-2 transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
                 active
                   ? 'bg-blurple/15 text-header ring-1 ring-inset ring-blurple/20'

@@ -69,7 +69,7 @@ export interface MessageMenuDeps {
 }
 
 /** Icône « retirer l'ami » du jeu de menu (14 px) — personne barrée d'un moins. */
-function RemoveFriendMenuIcon() {
+export function RemoveFriendMenuIcon() {
   return (
     <svg
       width={14}
@@ -90,7 +90,7 @@ function RemoveFriendMenuIcon() {
 }
 
 /** Icône « bloquer/débloquer » du jeu de menu (14 px) — cercle barré. */
-function BlockUserMenuIcon() {
+export function BlockUserMenuIcon() {
   return (
     <svg
       width={14}

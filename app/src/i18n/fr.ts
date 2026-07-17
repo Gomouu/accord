@@ -1040,6 +1040,7 @@ export const fr = {
     copyText: 'Copier le texte',
     copyMessageId: 'Copier l’ID du message',
     copyUserId: 'Copier l’ID utilisateur',
+    copyFriendCode: 'Copier le code ami',
     copyChannelId: 'Copier l’ID du salon',
     copyServerId: 'Copier l’ID du serveur',
     mention: 'Mentionner {name}',

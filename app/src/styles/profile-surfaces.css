@@ -55,15 +55,17 @@
   box-shadow: var(--glass-highlight), var(--shadow-1);
 }
 
-.personalization-preview {
-  position: relative;
-  min-height: 168px;
-  overflow: visible;
+/* Scène de l'aperçu de carte dans les paramètres : marge intérieure ≥ au
+ * débord des cadres (.profile-frame, inset -30px) pour ne rien rogner. */
+.personalization-card-stage {
+  display: flex;
+  justify-content: center;
+  padding: 34px 34px 30px;
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
-  background: rgb(var(--color-modal));
-  box-shadow: var(--glass-highlight), var(--shadow-2);
-  isolation: isolate;
+  background:
+    radial-gradient(circle at 50% 0%, rgb(var(--color-blurple) / 0.08), transparent 62%),
+    rgb(var(--color-rail) / 0.55);
 }
 
 .profile-frame {
@@ -830,34 +832,6 @@
   animation-delay: -2.8s;
 }
 
-.personalization-preview > .profile-frame {
-  inset: -14px;
-  z-index: 2;
-  opacity: 0.84;
-}
-
-.personalization-preview
-  > .profile-frame
-  :is(
-    .lumen-frame__crown--top,
-    .crystal-frame__crown--top,
-    .celestial-frame__crown--top,
-    .tech-frame__circuit--top
-  ) {
-  height: 54px;
-}
-
-.personalization-preview
-  > .profile-frame
-  :is(
-    .lumen-frame__crown--bottom,
-    .crystal-frame__crown--bottom,
-    .celestial-frame__crown--bottom,
-    .tech-frame__circuit--bottom
-  ) {
-  height: 46px;
-}
-
 .personalization-choice__frame > .profile-frame {
   inset: -7px;
   opacity: 0.78;
@@ -869,7 +843,8 @@
     .lumen-frame__crown--top,
     .crystal-frame__crown--top,
     .celestial-frame__crown--top,
-    .tech-frame__circuit--top
+    .tech-frame__circuit--top,
+    .more-frame__crown--top
   ) {
   height: 28px;
 }
@@ -880,7 +855,8 @@
     .lumen-frame__crown--bottom,
     .crystal-frame__crown--bottom,
     .celestial-frame__crown--bottom,
-    .tech-frame__circuit--bottom
+    .tech-frame__circuit--bottom,
+    .more-frame__crown--bottom
   ) {
   height: 24px;
 }
@@ -891,7 +867,8 @@
     .lumen-frame__rail,
     .crystal-frame__rail,
     .celestial-frame__rail,
-    .tech-frame__rail
+    .tech-frame__rail,
+    .more-frame__rail
   ) {
   top: 25px;
   bottom: 22px;
@@ -1104,50 +1081,6 @@
   animation: none !important;
 }
 
-.personalization-preview__scrim {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  border-radius: inherit;
-  background: linear-gradient(
-    105deg,
-    rgb(var(--color-modal) / 0.92) 0 33%,
-    transparent 76%
-  );
-}
-
-.personalization-preview__content {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  min-height: 168px;
-  align-items: center;
-  gap: 22px;
-  padding: 24px;
-}
-
-.personalization-preview__eyebrow {
-  color: rgb(var(--color-blurple));
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.personalization-preview__name {
-  margin-top: 5px;
-  color: rgb(var(--color-header));
-  font-size: 19px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.personalization-preview__meta {
-  margin-top: 5px;
-  color: rgb(var(--color-muted));
-  font-size: 12px;
-}
-
 .personalization-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1257,7 +1190,7 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .personalization-preview__content {
-    padding: 20px;
+  .personalization-card-stage {
+    padding: 34px 30px 30px;
   }
 }

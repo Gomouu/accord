@@ -21,6 +21,7 @@ import '../styles/global.css';
 import '../styles/theme-scenes.css';
 import '../styles/profile-personalization.css';
 import '../styles/profile-personalization-extra.css';
+import '../styles/profile-personalization-more.css';
 import '../styles/profile-surfaces.css';
 
 const SELF_ID = 'demo-self';

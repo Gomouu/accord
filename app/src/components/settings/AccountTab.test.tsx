@@ -296,54 +296,6 @@ describe('AccountTab — pronoms', () => {
   });
 });
 
-describe('AccountTab — couleurs de profil', () => {
-  it('choisit un préréglage comme couleur d’accent et confirme par un toast', async () => {
-    const setAccentColor = vi.fn(async () => {});
-    useSession.setState({ setAccentColor });
-    render(<AccountTab />);
-
-    const group = screen.getByRole('group', { name: 'Couleur d’accent' });
-    fireEvent.click(within(group).getByRole('button', { name: 'Couleur #5865f2' }));
-
-    await waitFor(() => expect(setAccentColor).toHaveBeenCalledWith(0x5865f2));
-    await waitFor(() => {
-      expect(
-        useUi.getState().toasts.some((t) => t.kind === 'info' && /accent/i.test(t.text)),
-      ).toBe(true);
-    });
-  });
-
-  it('efface la couleur de bannière via la pastille « Aucune couleur »', async () => {
-    const setBannerColor = vi.fn(async () => {});
-    useSession.setState({ self: { ...self, banner_color: 0x3ba55c }, setBannerColor });
-    render(<AccountTab />);
-
-    const group = screen.getByRole('group', { name: 'Couleur de bannière' });
-    fireEvent.click(within(group).getByRole('button', { name: 'Aucune couleur' }));
-
-    await waitFor(() => expect(setBannerColor).toHaveBeenCalledWith(null));
-  });
-
-  it('désactive la pastille « Aucune couleur » tant qu’aucune couleur n’est fixée', () => {
-    render(<AccountTab />);
-
-    const group = screen.getByRole('group', { name: 'Couleur de bannière' });
-    expect(within(group).getByRole('button', { name: 'Aucune couleur' })).toBeDisabled();
-  });
-
-  it('garde la pastille blanche visible et suffisamment grande en thème clair', () => {
-    render(<AccountTab />);
-
-    const group = screen.getByRole('group', { name: 'Couleur d’accent' });
-    expect(within(group).getByRole('button', { name: 'Couleur #ffffff' })).toHaveClass(
-      'h-9',
-      'w-9',
-      'border',
-      'border-input',
-    );
-  });
-});
-
 describe('AccountTab — personnalisation', () => {
   it('enregistre une décoration choisie et expose son état sélectionné', async () => {
     const user = userEvent.setup();

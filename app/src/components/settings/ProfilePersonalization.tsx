@@ -12,6 +12,7 @@ import { useSession } from '../../stores/session';
 import { useT, useUi } from '../../stores/ui';
 import { Avatar } from '../Avatar';
 import { SettingsSection } from './controls';
+import { ProfileCardPreview } from './ProfileCardPreview';
 
 type BusyKind = 'decoration' | 'effect' | 'frame' | null;
 
@@ -79,27 +80,17 @@ export function ProfilePersonalization() {
         title={DECORATION_UI_TEXT.decorationTitle[lang]}
         hint={DECORATION_UI_TEXT.decorationHint[lang]}
       >
-        <div className="mb-4 personalization-preview">
-          {selectedEffect?.render()}
-          {selectedFrame?.render()}
-          <span className="personalization-preview__scrim" aria-hidden />
-          <div className="personalization-preview__content">
-            <Avatar
-              id={self.pubkey}
-              name={avatarName}
-              size={76}
-              avatarHash={self.avatar}
-              hint={self.pubkey}
-              decoration={self.avatar_decoration}
-            />
-            <div className="min-w-0">
-              <p className="personalization-preview__eyebrow">
-                {DECORATION_UI_TEXT.preview[lang]}
-              </p>
-              <p className="personalization-preview__name truncate">{avatarName}</p>
-              <p className="personalization-preview__meta truncate">{previewMeta}</p>
-            </div>
-          </div>
+        <div className="mb-4">
+          <ProfileCardPreview />
+          <p className="mt-2 text-center text-xs text-faint">
+            <span className="font-medium uppercase tracking-wide">
+              {DECORATION_UI_TEXT.preview[lang]}
+            </span>
+            <span className="mx-1.5" aria-hidden>
+              —
+            </span>
+            <span>{previewMeta}</span>
+          </p>
         </div>
 
         <div

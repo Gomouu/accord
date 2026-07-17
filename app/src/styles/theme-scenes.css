@@ -22,6 +22,9 @@
 .theme-surface-chat {
   position: relative;
   isolation: isolate;
+  /* La couche motion (::before, scale + translate animés) déborde de la boîte :
+   * sans clip elle peint par-dessus la barre latérale voisine. */
+  overflow: clip;
 }
 
 .theme-surface-chat::before {

@@ -1,5 +1,10 @@
 import type { ReactNode } from 'react';
 import { EXTRA_AVATAR_DECORATIONS, EXTRA_PROFILE_EFFECTS } from './decorations-extra';
+import {
+  MORE_AVATAR_DECORATIONS,
+  MORE_PROFILE_EFFECTS,
+  MORE_PROFILE_FRAMES,
+} from './decorations-more';
 
 export interface DecorationLabel {
   fr: string;
@@ -294,6 +299,7 @@ export const AVATAR_DECORATIONS: readonly AvatarDecoration[] = [
     render: () => <ArcadeCrown />,
   },
   ...EXTRA_AVATAR_DECORATIONS,
+  ...MORE_AVATAR_DECORATIONS,
 ];
 
 function EffectLayer({
@@ -729,6 +735,7 @@ export const PROFILE_FRAMES: readonly ProfileFrame[] = [
     label: { fr: 'Circuit néon', en: 'Neon Circuit' },
     render: () => <TechCircuitFrame />,
   },
+  ...MORE_PROFILE_FRAMES,
 ];
 
 export const PROFILE_EFFECTS: readonly ProfileEffect[] = [
@@ -749,6 +756,7 @@ export const PROFILE_EFFECTS: readonly ProfileEffect[] = [
     render: () => <EmbersEffect />,
   },
   ...EXTRA_PROFILE_EFFECTS,
+  ...MORE_PROFILE_EFFECTS,
 ];
 
 const DECORATION_BY_ID = new Map(AVATAR_DECORATIONS.map((item) => [item.id, item]));

@@ -1,7 +1,7 @@
 /**
  * Onglet Mon compte : avatar (image recadrée en carré, réduite à 256 px,
  * publiée via profile.set_avatar), bannière, pseudo, pronoms et bio
- * (profile.set), couleurs de profil (accent/bannière, profile.set tri-état),
+ * (profile.set), personnalisation du profil (décoration, effet, cadre),
  * code ami copiable, clé publique abrégée et rappel sur la phrase de
  * récupération (affichée une seule fois à la création, non ré-affichable).
  */
@@ -18,7 +18,7 @@ import { useUi, useT } from '../../stores/ui';
 import { lireFichier } from '../../lib/files';
 import { AvatarCropper } from '../AvatarCropper';
 import { Avatar } from '../Avatar';
-import { ColorSwatchPicker, SettingsSection } from './controls';
+import { SettingsSection } from './controls';
 import { ProfilePersonalization } from './ProfilePersonalization';
 
 const COPY_FEEDBACK_MS = 1500;
@@ -383,76 +383,6 @@ function BioSection() {
   );
 }
 
-/** Section couleurs de profil : accent (teinte le pseudo) et bannière (repli sans image). */
-function ColorsSection() {
-  const t = useT();
-  const toast = useUi((s) => s.toast);
-  const self = useSession((s) => s.self);
-  const setAccentColor = useSession((s) => s.setAccentColor);
-  const setBannerColor = useSession((s) => s.setBannerColor);
-  const [busyAccent, setBusyAccent] = useState(false);
-  const [busyBanner, setBusyBanner] = useState(false);
-
-  if (!self) return null;
-
-  const pickAccent = async (color: number | null): Promise<void> => {
-    if (busyAccent || color === self.accent_color) return;
-    setBusyAccent(true);
-    try {
-      await setAccentColor(color);
-      toast('info', t.settings.accentColorSaved);
-    } catch {
-      toast('error', t.errors.actionFailed);
-    } finally {
-      setBusyAccent(false);
-    }
-  };
-
-  const pickBanner = async (color: number | null): Promise<void> => {
-    if (busyBanner || color === self.banner_color) return;
-    setBusyBanner(true);
-    try {
-      await setBannerColor(color);
-      toast('info', t.settings.bannerColorSaved);
-    } catch {
-      toast('error', t.errors.actionFailed);
-    } finally {
-      setBusyBanner(false);
-    }
-  };
-
-  return (
-    <SettingsSection title={t.settings.colorsTitle} hint={t.settings.colorsHint}>
-      <div className="space-y-4 rounded-lg bg-sidebar p-4">
-        <div>
-          <div className="mb-2 text-xs font-medium uppercase text-faint">
-            {t.settings.accentColorLabel}
-          </div>
-          <ColorSwatchPicker
-            label={t.settings.accentColorLabel}
-            value={self.accent_color}
-            busy={busyAccent}
-            onPick={(c) => void pickAccent(c)}
-          />
-        </div>
-        <div className="h-px bg-input/60" role="separator" />
-        <div>
-          <div className="mb-2 text-xs font-medium uppercase text-faint">
-            {t.settings.bannerColorLabel}
-          </div>
-          <p className="mb-2 text-xs text-muted">{t.settings.bannerColorHint}</p>
-          <ColorSwatchPicker
-            label={t.settings.bannerColorLabel}
-            value={self.banner_color}
-            busy={busyBanner}
-            onPick={(c) => void pickBanner(c)}
-          />
-        </div>
-      </div>
-    </SettingsSection>
-  );
-}
-
 /**
  * Danger zone: logs out without quitting the app. Locking drops the node's
  * in-memory keys host-side and lands on the unlock screen, exactly like a
@@ -585,8 +515,6 @@ export function AccountTab() {
       <PronounsSection />
 
       <BioSection />
-
-      <ColorsSection />
 
       <ProfilePersonalization />
 

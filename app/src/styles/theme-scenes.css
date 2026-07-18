@@ -767,7 +767,14 @@ button[role='radio']:is(:hover, :focus-visible) .theme-preview__motion {
   color-scheme: light;
 }
 
-:is([data-theme='sakura'], [data-theme='frost'], [data-theme='dream']) {
+:is(
+  [data-theme='sakura'],
+  [data-theme='lotus'],
+  [data-theme='manga'],
+  [data-theme='shojo'],
+  [data-theme='frost'],
+  [data-theme='dream']
+) {
   --shadow-elevation: 0 8px 16px rgb(62 48 74 / 0.12);
   --shadow-modal: 0 12px 24px rgb(62 48 74 / 0.16);
   --shadow-1: 0 1px 2px rgb(62 48 74 / 0.08);

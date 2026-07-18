@@ -9,6 +9,7 @@
 import { useRef } from 'react';
 import { useUi, useT, THEME_IDS, type Theme } from '../../stores/ui';
 import type { Dict } from '../../i18n';
+import { ThemeAtmosphere } from '../ThemeAtmosphere';
 import { OptionPill, SettingsSection } from './controls';
 
 /** Clé i18n du libellé de chaque thème (voir `settings.theme*` dans fr.ts/en.ts). */
@@ -28,6 +29,10 @@ export const THEME_LABEL_KEYS: Record<Theme, keyof Dict['settings']> = {
   nebula: 'themeNebula',
   synthwave: 'themeSynthwave',
   sakura: 'themeSakura',
+  wisteria: 'themeWisteria',
+  lotus: 'themeLotus',
+  manga: 'themeManga',
+  shojo: 'themeShojo',
   abyss: 'themeAbyss',
   ember: 'themeEmber',
   frost: 'themeFrost',
@@ -104,6 +109,7 @@ function ThemeCard({
         </span>
         <span className="theme-preview__chat flex min-w-0 flex-1 flex-col gap-1 p-1.5">
           <span className="theme-preview__motion" />
+          <ThemeAtmosphere theme={id} preview />
           <span className="h-1.5 w-3/4 rounded-full bg-input/80" />
           <span className="h-1.5 w-1/2 rounded-full bg-input/80" />
           <span className="theme-preview__accent mt-auto h-1.5 w-4/5 rounded-full" />

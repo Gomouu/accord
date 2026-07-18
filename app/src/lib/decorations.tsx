@@ -5,6 +5,11 @@ import {
   MORE_PROFILE_EFFECTS,
   MORE_PROFILE_FRAMES,
 } from './decorations-more';
+import {
+  NATURE_MANGA_AVATAR_DECORATIONS,
+  NATURE_MANGA_PROFILE_EFFECTS,
+  NATURE_MANGA_PROFILE_FRAMES,
+} from './decorations-nature-manga';
 
 export interface DecorationLabel {
   fr: string;
@@ -268,6 +273,7 @@ function ArcadeCrown() {
 }
 
 export const AVATAR_DECORATIONS: readonly AvatarDecoration[] = [
+  ...NATURE_MANGA_AVATAR_DECORATIONS,
   {
     id: 'soft_glow',
     label: { fr: 'Prisme', en: 'Prism' },
@@ -715,6 +721,7 @@ function TechCircuitFrame() {
 }
 
 export const PROFILE_FRAMES: readonly ProfileFrame[] = [
+  ...NATURE_MANGA_PROFILE_FRAMES,
   {
     id: 'lumen_bloom',
     label: { fr: 'Jardin de lumière', en: 'Lumen Garden' },
@@ -739,6 +746,7 @@ export const PROFILE_FRAMES: readonly ProfileFrame[] = [
 ];
 
 export const PROFILE_EFFECTS: readonly ProfileEffect[] = [
+  ...NATURE_MANGA_PROFILE_EFFECTS,
   { id: 'aurora', label: { fr: 'Aurore', en: 'Aurora' }, render: () => <AuroraEffect /> },
   {
     id: 'starfield',

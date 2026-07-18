@@ -1,17 +1,43 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Avatar } from '../components/Avatar';
-import { AVATAR_DECORATIONS, PROFILE_EFFECTS, effectById } from '../lib/decorations';
+import { ThemeAtmosphere } from '../components/ThemeAtmosphere';
+import {
+  AVATAR_DECORATIONS,
+  PROFILE_EFFECTS,
+  PROFILE_FRAMES,
+  effectById,
+} from '../lib/decorations';
 import '../styles/global.css';
 import '../styles/theme-scenes.css';
+import '../styles/figurative-themes.css';
 import '../styles/profile-personalization.css';
 import '../styles/profile-personalization-extra.css';
 import '../styles/profile-personalization-more.css';
+import '../styles/profile-personalization-nature-manga.css';
 import '../styles/profile-surfaces.css';
 import '../styles/identity-refresh.css';
 import '../styles/liquid-glass.css';
 
-type ShowcaseTheme = 'dark' | 'light';
+type ShowcaseTheme =
+  'dark' | 'light' | 'sakura' | 'wisteria' | 'lotus' | 'manga' | 'shojo';
+type ShowcaseCollection = 'avatars' | 'frames' | 'effects';
+
+const SHOWCASE_THEMES = [
+  ['dark', 'Sombre'],
+  ['light', 'Clair'],
+  ['sakura', 'Sakura'],
+  ['wisteria', 'Glycines'],
+  ['lotus', 'Lotus'],
+  ['manga', 'Manga'],
+  ['shojo', 'Shōjo'],
+] as const satisfies readonly (readonly [ShowcaseTheme, string])[];
+
+const SHOWCASE_COLLECTIONS = [
+  ['avatars', 'Décorations'],
+  ['frames', 'Cadres'],
+  ['effects', 'Effets'],
+] as const satisfies readonly (readonly [ShowcaseCollection, string])[];
 
 function ThemeButton({
   active,
@@ -51,7 +77,7 @@ function DecorationGallery() {
           </h2>
         </div>
         <span className="rounded-full bg-input px-3 py-1 text-xs font-medium text-muted">
-          {AVATAR_DECORATIONS.length} cadres
+          {AVATAR_DECORATIONS.length} décorations
         </span>
       </div>
 
@@ -66,6 +92,7 @@ function DecorationGallery() {
               name="Ari Vale"
               size={80}
               decoration={decoration.id}
+              decorationMotion="interaction"
             />
             <div className="w-full text-center">
               <h3 className="truncate text-sm font-semibold text-header">
@@ -99,17 +126,17 @@ function EffectGallery() {
         </span>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {PROFILE_EFFECTS.map((effect) => (
           <article
             key={effect.id}
-            className="relative min-h-44 overflow-hidden rounded-lg border border-[color:var(--glass-border)] bg-modal p-5 shadow-1"
+            className="cosmetic-showcase-card relative min-h-44 overflow-hidden rounded-lg border border-[color:var(--glass-border)] bg-modal p-5 shadow-1"
           >
             {effect.render()}
             <div className="relative flex h-full min-h-32 flex-col justify-between">
               <div className="flex items-center gap-3">
                 <Avatar id={`effect-${effect.id}`} name="Noa Lin" size={44} />
-                <div>
+                <div className="rounded-md bg-modal/75 px-2 py-1 shadow-1 backdrop-blur-sm">
                   <h3 className="font-semibold text-header">{effect.label.fr}</h3>
                   <p className="font-mono text-[10px] text-faint">{effect.id}</p>
                 </div>
@@ -119,6 +146,52 @@ function EffectGallery() {
                 <div className="mt-2 h-2 w-1/2 rounded-full bg-header/10" />
               </div>
             </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function FrameGallery() {
+  return (
+    <section aria-labelledby="frames-title">
+      <div className="mb-5 flex items-end justify-between gap-4">
+        <div>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-blurple">
+            Contours de carte
+          </p>
+          <h2 id="frames-title" className="text-2xl font-semibold text-header">
+            Cadres de profil
+          </h2>
+        </div>
+        <span className="rounded-full bg-input px-3 py-1 text-xs font-medium text-muted">
+          {PROFILE_FRAMES.length} cadres
+        </span>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        {PROFILE_FRAMES.map((frame) => (
+          <article
+            key={frame.id}
+            className="cosmetic-showcase-card glass relative rounded-xl px-7 pb-5 pt-10 shadow-1"
+          >
+            <div className="profile-card-shell relative h-32 rounded-lg">
+              <div className="profile-card-shell__surface h-full overflow-hidden rounded-lg border border-[color:var(--glass-border)] bg-modal">
+                <div className="h-10 bg-gradient-to-r from-blurple/50 to-link/40" />
+                <div className="space-y-2 p-4">
+                  <div className="h-2 w-1/2 rounded-full bg-header/20" />
+                  <div className="h-2 w-4/5 rounded-full bg-header/10" />
+                </div>
+              </div>
+              {frame.render()}
+            </div>
+            <h3 className="mt-10 truncate text-center text-sm font-semibold text-header">
+              {frame.label.fr}
+            </h3>
+            <p className="mt-0.5 truncate text-center font-mono text-[10px] text-faint">
+              {frame.id}
+            </p>
           </article>
         ))}
       </div>
@@ -202,6 +275,7 @@ function CompleteProfileCard() {
 
 export function ProfilePersonalizationDemo() {
   const [theme, setTheme] = useState<ShowcaseTheme>('dark');
+  const [collection, setCollection] = useState<ShowcaseCollection>('avatars');
   const [reduceMotion, setReduceMotion] = useState(false);
 
   useEffect(() => {
@@ -216,7 +290,8 @@ export function ProfilePersonalizationDemo() {
   }, [theme, reduceMotion]);
 
   return (
-    <main className="h-full overflow-auto bg-chat text-norm">
+    <main className="theme-surface-chat relative h-full overflow-auto bg-chat text-norm">
+      <ThemeAtmosphere theme={theme} />
       <div className="app-ambient min-h-screen px-5 py-8 sm:px-8 lg:px-12">
         <div className="mx-auto max-w-7xl">
           <header className="glass-strong mb-10 flex flex-col gap-6 rounded-xl p-6 sm:flex-row sm:items-center sm:justify-between sm:p-8">
@@ -228,9 +303,26 @@ export function ProfilePersonalizationDemo() {
                 Identité et personnalisation
               </h1>
               <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted sm:text-base">
-                Un inventaire sans backend des cadres, effets et états de profil, prêt
-                pour les captures en thème sombre ou clair.
+                Un inventaire des cadres, effets, avatars et thèmes animés, prêt à
+                explorer sans backend.
               </p>
+              <nav aria-label="Collections" className="mt-4 flex flex-wrap gap-2">
+                {SHOWCASE_COLLECTIONS.map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-pressed={collection === id}
+                    onClick={() => setCollection(id)}
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple ${
+                      collection === id
+                        ? 'bg-blurple text-white'
+                        : 'bg-input/70 text-muted hover:bg-chat-hover hover:text-norm'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </nav>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -239,12 +331,15 @@ export function ProfilePersonalizationDemo() {
                 aria-label="Thème de l’aperçu"
                 className="flex rounded-full bg-modal/70 p-1 shadow-1"
               >
-                <ThemeButton active={theme === 'dark'} onClick={() => setTheme('dark')}>
-                  Sombre
-                </ThemeButton>
-                <ThemeButton active={theme === 'light'} onClick={() => setTheme('light')}>
-                  Clair
-                </ThemeButton>
+                {SHOWCASE_THEMES.map(([id, label]) => (
+                  <ThemeButton
+                    key={id}
+                    active={theme === id}
+                    onClick={() => setTheme(id)}
+                  >
+                    {label}
+                  </ThemeButton>
+                ))}
               </div>
               <button
                 type="button"
@@ -258,11 +353,14 @@ export function ProfilePersonalizationDemo() {
           </header>
 
           <div className="space-y-12">
-            <DecorationGallery />
-            <div className="grid gap-10 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.8fr)]">
-              <EffectGallery />
-              <CompleteProfileCard />
-            </div>
+            {collection === 'avatars' && <DecorationGallery />}
+            {collection === 'frames' && <FrameGallery />}
+            {collection === 'effects' && (
+              <div className="grid gap-10 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.8fr)]">
+                <EffectGallery />
+                <CompleteProfileCard />
+              </div>
+            )}
           </div>
         </div>
       </div>

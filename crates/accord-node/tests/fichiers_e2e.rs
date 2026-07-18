@@ -76,6 +76,8 @@ async fn partage_lecture_statut_et_sauvegarde_locaux() {
     assert_eq!(statut["done"], 1);
     assert_eq!(statut["total"], 1);
     assert_eq!(statut["name"], "rapport.pdf");
+    // Chemin local du blob complet (D-055) : sert le streaming vidéo côté UI.
+    assert!(statut["path"].as_str().is_some_and(|p| !p.is_empty()));
 
     // files.read : contenu inline en base64.
     let lecture = service

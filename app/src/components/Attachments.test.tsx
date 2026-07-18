@@ -31,6 +31,8 @@ vi.mock('../lib/files', () => {
       total: 0,
     })),
     observerProgression: vi.fn(() => () => {}),
+    // Lecteur vidéo grand format (D-055) : téléchargement complet au clic.
+    telechargerComplet: vi.fn(),
   };
 });
 
@@ -42,7 +44,12 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
   save: vi.fn(),
 }));
 
-import { lireFichier, observerProgression, statutFichier } from '../lib/files';
+import {
+  lireFichier,
+  observerProgression,
+  statutFichier,
+  telechargerComplet,
+} from '../lib/files';
 import { save } from '@tauri-apps/plugin-dialog';
 import { api } from '../lib/client';
 
@@ -171,6 +178,68 @@ describe('Pièces jointes — vignette d’image', () => {
     fireEvent.error(await screen.findByAltText('photo.png'));
 
     expect(await screen.findByText('Image indisponible')).toBeInTheDocument();
+  });
+
+  it('lit une petite vidéo dans le fil (chargement automatique)', async () => {
+    lireMock.mockResolvedValueOnce('data:video/mp4;base64,VID');
+    render(
+      <MessageList
+        messages={[message([piece({ name: 'clip.mp4', mime: 'video/mp4' })])]}
+      />,
+    );
+
+    const video = await screen.findByLabelText('clip.mp4');
+    expect(video.tagName).toBe('VIDEO');
+    expect(video).toHaveAttribute('src', 'data:video/mp4;base64,VID');
+  });
+
+  it('grande vidéo sous le plafond : téléchargement au clic seulement (D-055)', async () => {
+    // App de bureau simulée, plafond réglé à 500 Mio.
+    (window as unknown as Record<string, unknown>)['__TAURI_INTERNALS__'] = {};
+    useUi.setState({ videoPreviewMaxMio: 500 });
+    const telechargerMock = telechargerComplet as unknown as Mock;
+    telechargerMock.mockResolvedValueOnce('/magasin/clip.mp4');
+    try {
+      render(
+        <MessageList
+          messages={[
+            message([
+              piece({ name: 'gros.mp4', mime: 'video/mp4', size: 20 * 1024 * 1024 }),
+            ]),
+          ]}
+        />,
+      );
+
+      // Rien ne se télécharge tout seul : un bouton « Lire la vidéo » attend.
+      const bouton = await screen.findByRole('button', { name: /Lire la vidéo/ });
+      expect(telechargerMock).not.toHaveBeenCalled();
+
+      fireEvent.click(bouton);
+      await waitFor(() => expect(telechargerMock).toHaveBeenCalledOnce());
+    } finally {
+      delete (window as unknown as Record<string, unknown>)['__TAURI_INTERNALS__'];
+    }
+  });
+
+  it('vidéo au-delà du plafond : carte de fichier téléchargeable', () => {
+    (window as unknown as Record<string, unknown>)['__TAURI_INTERNALS__'] = {};
+    useUi.setState({ videoPreviewMaxMio: 8 });
+    try {
+      render(
+        <MessageList
+          messages={[
+            message([
+              piece({ name: 'film.mp4', mime: 'video/mp4', size: 60 * 1024 * 1024 }),
+            ]),
+          ]}
+        />,
+      );
+
+      expect(screen.getByText('film.mp4')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Lire la vidéo/ })).toBeNull();
+    } finally {
+      delete (window as unknown as Record<string, unknown>)['__TAURI_INTERNALS__'];
+    }
   });
 
   it('rend un message sans texte (pièces jointes seules)', async () => {

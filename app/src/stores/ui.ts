@@ -172,6 +172,7 @@ const STORAGE_KEYS = {
   saturation: 'accord.a11y.saturation',
   showMediaPreviews: 'accord.media.showPreviews',
   emojiSize: 'accord.media.emojiSize',
+  videoPreviewMaxMio: 'accord.media.videoPreviewMaxMio',
   notifySoundEnabled: 'accord.notify.soundEnabled',
   notifyNative: 'accord.notify.native',
   notifySoundMode: 'accord.notify.soundMode',
@@ -288,6 +289,19 @@ function isEmojiSize(value: string | null): value is EmojiSize {
 function initialEmojiSize(): EmojiSize {
   const stored = readStored(STORAGE_KEYS.emojiSize);
   return isEmojiSize(stored) ? stored : 'normal';
+}
+
+/** Plafonds proposés pour l'aperçu vidéo dans le fil (Mio, D-055). */
+export const VIDEO_PREVIEW_MAX_CHOICES = [8, 50, 100, 500] as const;
+export type VideoPreviewMaxMio = (typeof VIDEO_PREVIEW_MAX_CHOICES)[number];
+
+function isVideoPreviewMax(value: number): value is VideoPreviewMaxMio {
+  return (VIDEO_PREVIEW_MAX_CHOICES as readonly number[]).includes(value);
+}
+
+function initialVideoPreviewMax(): VideoPreviewMaxMio {
+  const parsed = Number(readStored(STORAGE_KEYS.videoPreviewMaxMio));
+  return isVideoPreviewMax(parsed) ? parsed : 8;
 }
 
 function isNotifySoundMode(value: string | null): value is NotifySoundMode {
@@ -435,6 +449,8 @@ interface UiState {
   showMediaPreviews: boolean;
   /** Taille par défaut des émojis personnalisés dans le corps des messages. */
   emojiSize: EmojiSize;
+  /** Taille maximale (Mio) d'une vidéo lisible dans le fil (D-055). */
+  videoPreviewMaxMio: VideoPreviewMaxMio;
   /** Blip sonore de notification (message, mention, invitation). */
   notifySoundEnabled: boolean;
   /** Notifications natives du système (plugin Tauri). */
@@ -518,6 +534,7 @@ interface UiState {
   setSaturation: (percent: number) => void;
   setShowMediaPreviews: (enabled: boolean) => void;
   setEmojiSize: (size: EmojiSize) => void;
+  setVideoPreviewMaxMio: (mio: VideoPreviewMaxMio) => void;
   setNotifySoundEnabled: (enabled: boolean) => void;
   setNotifyNative: (enabled: boolean) => void;
   setNotifySoundMode: (mode: NotifySoundMode) => void;
@@ -593,6 +610,7 @@ export const useUi = create<UiState>((set) => {
     saturation,
     showMediaPreviews: initialBool(STORAGE_KEYS.showMediaPreviews, true),
     emojiSize: initialEmojiSize(),
+    videoPreviewMaxMio: initialVideoPreviewMax(),
     notifySoundEnabled: initialBool(STORAGE_KEYS.notifySoundEnabled, true),
     notifyNative: initialBool(STORAGE_KEYS.notifyNative, true),
     notifySoundMode: initialNotifySoundMode(),
@@ -719,6 +737,10 @@ export const useUi = create<UiState>((set) => {
     setEmojiSize: (size) => {
       writeStored(STORAGE_KEYS.emojiSize, size);
       set({ emojiSize: size });
+    },
+    setVideoPreviewMaxMio: (mio) => {
+      writeStored(STORAGE_KEYS.videoPreviewMaxMio, String(mio));
+      set({ videoPreviewMaxMio: mio });
     },
     setNotifySoundEnabled: (enabled) => {
       writeStored(STORAGE_KEYS.notifySoundEnabled, String(enabled));

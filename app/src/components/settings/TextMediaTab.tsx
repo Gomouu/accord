@@ -8,7 +8,7 @@
  * effet aurait été une pastille décorative, exclue par les règles du projet.
  */
 
-import { useUi, useT, type EmojiSize } from '../../stores/ui';
+import { useUi, useT, VIDEO_PREVIEW_MAX_CHOICES, type EmojiSize } from '../../stores/ui';
 import { OptionPill, SettingsSection, ToggleRow } from './controls';
 
 export function TextMediaTab() {
@@ -17,6 +17,8 @@ export function TextMediaTab() {
   const setShowMediaPreviews = useUi((s) => s.setShowMediaPreviews);
   const emojiSize = useUi((s) => s.emojiSize);
   const setEmojiSize = useUi((s) => s.setEmojiSize);
+  const videoPreviewMaxMio = useUi((s) => s.videoPreviewMaxMio);
+  const setVideoPreviewMaxMio = useUi((s) => s.setVideoPreviewMaxMio);
 
   const emojiOptions: { id: EmojiSize; label: string }[] = [
     { id: 'normal', label: t.settings.emojiSizeNormal },
@@ -43,6 +45,23 @@ export function TextMediaTab() {
               onSelect={() => setEmojiSize(id)}
             >
               {label}
+            </OptionPill>
+          ))}
+        </div>
+      </SettingsSection>
+
+      <SettingsSection
+        title={t.settings.videoPreviewMaxTitle}
+        hint={t.settings.videoPreviewMaxHint}
+      >
+        <div className="flex flex-wrap gap-2">
+          {VIDEO_PREVIEW_MAX_CHOICES.map((mio) => (
+            <OptionPill
+              key={mio}
+              selected={videoPreviewMaxMio === mio}
+              onSelect={() => setVideoPreviewMaxMio(mio)}
+            >
+              {`${mio} Mio`}
             </OptionPill>
           ))}
         </div>

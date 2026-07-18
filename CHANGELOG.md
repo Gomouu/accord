@@ -2,6 +2,19 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [2.3.3] — 2026-07-18
+
+### Added
+
+- **Play large videos in the conversation**: a new setting (Settings → Text &
+  media) raises the inline video-player size limit — 8 MiB (default), 50,
+  100 or 500 MiB. Up to 8 MiB videos still load automatically; beyond that
+  and up to your chosen limit, the video shows a "Play video" card and the
+  download only starts when you click it (auto-download stays capped, so a
+  peer can never force a huge transfer). Once downloaded, the video is
+  **streamed from disk** (asset protocol) — no giant in-memory payload —
+  and plays right in the thread.
+
 ## [2.3.2] — 2026-07-18
 
 ### Fixed

@@ -169,6 +169,39 @@ async function fetchDataUrl(merkleRoot: string, hint?: string): Promise<string> 
  * Lit un fichier par sa racine Merkle et rend une URL `data:` réutilisable.
  * `hint` : clé publique d'un pair source probable (expéditeur du message).
  */
+/**
+ * Télécharge un blob COMPLET (sans plafond — chemin sollicité par un clic,
+ * D-055) et rend son chemin disque local, prêt à être servi en streaming via
+ * le protocole asset (lecteur vidéo). Un blob déjà complet rend son chemin
+ * immédiatement.
+ */
+export async function telechargerComplet(
+  merkleRoot: string,
+  hint?: string,
+): Promise<string> {
+  const cheminLocal = async (): Promise<string | null> => {
+    const statut = await api.filesStatus(merkleRoot, hint);
+    return statut.complete && typeof statut.path === 'string' && statut.path !== ''
+      ? statut.path
+      : null;
+  };
+  const deja = await cheminLocal();
+  if (deja !== null) return deja;
+  try {
+    // Déclenche (ou poursuit) le téléchargement non plafonné.
+    await api.filesRead(merkleRoot, hint);
+  } catch {
+    // « trop volumineux pour une lecture en ligne » : le blob est en fait
+    // DÉJÀ complet en local — le statut ci-dessous rend son chemin.
+  }
+  const direct = await cheminLocal();
+  if (direct !== null) return direct;
+  await waitForDownload(merkleRoot, hint);
+  const fin = await cheminLocal();
+  if (fin === null) throw new Error('téléchargement incomplet');
+  return fin;
+}
+
 export function lireFichier(merkleRoot: string, hint?: string): Promise<string> {
   const cached = cache.get(merkleRoot);
   if (cached !== undefined) return cached;

@@ -750,6 +750,9 @@ export const en: Dict = {
     emojiSizeHint: 'Applies to the server’s custom emoji (:name:) in message bodies.',
     emojiSizeNormal: 'Normal',
     emojiSizeLarge: 'Large',
+    videoPreviewMaxTitle: 'Maximum size of videos played in the thread',
+    videoPreviewMaxHint:
+      'Up to 8 MiB, the video loads by itself. Beyond that and up to this limit, it plays in the conversation with one click (the download starts then). Larger: downloadable file card.',
     // Language & time.
     timeFormatTitle: 'Time format',
     timeFormatHint: 'Applies to message timestamps.',
@@ -990,6 +993,7 @@ export const en: Dict = {
     enTelechargement: 'Downloading… {pct}%',
     imageIndisponible: 'Image unavailable',
     videoIndisponible: 'Video unavailable',
+    videoCharger: 'Play video ({size})',
     agrandir: 'Enlarge {name}',
     fermerApercu: 'Close preview',
   },

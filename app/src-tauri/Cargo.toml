@@ -20,7 +20,9 @@ serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tauri = { version = "2", features = ["tray-icon"] }
+# `protocol-asset` : streaming disque des vidéos du fil (D-055) — sert les
+# blobs complets du magasin de fichiers via asset:// (portée $APPDATA).
+tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
 # Notifications système natives, envoyées depuis la webview (D-028).
 tauri-plugin-notification = "2"
 # Lancement au démarrage du système (D-047) : gestion officielle, pas de

@@ -155,6 +155,15 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                     } else {
                         blocs_detenus(&e.bitmap, total)
                     };
+                    // `path` (additif, D-055) : chemin local du blob complet —
+                    // l'UI de bureau le sert en streaming via le protocole
+                    // asset (lecteur vidéo au-delà de la lecture en ligne).
+                    let path = if e.complete {
+                        node.files_local_path(&racine)?
+                            .map(|p| p.to_string_lossy().into_owned())
+                    } else {
+                        None
+                    };
                     Ok(json!({
                         "known": true,
                         "complete": e.complete,
@@ -163,6 +172,7 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                         "name": e.name,
                         "size": e.size,
                         "mime": e.mime,
+                        "path": path,
                     }))
                 }
                 None => Ok(json!({

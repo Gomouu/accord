@@ -459,6 +459,8 @@ export interface FilesStatusResult {
   name?: string;
   size?: number;
   mime?: string;
+  /** Chemin local du blob complet (D-055), `null`/absent sinon. */
+  path?: string | null;
 }
 
 /** Participant d'un salon vocal avec son état de parole (voice.status). */

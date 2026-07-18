@@ -759,6 +759,9 @@ export const fr = {
       'S’applique aux émojis personnalisés du serveur (:nom:) dans le corps des messages.',
     emojiSizeNormal: 'Normal',
     emojiSizeLarge: 'Grand',
+    videoPreviewMaxTitle: 'Taille maximale des vidéos lues dans le fil',
+    videoPreviewMaxHint:
+      'Jusqu’à 8 Mio, la vidéo se charge toute seule. Au-delà et jusqu’à cette limite, elle se lance dans la conversation d’un clic (le téléchargement démarre à ce moment-là). Plus grande : carte de fichier téléchargeable.',
     // Langue et heure.
     timeFormatTitle: 'Format de l’heure',
     timeFormatHint: 'S’applique aux horodatages des messages.',
@@ -1006,6 +1009,7 @@ export const fr = {
     enTelechargement: 'Téléchargement… {pct} %',
     imageIndisponible: 'Image indisponible',
     videoIndisponible: 'Vidéo indisponible',
+    videoCharger: 'Lire la vidéo ({size})',
     agrandir: 'Agrandir {name}',
     fermerApercu: 'Fermer l’aperçu',
   },

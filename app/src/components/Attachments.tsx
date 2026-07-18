@@ -507,13 +507,19 @@ export function AttachmentRow({
 }) {
   const t = useT();
   const showPreviews = useUi((s) => s.showMediaPreviews);
+  const videoPreviewMaxMio = useUi((s) => s.videoPreviewMaxMio);
   if (pieces.length === 0) return null;
+  // Plafond du lecteur vidéo intégré (D-055) : réglable jusqu'à 500 Mio dans
+  // l'app de bureau (streaming disque via le protocole asset) ; en navigateur
+  // (data: URL seulement), la borne de la lecture en ligne s'applique.
+  const videoMaxOctets = isTauri() ? videoPreviewMaxMio * 1024 * 1024 : MAX_TAILLE_PIECE;
   return (
     <div className="mt-1 flex flex-col items-start gap-1.5">
       {pieces.map((piece, i) => {
-        const tropGrandPourApercu =
-          (estImage(piece.mime) || estAudio(piece.mime) || estVideo(piece.mime)) &&
-          piece.size > MAX_TAILLE_PIECE;
+        const tropGrandPourApercu = estVideo(piece.mime)
+          ? piece.size > videoMaxOctets
+          : (estImage(piece.mime) || estAudio(piece.mime)) &&
+            piece.size > MAX_TAILLE_PIECE;
         if (estAudio(piece.mime) && !tropGrandPourApercu) {
           return (
             <VoiceMessagePlayer

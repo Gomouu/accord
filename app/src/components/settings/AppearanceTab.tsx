@@ -6,8 +6,14 @@
  * groupée avec les autres réglages de confort visuel.
  */
 
-import { useMemo, useRef } from 'react';
-import { deriverVariables, type CouleursPerso } from '../../lib/customTheme';
+import { useMemo, useRef, useState } from 'react';
+import {
+  deriverVariables,
+  exporterTheme,
+  importerTheme,
+  type CouleursPerso,
+} from '../../lib/customTheme';
+import { copyToClipboard } from '../../lib/clipboard';
 import { useUi, useT, THEME_IDS, type Theme } from '../../stores/ui';
 import type { Dict } from '../../i18n';
 import { ThemeAtmosphere } from '../ThemeAtmosphere';
@@ -42,6 +48,32 @@ function CustomThemeEditor({
       />
     </label>
   );
+  const [copie, setCopie] = useState(false);
+  const [codeImport, setCodeImport] = useState('');
+  const [erreurImport, setErreurImport] = useState(false);
+
+  const copier = (): void => {
+    copyToClipboard(
+      exporterTheme(couleurs),
+      () => {
+        setCopie(true);
+        setTimeout(() => setCopie(false), 1500);
+      },
+      () => {},
+    );
+  };
+
+  const importer = (): void => {
+    const lu = importerTheme(codeImport);
+    if (lu === null) {
+      setErreurImport(true);
+      return;
+    }
+    setErreurImport(false);
+    setCodeImport('');
+    onChange(lu);
+  };
+
   return (
     <div className="flex flex-col gap-2">
       {champ('fond', t.settings.customFond)}
@@ -62,6 +94,35 @@ function CustomThemeEditor({
           {t.settings.customBaseLight}
         </OptionPill>
       </div>
+      <button
+        type="button"
+        onClick={copier}
+        className="mt-1 self-start rounded-md bg-sidebar px-3 py-1.5 text-sm font-medium text-norm transition-colors hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
+      >
+        {copie ? t.settings.customExportDone : t.settings.customExport}
+      </button>
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          value={codeImport}
+          onChange={(e) => {
+            setCodeImport(e.target.value);
+            setErreurImport(false);
+          }}
+          placeholder={t.settings.customImportPlaceholder}
+          aria-label={t.settings.customImport}
+          className="min-w-0 flex-1 rounded-md border border-input bg-sidebar px-3 py-1.5 text-sm text-norm placeholder:text-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+        />
+        <button
+          type="button"
+          onClick={importer}
+          disabled={codeImport.trim() === ''}
+          className="shrink-0 rounded-md bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blurple-hover disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
+        >
+          {t.settings.customImport}
+        </button>
+      </div>
+      {erreurImport && <p className="text-sm text-red">{t.settings.customImportError}</p>}
     </div>
   );
 }

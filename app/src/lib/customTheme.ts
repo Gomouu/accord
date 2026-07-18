@@ -81,6 +81,53 @@ export function deriverVariables(c: CouleursPerso): Record<string, string> {
   return sortie;
 }
 
+/**
+ * Encode un thème personnalisé en CODE PARTAGEABLE : `accord-theme:` suivi du
+ * JSON encodé en base64url. Compact, collable dans un message, sans dépendance
+ * à un fichier — un ami peut l'importer d'un copier-coller.
+ */
+export function exporterTheme(c: CouleursPerso): string {
+  const json = JSON.stringify({ f: c.fond, p: c.panneaux, a: c.accent, b: c.base });
+  const b64 = btoa(unescape(encodeURIComponent(json)))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+  return `accord-theme:${b64}`;
+}
+
+/**
+ * Décode un code de thème produit par [`exporterTheme`], ou `null` si le code
+ * est invalide (préfixe, base64 ou couleurs incorrects). Tolérant : accepte le
+ * code avec ou sans espaces autour.
+ */
+export function importerTheme(code: string): CouleursPerso | null {
+  const trimmed = code.trim();
+  const brut = trimmed.startsWith('accord-theme:')
+    ? trimmed.slice('accord-theme:'.length)
+    : trimmed;
+  const b64 = brut.replace(/-/g, '+').replace(/_/g, '/');
+  let json: string;
+  try {
+    json = decodeURIComponent(escape(atob(b64)));
+  } catch {
+    return null;
+  }
+  let lu: { f?: unknown; p?: unknown; a?: unknown; b?: unknown };
+  try {
+    lu = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  const valide = (h: unknown): h is string => typeof h === 'string' && hexVersRgb(h) !== null;
+  if (!valide(lu.f) || !valide(lu.p) || !valide(lu.a)) return null;
+  return {
+    fond: lu.f,
+    panneaux: lu.p,
+    accent: lu.a,
+    base: lu.b === 'light' ? 'light' : 'dark',
+  };
+}
+
 /** Variables posées par `appliquerThemePerso` (retirées à la désactivation). */
 const VARS_PERSO = [
   '--color-chat',

@@ -6,8 +6,10 @@ import {
   ajusterLuminosite,
   appliquerThemePerso,
   deriverVariables,
+  exporterTheme,
   hexVersRgb,
   hexVersTriplet,
+  importerTheme,
 } from './customTheme';
 
 describe('hexVersRgb / hexVersTriplet', () => {
@@ -74,5 +76,35 @@ describe('appliquerThemePerso', () => {
     expect(style.getPropertyValue('--color-blurple')).toBe('88 101 242');
     appliquerThemePerso(null);
     expect(style.getPropertyValue('--color-chat')).toBe('');
+  });
+});
+
+describe('exporterTheme / importerTheme', () => {
+  it('fait un aller-retour fidèle', () => {
+    const theme = { fond: '#101020', panneaux: '#181828', accent: '#ff0080', base: 'light' as const };
+    const code = exporterTheme(theme);
+    expect(code.startsWith('accord-theme:')).toBe(true);
+    expect(importerTheme(code)).toEqual(theme);
+  });
+
+  it('accepte un code sans préfixe et avec espaces', () => {
+    const code = exporterTheme(PERSO_DEFAUT).slice('accord-theme:'.length);
+    expect(importerTheme(`  ${code}  `)).toEqual(PERSO_DEFAUT);
+  });
+
+  it('rejette un code corrompu', () => {
+    expect(importerTheme('n’importe quoi')).toBeNull();
+    expect(importerTheme('accord-theme:@@@')).toBeNull();
+  });
+
+  it('rejette un thème aux couleurs invalides', () => {
+    const mauvais = btoa(JSON.stringify({ f: 'x', p: '#fff000', a: '#fff000', b: 'dark' }));
+    expect(importerTheme(`accord-theme:${mauvais}`)).toBeNull();
+  });
+
+  it('replie une base inconnue sur sombre', () => {
+    const code = btoa(JSON.stringify({ f: '#101020', p: '#181828', a: '#ff0080', b: 'bizarre' }))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    expect(importerTheme(`accord-theme:${code}`)?.base).toBe('dark');
   });
 });

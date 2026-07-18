@@ -2,6 +2,45 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [3.0.0] — 2026-07-18
+
+A reliability, diagnostics and authoring release. Fully backward-compatible on
+the wire with 2.x — every new capability is local or negotiated, so a friend
+still on 2.3.x keeps working unchanged.
+
+### Added
+
+- **Faster, more reliable reconnection to friends**: Accord now remembers each
+  friend's last known direct address (persisted, 14-day freshness) and dials
+  those addresses at startup, in addition to the usual DHT bootstrap — so
+  sessions come back without waiting for peer discovery, including after the
+  Mac wakes from sleep.
+- **Per-friend network panel** (Settings → Network → "Connection to your
+  friends"): for each friend, whether a session is currently active and the
+  last address you reached them at — connectivity diagnostics without
+  screenshots.
+- **Markdown tables** (GitHub-flavored): header + alignment row, column
+  alignment, escaped pipes, rendered in a scrollable frame.
+- **Markdown task lists** (`- [ ]` / `- [x]`): checkbox items render without a
+  bullet, with a read-only checkbox.
+- **Project website + French user guide** (GitHub Pages): a download landing
+  page and a step-by-step guide (install, peer-to-peer connection,
+  troubleshooting), deployed from `website/`.
+
+### Fixed
+
+- Friend addresses are now persisted even when the transport session was
+  established **before** the friendship became mutual (the on-connect hook
+  alone missed that ordering).
+
+### Tests
+
+- New `reconnexion_e2e` binary: a friend reconnects purely from the persisted
+  address cache after a restart (no re-registration, no DHT), and a message
+  queued while a friend was offline is delivered once they reconnect.
+- e2e determinism: friend-sync test binaries disable mDNS (they register peers
+  manually) and widen wait windows to tolerate parallel CPU contention.
+
 ## [2.3.4] — 2026-07-18
 
 ### Fixed

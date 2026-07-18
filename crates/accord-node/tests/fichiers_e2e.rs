@@ -320,6 +320,132 @@ async fn transfert_d_un_fichier_entre_deux_noeuds() {
     bob.shutdown();
 }
 
+/// Reproduction du flux EXACT de l'UI pour une image en message privé entre
+/// amis : l'expéditeur publie via `files.share_bytes` puis `dm.send` avec la
+/// pièce jointe ; le destinataire lit l'historique, puis demande la vignette
+/// via `files.read` avec `media: true` et `hint` = champ `author` du message
+/// (ce que passe `AttachmentRow`). Le transfert doit aboutir et les octets
+/// relus être identiques.
+#[tokio::test]
+async fn image_de_mp_entre_amis_flux_ui_complet() {
+    let dir_a = tempfile::tempdir().unwrap();
+    let dir_b = tempfile::tempdir().unwrap();
+    let alice = boot(dir_a.path()).await;
+    let bob = boot(dir_b.path()).await;
+    let alice_pub = alice.node.public_key();
+    let bob_pub = bob.node.public_key();
+    alice.register_peer(bob_pub, bob.p2p_addr());
+    bob.register_peer(alice_pub, alice.p2p_addr());
+
+    alice.node.friend_request(&bob_pub, "Alice").unwrap();
+    let vu = attendre(|| {
+        bob.node
+            .contacts()
+            .map(|cs| cs.iter().any(|c| c.pubkey == alice_pub))
+            .unwrap_or(false)
+    })
+    .await;
+    assert!(vu, "demande d'ami non reçue");
+    bob.node.friend_respond(&alice_pub, true).unwrap();
+    let amis = attendre(|| {
+        use accord_core::db::ContactState;
+        alice
+            .node
+            .contacts()
+            .map(|cs| {
+                cs.iter()
+                    .any(|c| c.pubkey == bob_pub && c.state == ContactState::Friend)
+            })
+            .unwrap_or(false)
+    })
+    .await;
+    assert!(amis, "amitié non confirmée");
+
+    // Pseudo-PNG de 3 blocs (600 Kio) : cadre fragmenté comme une vraie photo.
+    let octets: Vec<u8> = (0..600 * 1024u32).map(|i| (i % 253) as u8).collect();
+    let mut ws_alice = ws_client(&alice).await;
+    let partage = appel(
+        &mut ws_alice,
+        1,
+        "files.share_bytes",
+        json!({ "name": "photo.png", "mime": "image/png", "data_b64": base64(&octets) }),
+    )
+    .await;
+    let racine_hex = partage["file"]["merkle_root"].as_str().unwrap().to_string();
+    appel(
+        &mut ws_alice,
+        2,
+        "dm.send",
+        json!({
+            "pubkey": hex::encode(&bob_pub),
+            "text": "",
+            "attachments": [partage["file"].clone()],
+        }),
+    )
+    .await;
+
+    let recu = attendre(|| {
+        bob.node
+            .dm_history(&alice_pub, u64::MAX, 10)
+            .map(|h| !h.is_empty())
+            .unwrap_or(false)
+    })
+    .await;
+    assert!(recu, "message avec pièce jointe non reçu");
+
+    // Côté Bob, l'UI lit l'historique puis demande la vignette.
+    let mut ws_bob = ws_client(&bob).await;
+    let histoire = appel(
+        &mut ws_bob,
+        1,
+        "dm.history",
+        json!({ "pubkey": hex::encode(&alice_pub) }),
+    )
+    .await;
+    let message = &histoire["messages"][0];
+    let auteur = message["author"].as_str().unwrap().to_string();
+    let piece = &message["attachments"][0];
+    assert_eq!(piece["merkle_root"], racine_hex.as_str());
+    assert_eq!(piece["mime"], "image/png");
+
+    let lecture = appel(
+        &mut ws_bob,
+        2,
+        "files.read",
+        json!({ "merkle_root": racine_hex, "hint": auteur, "media": true }),
+    )
+    .await;
+    if lecture["pending"] == true {
+        assert!(
+            attendre_fin_de_transfert(&mut ws_bob, &racine_hex).await,
+            "téléchargement de l'image jamais terminé"
+        );
+    }
+    let relecture = appel(
+        &mut ws_bob,
+        3,
+        "files.read",
+        json!({ "merkle_root": racine_hex }),
+    )
+    .await;
+    assert_eq!(relecture["data_b64"], base64(&octets), "octets divergents");
+    assert_eq!(relecture["mime"], "image/png");
+
+    alice.shutdown();
+    bob.shutdown();
+}
+
+/// Réévalue `cond` jusqu'à ~10 s (pas de 100 ms).
+async fn attendre(mut cond: impl FnMut() -> bool) -> bool {
+    for _ in 0..100 {
+        if cond() {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    false
+}
+
 #[tokio::test]
 async fn transfert_d_un_fichier_multi_blocs_entre_deux_noeuds() {
     let dir_a = tempfile::tempdir().unwrap();

@@ -62,6 +62,19 @@ const FOLLOW_BOTTOM_THRESHOLD_PX = 80;
 /** Durée de la surbrillance d'un message atteint par un saut (ms). */
 const HIGHLIGHT_MS = 1600;
 
+/**
+ * Fenêtrage de rendu : nombre de messages de QUEUE rendus au DOM par défaut.
+ * Les longues conversations gardent tout leur historique en mémoire (stores)
+ * mais le DOM reste borné — remonter dans le fil étend la fenêtre par pas de
+ * [`FENETRE_PAS`] (avec ancrage du défilement), changer de conversation la
+ * réinitialise. Le séparateur « nouveaux messages » et la cible d'un saut
+ * sont toujours inclus, quelle que soit la fenêtre.
+ */
+const FENETRE_INITIALE = 80;
+
+/** Pas d'extension de la fenêtre de rendu (défilement vers le haut). */
+const FENETRE_PAS = 80;
+
 function messageScrollBehavior(): ScrollBehavior {
   const preference = useUi.getState().reducedMotion;
   if (preference === 'on') return 'auto';
@@ -269,19 +282,47 @@ export function MessageList({
   /** Index msg_id → message, pour retrouver les messages cités. */
   const byId = new Map(messages.map((m) => [m.msg_id, m]));
 
-  const firstId = visible[0]?.msg_id ?? null;
-  const lastId = visible[visible.length - 1]?.msg_id ?? null;
+  // Séparateur « nouveaux messages » : index (dans `visible`) du premier
+  // message d'autrui au-delà de la position lue capturée à l'ouverture.
+  const dividerIndex = firstUnreadIndex(visible, dividerLamport, self?.pubkey ?? null);
 
   // Identité de la conversation affichée (MP ou salon), pour distinguer un
   // véritable message entrant en fin de fil (à animer, voir `.msg-append`
   // dans global.css) d'un changement de salon/MP ou d'un chargement
-  // d'historique — jamais animés.
+  // d'historique — jamais animés. Déclarée AVANT la fenêtre de rendu, qui se
+  // réinitialise sur elle.
   const conversationKey =
     view.kind === 'dm'
       ? `dm:${view.peer}`
       : view.kind === 'group'
         ? `group:${view.groupId}:${view.channelId ?? ''}`
         : 'autre';
+
+  // ---- Fenêtre de rendu (voir `FENETRE_INITIALE`) ----
+  const [fenetre, setFenetre] = useState(FENETRE_INITIALE);
+  const fenetreConvRef = useRef(conversationKey);
+  if (fenetreConvRef.current !== conversationKey) {
+    // Changement de conversation : réinitialisation SYNCHRONE (setState en
+    // cours de rendu du même composant — React relance le rendu, la garde du
+    // ref empêche toute boucle) pour ne jamais rendre l'ancienne fenêtre.
+    fenetreConvRef.current = conversationKey;
+    if (fenetre !== FENETRE_INITIALE) setFenetre(FENETRE_INITIALE);
+  }
+  // La cible d'un saut et le séparateur non-lus doivent être RENDUS pour être
+  // atteignables : la fenêtre s'étend jusqu'à eux, synchroniquement.
+  const cibleIdx =
+    scrollTarget === null
+      ? -1
+      : visible.findIndex((m) => m.msg_id === scrollTarget.msgId);
+  let debut = Math.max(0, visible.length - fenetre);
+  if (dividerIndex >= 0) debut = Math.min(debut, Math.max(0, dividerIndex - 1));
+  if (cibleIdx >= 0) debut = Math.min(debut, Math.max(0, cibleIdx - 8));
+
+  // Premier id RENDU (et non premier de l'historique) : c'est lui que
+  // l'effet d'ancrage compare pour restaurer la position au prolongement de
+  // la fenêtre comme au chargement d'une page d'historique.
+  const firstId = visible[debut]?.msg_id ?? null;
+  const lastId = visible[visible.length - 1]?.msg_id ?? null;
 
   // « Vu » : dernier de ses propres messages couvert par l'accusé de lecture
   // du pair (lamport lu depuis le store des MP, l'enveloppe affichée n'en a pas).
@@ -350,8 +391,15 @@ export function MessageList({
     if (!el) return;
     followsBottomRef.current =
       el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_BOTTOM_THRESHOLD_PX;
-    if (hasMore !== true || onLoadOlder === undefined) return;
     if (el.scrollTop > LOAD_OLDER_THRESHOLD_PX) return;
+    // D'abord étendre la fenêtre de rendu sur l'historique DÉJÀ chargé (avec
+    // ancrage) ; ne charger une page plus ancienne qu'une fois tout rendu.
+    if (debut > 0) {
+      anchorRef.current = { height: el.scrollHeight, top: el.scrollTop };
+      setFenetre(visible.length - debut + FENETRE_PAS);
+      return;
+    }
+    if (hasMore !== true || onLoadOlder === undefined) return;
     anchorRef.current = { height: el.scrollHeight, top: el.scrollTop };
     onLoadOlder();
   };
@@ -412,9 +460,6 @@ export function MessageList({
   };
 
   const selectionActive = selection?.active === true;
-  // Séparateur « nouveaux messages » : index (dans `visible`) du premier
-  // message d'autrui au-delà de la position lue capturée à l'ouverture.
-  const dividerIndex = firstUnreadIndex(visible, dividerLamport, self?.pubkey ?? null);
 
   /** Défile jusqu'au séparateur « nouveaux messages » (bouton de saut). */
   const jumpToUnread = (): void => {
@@ -441,7 +486,8 @@ export function MessageList({
         {visible.length === 0 && (
           <p className="py-16 text-center text-sm text-muted">{t.dm.empty}</p>
         )}
-        {visible.map((m, i) => {
+        {visible.slice(debut).map((m, k) => {
+          const i = k + debut;
           const prev = visible[i - 1];
           const newDay = !prev || !sameDay(prev.sent_ms, m.sent_ms);
           const isReply = m.body.type === 'text' && m.body.reply_to !== null;

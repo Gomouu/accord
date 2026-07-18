@@ -1153,3 +1153,38 @@ describe('MessageList — mode sélection (purge)', () => {
     expect(screen.queryByLabelText('Ajouter une réaction')).not.toBeInTheDocument();
   });
 });
+
+describe('MessageList — fenêtre de rendu (windowing)', () => {
+  const beaucoup = (n: number): DisplayMessage[] =>
+    Array.from({ length: n }, (_, i) => textMsg(`w${i}`, BASE_MS + i * 1000, `msg ${i}`));
+
+  it('ne rend au DOM que la queue du fil pour un long historique', () => {
+    render(<MessageList messages={beaucoup(300)} />);
+    expect(screen.queryByText('msg 0')).not.toBeInTheDocument();
+    expect(screen.queryByText('msg 100')).not.toBeInTheDocument();
+    expect(screen.getByText('msg 299')).toBeInTheDocument();
+    expect(screen.getByText('msg 250')).toBeInTheDocument();
+  });
+
+  it('rend tout quand le fil tient dans la fenêtre', () => {
+    render(<MessageList messages={beaucoup(30)} />);
+    expect(screen.getByText('msg 0')).toBeInTheDocument();
+    expect(screen.getByText('msg 29')).toBeInTheDocument();
+  });
+
+  it('étend la fenêtre jusqu’au séparateur « nouveaux messages »', () => {
+    useSession.setState({ self: SELF });
+    const messages = beaucoup(300).map((m, i) => ({ ...m, lamport: i + 1 }));
+    render(<MessageList messages={messages} dividerLamport={5} />);
+    expect(screen.getByText('Nouveaux messages')).toBeInTheDocument();
+    expect(screen.getByText('msg 5')).toBeInTheDocument();
+  });
+
+  it('étend la fenêtre jusqu’à la cible d’un saut', () => {
+    render(
+      <MessageList messages={beaucoup(300)} scrollTarget={{ msgId: 'w10', nonce: 1 }} />,
+    );
+    expect(screen.getByText('msg 10')).toBeInTheDocument();
+    expect(screen.queryByText('msg 0')).not.toBeInTheDocument();
+  });
+});

@@ -9,6 +9,7 @@ import '../styles/profile-personalization-extra.css';
 import '../styles/profile-personalization-more.css';
 import '../styles/profile-surfaces.css';
 import '../styles/identity-refresh.css';
+import '../styles/liquid-glass.css';
 
 type ShowcaseTheme = 'dark' | 'light';
 

@@ -838,7 +838,7 @@ function PinnedPanel({
       role="dialog"
       aria-label={t.serveur.pinnedTitle}
       tabIndex={-1}
-      className="absolute right-4 top-14 z-20 max-h-96 w-96 max-w-[85vw] overflow-y-auto rounded-lg border border-rail bg-modal p-3 shadow-3 focus:outline-none"
+      className="glass-strong liquid-floating absolute right-4 top-14 z-20 max-h-96 w-96 max-w-[85vw] overflow-y-auto rounded-lg p-3 focus:outline-none"
     >
       <div className="flex items-center justify-between pb-2">
         <span className="text-sm font-semibold text-header">{t.serveur.pinnedTitle}</span>
@@ -943,7 +943,7 @@ function ThreadsListPanel({
     <div
       role="menu"
       aria-label={t.threads.threadsList}
-      className="absolute right-4 top-14 z-20 max-h-96 w-80 max-w-[85vw] overflow-y-auto rounded-lg border border-rail bg-modal p-3 shadow-3"
+      className="glass-strong liquid-floating absolute right-4 top-14 z-20 max-h-96 w-80 max-w-[85vw] overflow-y-auto rounded-lg p-3"
     >
       <div className="flex items-center justify-between pb-2">
         <span className="text-sm font-semibold text-header">{t.threads.threadsList}</span>
@@ -1606,7 +1606,7 @@ export function GroupView({
               if (e.key === 'Escape') closeMembers();
               else bouclerTab(e, e.currentTarget);
             }}
-            className="absolute inset-y-0 right-0 flex max-w-[calc(100vw-48px)] flex-col overflow-hidden border-l border-[color:var(--glass-border)] bg-sidebar shadow-3"
+            className="liquid-drawer absolute inset-y-0 right-0 flex max-w-[calc(100vw-48px)] flex-col overflow-hidden border-l"
             style={{ width: membersWidth }}
           >
             <div className="flex h-12 shrink-0 items-center justify-between border-b border-[color:var(--glass-border)] px-3">

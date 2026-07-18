@@ -153,7 +153,7 @@ export function ServerSettingsModal({
 
   return (
     <div
-      className="modal-overlay-enter fixed inset-0 z-40 flex items-center justify-center bg-black/75 backdrop-blur-sm"
+      className="modal-overlay-enter fixed inset-0 z-40 flex items-center justify-center"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) closeModal();
       }}
@@ -164,13 +164,13 @@ export function ServerSettingsModal({
         aria-modal="true"
         aria-label={t.serveur.settingsTitle}
         onKeyDown={(e) => bouclerTab(e, dialogRef.current)}
-        className="modal-panel-enter relative flex h-[94vh] w-[min(1100px,94vw)] overflow-hidden rounded-xl bg-chat shadow-3 max-sm:h-full max-sm:w-full max-sm:rounded-none"
+        className="liquid-settings modal-panel-enter relative flex h-[94vh] w-[min(1100px,94vw)] overflow-hidden rounded-xl max-sm:h-full max-sm:w-full max-sm:rounded-none"
       >
         <nav
           ref={navRef}
           aria-label={t.serveur.settingsTitle}
           onKeyDown={(e) => deplacerFocusVertical(e, navRef.current)}
-          className="flex w-[30%] min-w-[180px] shrink-0 justify-end overflow-y-auto border-r border-rail/60 bg-sidebar pb-8 pl-3 pr-2 pt-12 max-sm:w-[132px] max-sm:min-w-[132px] max-sm:pl-2 max-sm:pt-14"
+          className="liquid-settings-nav flex w-[30%] min-w-[180px] shrink-0 justify-end overflow-y-auto border-r pb-8 pl-3 pr-2 pt-12 max-sm:w-[132px] max-sm:min-w-[132px] max-sm:pl-2 max-sm:pt-14"
         >
           <div className="flex w-[212px] flex-col max-sm:w-full">
             <div className="truncate px-2.5 pb-1.5 text-xs font-medium uppercase tracking-wide text-faint">
@@ -209,7 +209,7 @@ export function ServerSettingsModal({
         <div className="flex min-w-0 flex-1">
           <section
             aria-label={active.label(t)}
-            className="min-w-0 max-w-[740px] flex-1 overflow-y-auto px-6 pb-20 pt-14 max-sm:px-4"
+            className="liquid-settings-content min-w-0 max-w-[740px] flex-1 overflow-y-auto px-6 pb-20 pt-14 max-sm:px-4"
           >
             <h2 className="mb-6 text-xl font-semibold text-header">{active.label(t)}</h2>
             <Content groupId={groupId} />

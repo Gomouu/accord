@@ -209,7 +209,7 @@ export function SoundboardButton({ className }: { className: string }) {
           ref={panelRef}
           role="dialog"
           aria-label={t.soundboard.open}
-          className="popover-enter absolute bottom-full right-0 z-50 mb-2 w-72 rounded-lg border border-[color:var(--glass-border)] bg-chat p-2 shadow-3"
+          className="glass-strong liquid-floating popover-enter absolute bottom-full right-0 z-50 mb-2 w-72 rounded-lg p-2"
         >
           <div className="flex items-center justify-between px-1 pb-2">
             <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted">

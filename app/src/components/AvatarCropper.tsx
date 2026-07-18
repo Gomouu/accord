@@ -214,7 +214,7 @@ export function AvatarCropper({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+      className="liquid-overlay fixed inset-0 z-50 flex items-center justify-center"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onAnnuler();
       }}
@@ -227,7 +227,7 @@ export function AvatarCropper({
         aria-describedby="recadreur-instructions"
         tabIndex={-1}
         onKeyDown={onKeyDown}
-        className="max-h-[92vh] w-[340px] max-w-[92vw] overflow-y-auto rounded-lg bg-modal p-5 shadow-modal outline-none"
+        className="liquid-cropper max-h-[92vh] w-[340px] max-w-[92vw] overflow-y-auto rounded-lg p-5 outline-none"
       >
         <h2 className="mb-1 text-lg font-semibold text-header">{titre}</h2>
         <p id="recadreur-instructions" className="mb-4 text-sm text-muted">

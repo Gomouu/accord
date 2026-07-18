@@ -303,6 +303,13 @@ impl Db {
                msg_id BLOB NOT NULL,
                PRIMARY KEY (token, msg_id)
              );
+             -- La recherche interroge par `token` (tête de la PK, couvert),
+             -- mais la suppression/réindexation d'un message purge par
+             -- `msg_id` (DELETE ... WHERE msg_id) — hors tête de PK : sans cet
+             -- index, chaque suppression scanne tout l'index de recherche, qui
+             -- porte un token par mot de chaque message.
+             CREATE INDEX IF NOT EXISTS search_by_msg
+               ON search_index(msg_id);
              CREATE TABLE IF NOT EXISTS dm_pins (
                peer   BLOB NOT NULL,
                msg_id BLOB NOT NULL,

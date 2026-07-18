@@ -48,7 +48,7 @@ end-to-end encrypted. Nobody can host, read, sell, or lose your conversations.
 | 📞 **Voice** | Voice channels and 1-to-1 calls with ringing, noise suppression (RNNoise), auto gain, packet-loss recovery (Opus FEC), soundboard |
 | 🛡️ **Communities** | Roles & permissions, moderation (kick/ban/timeout), AutoMod word filter, invitations, scheduled events, server folders |
 | ⌨️ **Comfort** | Ctrl/Cmd+K palette (navigation + commands), right-click menus everywhere, dock unread badge, native notifications, keyboard shortcuts, built-in signed updates |
-| 🎨 **Personalization** | 20 themes (light & dark), animated profile decorations, effects and frames, custom status, message density |
+| 🎨 **Personalization** | 24 themes (light & dark, 5 animated figurative scenes), animated profile decorations, effects and frames, custom status, message density |
 | 👥 **Accounts** | Multi-account, encrypted full backup (`.accordbackup`), English & French |
 
 ## Screenshots
@@ -65,7 +65,7 @@ end-to-end encrypted. Nobody can host, read, sell, or lose your conversations.
     </td>
     <td width="33%" valign="top">
       <img src="docs/screenshots/themes.jpg" alt="Appearance settings with twenty visual themes and message density" /><br/>
-      <sub><b>Appearance</b> — 20 themes, light &amp; dark</sub>
+      <sub><b>Appearance</b> — 24 themes, light &amp; dark</sub>
     </td>
   </tr>
 </table>

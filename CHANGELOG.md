@@ -2,6 +2,16 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [2.1.2] — 2026-07-18
+
+### Added
+
+- **Animated figurative themes**: 5 illustrated scene themes with original
+  artwork and subtle ambient animation — Sakura garden, Wisteria night, Lotus
+  pond, Manga ink and Shōjo bloom — bringing the gallery to 24 themes.
+- **More profile cosmetics**: 6 new animated decorations, 6 effects and
+  5 frames in the nature & manga collection.
+
 ## [2.1.1] — 2026-07-18
 
 ### Fixed

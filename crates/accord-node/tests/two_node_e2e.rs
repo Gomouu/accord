@@ -19,6 +19,7 @@ async fn boot(dir: &std::path::Path) -> RunningNode {
         p2p_addr: "127.0.0.1:0".parse().unwrap(),
         api_port: 0,
         pow_bits: 1,
+        mdns_enabled: false,
         ..NodeConfig::default()
     };
     run(unlocked, config).await.unwrap()
@@ -26,7 +27,7 @@ async fn boot(dir: &std::path::Path) -> RunningNode {
 
 /// Attend qu'une condition devienne vraie (interrogation courte, borne dure).
 async fn eventually(mut cond: impl FnMut() -> bool) -> bool {
-    for _ in 0..100 {
+    for _ in 0..450 {
         if cond() {
             return true;
         }

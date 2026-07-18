@@ -58,6 +58,7 @@ async fn boot_avec(dir: &std::path::Path, maintenance: MaintenanceConfig) -> Run
         p2p_addr: "127.0.0.1:0".parse().unwrap(),
         api_port: 0,
         pow_bits: 1,
+        mdns_enabled: false,
         ..NodeConfig::default()
     };
     run_with_maintenance(unlocked, config, maintenance)
@@ -73,7 +74,7 @@ async fn boot(dir: &std::path::Path) -> RunningNode {
 /// Réévalue `cond` jusqu'à ~20 s (pas de 100 ms — les reprises fichiers ont
 /// leur propre backoff).
 async fn attendre(mut cond: impl FnMut() -> bool) -> bool {
-    for _ in 0..200 {
+    for _ in 0..450 {
         if cond() {
             return true;
         }

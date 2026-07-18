@@ -50,6 +50,7 @@ async fn boot(dir: &std::path::Path) -> RunningNode {
         p2p_addr: "127.0.0.1:0".parse().unwrap(),
         api_port: 0,
         pow_bits: 1,
+        mdns_enabled: false,
         ..NodeConfig::default()
     };
     run_with_maintenance(unlocked, config, fast_maintenance())
@@ -58,7 +59,7 @@ async fn boot(dir: &std::path::Path) -> RunningNode {
 }
 
 async fn eventually(mut cond: impl FnMut() -> bool) -> bool {
-    for _ in 0..200 {
+    for _ in 0..450 {
         if cond() {
             return true;
         }

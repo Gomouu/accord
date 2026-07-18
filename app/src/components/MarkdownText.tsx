@@ -212,6 +212,41 @@ function renderNode(node: MdNode, ctx: Ctx): ReactNode {
           {renderNodes(node.children, ctx)}
         </blockquote>
       );
+    case 'table':
+      return (
+        <div className="my-1 max-w-full overflow-x-auto">
+          <table className="border-collapse text-sm">
+            <thead>
+              <tr>
+                {node.header.map((cell, c) => (
+                  <th
+                    key={c}
+                    className="border border-input bg-rail/40 px-2.5 py-1 font-semibold text-norm"
+                    style={{ textAlign: node.align[c] ?? undefined }}
+                  >
+                    {renderNodes(cell, ctx)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {node.rows.map((row, r) => (
+                <tr key={r}>
+                  {row.map((cell, c) => (
+                    <td
+                      key={c}
+                      className="border border-input px-2.5 py-1 text-norm"
+                      style={{ textAlign: node.align[c] ?? undefined }}
+                    >
+                      {renderNodes(cell, ctx)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
     case 'link': {
       const href = lienSur(node.href);
       if (href === undefined) return node.value;

@@ -453,3 +453,56 @@ describe('analyserMarkdown — échappement et cas dégénérés', () => {
     expect(analyserMarkdown('*a\\*b')).toEqual([text('*a*b')]);
   });
 });
+
+describe('analyserMarkdown — tables GFM', () => {
+  it('rend une table simple avec en-tête et lignes', () => {
+    const md = '| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |';
+    expect(analyserMarkdown(md)).toEqual([
+      {
+        type: 'table',
+        align: [null, null],
+        header: [[text('A')], [text('B')]],
+        rows: [
+          [[text('1')], [text('2')]],
+          [[text('3')], [text('4')]],
+        ],
+      },
+    ]);
+  });
+
+  it('interprète les alignements gauche/centre/droite', () => {
+    const md = '| a | b | c |\n| :-- | :--: | --: |\n| x | y | z |';
+    const nodes = analyserMarkdown(md);
+    expect(nodes).toHaveLength(1);
+    const table = nodes[0] as Extract<MdNode, { type: 'table' }>;
+    expect(table.align).toEqual(['left', 'center', 'right']);
+  });
+
+  it('applique la mise en forme inline dans les cellules', () => {
+    const md = '| titre |\n| --- |\n| **gras** |';
+    const table = analyserMarkdown(md)[0] as Extract<MdNode, { type: 'table' }>;
+    expect(table.rows[0]?.[0]).toEqual([{ type: 'bold', children: [text('gras')] }]);
+  });
+
+  it('complète les cellules manquantes d’une ligne courte', () => {
+    const md = '| A | B |\n| --- | --- |\n| seul |';
+    const table = analyserMarkdown(md)[0] as Extract<MdNode, { type: 'table' }>;
+    expect(table.rows[0]).toEqual([[text('seul')], []]);
+  });
+
+  it('ne confond pas un paragraphe contenant un tube avec une table', () => {
+    const nodes = analyserMarkdown('a | b\nsuite');
+    expect(nodes.some((nd) => nd.type === 'table')).toBe(false);
+  });
+
+  it('exige un séparateur de même largeur que l’en-tête', () => {
+    const nodes = analyserMarkdown('| A | B |\n| --- |\n| 1 | 2 |');
+    expect(nodes.some((nd) => nd.type === 'table')).toBe(false);
+  });
+
+  it('gère les tubes échappés dans une cellule', () => {
+    const md = '| A |\n| --- |\n| x \\| y |';
+    const table = analyserMarkdown(md)[0] as Extract<MdNode, { type: 'table' }>;
+    expect(table.rows[0]?.[0]).toEqual([text('x | y')]);
+  });
+});

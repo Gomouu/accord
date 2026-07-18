@@ -45,7 +45,19 @@ export type MdNode =
       readonly items: MdNode[][];
     }
   | { readonly type: 'blockquote'; readonly children: MdNode[] }
+  | {
+      readonly type: 'table';
+      /** Alignement par colonne (`null` = défaut, aligné selon la langue). */
+      readonly align: readonly TableAlign[];
+      /** Cellules d'en-tête (contenu inline). */
+      readonly header: MdNode[][];
+      /** Lignes de corps, chacune alignée sur la largeur de l'en-tête. */
+      readonly rows: MdNode[][][];
+    }
   | { readonly type: 'break' };
+
+/** Alignement d'une colonne de tableau GFM. */
+export type TableAlign = 'left' | 'center' | 'right' | null;
 
 /** Profondeur maximale d'imbrication (garde anti-récursion pathologique). */
 const MAX_DEPTH = 8;
@@ -405,6 +417,51 @@ function finDeParagraphe(src: string, start: number, firstEnd: number): number {
 }
 
 /** Transforme un texte de message en arbre markdown (fonction pure). */
+/**
+ * Découpe une ligne de tableau en cellules sur les `|` non échappés. Les `|`
+ * de bord (optionnels en GFM) sont retirés ; `\|` produit un `|` littéral.
+ */
+function decouperCellules(line: string): string[] {
+  let s = line.trim();
+  if (s.startsWith('|')) s = s.slice(1);
+  if (s.endsWith('|') && !s.endsWith('\\|')) s = s.slice(0, -1);
+  const cells: string[] = [];
+  let cur = '';
+  for (let k = 0; k < s.length; k++) {
+    const ch = s[k];
+    if (ch === '\\' && s[k + 1] === '|') {
+      cur += '|';
+      k++;
+      continue;
+    }
+    if (ch === '|') {
+      cells.push(cur.trim());
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  cells.push(cur.trim());
+  return cells;
+}
+
+/**
+ * Interprète une ligne de séparateur de tableau (`| --- | :--: |`) en
+ * alignements de colonnes, ou `null` si ce n'est pas un séparateur valide.
+ */
+function lireAlignements(line: string): TableAlign[] | null {
+  const cells = decouperCellules(line);
+  if (cells.length === 0 || cells.some((c) => c === '')) return null;
+  const aligns: TableAlign[] = [];
+  for (const c of cells) {
+    if (!/^:?-+:?$/.test(c)) return null;
+    const left = c.startsWith(':');
+    const right = c.endsWith(':');
+    aligns.push(left && right ? 'center' : right ? 'right' : left ? 'left' : null);
+  }
+  return aligns;
+}
+
 export function analyserMarkdown(texte: string): MdNode[] {
   const nodes: MdNode[] = [];
   const n = texte.length;
@@ -479,6 +536,38 @@ export function analyserMarkdown(texte: string): MdNode[] {
       nodes.push(construireListe(items));
       i = j;
       continue;
+    }
+
+    // GFM tables : ligne d'en-tête suivie d'un séparateur d'alignements de
+    // même largeur. Toute autre ligne contenant `|` retombe en paragraphe.
+    if (line.includes('|')) {
+      const nextStart = end < n ? end + 1 : n;
+      if (nextStart < n) {
+        const nextEnd = finDeLigne(texte, nextStart);
+        const aligns = lireAlignements(texte.slice(nextStart, nextEnd));
+        const header = decouperCellules(line);
+        if (aligns !== null && aligns.length === header.length) {
+          flushPara();
+          const rows: MdNode[][][] = [];
+          let j = nextEnd < n ? nextEnd + 1 : n;
+          while (j < n) {
+            const rEnd = finDeLigne(texte, j);
+            const rLine = texte.slice(j, rEnd);
+            if (rLine.trim() === '' || !rLine.includes('|')) break;
+            const cells = decouperCellules(rLine);
+            rows.push(header.map((_, c) => analyserFragment(cells[c] ?? '', 0)));
+            j = rEnd < n ? rEnd + 1 : n;
+          }
+          nodes.push({
+            type: 'table',
+            align: aligns,
+            header: header.map((h) => analyserFragment(h, 0)),
+            rows,
+          });
+          i = j;
+          continue;
+        }
+      }
     }
 
     // Paragraph line (may extend past `\n` when a code fence spans lines).

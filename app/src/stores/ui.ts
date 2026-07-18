@@ -11,6 +11,12 @@ import { type Lang } from '../i18n';
 import { type OwnPresenceStatus } from '../lib/api';
 import { registerCloseInterception, traySetEnabled } from '../lib/bridge';
 import {
+  appliquerThemePerso,
+  PERSO_DEFAUT,
+  hexVersRgb,
+  type CouleursPerso,
+} from '../lib/customTheme';
+import {
   loadLastChannelByServer,
   loadLastDm,
   saveLastChannelByServer,
@@ -109,6 +115,7 @@ export const THEME_IDS = [
   'frost',
   'circuit',
   'dream',
+  'custom',
 ] as const;
 export type Theme = (typeof THEME_IDS)[number];
 export type Density = 'comfortable' | 'compact';
@@ -158,6 +165,7 @@ export const MEMBERS_WIDTH_MAX = 380;
 
 const STORAGE_KEYS = {
   theme: 'accord.theme',
+  customTheme: 'accord.theme.custom',
   density: 'accord.density',
   fontScale: 'accord.fontScale',
   lang: 'accord.lang',
@@ -347,8 +355,35 @@ function initialWidth(key: string, fallback: number, min: number, max: number): 
 
 /* Application immédiate sur la racine du document. */
 
-function applyTheme(theme: Theme): void {
+function applyTheme(theme: Theme, custom?: CouleursPerso): void {
+  if (theme === 'custom') {
+    // Thème personnalisé : la BASE (claire/sombre) fournit texte, verre et
+    // barres de défilement ; les surfaces choisies priment en inline.
+    const couleurs = custom ?? initialCustomTheme();
+    document.documentElement.dataset.theme = couleurs.base;
+    appliquerThemePerso(couleurs);
+    return;
+  }
+  appliquerThemePerso(null);
   document.documentElement.dataset.theme = theme;
+}
+
+/** Lecture tolérante du thème personnalisé persisté (repli : défaut). */
+function initialCustomTheme(): CouleursPerso {
+  const brut = readStored(STORAGE_KEYS.customTheme);
+  if (brut === null) return PERSO_DEFAUT;
+  try {
+    const lu = JSON.parse(brut) as Partial<CouleursPerso>;
+    const valide = (h: unknown): h is string => typeof h === 'string' && hexVersRgb(h) !== null;
+    return {
+      fond: valide(lu.fond) ? lu.fond : PERSO_DEFAUT.fond,
+      panneaux: valide(lu.panneaux) ? lu.panneaux : PERSO_DEFAUT.panneaux,
+      accent: valide(lu.accent) ? lu.accent : PERSO_DEFAUT.accent,
+      base: lu.base === 'light' ? 'light' : 'dark',
+    };
+  } catch {
+    return PERSO_DEFAUT;
+  }
 }
 
 function applyDensity(density: Density): void {
@@ -429,6 +464,8 @@ interface UiState {
   toasts: Toast[];
   lang: Lang;
   theme: Theme;
+  /** Couleurs du thème personnalisé (actif quand `theme === 'custom'`). */
+  customTheme: CouleursPerso;
   density: Density;
   fontScale: FontScale;
   /** Appui-pour-parler : en vocal, micro coupé sauf pendant l'appui. */
@@ -522,6 +559,7 @@ interface UiState {
   dismissToast: (id: number) => void;
   setLang: (lang: Lang) => void;
   setTheme: (theme: Theme) => void;
+  setCustomTheme: (couleurs: CouleursPerso) => void;
   setDensity: (density: Density) => void;
   setFontScale: (fontScale: FontScale) => void;
   setPttEnabled: (enabled: boolean) => void;
@@ -566,14 +604,15 @@ const TOAST_LIFETIME_MS = 5000;
 const TOAST_EXIT_MS = 180;
 let nextToastId = 1;
 
-export const useUi = create<UiState>((set) => {
+export const useUi = create<UiState>((set, get) => {
   const theme = initialTheme();
+  const customTheme = initialCustomTheme();
   const density = initialDensity();
   const fontScale = initialFontScale();
   const reducedMotion = initialReducedMotion();
   const saturation = initialSaturation();
   const keepInTray = initialBool(STORAGE_KEYS.keepInTray, false);
-  applyTheme(theme);
+  applyTheme(theme, customTheme);
   applyDensity(density);
   applyFontScale(fontScale);
   applyReducedMotion(reducedMotion);
@@ -599,6 +638,7 @@ export const useUi = create<UiState>((set) => {
     toasts: [],
     lang: initialLang(),
     theme,
+    customTheme,
     density,
     fontScale,
     pttEnabled: initialBool(STORAGE_KEYS.pttEnabled, false),
@@ -684,9 +724,14 @@ export const useUi = create<UiState>((set) => {
       set({ lang });
     },
     setTheme: (nextTheme) => {
-      applyTheme(nextTheme);
+      applyTheme(nextTheme, get().customTheme);
       writeStored(STORAGE_KEYS.theme, nextTheme);
       set({ theme: nextTheme });
+    },
+    setCustomTheme: (couleurs) => {
+      writeStored(STORAGE_KEYS.customTheme, JSON.stringify(couleurs));
+      if (get().theme === 'custom') applyTheme('custom', couleurs);
+      set({ customTheme: couleurs });
     },
     setDensity: (nextDensity) => {
       applyDensity(nextDensity);

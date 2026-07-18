@@ -7,10 +7,64 @@
  */
 
 import { useRef } from 'react';
+import type { CouleursPerso } from '../../lib/customTheme';
 import { useUi, useT, THEME_IDS, type Theme } from '../../stores/ui';
 import type { Dict } from '../../i18n';
 import { ThemeAtmosphere } from '../ThemeAtmosphere';
 import { OptionPill, SettingsSection } from './controls';
+
+/**
+ * Éditeur du thème personnalisé : trois sélecteurs de couleur natifs + base
+ * claire/sombre. Chaque changement est persisté et, si le thème « custom »
+ * est actif, appliqué immédiatement (voir `setCustomTheme` du store).
+ */
+function CustomThemeEditor({
+  couleurs,
+  onChange,
+  t,
+}: {
+  couleurs: CouleursPerso;
+  onChange: (c: CouleursPerso) => void;
+  t: Dict;
+}) {
+  const champ = (
+    cle: 'fond' | 'panneaux' | 'accent',
+    label: string,
+  ): React.ReactNode => (
+    <label className="flex items-center justify-between gap-3 rounded-lg bg-sidebar px-4 py-3">
+      <span className="text-sm font-medium text-norm">{label}</span>
+      <input
+        type="color"
+        value={couleurs[cle]}
+        onChange={(e) => onChange({ ...couleurs, [cle]: e.target.value })}
+        aria-label={label}
+        className="h-8 w-14 cursor-pointer rounded-md border border-input bg-transparent"
+      />
+    </label>
+  );
+  return (
+    <div className="flex flex-col gap-2">
+      {champ('fond', t.settings.customFond)}
+      {champ('panneaux', t.settings.customPanneaux)}
+      {champ('accent', t.settings.customAccent)}
+      <div className="flex items-center gap-2 pt-1">
+        <span className="text-sm font-medium text-norm">{t.settings.customBase}</span>
+        <OptionPill
+          selected={couleurs.base === 'dark'}
+          onSelect={() => onChange({ ...couleurs, base: 'dark' })}
+        >
+          {t.settings.customBaseDark}
+        </OptionPill>
+        <OptionPill
+          selected={couleurs.base === 'light'}
+          onSelect={() => onChange({ ...couleurs, base: 'light' })}
+        >
+          {t.settings.customBaseLight}
+        </OptionPill>
+      </div>
+    </div>
+  );
+}
 
 /** Clé i18n du libellé de chaque thème (voir `settings.theme*` dans fr.ts/en.ts). */
 export const THEME_LABEL_KEYS: Record<Theme, keyof Dict['settings']> = {
@@ -38,6 +92,7 @@ export const THEME_LABEL_KEYS: Record<Theme, keyof Dict['settings']> = {
   frost: 'themeFrost',
   circuit: 'themeCircuit',
   dream: 'themeDream',
+  custom: 'themeCustom',
 };
 
 function ThemeCheckIcon() {
@@ -193,14 +248,23 @@ function ThemeGallery({
 export function AppearanceTab() {
   const t = useT();
   const theme = useUi((s) => s.theme);
+  const customTheme = useUi((s) => s.customTheme);
   const density = useUi((s) => s.density);
   const setTheme = useUi((s) => s.setTheme);
+  const setCustomTheme = useUi((s) => s.setCustomTheme);
   const setDensity = useUi((s) => s.setDensity);
 
   return (
     <div>
       <SettingsSection title={t.settings.theme}>
         <ThemeGallery theme={theme} setTheme={setTheme} t={t} />
+      </SettingsSection>
+
+      <SettingsSection
+        title={t.settings.customThemeTitle}
+        hint={t.settings.customThemeHint}
+      >
+        <CustomThemeEditor couleurs={customTheme} onChange={setCustomTheme} t={t} />
       </SettingsSection>
 
       <SettingsSection title={t.settings.density} hint={t.settings.densityHint}>

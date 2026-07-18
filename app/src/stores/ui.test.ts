@@ -47,10 +47,35 @@ describe('useUi — thème', () => {
     for (const id of THEME_IDS) {
       useUi.getState().setTheme(id);
 
-      expect(root.dataset.theme).toBe(id);
+      if (id === 'custom') {
+        // Thème personnalisé : la racine porte la BASE (claire/sombre) et les
+        // surfaces choisies sont posées en variables inline par-dessus.
+        expect(root.dataset.theme).toBe(useUi.getState().customTheme.base);
+        expect(root.style.getPropertyValue('--color-chat')).not.toBe('');
+      } else {
+        expect(root.dataset.theme).toBe(id);
+        expect(root.style.getPropertyValue('--color-chat')).toBe('');
+      }
       expect(window.localStorage.getItem('accord.theme')).toBe(id);
       expect(useUi.getState().theme).toBe(id);
     }
+  });
+
+  it('le thème personnalisé applique les couleurs choisies et réagit à leur changement', () => {
+    useUi.getState().setTheme('custom');
+    useUi.getState().setCustomTheme({
+      fond: '#101020',
+      panneaux: '#181828',
+      accent: '#ff0080',
+      base: 'dark',
+    });
+    expect(root.style.getPropertyValue('--color-chat')).toBe('16 16 32');
+    expect(root.style.getPropertyValue('--color-blurple')).toBe('255 0 128');
+    expect(window.localStorage.getItem('accord.theme.custom')).toContain('#ff0080');
+
+    // Retour à un thème de la galerie : les variables inline sont retirées.
+    useUi.getState().setTheme('dark');
+    expect(root.style.getPropertyValue('--color-chat')).toBe('');
   });
 
   it('migre sans accroc une préférence historique (dark/light) persistée avant la galerie', async () => {

@@ -37,6 +37,10 @@ allow = [
   # OpenSSL vendu par openssl-src (rusqlite bundled-sqlcipher-vendored-openssl)
   # et licence historique de ring si ce crate entre dans l'arbre un jour.
   "OpenSSL",
+  # Magasin de certificats racines Mozilla (webpki-root-certs, tiré par
+  # rustls via reqwest — chaîne HTTPS de tauri-plugin-updater, D-049) :
+  # licence permissive de données, sans obligation sur le code.
+  "CDLA-Permissive-2.0",
 ]
 
 [bans]

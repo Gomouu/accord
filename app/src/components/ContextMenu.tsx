@@ -241,7 +241,7 @@ export function ContextMenu() {
         maxHeight: pos?.maxHeight ?? undefined,
         visibility: pos === null ? 'hidden' : 'visible',
       }}
-      className={`glass-strong context-menu-enter z-50 min-w-[210px] max-w-xs overflow-y-auto overscroll-contain rounded-lg p-1.5 focus:outline-none ${
+      className={`glass-strong accord-menu context-menu-enter z-50 min-w-[210px] max-w-xs overflow-y-auto overscroll-contain rounded-lg p-1.5 focus:outline-none ${
         pos?.side === 'top' ? 'origin-bottom-left' : 'origin-top-left'
       }`}
     >

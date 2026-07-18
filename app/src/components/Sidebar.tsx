@@ -1016,7 +1016,7 @@ function GroupSidebar({ groupId }: { groupId: string }) {
     <>
       <div
         data-testid="server-header"
-        className={`relative shrink-0 border-b border-rail shadow-1 ${
+        className={`accord-server-header relative shrink-0 border-b border-rail shadow-1 ${
           hasBanner ? 'h-24 bg-tooltip' : 'h-12 bg-sidebar'
         }`}
         style={
@@ -1213,7 +1213,7 @@ export function Sidebar() {
   return (
     <aside
       aria-label={t.layout.sidebarLabel}
-      className="theme-surface-sidebar flex h-full shrink-0 flex-col bg-sidebar"
+      className="theme-surface-sidebar accord-sidebar flex h-full shrink-0 flex-col bg-sidebar"
       style={{ width: sidebarWidth }}
     >
       {view.kind === 'group' ? (

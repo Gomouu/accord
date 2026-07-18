@@ -452,8 +452,8 @@ export function FriendsView() {
   ];
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex h-12 min-w-0 shrink-0 items-center gap-4 border-b border-rail px-4 shadow-1">
+    <div className="accord-view accord-friends flex h-full flex-col">
+      <header className="accord-chat-header flex h-12 min-w-0 shrink-0 items-center gap-4 border-b border-rail px-4 shadow-1">
         <div className="flex shrink-0 items-center gap-2 font-semibold text-header">
           <svg
             width="20"

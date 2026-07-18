@@ -539,7 +539,7 @@ describe('GroupView — statut personnalisé dans la liste des membres', () => {
     expect(status.parentElement).not.toHaveClass('-mt-5');
     expect(
       screen.getByRole('textbox').compareDocumentPosition(status) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
+        Node.DOCUMENT_POSITION_PRECEDING,
     ).not.toBe(0);
   });
 

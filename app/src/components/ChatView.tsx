@@ -340,8 +340,8 @@ export function DmView({ peer }: { peer: string }) {
   };
 
   return (
-    <div className="relative flex h-full flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-[color:var(--glass-border)] bg-chat/90 px-4 shadow-1">
+    <div className="accord-conversation relative flex h-full flex-col">
+      <header className="accord-chat-header flex h-12 shrink-0 items-center gap-3 border-b border-[color:var(--glass-border)] bg-chat/90 px-4 shadow-1">
         <button
           type="button"
           aria-label={interpolate(t.profil.openProfile, { name })}
@@ -501,6 +501,7 @@ export function DmView({ peer }: { peer: string }) {
           onCancel={() => setReplyTo(null)}
         />
       )}
+      <TypingIndicator typingKey={dmTypingKey(peer)} />
       <MessageInput
         placeholder={interpolate(t.dm.placeholder, { name })}
         typingTarget={{ kind: 'dm', peer }}
@@ -510,7 +511,6 @@ export function DmView({ peer }: { peer: string }) {
           setReplyTo(null);
         }}
       />
-      <TypingIndicator typingKey={dmTypingKey(peer)} />
     </div>
   );
 }
@@ -675,7 +675,7 @@ function MemberList({ groupId, fill = false }: { groupId: string; fill?: boolean
 
   return (
     <aside
-      className="theme-surface-sidebar h-full shrink-0 overflow-y-auto bg-sidebar p-2"
+      className="theme-surface-sidebar accord-members h-full shrink-0 overflow-y-auto bg-sidebar p-2"
       style={{ width: fill ? '100%' : membersWidth }}
       aria-label={t.groups.members}
     >
@@ -1340,12 +1340,12 @@ export function GroupView({
 
   return (
     <div
-      className={`group-chat-layout relative flex h-full min-w-0 overflow-hidden ${
+      className={`group-chat-layout accord-conversation relative flex h-full min-w-0 overflow-hidden ${
         openThread !== null ? 'thread-is-open' : ''
       }`}
     >
       <div className="group-chat-main relative flex min-w-0 flex-1 flex-col">
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-[color:var(--glass-border)] bg-chat/90 px-4 shadow-1">
+        <header className="accord-chat-header flex h-12 shrink-0 items-center gap-2 border-b border-[color:var(--glass-border)] bg-chat/90 px-4 shadow-1">
           <span
             aria-hidden
             className="flex h-5 w-5 shrink-0 items-center justify-center text-[19px] font-medium leading-none text-faint"
@@ -1547,6 +1547,7 @@ export function GroupView({
             onCancel={() => setReplyTo(null)}
           />
         )}
+        <TypingIndicator typingKey={groupTypingKey(groupId, channelId)} nameOf={nameOf} />
         <MessageInput
           placeholder={interpolate(t.groups.channelPlaceholder, { name: channel.name })}
           groupId={groupId}
@@ -1559,7 +1560,6 @@ export function GroupView({
             setReplyTo(null);
           }}
         />
-        <TypingIndicator typingKey={groupTypingKey(groupId, channelId)} nameOf={nameOf} />
       </div>
       {openThread !== null && (
         <ThreadPanel

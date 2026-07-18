@@ -6,9 +6,15 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { backupImport } from '../lib/bridge';
 import { useSession } from '../stores/session';
 import { useUi } from '../stores/ui';
-import { ChooseNameScreen, RecoveryPhraseScreen } from './Onboarding';
+import { ChooseNameScreen, Onboarding, RecoveryPhraseScreen } from './Onboarding';
+
+vi.mock('../lib/bridge', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/bridge')>()),
+  backupImport: vi.fn(async () => null),
+}));
 
 // jsdom ne charge ni images ni canvas : on simule le chargement et l'encodage
 // pour exercer le vrai recadreur (géométrie réelle, sortie déterministe).
@@ -23,9 +29,14 @@ function stubImage(largeur: number, hauteur: number): void {
 }
 
 beforeEach(() => {
+  vi.mocked(backupImport).mockReset().mockResolvedValue(null);
   useUi.setState({ lang: 'fr', toasts: [] });
   useSession.setState({
+    phase: 'setup',
     askName: true,
+    create: vi.fn(async () => {}),
+    restore: vi.fn(async () => {}),
+    goToWelcome: vi.fn(async () => {}),
     setName: vi.fn(async () => {}),
     setAvatar: vi.fn(async () => {}),
     skipNamePrompt: vi.fn(),
@@ -36,6 +47,78 @@ beforeEach(() => {
   vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
     'data:image/png;base64,QUJD',
   );
+});
+
+describe('Onboarding — import de sauvegarde', () => {
+  it('propose l’import dès le premier écran', () => {
+    render(<Onboarding />);
+
+    expect(screen.getByRole('button', { name: 'Importer une sauvegarde' })).toBeEnabled();
+  });
+
+  it('présente la création comme choix principal avant le formulaire', () => {
+    render(<Onboarding />);
+
+    expect(screen.queryByLabelText('Phrase de passe')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Créer mon identité' }));
+    expect(screen.getByLabelText('Phrase de passe')).toBeInTheDocument();
+  });
+
+  it('importe puis ouvre le sélecteur de comptes', async () => {
+    vi.mocked(backupImport).mockResolvedValueOnce({
+      id: 'importe-1',
+      name: 'Compte importé',
+      created_ms: 1,
+      last_used_ms: 0,
+      is_legacy: false,
+      pubkey_short: null,
+    });
+    const goToWelcome = vi.fn(async () => {});
+    useSession.setState({ goToWelcome });
+    render(<Onboarding />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Importer une sauvegarde' }));
+
+    await waitFor(() => expect(goToWelcome).toHaveBeenCalledTimes(1));
+    expect(backupImport).toHaveBeenCalledTimes(1);
+    expect(useUi.getState().toasts.some((toast) => toast.kind === 'info')).toBe(true);
+  });
+
+  it('reste sur le premier écran quand le sélecteur est annulé', async () => {
+    const goToWelcome = vi.fn(async () => {});
+    useSession.setState({ goToWelcome });
+    render(<Onboarding />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Importer une sauvegarde' }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Importer une sauvegarde' }),
+      ).toBeEnabled(),
+    );
+    expect(goToWelcome).not.toHaveBeenCalled();
+    expect(useUi.getState().toasts).toHaveLength(0);
+  });
+
+  it('affiche l’erreur hôte et permet de réessayer', async () => {
+    vi.mocked(backupImport).mockRejectedValueOnce(new Error('archive invalide'));
+    render(<Onboarding />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Importer une sauvegarde' }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Importer une sauvegarde' }),
+      ).toBeEnabled(),
+    );
+    expect(
+      useUi
+        .getState()
+        .toasts.some(
+          (toast) => toast.kind === 'error' && toast.text === 'archive invalide',
+        ),
+    ).toBe(true);
+  });
 });
 
 afterEach(() => {

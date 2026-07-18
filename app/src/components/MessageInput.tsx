@@ -708,7 +708,7 @@ export function MessageInput({
     (text.trim() !== '' || pieces.length > 0) && !sending && !slowmodeActive;
 
   return (
-    <div className="px-4 pb-1">
+    <div className="accord-composer-zone px-4 pb-1">
       {pieces.length > 0 && (
         <div className="flex max-h-40 flex-wrap gap-2 overflow-y-auto overscroll-contain rounded-t-xl border border-b-0 border-rail/60 bg-sidebar px-3 py-2.5">
           {pieces.map((piece) => {
@@ -782,7 +782,7 @@ export function MessageInput({
         </p>
       )}
       <div
-        className={`relative flex items-end gap-0.5 rounded-xl border bg-input px-1.5 py-1 shadow-1 transition-colors duration-fast focus-within:border-blurple/50 ${
+        className={`accord-composer relative flex items-end gap-0.5 rounded-xl border bg-input px-1.5 py-1 shadow-1 transition-colors duration-fast focus-within:border-blurple/50 ${
           pieces.length > 0 ? 'rounded-t-none' : ''
         } ${survol ? 'border-blurple/50' : 'border-rail/60'}`}
         onDragOver={(e) => {

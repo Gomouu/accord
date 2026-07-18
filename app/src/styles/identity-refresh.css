@@ -1,0 +1,363 @@
+:root {
+  --accord-iris: var(--color-blurple);
+  --accord-cyan: var(--theme-accent-secondary, var(--color-link));
+  --accord-mint: var(--color-green);
+  --accord-edge: var(--glass-border);
+  --accord-edge-strong: rgb(var(--color-header) / 0.16);
+}
+
+body {
+  letter-spacing: -0.006em;
+  -webkit-font-smoothing: antialiased;
+}
+
+.accord-shell {
+  --accord-shell-gap: 7px;
+  position: relative;
+  isolation: isolate;
+  gap: var(--accord-shell-gap);
+  overflow: hidden;
+  padding: 8px;
+  background-color: rgb(var(--color-rail));
+}
+
+.accord-shell > .accord-rail,
+.accord-shell > .accord-sidebar,
+.accord-shell > .accord-stage,
+.accord-shell > [role='separator'] {
+  position: relative;
+  z-index: 1;
+}
+
+.accord-shell > [role='separator'][aria-orientation='vertical'] {
+  width: var(--accord-shell-gap);
+  margin-inline: calc(var(--accord-shell-gap) * -1);
+}
+
+.accord-rail,
+.accord-sidebar,
+.accord-stage {
+  border: 1px solid var(--accord-edge);
+  background-clip: padding-box;
+}
+
+.accord-rail {
+  width: 70px;
+  border-radius: 23px;
+  background-color: rgb(var(--color-rail) / 0.86);
+  box-shadow:
+    var(--glass-highlight),
+    inset -1px 0 var(--theme-seam),
+    var(--shadow-2);
+}
+
+.accord-rail button[aria-current='page'] {
+  background-image: linear-gradient(
+    145deg,
+    rgb(var(--accord-iris)),
+    rgb(var(--accord-cyan))
+  );
+  box-shadow:
+    0 8px 24px rgb(var(--accord-iris) / 0.3),
+    inset 0 1px 0 rgb(255 255 255 / 0.26);
+}
+
+.accord-rail button:not([aria-current='page']):hover {
+  box-shadow: inset 0 0 0 1px rgb(var(--accord-cyan) / 0.22);
+}
+
+.accord-rail > [role='separator'] {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgb(var(--accord-cyan) / 0.56),
+    transparent
+  );
+}
+
+.accord-sidebar {
+  border-radius: 23px;
+  background-color: rgb(var(--color-sidebar) / 0.9);
+  box-shadow:
+    var(--glass-highlight),
+    inset -1px 0 var(--theme-seam),
+    var(--shadow-2);
+}
+
+.accord-server-header {
+  border-color: var(--accord-edge);
+  background-color: rgb(var(--color-sidebar) / 0.72);
+}
+
+.accord-server-header::after {
+  position: absolute;
+  inset: auto 16px 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgb(var(--accord-iris) / 0.72),
+    rgb(var(--accord-cyan) / 0.18),
+    transparent
+  );
+  content: '';
+  pointer-events: none;
+}
+
+.accord-user-panel {
+  margin: 0 7px 7px;
+  overflow: hidden;
+  border: 1px solid var(--accord-edge);
+  border-radius: 17px;
+  background: linear-gradient(
+    135deg,
+    rgb(var(--accord-iris) / 0.1),
+    rgb(var(--color-rail) / 0.8)
+  );
+  box-shadow: var(--glass-highlight), var(--shadow-1);
+}
+
+.accord-user-panel > div:last-child {
+  background-color: transparent;
+}
+
+.accord-stage {
+  overflow: clip;
+  border-radius: 24px;
+  background-color: rgb(var(--color-chat) / 0.95);
+  box-shadow: var(--glass-highlight), var(--shadow-2);
+}
+
+.accord-conversation {
+  background: linear-gradient(180deg, rgb(var(--color-chat) / 0.3), transparent 22%);
+}
+
+.accord-chat-header {
+  height: 56px;
+  border-color: var(--accord-edge);
+  background-color: rgb(var(--color-chat) / 0.78);
+  box-shadow: inset 0 -1px 0 rgb(var(--color-header) / 0.025);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+}
+
+.accord-chat-header::before {
+  width: 4px;
+  height: 18px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgb(var(--accord-cyan)), rgb(var(--accord-iris)));
+  box-shadow: 0 0 16px rgb(var(--accord-cyan) / 0.38);
+  content: '';
+}
+
+.accord-members {
+  border-left: 1px solid var(--accord-edge);
+  background-color: rgb(var(--color-sidebar) / 0.78);
+}
+
+.accord-members button {
+  border: 1px solid transparent;
+}
+
+.accord-members button:hover {
+  border-color: rgb(var(--accord-cyan) / 0.14);
+  background-color: rgb(var(--color-chat-hover) / 0.68);
+}
+
+.accord-composer-zone {
+  padding: 8px 18px 4px;
+  background: linear-gradient(180deg, transparent, rgb(var(--color-chat) / 0.74) 48%);
+}
+
+.accord-composer {
+  min-height: 52px;
+  border-color: var(--accord-edge);
+  border-radius: 18px;
+  background-color: rgb(var(--color-input) / 0.82);
+  box-shadow: var(--glass-highlight), var(--shadow-1);
+  backdrop-filter: blur(16px) saturate(1.12);
+  -webkit-backdrop-filter: blur(16px) saturate(1.12);
+}
+
+.accord-composer:focus-within {
+  border-color: rgb(var(--accord-cyan) / 0.52);
+  box-shadow:
+    var(--glass-highlight),
+    0 0 0 3px rgb(var(--accord-iris) / 0.1),
+    var(--shadow-2);
+}
+
+.accord-typing {
+  height: 25px;
+  margin: 0 20px;
+  padding: 0 7px;
+}
+
+.accord-typing [role='status'] {
+  color: rgb(var(--color-muted));
+}
+
+.accord-typing .typing-dot {
+  width: 5px;
+  height: 5px;
+  background: linear-gradient(180deg, rgb(var(--accord-cyan)), rgb(var(--accord-iris)));
+}
+
+.msg-mention,
+.msg-mention:hover {
+  margin-inline: 0.75rem;
+  padding-inline: 0.875rem;
+  border: 1px solid rgb(var(--color-yellow) / 0.18);
+  border-radius: 15px;
+  background:
+    linear-gradient(
+      90deg,
+      rgb(var(--color-yellow) / 0.13),
+      rgb(var(--accord-iris) / 0.055) 70%,
+      transparent
+    ),
+    rgb(var(--color-chat-hover) / 0.22);
+  box-shadow:
+    inset 3px 0 0 rgb(var(--color-yellow)),
+    0 9px 28px rgb(var(--color-yellow) / 0.045);
+}
+
+.msg-mention > button:first-of-type,
+.msg-mention > span:first-of-type {
+  position: relative;
+  z-index: 1;
+}
+
+.server-menu-surface,
+.accord-menu {
+  border: 1px solid var(--accord-edge-strong);
+  border-radius: 18px;
+  background-color: rgb(var(--color-modal) / 0.96);
+  background-image: radial-gradient(
+    22rem 10rem at 5% 0%,
+    rgb(var(--accord-iris) / 0.14),
+    transparent 68%
+  );
+  box-shadow: var(--glass-highlight), var(--shadow-3);
+}
+
+.server-menu-surface {
+  width: min(18rem, calc(100vw - 6rem));
+}
+
+.server-menu-surface button,
+.accord-menu button {
+  border: 1px solid transparent;
+}
+
+.server-menu-surface button:hover,
+.server-menu-surface button:focus-visible,
+.accord-menu button:hover,
+.accord-menu button:focus-visible {
+  border-color: rgb(var(--accord-cyan) / 0.12);
+  background-color: rgb(var(--color-chat-hover) / 0.72);
+}
+
+.accord-settings {
+  width: min(1180px, 94vw);
+  border: 1px solid var(--accord-edge-strong);
+  border-radius: 28px;
+  background-color: rgb(var(--color-chat));
+  box-shadow: var(--glass-highlight), var(--shadow-3);
+}
+
+.accord-settings::before {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 2;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    rgb(var(--accord-iris)),
+    rgb(var(--accord-cyan)),
+    rgb(var(--accord-mint))
+  );
+  content: '';
+  pointer-events: none;
+}
+
+.accord-settings-nav {
+  border-color: var(--accord-edge);
+  background:
+    radial-gradient(
+      24rem 18rem at 0% 0%,
+      rgb(var(--accord-iris) / 0.12),
+      transparent 70%
+    ),
+    rgb(var(--color-sidebar));
+}
+
+.accord-settings-nav button[aria-current='page'] {
+  background: linear-gradient(
+    90deg,
+    rgb(var(--accord-iris) / 0.19),
+    rgb(var(--accord-cyan) / 0.07)
+  );
+  box-shadow:
+    inset 3px 0 0 rgb(var(--accord-cyan)),
+    inset 0 0 0 1px rgb(var(--accord-iris) / 0.16);
+}
+
+.accord-settings-content {
+  max-width: 780px;
+}
+
+.profile-card-shell__surface {
+  border-color: var(--accord-edge-strong);
+  box-shadow: var(--glass-highlight), var(--shadow-3);
+}
+
+.profile-card-surface {
+  border-color: var(--accord-edge);
+  background-color: rgb(var(--color-sidebar) / 0.8);
+}
+
+@media (max-width: 760px) {
+  .accord-shell {
+    --accord-shell-gap: 3px;
+    padding: 4px;
+  }
+
+  .accord-rail {
+    width: 64px;
+    border-radius: 19px;
+  }
+
+  .accord-sidebar,
+  .accord-stage {
+    border-radius: 19px;
+  }
+
+  .accord-composer-zone {
+    padding-inline: 10px;
+  }
+
+  .accord-typing {
+    margin-inline: 12px;
+  }
+}
+
+@media (max-width: 560px) {
+  .accord-shell {
+    padding: 0;
+  }
+
+  .accord-rail,
+  .accord-sidebar,
+  .accord-stage {
+    border-radius: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .accord-composer,
+  .accord-rail button {
+    transition-duration: 0.01ms;
+  }
+}

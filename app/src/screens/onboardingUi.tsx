@@ -7,6 +7,7 @@
 
 import type { ReactNode } from 'react';
 import { useT } from '../stores/ui';
+import './onboarding.css';
 
 /**
  * Panneau centré sur fond ambiant (`.app-ambient`, comme `AppShell`) :
@@ -26,24 +27,45 @@ export function Card({
 }) {
   const t = useT();
   return (
-    <div className="app-ambient flex h-full flex-col items-center overflow-y-auto bg-rail px-4 py-6">
+    <div className="onboarding-shell overflow-y-auto">
+      <div className="onboarding-haze" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
       <div
-        className={`modal-panel-enter glass my-auto w-full shrink-0 ${
-          wide ? 'max-w-[min(520px,94vw)]' : 'max-w-[min(440px,94vw)]'
-        } rounded-xl p-5 shadow-3 sm:p-8`}
+        className={`onboarding-frame modal-panel-enter ${
+          wide ? 'onboarding-frame-wide' : ''
+        }`}
       >
-        <img
-          src={LOGO_URL}
-          alt=""
-          aria-hidden
-          width={64}
-          height={64}
-          className="mx-auto mb-3 h-16 w-16"
-        />
-        <div className="mb-6 text-center text-xs font-bold uppercase tracking-[0.2em] text-blurple">
-          {t.app.name}
-        </div>
-        {children}
+        <aside className="onboarding-brand" aria-hidden="true">
+          <div className="onboarding-wordmark">
+            <span className="onboarding-logo-shell">
+              <img src={LOGO_URL} alt="" width={40} height={40} />
+            </span>
+            <span>{t.app.name}</span>
+          </div>
+          <div className="onboarding-signal">
+            <span className="onboarding-signal-ring onboarding-signal-ring-one" />
+            <span className="onboarding-signal-ring onboarding-signal-ring-two" />
+            <span className="onboarding-signal-ring onboarding-signal-ring-three" />
+            <span className="onboarding-signal-core">
+              <span />
+              <span />
+              <span />
+            </span>
+            <span className="onboarding-signal-node onboarding-signal-node-one" />
+            <span className="onboarding-signal-node onboarding-signal-node-two" />
+            <span className="onboarding-signal-node onboarding-signal-node-three" />
+          </div>
+          <div className="onboarding-brand-copy">
+            <span className="onboarding-brand-line" />
+            <p>{t.onboarding.tagline}</p>
+          </div>
+        </aside>
+        <main className="onboarding-panel">
+          <div className="onboarding-panel-content">{children}</div>
+        </main>
       </div>
     </div>
   );
@@ -63,8 +85,8 @@ export function Field({
   placeholder?: string;
 }) {
   return (
-    <label className="mb-4 block">
-      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted">
+    <label className="onboarding-field mb-4 block">
+      <span className="onboarding-field-label mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted">
         {label}
       </span>
       <input
@@ -72,7 +94,7 @@ export function Field({
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
-        className="min-h-11 w-full rounded-md border border-transparent bg-input px-3 py-2.5 text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
+        className="onboarding-field-input min-h-11 w-full rounded-md border border-transparent bg-input px-3 py-2.5 text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
       />
     </label>
   );
@@ -92,7 +114,7 @@ export function PrimaryButton({
       type="button"
       disabled={disabled ?? false}
       onClick={onClick}
-      className="min-h-11 w-full rounded-lg bg-blurple py-2.5 font-medium text-white shadow-sm transition-[transform,background-color,box-shadow] duration-fast hover:-translate-y-px hover:bg-blurple-hover hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:pointer-events-none disabled:opacity-50 active:translate-y-0 active:scale-[0.98]"
+      className="onboarding-primary min-h-11 w-full rounded-lg bg-blurple py-2.5 font-medium text-white shadow-sm transition-[transform,background-color,box-shadow] duration-fast hover:-translate-y-px hover:bg-blurple-hover hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal disabled:pointer-events-none disabled:opacity-50 active:translate-y-0 active:scale-[0.98]"
     >
       {label}
     </button>

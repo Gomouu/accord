@@ -15,6 +15,7 @@ import { useDms } from '../stores/dms';
 import { useFriends } from '../stores/friends';
 import { channelKey, useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
+import { groupTypingKey, useTyping } from '../stores/typing';
 import { THEME_IDS, useT, useUi, type Theme, type View } from '../stores/ui';
 import { useVoice } from '../stores/voice';
 import '../styles/global.css';
@@ -23,6 +24,7 @@ import '../styles/profile-personalization.css';
 import '../styles/profile-personalization-extra.css';
 import '../styles/profile-personalization-more.css';
 import '../styles/profile-surfaces.css';
+import '../styles/identity-refresh.css';
 
 const SELF_ID = 'demo-self';
 const GROUP_ID = 'demo-cipher';
@@ -388,6 +390,11 @@ function seedDemoStores(): void {
     sincePhaseMs: null,
     missedPeers: new Set(['ezra']),
     sync: noop,
+  });
+  useTyping.setState({
+    writers: {
+      [groupTypingKey(GROUP_ID, CHANNEL_ID)]: { mina: Number.MAX_SAFE_INTEGER },
+    },
   });
   useUi.setState({
     lang: 'fr',

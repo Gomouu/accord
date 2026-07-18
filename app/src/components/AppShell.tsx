@@ -541,7 +541,7 @@ export function AppShell() {
   }, [loadFriends, loadGroups, syncVoice, syncCalls]);
 
   return (
-    <div className="app-ambient flex h-full">
+    <div className="app-ambient accord-shell flex h-full">
       {/*
        * Lien d'évitement : premier élément tabbable, visible uniquement au
        * focus clavier — saute rail et barre latérale pour atteindre la zone
@@ -568,7 +568,7 @@ export function AppShell() {
       <main
         id="contenu-principal"
         tabIndex={-1}
-        className="theme-surface-chat min-w-0 flex-1 bg-chat focus:outline-none"
+        className="theme-surface-chat accord-stage min-w-0 flex-1 bg-chat focus:outline-none"
         aria-label={t.app.name}
       >
         {/*

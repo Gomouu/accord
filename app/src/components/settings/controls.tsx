@@ -83,7 +83,7 @@ export function ToggleRow({
  * préréglage pour le profil global et la bannière de serveur.
  */
 export const PRESET_PROFILE_COLORS: readonly number[] = [
-  0x5865f2, // Blurple
+  0x5865f2,
   0x3ba55c, // Vert
   0xfaa61a, // Or
   0xed4245, // Rouge

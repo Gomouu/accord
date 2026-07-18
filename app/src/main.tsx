@@ -8,6 +8,7 @@ import './styles/profile-personalization.css';
 import './styles/profile-personalization-extra.css';
 import './styles/profile-personalization-more.css';
 import './styles/profile-surfaces.css';
+import './styles/identity-refresh.css';
 
 // Déverrouillage audio armé avant tout : le premier geste (clic, frappe —
 // onboarding compris) met le contexte Web Audio partagé en route, pour que

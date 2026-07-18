@@ -38,7 +38,7 @@ export function TypingIndicator({
           : t.dm.typingMany;
 
   return (
-    <div className="flex h-5 shrink-0 items-center px-6">
+    <div className="accord-typing flex h-5 shrink-0 items-center px-6">
       {label !== null && (
         <div
           role="status"

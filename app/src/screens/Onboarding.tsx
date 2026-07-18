@@ -13,6 +13,7 @@ import { type AvatarEncode } from '../lib/image';
 import { initials } from '../lib/format';
 import { interpolate } from '../i18n';
 import { copyToClipboard } from '../lib/clipboard';
+import { backupImport } from '../lib/bridge';
 import { isValidName, useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import { AvatarCropper } from '../components/AvatarCropper';
@@ -23,10 +24,14 @@ const MIN_PASSPHRASE = 12;
 export function CreateForm({
   onSubmit,
   onRestore,
+  onImportBackup,
+  importingBackup = false,
   onCancel,
 }: {
   onSubmit: (passphrase: string) => Promise<void>;
   onRestore: () => void;
+  onImportBackup?: () => Promise<void>;
+  importingBackup?: boolean;
   /** Lien de retour additionnel (sélecteur de comptes) ; absent en 1er lancement. */
   onCancel?: () => void;
 }) {
@@ -34,19 +39,103 @@ export function CreateForm({
   const error = useSession((s) => s.error);
   const [pass, setPass] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [entryStep, setEntryStep] = useState<'choices' | 'create'>(
+    onImportBackup === undefined ? 'create' : 'choices',
+  );
 
   const tooShort = pass.length > 0 && pass.length < MIN_PASSPHRASE;
   const mismatch = confirm.length > 0 && pass !== confirm;
   const ready = pass.length >= MIN_PASSPHRASE && pass === confirm;
 
+  if (entryStep === 'choices' && onImportBackup !== undefined) {
+    return (
+      <Card>
+        <section
+          className="onboarding-gateway"
+          aria-labelledby="onboarding-welcome-title"
+        >
+          <div className="onboarding-gateway-heading">
+            <h1 id="onboarding-welcome-title" className="text-2xl font-bold text-header">
+              {t.onboarding.welcome}
+            </h1>
+            <p className="text-sm text-muted">{t.onboarding.tagline}</p>
+          </div>
+          <div className="onboarding-choice-grid">
+            <button
+              type="button"
+              onClick={() => setEntryStep('create')}
+              className="onboarding-choice"
+            >
+              <span className="onboarding-choice-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M12 3v18M3 12h18" />
+                </svg>
+              </span>
+              <span className="onboarding-choice-label">{t.onboarding.createTitle}</span>
+              <span className="onboarding-choice-arrow" aria-hidden="true">
+                →
+              </span>
+            </button>
+            <button
+              type="button"
+              disabled={importingBackup}
+              aria-busy={importingBackup}
+              onClick={() => void onImportBackup()}
+              className="onboarding-choice onboarding-choice-import"
+            >
+              <span className="onboarding-choice-icon" aria-hidden="true">
+                {importingBackup ? (
+                  <span className="onboarding-choice-spinner" />
+                ) : (
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <path d="M12 3v12m0 0 4-4m-4 4-4-4" />
+                    <path d="M5 16v3h14v-3" />
+                  </svg>
+                )}
+              </span>
+              <span className="onboarding-choice-label">{t.onboarding.importBackup}</span>
+              <span className="onboarding-choice-arrow" aria-hidden="true">
+                →
+              </span>
+            </button>
+          </div>
+          <div className="onboarding-gateway-secondary">
+            <span aria-hidden="true" />
+            <button type="button" onClick={onRestore}>
+              {t.onboarding.restoreLink}
+            </button>
+            <span aria-hidden="true" />
+          </div>
+        </section>
+      </Card>
+    );
+  }
+
   return (
     <Card>
-      <h1 className="text-center text-2xl font-bold text-header">
-        {t.onboarding.welcome}
-      </h1>
-      <p className="mb-6 mt-1 text-center text-sm text-muted">{t.onboarding.tagline}</p>
-      <h2 className="mb-3 font-semibold text-header">{t.onboarding.createTitle}</h2>
-      <p className="mb-4 text-sm text-muted">{t.onboarding.createHint}</p>
+      <div
+        className={`onboarding-form-heading ${
+          onImportBackup === undefined ? 'onboarding-form-heading-simple' : ''
+        }`}
+      >
+        {onImportBackup !== undefined && (
+          <button
+            type="button"
+            onClick={() => setEntryStep('choices')}
+            aria-label={t.app.cancel}
+            title={t.app.cancel}
+            className="onboarding-form-back"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+          </button>
+        )}
+        <div>
+          <h1 className="text-2xl font-bold text-header">{t.onboarding.createTitle}</h1>
+          <p className="mt-1 text-sm text-muted">{t.onboarding.createHint}</p>
+        </div>
+      </div>
       <Field label={t.onboarding.passphrase} value={pass} onChange={setPass} />
       <Field
         label={t.onboarding.passphraseConfirm}
@@ -437,12 +526,35 @@ export function Onboarding() {
   const phase = useSession((s) => s.phase);
   const create = useSession((s) => s.create);
   const restore = useSession((s) => s.restore);
+  const goToWelcome = useSession((s) => s.goToWelcome);
+  const toast = useUi((s) => s.toast);
+  const t = useT();
   const [mode, setMode] = useState<'create' | 'restore'>('create');
+  const [importingBackup, setImportingBackup] = useState(false);
+
+  const importBackupArchive = async (): Promise<void> => {
+    setImportingBackup(true);
+    try {
+      const account = await backupImport();
+      if (account === null) return;
+      toast('info', t.onboarding.importBackupDone);
+      await goToWelcome();
+    } catch (error) {
+      toast('error', error instanceof Error ? error.message : String(error));
+    } finally {
+      setImportingBackup(false);
+    }
+  };
 
   if (phase === 'starting') return <Starting />;
   if (phase === 'locked') return <UnlockForm />;
   return mode === 'create' ? (
-    <CreateForm onSubmit={create} onRestore={() => setMode('restore')} />
+    <CreateForm
+      onSubmit={create}
+      onRestore={() => setMode('restore')}
+      onImportBackup={importBackupArchive}
+      importingBackup={importingBackup}
+    />
   ) : (
     <RestoreForm onSubmit={restore} onBack={() => setMode('create')} />
   );

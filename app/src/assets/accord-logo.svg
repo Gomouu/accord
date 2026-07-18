@@ -1,10 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect x="16" y="16" width="480" height="480" rx="108" fill="#5865F2"/>
-  <g transform="translate(256 232) scale(0.60) translate(-256 -256)">
-    <path d="M160 110 h192 a84 84 0 0 1 84 84 v112 a84 84 0 0 1 -84 84 H226 L118 448 l32 -60 a84 84 0 0 1 -74 -82 V194 a84 84 0 0 1 84 -84 Z" fill="#FFFFFF"/>
-    <circle cx="168" cy="298" r="36" fill="#5865F2"/>
-    <circle cx="256" cy="250" r="36" fill="#7B84F7"/>
-    <circle cx="344" cy="202" r="36" fill="#A9AEF9"/>
-  </g>
-  <text x="256" y="452" text-anchor="middle" font-family="'Avenir Next','Inter','Segoe UI',system-ui,sans-serif" font-size="46" font-weight="600" letter-spacing="6" fill="#FFFFFF" fill-opacity="0.85">accord</text>
+  <defs>
+    <linearGradient id="surface" x1="72" y1="56" x2="448" y2="464" gradientUnits="userSpaceOnUse">
+      <stop stop-color="rgb(139 111 255)"/>
+      <stop offset="0.52" stop-color="rgb(91 112 244)"/>
+      <stop offset="1" stop-color="rgb(48 202 218)"/>
+    </linearGradient>
+    <radialGradient id="light" cx="0" cy="0" r="1" gradientTransform="translate(126 86) rotate(48) scale(390)">
+      <stop stop-color="rgb(255 255 255)" stop-opacity="0.3"/>
+      <stop offset="1" stop-color="rgb(255 255 255)" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect x="20" y="20" width="472" height="472" rx="132" fill="url(#surface)"/>
+  <rect x="20" y="20" width="472" height="472" rx="132" fill="url(#light)"/>
+  <path d="M92 292c48-118 112-118 164 0s116 118 164 0" fill="none" stroke="rgb(255 255 255)" stroke-width="34" stroke-linecap="round"/>
+  <path d="M92 220c48 118 112 118 164 0s116-118 164 0" fill="none" stroke="rgb(255 255 255)" stroke-opacity="0.58" stroke-width="34" stroke-linecap="round"/>
+  <circle cx="256" cy="256" r="21" fill="rgb(255 255 255)"/>
 </svg>

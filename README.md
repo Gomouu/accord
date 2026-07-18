@@ -60,11 +60,11 @@ end-to-end encrypted. Nobody can host, read, sell, or lose your conversations.
       <sub><b>Direct messages</b> — one-to-one, end-to-end encrypted</sub>
     </td>
     <td width="33%" valign="top">
-      <img src="docs/screenshots/profile.jpg" alt="Profile card with status menu and account switcher" /><br/>
-      <sub><b>Profile &amp; status</b> — custom status, multi-account</sub>
+      <img src="docs/screenshots/profile.jpg" alt="Profile card with animated frame, avatar decoration and visual effect" /><br/>
+      <sub><b>Profile personalization</b> — animated frames, effects and decorations</sub>
     </td>
     <td width="33%" valign="top">
-      <img src="docs/screenshots/themes.jpg" alt="Appearance settings with theme gallery and message density" /><br/>
+      <img src="docs/screenshots/themes.jpg" alt="Appearance settings with twenty visual themes and message density" /><br/>
       <sub><b>Appearance</b> — 20 themes, light &amp; dark</sub>
     </td>
   </tr>

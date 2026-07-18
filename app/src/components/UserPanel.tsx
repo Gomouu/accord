@@ -272,7 +272,7 @@ export function UserPanel() {
   const userMenuOpen = profile?.pubkey === self.pubkey && profile.surface === 'user-menu';
 
   return (
-    <div className="relative border-t border-[color:var(--glass-border)]">
+    <div className="accord-user-panel relative border-t border-[color:var(--glass-border)]">
       {inCallPhase ? <CallBanner /> : <VoiceBanner />}
       <div className="flex items-center gap-1.5 bg-rail/70 p-2">
         <button

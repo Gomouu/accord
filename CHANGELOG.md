@@ -2,6 +2,28 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [2.3.0] — 2026-07-18
+
+### Fixed
+
+- **Friends' avatars and banners now sync reliably** ("I never see their
+  banner even though they set one"): profiles are now exchanged **every time
+  two friends connect**, instead of relying on best-effort channels that
+  could all fail together in the field — a change announcement missed while
+  offline, an offline drop published to an unreachable DHT, or reconnection
+  windows shorter than the periodic re-announce. One tiny message per
+  session; peers only download media whose hash actually changed.
+- **Offline drops no longer vanish into an empty DHT**: a mailbox deposit
+  that reached zero replicas was still marked as delivered, silently losing
+  the message until its 7-day expiry. Zero-replica deposits are now retried
+  (direct sending keeps its own schedule).
+- **Failed images can be retried**: an image attachment that could not load
+  (sender offline at that moment) showed a permanent "image unavailable"
+  card. It now has a Retry button — useful right after the sender comes back
+  online. End-to-end coverage added for the three field scenarios (profile
+  media while both online, set while the friend is offline, and a lost
+  announcement recovered on reconnect).
+
 ## [2.2.0] — 2026-07-18
 
 ### Added

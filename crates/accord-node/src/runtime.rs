@@ -1087,6 +1087,25 @@ impl Runtime {
                     // (intentions en backoff dont il est l'indice,
                     // avatar/bannière annoncés mais manquants en local).
                     self.files_on_peer_connected(&static_pub);
+                    // Convergence de profil DÉTERMINISTE (D-052) : notre
+                    // profil courant part à CHAQUE établissement de session
+                    // avec un ami. Les autres canaux (annonce au changement
+                    // via l'outbox, dépôt en boîte DHT, ré-annonce
+                    // périodique) sont tous best-effort et peuvent tous
+                    // rater ensemble sur le terrain (outbox purgée après 7 j,
+                    // DHT injoignable, sessions plus courtes que la période
+                    // de ré-annonce) — laissant un pair bloqué sur un profil
+                    // périmé (« je ne vois jamais sa bannière »). Un petit
+                    // message par connexion suffit à fermer cette classe de
+                    // pannes : le pair compare les hashes et ne télécharge
+                    // que ce qui a changé (anti-DoS déjà en place).
+                    if self.is_friend(&static_pub) {
+                        if let Ok(Some(msg)) = self.node.own_profile_msg() {
+                            let _ = self
+                                .send_via_best_link(&static_pub, &ChannelMsg::Core(msg))
+                                .await;
+                        }
+                    }
                 }
                 TransportEvent::Message {
                     addr,

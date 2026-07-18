@@ -741,10 +741,24 @@ async fn outbox_tick(rt: &Runtime, cfg: &MaintenanceConfig) {
                 for record in records {
                     replicas += rt.dht().put(rt.dht_rpc(), record, now).await;
                 }
-                for id in ids {
-                    let _ = node.outbox_mark_mailboxed(id, offline::day_of_ms(now));
+                // Un dépôt sans AUCUN réplica n'a rien publié (DHT vide ou
+                // injoignable — courant chez les pairs à adresses manuelles,
+                // D-052) : le marquer « déposé » ferait croire le message en
+                // sécurité alors qu'il est parti dans le vide, et le jour de
+                // garde empêcherait tout nouveau dépôt jusqu'au lendemain.
+                // On ne solde que les dépôts réellement répliqués ; sinon la
+                // passe suivante retentera (directe ET dépôt).
+                if replicas > 0 {
+                    for id in ids {
+                        let _ = node.outbox_mark_mailboxed(id, offline::day_of_ms(now));
+                    }
+                    tracing::debug!(fragments, replicas, "outbox : dépôt hors-ligne publié");
+                } else {
+                    tracing::warn!(
+                        fragments,
+                        "outbox : dépôt hors-ligne sans réplica (DHT injoignable), retenté"
+                    );
                 }
-                tracing::debug!(fragments, replicas, "outbox : dépôt hors-ligne publié");
             }
             Err(e) => tracing::warn!(erreur = %e, "outbox : dépôt hors-ligne impossible"),
         }

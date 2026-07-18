@@ -155,6 +155,10 @@ function VignetteImage({
     null,
   );
   const [pleinEcran, setPleinEcran] = useState(false);
+  // Compteur de reprises manuelles : « Réessayer » relance le chargement
+  // complet (l'expéditeur peut être revenu en ligne entre-temps — l'échec
+  // d'une image n'est jamais définitif, D-052).
+  const [tentative, setTentative] = useState(0);
   // Vrai une fois qu'on a déjà basculé la vignette sur la pleine résolution
   // après un échec de rendu : évite toute boucle sur `<img onError>`.
   const replierPleineRef = useRef(false);
@@ -190,7 +194,7 @@ function VignetteImage({
       alive = false;
       off();
     };
-  }, [piece.merkle_root, hint]);
+  }, [piece.merkle_root, hint, tentative]);
 
   // Pleine résolution seulement à l'ouverture du plein écran. En attendant la
   // lecture (instantanée si le cache pleine taille est chaud), la Lightbox
@@ -235,8 +239,15 @@ function VignetteImage({
 
   if (echec) {
     return (
-      <div className="flex aspect-[4/3] w-80 max-w-full items-center justify-center rounded-lg border border-rail bg-sidebar px-4 text-center text-sm text-faint">
-        {t.fichiers.imageIndisponible}
+      <div className="flex aspect-[4/3] w-80 max-w-full flex-col items-center justify-center gap-2 rounded-lg border border-rail bg-sidebar px-4 text-center text-sm text-faint">
+        <span>{t.fichiers.imageIndisponible}</span>
+        <button
+          type="button"
+          onClick={() => setTentative((n) => n + 1)}
+          className="rounded-md bg-rail px-3 py-1 text-xs font-medium text-norm transition-colors duration-fast hover:bg-input hover:text-header focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+        >
+          {t.dm.retry}
+        </button>
       </div>
     );
   }

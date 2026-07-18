@@ -126,6 +126,21 @@ describe('Pièces jointes — vignette d’image', () => {
     expect(await screen.findByText('Image indisponible')).toBeInTheDocument();
   });
 
+  it('« Réessayer » relance le chargement d’une image en échec', async () => {
+    // L'expéditeur était injoignable : premier chargement en échec. Il
+    // revient en ligne : la reprise manuelle doit retenter et réussir
+    // (l'échec d'une image n'est jamais définitif, D-052).
+    lireMock.mockRejectedValueOnce(new Error('expéditeur hors ligne'));
+    lireMock.mockResolvedValueOnce('data:image/webp;base64,MINIATURE');
+    render(<MessageList messages={[message([piece()])]} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Réessayer' }));
+
+    const img = await screen.findByAltText('photo.png');
+    expect(img).toHaveAttribute('src', 'data:image/webp;base64,MINIATURE');
+    expect(screen.queryByText('Image indisponible')).not.toBeInTheDocument();
+  });
+
   it('bascule sur la pleine résolution quand la vignette ne s’affiche pas', async () => {
     // La miniature (canvas/WebP, fragile en WKWebView) est illisible : au lieu
     // d'abandonner, la vignette recharge la pleine résolution `data:` et

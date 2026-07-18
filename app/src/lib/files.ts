@@ -213,7 +213,6 @@ function reduireImage(url: string, maxPx: number): Promise<string> {
   return new Promise((resolve) => {
     const image = new Image();
     let regle = false;
-    let minuteur: ReturnType<typeof setTimeout>;
     const finir = (resultat: string): void => {
       if (regle) return;
       regle = true;
@@ -221,8 +220,10 @@ function reduireImage(url: string, maxPx: number): Promise<string> {
       resolve(resultat);
     };
     // Filet de sécurité : décodage qui ne se termine jamais (WKWebView) →
-    // pleine résolution, jamais de vignette bloquée en chargement.
-    minuteur = setTimeout(() => finir(url), MINIATURE_TIMEOUT_MS);
+    // pleine résolution, jamais de vignette bloquée en chargement. `finir`
+    // n'est appelée que de façon asynchrone : `minuteur` est toujours
+    // initialisé au moment où elle s'exécute.
+    const minuteur = setTimeout(() => finir(url), MINIATURE_TIMEOUT_MS);
     image.onload = () => {
       const bord = Math.max(image.naturalWidth, image.naturalHeight);
       if (bord <= maxPx) {

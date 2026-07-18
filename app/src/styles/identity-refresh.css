@@ -166,7 +166,7 @@ body {
 }
 
 .accord-composer-zone {
-  padding: 8px 18px 4px;
+  padding: 8px 18px 14px;
   background: linear-gradient(180deg, transparent, rgb(var(--color-chat) / 0.74) 48%);
 }
 

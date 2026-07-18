@@ -10,6 +10,7 @@ import { eventStartedToast } from '../lib/eventToast';
 import {
   isNotificationEligible,
   isSoundEligible,
+  isWithinQuietHours,
   rememberNotifiedConversation,
   sendNativeNotification,
   takePendingConversation,
@@ -64,6 +65,7 @@ function notifyNewMessage(
 ): void {
   const self = useSession.getState().self;
   if (self === null) return;
+  if (dndActif()) return;
   const ui = useUi.getState();
   const windowFocused = document.hasFocus();
   const eligible = isNotificationEligible({
@@ -113,6 +115,15 @@ function isViewingConversation(view: View, ref: ConversationRef): boolean {
  * `playNotificationSound` lui-même — et la sourdine locale du serveur/salon
  * (`stores/mute.ts`, menus contextuels de `ServerRail`/`Sidebar`).
  */
+/** Ne pas déranger EFFECTIF : statut de présence Dnd OU heures calmes actives
+ * (Paramètres → Notifications → Ne pas déranger programmé). */
+function dndActif(): boolean {
+  return (
+    useFriends.getState().ownStatus === 'dnd' ||
+    isWithinQuietHours(useUi.getState().quietHours, new Date())
+  );
+}
+
 function maybePlaySound(ref: ConversationRef, author: string, isMention: boolean): void {
   const self = useSession.getState().self;
   if (self === null) return;
@@ -120,7 +131,7 @@ function maybePlaySound(ref: ConversationRef, author: string, isMention: boolean
     isOwnMessage: author === self.pubkey,
     isDisplayedConversation: isViewingConversation(useUi.getState().view, ref),
     windowFocused: document.hasFocus(),
-    dnd: useFriends.getState().ownStatus === 'dnd',
+    dnd: dndActif(),
     mode: useUi.getState().notifySoundMode,
     isMention,
     muted: isConversationSilenced(ref, isMention),
@@ -136,7 +147,7 @@ function maybePlaySound(ref: ConversationRef, author: string, isMention: boolean
  * réactivement du store (`pendingInvites.length`), affichée dans la vue Amis.
  */
 function maybePlayInviteSound(): void {
-  if (useFriends.getState().ownStatus === 'dnd') return;
+  if (dndActif()) return;
   playNotificationSound('message');
 }
 
@@ -151,7 +162,8 @@ function notifyEventStarted(title: string): void {
   const dict = dictionaries[ui.lang];
   const toast = eventStartedToast(dict, title);
   ui.toast(toast.kind, toast.text);
-  if (useFriends.getState().ownStatus !== 'dnd') playNotificationSound('message');
+  if (dndActif()) return;
+  playNotificationSound('message');
   void sendNativeNotification(dict.app.name, toast.text);
 }
 

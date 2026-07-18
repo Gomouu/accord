@@ -9,6 +9,7 @@ import {
   clearPendingConversation,
   isNotificationEligible,
   isSoundEligible,
+  isWithinQuietHours,
   PENDING_NAVIGATION_TTL_MS,
   rememberNotifiedConversation,
   takePendingConversation,
@@ -302,5 +303,28 @@ describe('unreadBadgeTotal', () => {
 
   it('compte les MP non lus seuls quand aucun serveur ne mentionne', () => {
     expect(unreadBadgeTotal(5, { g1: 0, g2: 0 })).toBe(5);
+  });
+});
+
+describe('isWithinQuietHours', () => {
+  const at = (h: number): Date => new Date(2026, 6, 19, h, 30, 0);
+  it('désactivé ou plage vide : jamais actif', () => {
+    expect(isWithinQuietHours({ enabled: false, start: 22, end: 8 }, at(23))).toBe(false);
+    expect(isWithinQuietHours({ enabled: true, start: 8, end: 8 }, at(8))).toBe(false);
+  });
+  it('plage simple (jour)', () => {
+    const q = { enabled: true, start: 9, end: 17 };
+    expect(isWithinQuietHours(q, at(9))).toBe(true);
+    expect(isWithinQuietHours(q, at(16))).toBe(true);
+    expect(isWithinQuietHours(q, at(17))).toBe(false);
+    expect(isWithinQuietHours(q, at(8))).toBe(false);
+  });
+  it('plage à cheval sur minuit (22 → 8)', () => {
+    const q = { enabled: true, start: 22, end: 8 };
+    expect(isWithinQuietHours(q, at(23))).toBe(true);
+    expect(isWithinQuietHours(q, at(2))).toBe(true);
+    expect(isWithinQuietHours(q, at(7))).toBe(true);
+    expect(isWithinQuietHours(q, at(8))).toBe(false);
+    expect(isWithinQuietHours(q, at(12))).toBe(false);
   });
 });

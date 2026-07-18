@@ -55,6 +55,26 @@ export function isNotificationEligible(options: {
  */
 export type NotifySoundMode = 'all' | 'mentionsOnly' | 'none';
 
+/** Réglage « Ne pas déranger programmé » : plage d'heures locales (0-23). */
+export interface QuietHours {
+  enabled: boolean;
+  /** Heure de début (incluse), 0-23. */
+  start: number;
+  /** Heure de fin (exclue), 0-23. */
+  end: number;
+}
+
+/**
+ * Vrai si `now` tombe dans la plage d'heures calmes active. Gère le passage
+ * de minuit (ex. 22 → 8) ; une plage vide (`start === end`) ou désactivée ne
+ * s'applique jamais. Fonction pure : l'heure est fournie par l'appelant.
+ */
+export function isWithinQuietHours(q: QuietHours, now: Date): boolean {
+  if (!q.enabled || q.start === q.end) return false;
+  const h = now.getHours();
+  return q.start < q.end ? h >= q.start && h < q.end : h >= q.start || h < q.end;
+}
+
 export interface SoundEligibilityOptions {
   isOwnMessage: boolean;
   /** Vrai si la conversation/le salon visé par le message est celui affiché. */

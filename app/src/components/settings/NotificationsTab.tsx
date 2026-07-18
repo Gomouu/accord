@@ -17,6 +17,29 @@ import {
 import { useUi, useT, type NotifySoundMode } from '../../stores/ui';
 import { OptionPill, SettingsSection, ToggleRow } from './controls';
 
+/** Sélecteur d'heure locale (00 h – 23 h) pour la plage Ne pas déranger. */
+function HourSelect({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (h: number) => void;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+      className="rounded-md border border-input bg-sidebar px-2 py-1 text-sm text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+    >
+      {Array.from({ length: 24 }, (_, h) => (
+        <option key={h} value={h}>
+          {String(h).padStart(2, '0')}:00
+        </option>
+      ))}
+    </select>
+  );
+}
+
 export function NotificationsTab() {
   const t = useT();
   const notifyDms = useUi((s) => s.notifyDms);
@@ -31,6 +54,8 @@ export function NotificationsTab() {
   const setNotifyNative = useUi((s) => s.setNotifyNative);
   const notifySoundMode = useUi((s) => s.notifySoundMode);
   const setNotifySoundMode = useUi((s) => s.setNotifySoundMode);
+  const quietHours = useUi((s) => s.quietHours);
+  const setQuietHours = useUi((s) => s.setQuietHours);
 
   const soundModes: { id: NotifySoundMode; label: string }[] = [
     { id: 'all', label: t.settings.notifSoundModeAll },
@@ -101,6 +126,30 @@ export function NotificationsTab() {
           checked={notifyOnlyUnfocused}
           onChange={setNotifyOnlyUnfocused}
         />
+      </SettingsSection>
+
+      <SettingsSection title={t.settings.quietTitle} hint={t.settings.quietHint}>
+        <ToggleRow
+          label={t.settings.quietEnable}
+          checked={quietHours.enabled}
+          onChange={(enabled) => setQuietHours({ ...quietHours, enabled })}
+        />
+        <div
+          className={`mt-2 flex items-center gap-2 text-sm ${
+            quietHours.enabled ? 'text-norm' : 'pointer-events-none opacity-50'
+          }`}
+        >
+          <span>{t.settings.quietFrom}</span>
+          <HourSelect
+            value={quietHours.start}
+            onChange={(start) => setQuietHours({ ...quietHours, start })}
+          />
+          <span>{t.settings.quietTo}</span>
+          <HourSelect
+            value={quietHours.end}
+            onChange={(end) => setQuietHours({ ...quietHours, end })}
+          />
+        </div>
       </SettingsSection>
 
       <SettingsSection title={t.settings.notifMasterTitle}>

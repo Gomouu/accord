@@ -9,6 +9,7 @@
 import { create } from 'zustand';
 import { type Lang } from '../i18n';
 import { type OwnPresenceStatus } from '../lib/api';
+import { type QuietHours } from '../lib/notifications';
 import { registerCloseInterception, traySetEnabled } from '../lib/bridge';
 import {
   appliquerThemePerso,
@@ -198,6 +199,7 @@ const STORAGE_KEYS = {
   notifySoundEnabled: 'accord.notify.soundEnabled',
   notifyNative: 'accord.notify.native',
   notifySoundMode: 'accord.notify.soundMode',
+  quietHours: 'accord.notify.quietHours',
   typingIndicatorEnabled: 'accord.privacy.typingIndicator',
   startupPresence: 'accord.privacy.startupPresence',
   timeFormat: 'accord.timeFormat',
@@ -404,6 +406,25 @@ function applyFontUi(font: FontUi): void {
   document.documentElement.style.setProperty('--font-ui', FONT_UI_STACKS[font]);
 }
 
+const QUIET_HOURS_DEFAUT: QuietHours = { enabled: false, start: 22, end: 8 };
+
+function initialQuietHours(): QuietHours {
+  const brut = readStored(STORAGE_KEYS.quietHours);
+  if (brut === null) return QUIET_HOURS_DEFAUT;
+  try {
+    const lu = JSON.parse(brut) as Partial<QuietHours>;
+    const heure = (v: unknown, repli: number): number =>
+      typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 23 ? v : repli;
+    return {
+      enabled: lu.enabled === true,
+      start: heure(lu.start, 22),
+      end: heure(lu.end, 8),
+    };
+  } catch {
+    return QUIET_HOURS_DEFAUT;
+  }
+}
+
 function isFontUi(value: string | null): value is FontUi {
   return value !== null && (FONT_UI_CHOICES as readonly string[]).includes(value);
 }
@@ -514,6 +535,7 @@ interface UiState {
   /** Taille par défaut des émojis personnalisés dans le corps des messages. */
   emojiSize: EmojiSize;
   fontUi: FontUi;
+  quietHours: QuietHours;
   /** Taille maximale (Mio) d'une vidéo lisible dans le fil (D-055). */
   videoPreviewMaxMio: VideoPreviewMaxMio;
   /** Blip sonore de notification (message, mention, invitation). */
@@ -601,6 +623,7 @@ interface UiState {
   setShowMediaPreviews: (enabled: boolean) => void;
   setEmojiSize: (size: EmojiSize) => void;
   setFontUi: (font: FontUi) => void;
+  setQuietHours: (q: QuietHours) => void;
   setVideoPreviewMaxMio: (mio: VideoPreviewMaxMio) => void;
   setNotifySoundEnabled: (enabled: boolean) => void;
   setNotifyNative: (enabled: boolean) => void;
@@ -682,6 +705,7 @@ export const useUi = create<UiState>((set, get) => {
     showMediaPreviews: initialBool(STORAGE_KEYS.showMediaPreviews, true),
     emojiSize: initialEmojiSize(),
     fontUi,
+    quietHours: initialQuietHours(),
     videoPreviewMaxMio: initialVideoPreviewMax(),
     notifySoundEnabled: initialBool(STORAGE_KEYS.notifySoundEnabled, true),
     notifyNative: initialBool(STORAGE_KEYS.notifyNative, true),
@@ -819,6 +843,10 @@ export const useUi = create<UiState>((set, get) => {
       applyFontUi(font);
       writeStored(STORAGE_KEYS.fontUi, font);
       set({ fontUi: font });
+    },
+    setQuietHours: (q) => {
+      writeStored(STORAGE_KEYS.quietHours, JSON.stringify(q));
+      set({ quietHours: q });
     },
     setVideoPreviewMaxMio: (mio) => {
       writeStored(STORAGE_KEYS.videoPreviewMaxMio, String(mio));

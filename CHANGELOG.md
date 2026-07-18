@@ -2,6 +2,26 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [2.0.0] — 2026-07-18
+
+### Added
+
+- **Built-in updates**: Accord now updates itself — no more downloading each
+  release by hand. The app checks GitHub for new versions at startup and every
+  four hours, shows a banner when one is available, and installs it in one
+  click (restart included). A new **Updates** section in Settings → System
+  shows the installed version and lets you check manually at any time.
+- **Signed updates**: every update artifact is signed (minisign) and the app
+  verifies the signature against its embedded public key before installing —
+  a tampered or corrupted download is rejected.
+
+### Notes
+
+- Installs older than 2.0.0 do not include the updater: this release must be
+  installed manually once. From 2.0.0 onward, updates arrive in-app.
+- On Linux, in-app updating applies to the AppImage; `.deb`/`.rpm` installs
+  still update through the package files on the releases page.
+
 ## [1.9.0] — 2026-07-18
 
 ### Added

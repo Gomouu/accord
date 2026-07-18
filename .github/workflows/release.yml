@@ -191,6 +191,13 @@ jobs:
           # nat_kind stays Unknown). Empty/unset secret = no default rendezvous
           # (same behaviour as before). See docs/BOOTSTRAP.md.
           ACCORD_BOOTSTRAP: ${{ secrets.ACCORD_BOOTSTRAP }}
+          # Built-in updater (D-049): sign the updater artifacts (minisign) so
+          # installed apps can authenticate them against the public key baked
+          # into tauri.conf.json. tauri-action also generates and uploads
+          # latest.json, which the app polls on
+          # releases/latest/download/latest.json. The key has no password.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           projectPath: ./app
           tagName: ${{ github.ref_name }}

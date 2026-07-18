@@ -1,14 +1,41 @@
-/** Racine : aiguillage onboarding / application, bandeau hors-ligne, toasts. */
+/**
+ * Racine : aiguillage onboarding / application, bandeaux hors-ligne et de
+ * mise à jour, toasts.
+ */
 
 import { useEffect } from 'react';
 import { AppShell } from './components/AppShell';
 import { Toasts } from './components/Toasts';
+import { UpdateBanner } from './components/UpdateBanner';
 import { AccountPicker } from './screens/AccountPicker';
 import { ChooseNameScreen, Onboarding, RecoveryPhraseScreen } from './screens/Onboarding';
 import { useSession } from './stores/session';
+import { useUpdater } from './stores/updater';
 import { useT } from './stores/ui';
 
 const LOGO_URL = new URL('./assets/accord-logo.svg', import.meta.url).href;
+
+/**
+ * Vérification automatique des mises à jour (D-049) : une première fois peu
+ * après le lancement (différée pour laisser le nœud démarrer), puis
+ * périodiquement. Hors Tauri, la vérification est neutre (aucun réseau).
+ */
+const UPDATE_CHECK_STARTUP_DELAY_MS = 5_000;
+const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+
+function useUpdateChecks(): void {
+  useEffect(() => {
+    const check = (): void => {
+      void useUpdater.getState().check();
+    };
+    const startup = setTimeout(check, UPDATE_CHECK_STARTUP_DELAY_MS);
+    const interval = setInterval(check, UPDATE_CHECK_INTERVAL_MS);
+    return () => {
+      clearTimeout(startup);
+      clearInterval(interval);
+    };
+  }, []);
+}
 
 function BootScreen({ label }: { label: string }) {
   return (
@@ -55,6 +82,7 @@ export function App() {
   const recoveryPhrase = useSession((s) => s.recoveryPhrase);
   const askName = useSession((s) => s.askName);
   const init = useSession((s) => s.init);
+  useUpdateChecks();
 
   useEffect(() => {
     void init();
@@ -136,6 +164,7 @@ export function App() {
             <span className="text-pretty">{t.app.offline}</span>
           </div>
         ))}
+      <UpdateBanner />
       <div className="min-h-0 flex-1">
         <AppShell />
       </div>

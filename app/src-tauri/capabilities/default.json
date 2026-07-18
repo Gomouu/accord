@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capacité par défaut de la fenêtre principale : notifications système natives (D-028), lancement au démarrage, fermeture réduite dans la barre des menus (D-047) et sélecteur de fichiers natif (joindre/télécharger sans plafond de taille).",
+  "description": "Capacité par défaut de la fenêtre principale : notifications système natives (D-028), lancement au démarrage, fermeture réduite dans la barre des menus (D-047), sélecteur de fichiers natif (joindre/télécharger sans plafond de taille) et mise à jour intégrée (D-049 : vérification, installation signée, redémarrage).",
   "windows": ["main"],
   "permissions": [
     "notification:default",
@@ -12,6 +12,8 @@
     "core:window:allow-hide",
     "dialog:default",
     "dialog:allow-open",
-    "dialog:allow-save"
+    "dialog:allow-save",
+    "updater:default",
+    "process:allow-restart"
   ]
 }

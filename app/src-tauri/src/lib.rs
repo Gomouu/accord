@@ -49,6 +49,13 @@ pub fn executer() -> ExitCode {
         // blob complet au téléchargement (`files.save`). Pilotage côté webview
         // via @tauri-apps/plugin-dialog.
         .plugin(tauri_plugin_dialog::init())
+        // Mise à jour intégrée (D-049) : le manifeste `latest.json` de la
+        // dernière release GitHub est vérifié depuis la webview via
+        // @tauri-apps/plugin-updater ; les artefacts sont authentifiés par
+        // signature minisign (clé publique dans tauri.conf.json) avant
+        // installation. `process` fournit le redémarrage post-installation.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             // Répertoire de données par plateforme (ex. ~/Library/Application
             // Support/fr.accord.desktop) : racine du registre multi-comptes

@@ -47,7 +47,7 @@ end-to-end encrypted. Nobody can host, read, sell, or lose your conversations.
 | 💬 **Chat** | DMs and servers — text, announcement and forum channels, threads, categories, pins, mentions, reactions, custom emojis, stickers, polls, file sharing with image thumbnails |
 | 📞 **Voice** | Voice channels and 1-to-1 calls with ringing, noise suppression (RNNoise), auto gain, packet-loss recovery (Opus FEC), soundboard |
 | 🛡️ **Communities** | Roles & permissions, moderation (kick/ban/timeout), AutoMod word filter, invitations, scheduled events, server folders |
-| ⌨️ **Comfort** | Ctrl/Cmd+K palette (navigation + commands), right-click menus everywhere, dock unread badge, native notifications, keyboard shortcuts |
+| ⌨️ **Comfort** | Ctrl/Cmd+K palette (navigation + commands), right-click menus everywhere, dock unread badge, native notifications, keyboard shortcuts, built-in signed updates |
 | 🎨 **Personalization** | 20 themes (light & dark), animated profile decorations, effects and frames, custom status, message density |
 | 👥 **Accounts** | Multi-account, encrypted full backup (`.accordbackup`), English & French |
 
@@ -79,6 +79,10 @@ Download from the **[latest release](https://github.com/Gomouu/accord/releases/l
 | **macOS** (Apple Silicon) | `Accord_*_aarch64.dmg` | macOS says the app is "damaged" because it is **not notarized** (paid Apple certificate). Fix once: `xattr -cr /Applications/Accord.app` |
 | **Windows** | `Accord_*_x64-setup.exe` | SmartScreen warning (not code-signed): **More info → Run anyway** |
 | **Linux** | `.deb` / `.AppImage` / `.rpm` | `sudo apt install ./Accord_*.deb`, etc. |
+
+Installing is a one-time step: from 2.0.0 onward Accord **updates itself** —
+it checks for new versions, tells you, and installs in one click (signed,
+verified artifacts).
 
 ## Quick start
 

@@ -14,6 +14,9 @@ tauri-build = { version = "2", features = [] }
 accord-node = { path = "../../crates/accord-node", features = ["hardware"] }
 accord-proto = { path = "../../crates/accord-proto" }
 serde.workspace = true
+# Requis par `tauri::generate_context!` dès qu'une section `plugins` existe
+# dans tauri.conf.json (la config updater y est sérialisée via serde_json).
+serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -28,6 +31,13 @@ tauri-plugin-autostart = "2"
 # pour télécharger un blob complet) : le chemin d'envoi/téléchargement non
 # plafonné passe par `files.share`/`files.save`, qui exigent un chemin disque.
 tauri-plugin-dialog = "2"
+# Mise à jour intégrée (D-049) : vérification du latest.json publié avec
+# chaque release GitHub, artefacts signés minisign (clé publique dans
+# tauri.conf.json), téléchargement/installation pilotés depuis la webview
+# via @tauri-apps/plugin-updater. `process` fournit le redémarrage propre
+# de l'application une fois la mise à jour installée.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 # Autorisation micro macOS (TCC) : lecture de l'état réel et demande unique
 # via AVFoundation — l'UI ne redéclenche jamais l'invite hors état

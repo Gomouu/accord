@@ -138,6 +138,44 @@ jobs:
         run: npm ci
         working-directory: ./app
 
+      # Corps de la release : la section du CHANGELOG correspondant au tag
+      # (ex. tag v1.8.0 → bloc « ## [1.8.0] »), suivie des notes d'installation
+      # repliées. Fini les releases au texte générique sans contenu : ce qui a
+      # changé est extrait de la source de vérité (CHANGELOG.md). Si la section
+      # est absente (tag sans entrée), un repli minimal est utilisé.
+      - name: Release notes from CHANGELOG
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          NOTES="$(awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" {f=1; next}
+            /^## \[/ {f=0}
+            f' CHANGELOG.md)"
+          if [ -z "${NOTES//[[:space:]]/}" ]; then
+            NOTES="Accord ${GITHUB_REF_NAME} desktop installers. See CHANGELOG.md."
+          fi
+          {
+            echo "body<<ACCORD_NOTES_EOF"
+            echo "$NOTES"
+            cat <<'INSTALL'
+
+          <details>
+          <summary><b>Install notes</b> (macOS "damaged" warning, Windows SmartScreen)</summary>
+
+          **macOS** — the app is **not damaged**: it is not notarized by Apple (that requires a paid developer certificate), and macOS reports quarantined, non-notarized apps as "damaged" on Apple Silicon. Fix it once, after dragging Accord into Applications:
+
+          ```sh
+          xattr -cr /Applications/Accord.app
+          ```
+
+          **Windows** — the installer is not code-signed: click **More info → Run anyway**.
+
+          </details>
+          INSTALL
+            echo "ACCORD_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+        id: notes
+
       # Tauri build + creation/population of the GitHub release.
       # projectPath points to app/ (package.json + src-tauri/ live there).
       # On GitHub runners, CI=true is already set, which avoids the cosmetic
@@ -157,27 +195,7 @@ jobs:
           projectPath: ./app
           tagName: ${{ github.ref_name }}
           releaseName: "Accord ${{ github.ref_name }}"
-          releaseBody: |
-            Accord ${{ github.ref_name }} desktop installers.
-
-            - macOS: DMG (Apple Silicon / arm64)
-            - Windows: NSIS installer (.exe) and MSI (WiX)
-            - Linux: .deb package, AppImage and .rpm
-
-            ## macOS: "Accord is damaged and can't be opened"
-
-            The app is **not damaged** — it is not notarized by Apple (that
-            requires a paid developer certificate), and macOS reports
-            quarantined, non-notarized apps as "damaged" on Apple Silicon.
-            Fix it once, after dragging Accord into Applications:
-
-            ```sh
-            xattr -cr /Applications/Accord.app
-            ```
-
-            ## Windows: SmartScreen warning
-
-            The installer is not code-signed: click **More info → Run anyway**.
+          releaseBody: ${{ steps.notes.outputs.body }}
           # Draft release: reviewed and published manually.
           releaseDraft: true
           prerelease: false

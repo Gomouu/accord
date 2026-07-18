@@ -28,7 +28,10 @@
 [data-theme='paper'],
 [data-theme='frost'],
 [data-theme='sakura'],
-[data-theme='dream'] {
+[data-theme='dream'],
+[data-theme='lotus'],
+[data-theme='manga'],
+[data-theme='shojo'] {
   --liquid-rim: rgb(var(--color-header) / 0.14);
   --liquid-rim-soft: rgb(var(--color-header) / 0.075);
   --liquid-specular: rgb(255 255 255 / 0.78);

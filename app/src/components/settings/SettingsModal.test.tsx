@@ -168,13 +168,17 @@ describe('SettingsModal — apparence', () => {
     render(<SettingsModal />);
     openTab('Apparence');
 
-    const signal = screen.getByRole('radio', { name: 'Signal fantôme' });
-    expect(signal.querySelector('[data-theme="signal"]')).toBeInTheDocument();
-    fireEvent.click(signal);
+    const wisteria = screen.getByRole('radio', { name: 'Glycines nocturnes' });
+    expect(
+      wisteria.querySelector(
+        '[data-theme="wisteria"] .theme-atmosphere[data-scene="wisteria"]',
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(wisteria);
 
-    expect(document.documentElement.dataset.theme).toBe('signal');
-    expect(window.localStorage.getItem('accord.theme')).toBe('signal');
-    expect(signal).toHaveAttribute('aria-checked', 'true');
+    expect(document.documentElement.dataset.theme).toBe('wisteria');
+    expect(window.localStorage.getItem('accord.theme')).toBe('wisteria');
+    expect(wisteria).toHaveAttribute('aria-checked', 'true');
   });
 
   it('parcourt les thèmes dans l’ordre avec les flèches', () => {

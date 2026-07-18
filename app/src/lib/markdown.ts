@@ -45,6 +45,7 @@ export type MdNode =
       readonly items: MdNode[][];
     }
   | { readonly type: 'blockquote'; readonly children: MdNode[] }
+  | { readonly type: 'checkbox'; readonly checked: boolean }
   | {
       readonly type: 'table';
       /** Alignement par colonne (`null` = défaut, aligné selon la langue). */
@@ -343,6 +344,21 @@ function lireItem(line: string): RawItem | null {
  * nested list (single level) at the end of the previous top-level item; an
  * indented item with no parent degrades to a top-level item.
  */
+/** Case à cocher GFM en tête d'item : `[ ] `, `[x] ` ou `[X] `. */
+const TASK_RE = /^\[([ xX])\]\s+([\s\S]*)$/;
+
+/**
+ * Nœuds inline d'un élément de liste. Une case à cocher GFM en tête est
+ * extraite en nœud `checkbox` (le reste du texte est analysé normalement).
+ */
+function itemNodes(text: string): MdNode[] {
+  const m = TASK_RE.exec(text);
+  if (m !== null && m[1] !== undefined && m[2] !== undefined) {
+    return [{ type: 'checkbox', checked: m[1].toLowerCase() === 'x' }, ...analyserFragment(m[2], 0)];
+  }
+  return analyserFragment(text, 0);
+}
+
 function construireListe(items: readonly RawItem[]): MdNode {
   const topItems: MdNode[][] = [];
   let pending: RawItem[] = [];
@@ -352,7 +368,7 @@ function construireListe(items: readonly RawItem[]): MdNode {
       type: 'list',
       ordered: pending[0]?.ordered ?? false,
       start: pending[0]?.start ?? 1,
-      items: pending.map((it) => analyserFragment(it.text, 0)),
+      items: pending.map((it) => itemNodes(it.text)),
     };
     const parent = topItems[topItems.length - 1];
     if (parent !== undefined) parent.push(sub);
@@ -363,7 +379,7 @@ function construireListe(items: readonly RawItem[]): MdNode {
       pending.push(item);
     } else {
       flushNested();
-      topItems.push(analyserFragment(item.text, 0));
+      topItems.push(itemNodes(item.text));
     }
   }
   flushNested();

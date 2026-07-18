@@ -193,9 +193,18 @@ function renderNode(node: MdNode, ctx: Ctx): ReactNode {
       );
     }
     case 'list': {
+      const isTask =
+        !node.ordered &&
+        node.items.length > 0 &&
+        node.items.every((item) => item[0]?.type === 'checkbox');
       const items = node.items.map((item, i) => (
-        <li key={i}>{renderNodes(item, ctx)}</li>
+        <li key={i} className={isTask ? 'flex items-start gap-1' : undefined}>
+          {renderNodes(item, ctx)}
+        </li>
       ));
+      if (isTask) {
+        return <ul className="my-0.5 list-none pl-1">{items}</ul>;
+      }
       const cls = `my-0.5 list-outside pl-6 ${node.ordered ? 'list-decimal' : 'list-disc'}`;
       if (node.ordered) {
         return (
@@ -206,6 +215,16 @@ function renderNode(node: MdNode, ctx: Ctx): ReactNode {
       }
       return <ul className={cls}>{items}</ul>;
     }
+    case 'checkbox':
+      return (
+        <input
+          type="checkbox"
+          checked={node.checked}
+          readOnly
+          aria-hidden
+          className="mt-1 shrink-0 accent-blurple"
+        />
+      );
     case 'blockquote':
       return (
         <blockquote className="relative my-0.5 pl-3 text-muted before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:rounded-full before:bg-faint/50 before:content-['']">

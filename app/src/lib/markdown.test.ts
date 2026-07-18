@@ -506,3 +506,29 @@ describe('analyserMarkdown — tables GFM', () => {
     expect(table.rows[0]?.[0]).toEqual([text('x | y')]);
   });
 });
+
+describe('analyserMarkdown — listes de tâches GFM', () => {
+  it('extrait une case cochée / décochée en tête d’item', () => {
+    const nodes = analyserMarkdown('- [ ] à faire\n- [x] fait');
+    expect(nodes).toHaveLength(1);
+    const list = nodes[0] as Extract<MdNode, { type: 'list' }>;
+    expect(list.items[0]?.[0]).toEqual({ type: 'checkbox', checked: false });
+    expect(list.items[0]?.[1]).toEqual(text('à faire'));
+    expect(list.items[1]?.[0]).toEqual({ type: 'checkbox', checked: true });
+  });
+
+  it('accepte [X] majuscule', () => {
+    const list = analyserMarkdown('- [X] ok')[0] as Extract<MdNode, { type: 'list' }>;
+    expect(list.items[0]?.[0]).toEqual({ type: 'checkbox', checked: true });
+  });
+
+  it('applique la mise en forme inline après la case', () => {
+    const list = analyserMarkdown('- [ ] **gras**')[0] as Extract<MdNode, { type: 'list' }>;
+    expect(list.items[0]?.[1]).toEqual({ type: 'bold', children: [text('gras')] });
+  });
+
+  it('ne touche pas un item de liste ordinaire', () => {
+    const list = analyserMarkdown('- simple')[0] as Extract<MdNode, { type: 'list' }>;
+    expect(list.items[0]?.[0]).toEqual(text('simple'));
+  });
+})

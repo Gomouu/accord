@@ -86,7 +86,15 @@ body {
 }
 
 .accord-server-header {
+  /* Rayon intérieur = rayon de la colonne (23px) moins sa bordure de 1px :
+     l'en-tête (et la bannière de serveur, voir `rounded-t-[inherit]` dans
+     Sidebar.tsx) épouse les coins hauts arrondis au lieu de les déborder en
+     angles droits. Redéfini par les points de rupture ci-dessous, comme le
+     rayon de `.accord-sidebar`. */
+  --accord-header-radius: 22px;
   border-color: var(--accord-edge);
+  border-top-left-radius: var(--accord-header-radius);
+  border-top-right-radius: var(--accord-header-radius);
   background-color: rgb(var(--color-sidebar) / 0.72);
 }
 
@@ -334,6 +342,10 @@ body {
     border-radius: 19px;
   }
 
+  .accord-server-header {
+    --accord-header-radius: 18px;
+  }
+
   .accord-composer-zone {
     padding-inline: 10px;
   }
@@ -352,6 +364,10 @@ body {
   .accord-sidebar,
   .accord-stage {
     border-radius: 0;
+  }
+
+  .accord-server-header {
+    --accord-header-radius: 0px;
   }
 }
 

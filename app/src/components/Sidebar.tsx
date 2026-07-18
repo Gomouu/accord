@@ -1025,18 +1025,21 @@ function GroupSidebar({ groupId }: { groupId: string }) {
       >
         {bannerUrl !== null && (
           <>
+            {/* `rounded-t-[inherit]` : l'image et le scrim épousent les coins
+                hauts arrondis de l'en-tête (voir `--accord-header-radius` dans
+                identity-refresh.css) au lieu de déborder en angles droits. */}
             <img
               src={bannerUrl}
               alt=""
               aria-hidden
               data-testid="server-banner"
-              className="absolute inset-0 h-full w-full animate-[fade-in_var(--duration-normal)_var(--ease-out)] object-cover"
+              className="absolute inset-0 h-full w-full animate-[fade-in_var(--duration-normal)_var(--ease-out)] rounded-t-[inherit] object-cover"
             />
             {/* Scrim de lisibilité sous le nom : dégradé noir → transparent. */}
             <div
               aria-hidden
               data-testid="server-banner-scrim"
-              className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent"
+              className="pointer-events-none absolute inset-0 rounded-t-[inherit] bg-gradient-to-t from-black/60 via-black/20 to-transparent"
             />
           </>
         )}

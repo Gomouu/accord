@@ -144,3 +144,52 @@ async fn ami_se_reconnecte_via_le_cache_d_adresses_apres_redemarrage() {
     alice.shutdown();
     bob.shutdown();
 }
+
+#[tokio::test]
+async fn message_a_un_ami_hors_ligne_livre_apres_sa_reconnexion() {
+    // Garantie de fiabilité complète : Alice écrit à Bob pendant qu'il est
+    // ÉTEINT (le message file dans l'outbox). Bob redémarre sur un NOUVEAU
+    // port ; Alice ne connaît plus son adresse. C'est la reconnexion de Bob
+    // via son cache (il rejoint Alice) qui apprend à Alice le nouveau port
+    // (événement Connected) et débloque la vidange de l'outbox.
+    let dir_a = tempfile::tempdir().unwrap();
+    let dir_b = tempfile::tempdir().unwrap();
+    let alice = boot(dir_a.path()).await;
+    let bob = boot(dir_b.path()).await;
+    let alice_pub = alice.node.public_key();
+    let bob_pub = bob.node.public_key();
+
+    lier_amis(&alice, &bob).await;
+    // Aller simple pour garantir la mémorisation croisée des adresses.
+    alice.node.dm_send(&bob_pub, "salut", None).unwrap();
+    assert!(
+        eventually(|| bob
+            .node
+            .dm_history(&alice_pub, u64::MAX, 10)
+            .map(|h| h.iter().any(|m| m.author == alice_pub))
+            .unwrap_or(false))
+        .await,
+        "session initiale absente"
+    );
+
+    // Bob s'éteint ; Alice lui écrit (le message part dans l'outbox).
+    bob.shutdown();
+    drop(bob);
+    alice.node.dm_send(&bob_pub, "message hors ligne", None).unwrap();
+
+    // Bob redémarre (nouveau port). Aucun ré-enregistrement : seul son cache
+    // le ramène vers Alice, qui apprend alors son nouveau port et vidange.
+    let bob = boot(dir_b.path()).await;
+    assert!(
+        eventually(|| bob
+            .node
+            .dm_history(&alice_pub, u64::MAX, 10)
+            .map(|h| h.iter().filter(|m| m.author == alice_pub).count() >= 2)
+            .unwrap_or(false))
+        .await,
+        "le message mis en file pendant l'absence n'a pas été livré après reconnexion"
+    );
+
+    alice.shutdown();
+    bob.shutdown();
+}

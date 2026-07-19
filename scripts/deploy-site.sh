@@ -7,13 +7,13 @@
 #
 # Prérequis : accès SSH par clé au serveur, Docker installé côté serveur.
 #   ACCORD_SITE_SSH  (défaut antho@192.168.1.51)
-#   ACCORD_SITE_PORT (défaut 8081) — port HTTP local, à proxifier ensuite
-#                    (Nginx Proxy Manager → http://IP_SERVEUR:8081).
+#   ACCORD_SITE_PORT (défaut 8090) — port HTTP local, à proxifier ensuite
+#                    (Nginx Proxy Manager → http://IP_SERVEUR:8090).
 #
 set -euo pipefail
 
 SERVEUR="${ACCORD_SITE_SSH:-antho@192.168.1.51}"
-PORT="${ACCORD_SITE_PORT:-8081}"
+PORT="${ACCORD_SITE_PORT:-8090}"
 RACINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOTE="${SERVEUR#*@}"
 
@@ -21,7 +21,7 @@ echo "== Copie de website/ vers $SERVEUR:~/accord-site/www =="
 # Remplace le CONTENU du dossier (jamais le dossier lui-même) : le bind mount
 # du conteneur pointe sur son inode — un `mv` du dossier laisserait nginx
 # servir l'ancienne version jusqu'au redémarrage.
-tar -C "$RACINE/website" -cf - . | ssh "$SERVEUR" '
+COPYFILE_DISABLE=1 tar --no-xattrs -C "$RACINE/website" -cf - . | ssh "$SERVEUR" '
   set -e
   mkdir -p ~/accord-site/www
   find ~/accord-site/www -mindepth 1 -delete

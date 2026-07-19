@@ -1064,6 +1064,7 @@ export const fr = {
     progression: 'Progression du message vocal',
     indisponible: 'Message vocal indisponible',
     reessayer: 'Réessayer la lecture',
+    vitesse: 'Vitesse de lecture',
   },
   notifications: {
     newMessageFrom: 'Nouveau message de {name}',

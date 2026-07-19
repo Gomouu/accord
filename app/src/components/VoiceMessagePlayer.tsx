@@ -141,6 +141,8 @@ export function VoiceMessagePlayer({
   const [duration, setDuration] = useState(0);
   /** Incrémenté par le bouton réessayer : relance l'effet de chargement. */
   const [attempt, setAttempt] = useState(0);
+  /** Vitesse de lecture, cyclée 1× → 1,5× → 2×. */
+  const [vitesse, setVitesse] = useState(1);
   /** Sonde de durée en cours (seek géant) : geler l'UI de progression. */
   const probingRef = useRef(false);
 
@@ -186,6 +188,16 @@ export function VoiceMessagePlayer({
       audioRef.current?.pause();
     }
   }, [activePlayer, id]);
+
+  // La vitesse s'applique à l'élément audio courant ; `<audio src>` la remet à
+  // 1 au (re)chargement, d'où la dépendance à `url`.
+  useEffect(() => {
+    if (audioRef.current !== null) audioRef.current.playbackRate = vitesse;
+  }, [vitesse, url]);
+
+  const cyclerVitesse = (): void => {
+    setVitesse((v) => (v === 1 ? 1.5 : v === 1.5 ? 2 : 1));
+  };
 
   const basculerLecture = (): void => {
     const audio = audioRef.current;
@@ -355,6 +367,15 @@ export function VoiceMessagePlayer({
           {formatDuration(currentTime)} / {formatDuration(dureeSure)}
         </div>
       </div>
+      <button
+        type="button"
+        aria-label={t.vocal.vitesse}
+        title={t.vocal.vitesse}
+        onClick={cyclerVitesse}
+        className="shrink-0 rounded-md bg-rail/60 px-2 py-1 text-[11px] font-semibold tabular-nums text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-input"
+      >
+        {vitesse}×
+      </button>
     </div>
   );
 }

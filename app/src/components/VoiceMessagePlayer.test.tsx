@@ -73,6 +73,29 @@ describe('VoiceMessagePlayer — chargement', () => {
     expect(await screen.findByText('Message vocal indisponible')).toBeInTheDocument();
   });
 
+  it('cycle la vitesse 1× → 1,5× → 2× → 1× et l’applique à l’audio', async () => {
+    lireMock.mockResolvedValueOnce('data:audio/webm;base64,AA==');
+    const { container } = render(<VoiceMessagePlayer piece={piece()} />);
+    await screen.findByRole('button', { name: 'Lire le message vocal' });
+    const audio = container.querySelector('audio') as HTMLAudioElement;
+    const bouton = screen.getByRole('button', { name: 'Vitesse de lecture' });
+
+    expect(bouton).toHaveTextContent('1×');
+    expect(audio.playbackRate).toBe(1);
+
+    fireEvent.click(bouton);
+    expect(bouton).toHaveTextContent('1.5×');
+    expect(audio.playbackRate).toBe(1.5);
+
+    fireEvent.click(bouton);
+    expect(bouton).toHaveTextContent('2×');
+    expect(audio.playbackRate).toBe(2);
+
+    fireEvent.click(bouton);
+    expect(bouton).toHaveTextContent('1×');
+    expect(audio.playbackRate).toBe(1);
+  });
+
   it('bouton réessayer : relance lireFichier et rend le lecteur au succès', async () => {
     lireMock.mockRejectedValueOnce(new Error('introuvable'));
     lireMock.mockResolvedValueOnce('data:audio/webm;base64,AA==');

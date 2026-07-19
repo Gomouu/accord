@@ -34,6 +34,8 @@ still on 2.3.x keeps working unchanged.
   date and time as a tooltip.
 - **Copy button on code blocks**: fenced code blocks now show a "Copy" button
   on hover that copies the block's exact source to the clipboard.
+- **Voice message playback speed**: a button on the voice-message player cycles
+  through 1×, 1.5× and 2× playback speed.
 - **Project website + French user guide** (GitHub Pages): a download landing
   page and a step-by-step guide (install, peer-to-peer connection,
   troubleshooting), deployed from `website/`.

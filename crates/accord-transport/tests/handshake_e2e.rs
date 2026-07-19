@@ -31,9 +31,20 @@ struct Node {
 }
 
 fn spawn_node(net: &SimNet, clock: &ManualClock, addr: &str) -> Node {
+    let id = Arc::new(Identity::generate_with_pow_bits(POW));
+    spawn_node_avec_identite(net, clock, addr, id)
+}
+
+/// Variante à identité imposée : indispensable pour simuler le REDÉMARRAGE
+/// d'un pair (même clé statique, nouvelle adresse).
+fn spawn_node_avec_identite(
+    net: &SimNet,
+    clock: &ManualClock,
+    addr: &str,
+    id: Arc<Identity>,
+) -> Node {
     let addr: SocketAddr = addr.parse().unwrap();
     let socket = Arc::new(net.bind(addr));
-    let id = Arc::new(Identity::generate_with_pow_bits(POW));
     let static_pub = id.public_key();
     let (ep, events) = Endpoint::new(
         socket,
@@ -499,4 +510,66 @@ async fn croisement_de_handshakes_ne_perd_aucune_direction() {
         }
         other => panic!("message tardif inattendu chez Alice: {other:?}"),
     }
+}
+
+/// Un pair qui s'éteint BRUTALEMENT (UDP : aucun adieu) puis redémarre à une
+/// nouvelle adresse laisse chez son ami DEUX sessions directes pour la même
+/// identité jusqu'à l'expiration d'inactivité (2 min) : la morte et la
+/// fraîche. La résolution identité → session doit préférer la fraîche (dernier
+/// trafic ENTRANT le plus récent) — un choix arbitraire (ordre de HashMap,
+/// stable pour tout le processus) enverrait chaque annonce de profil dans la
+/// session cadavre, sans erreur ni relance avant la ré-annonce périodique
+/// (30 min) : le bug « bannière posée hors-ligne jamais rattrapée ».
+#[tokio::test]
+async fn redemarrage_silencieux_prefere_la_session_fraiche() {
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(9, NetConditions::default());
+    let alice = spawn_node(&net, &clock, "10.0.9.1:4000");
+    let id_bob = Arc::new(Identity::generate_with_pow_bits(POW));
+    let bob = spawn_node_avec_identite(&net, &clock, "10.0.9.2:4000", Arc::clone(&id_bob));
+    let bob_pub = bob.static_pub;
+    let ancienne_adresse = bob.addr;
+
+    let ping = ChannelMsg::Control(ControlMsg::Ping { token: 1 });
+    alice.ep.send(bob.addr, &ping).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if alice.ep.session_count() == 1 && bob.ep.session_count() == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("première session établie");
+    assert_eq!(
+        alice.ep.direct_session_addr(&bob_pub),
+        Some(ancienne_adresse)
+    );
+
+    // Extinction silencieuse : aucun événement côté Alice, sa session survit.
+    bob.ep.shutdown();
+    drop(bob);
+    clock.advance(5_000);
+
+    // Redémarrage : même identité, NOUVELLE adresse ; Bob recontacte Alice.
+    let bob2 = spawn_node_avec_identite(&net, &clock, "10.0.9.3:4000", id_bob);
+    bob2.ep.send(alice.addr, &ping).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if alice.ep.session_count() == 2 && bob2.ep.session_count() == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("session de la nouvelle incarnation établie");
+
+    // Les deux sessions coexistent : la résolution doit viser la VIVANTE.
+    assert_eq!(
+        alice.ep.direct_session_addr(&bob_pub),
+        Some(bob2.addr),
+        "la résolution identité → session vise la session cadavre"
+    );
 }

@@ -713,9 +713,18 @@ impl Endpoint {
     /// de ne consommer l'outbox que sur une livraison effective.
     pub fn direct_session_addr(&self, static_pub: &[u8; 32]) -> Option<SocketAddr> {
         let st = self.state.lock().expect("state mutex");
+        // Après un redémarrage SILENCIEUX du pair (extinction UDP sans adieu),
+        // deux sessions directes coexistent pour la même identité jusqu'à
+        // l'expiration d'inactivité (2 min) : la morte (ancienne adresse) et la
+        // fraîche (nouvelle). Un choix arbitraire (ordre de HashMap, stable pour
+        // tout le processus) enverrait TOUTES les annonces de profil dans la
+        // session cadavre — trou noir UDP sans erreur, aucune relance avant la
+        // ré-annonce périodique (30 min). On préfère donc la session au dernier
+        // TRAFIC ENTRANT le plus récent : seule une session vivante en reçoit.
         st.sessions_by_id
             .values()
-            .find(|s| s.relay_circuit.is_none() && bool::from(s.peer_static.ct_eq(static_pub)))
+            .filter(|s| s.relay_circuit.is_none() && bool::from(s.peer_static.ct_eq(static_pub)))
+            .max_by_key(|s| s.last_recv_ms)
             .map(|s| s.peer_addr)
     }
 

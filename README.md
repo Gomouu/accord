@@ -72,8 +72,8 @@ end-to-end encrypted. Nobody can host, read, sell, or lose your conversations.
 
 ## Install
 
-Visit the **[website](https://gomouu.github.io/accord/)** (download page + French
-user guide), or grab the **[latest release](https://github.com/Gomouu/accord/releases/latest)** directly:
+Visit the **[website](https://accord-chat.duckdns.org)** (download page + user
+guide, English &amp; French), or grab the **[latest release](https://github.com/Gomouu/accord/releases/latest)** directly:
 
 | System | File | First-launch note |
 |--------|------|-------------------|

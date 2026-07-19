@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Accord — peer-to-peer, encrypted, serverless messaging</title>
+  <meta name="description" content="Accord looks like Discord — friends, DMs, servers, voice — but with no central server at all. Messages travel straight from app to app, end-to-end encrypted. macOS, Windows, Linux." />
+  <meta property="og:title" content="Accord — like Discord, but serverless" />
+  <meta property="og:description" content="Peer-to-peer desktop messaging, end-to-end encrypted. Nobody can host, read, sell or lose your conversations." />
+  <meta name="theme-color" content="#08090f" />
+  <link rel="icon" href="../assets/logo.svg" />
+  <link rel="alternate" hreflang="fr" href="../" />
+  <link rel="alternate" hreflang="en" href="./" />
+  <link rel="stylesheet" href="../style.css" />
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav__inner">
+      <a class="brand" href="index.html"><img src="../assets/logo.svg" alt="" /> Accord</a>
+      <nav class="nav__links">
+        <a href="#features">Features</a>
+        <a href="#security">Security</a>
+        <a href="guide.html">Guide</a>
+        <a href="https://github.com/Gomouu/accord">GitHub</a>
+        <a class="lang" href="../" lang="fr" hreflang="fr" title="Version française">FR</a>
+        <a class="nav__cta" href="#download">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero wrap">
+      <img class="hero__logo" src="../assets/logo.svg" alt="Accord logo" width="92" height="92" />
+      <span class="pill"><span class="dot"></span> Peer-to-peer · end-to-end encrypted · open source</span>
+      <h1>Like Discord.<br /><span class="grad">Without the server.</span></h1>
+      <p class="lead">Friends, direct messages, servers, voice channels — and nothing in between. Your messages travel straight from one app to the other. Nobody can host them, read them, sell them or lose them.</p>
+      <div class="hero__cta">
+        <a class="btn btn--primary" href="#download">Download Accord <span class="btn__sub">macOS · Windows · Linux</span></a>
+        <a class="btn btn--ghost" href="guide.html">Play it with a friend →</a>
+      </div>
+    </section>
+
+    <section class="wrap" style="padding-top:0" aria-label="Preview">
+      <div class="showcase">
+        <div class="showcase__frame reveal">
+          <img src="../assets/capture-serveur.jpg" alt="An Accord server with text channels, messages and a role-based member list" width="1160" />
+        </div>
+      </div>
+    </section>
+
+    <section id="features" class="wrap">
+      <div class="section-head center reveal">
+        <span class="eyebrow">Everything Discord does, done better</span>
+        <h2>Familiar at first glance</h2>
+        <p>Nothing to relearn. Every feature you expect, sitting on an architecture that depends on nobody.</p>
+      </div>
+
+      <div class="bento">
+        <article class="card card--feature reveal">
+          <div class="card__body">
+            <div class="card__icon">💬</div>
+            <h3>Messages, reactions, threads, replies</h3>
+            <p>Direct messages and servers with channels, emoji reactions, threads, quoted replies, mentions, pins, polls, instant search across your whole history. Markdown all the way to tables and syntax-highlighted code.</p>
+          </div>
+          <img src="../assets/capture-mp.jpg" alt="A private conversation in Accord" />
+        </article>
+
+        <article class="card card--third reveal">
+          <div class="card__icon">🔊</div>
+          <h3>Crisp voice</h3>
+          <p>Voice channels with echo cancellation, voice mixing and crackle suppression. Per-person volume, push-to-talk.</p>
+        </article>
+        <article class="card card--third reveal">
+          <div class="card__icon">🖼️</div>
+          <h3>Smooth media</h3>
+          <p>Drag &amp; drop images and videos, built-in player, previews up to whatever size you choose.</p>
+        </article>
+        <article class="card card--third reveal">
+          <div class="card__icon">🎨</div>
+          <h3>24 living themes</h3>
+          <p>A gallery of themes, including animated worlds, with an adaptive "Liquid Glass" interface.</p>
+        </article>
+
+        <article class="card card--half reveal">
+          <div class="card__icon">🛡️</div>
+          <h3>Roles &amp; moderation</h3>
+          <p>Fine-grained per-channel permissions, kick, ban, audit log — your servers truly belong to you.</p>
+        </article>
+        <article class="card card--half reveal">
+          <div class="card__icon">⬆️</div>
+          <h3>Built-in updates</h3>
+          <p>A banner tells you the moment a release ships; one click installs it. Cryptographically signed.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="wrap" aria-label="Themes">
+      <div class="showcase">
+        <div class="showcase__frame reveal">
+          <img src="../assets/capture-themes.jpg" alt="Accord's theme gallery" width="1160" />
+        </div>
+      </div>
+    </section>
+
+    <section id="security" class="wrap">
+      <div class="strip reveal">
+        <div class="section-head" style="margin-bottom:0">
+          <span class="eyebrow">Private by design</span>
+          <h2>Your conversations exist only on your devices</h2>
+          <p>No server to hack, no database to resell, no account to shut down. Your identity fits in a recovery phrase that only you hold.</p>
+        </div>
+        <div class="strip__grid">
+          <div class="stat"><b>0</b><span>central servers. Peers find each other through a distributed hash table (Kademlia) and connect directly.</span></div>
+          <div class="stat"><b>E2E</b><span>end-to-end encryption for messages and voice channels. The bytes never travel anywhere but between your peers.</span></div>
+          <div class="stat"><b>MIT</b><span>fully open-source, auditable code. Nothing hidden, zero telemetry.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="download" class="wrap">
+      <div class="section-head center reveal">
+        <span class="eyebrow">Free &amp; open source</span>
+        <h2>Download Accord</h2>
+        <p>Grab the latest release for your system. Universal on Mac (Apple Silicon &amp; Intel).</p>
+      </div>
+      <div class="dl-grid">
+        <div class="dl-card reveal">
+          <div class="os">🍎</div>
+          <h3>macOS</h3>
+          <p>Apple Silicon &amp; Intel · universal .dmg</p>
+          <a class="btn btn--primary" href="https://github.com/Gomouu/accord/releases/latest">Download</a>
+        </div>
+        <div class="dl-card reveal">
+          <div class="os">🪟</div>
+          <h3>Windows</h3>
+          <p>.msi / .exe installer</p>
+          <a class="btn btn--primary" href="https://github.com/Gomouu/accord/releases/latest">Download</a>
+        </div>
+        <div class="dl-card reveal">
+          <div class="os">🐧</div>
+          <h3>Linux</h3>
+          <p>AppImage / .deb</p>
+          <a class="btn btn--primary" href="https://github.com/Gomouu/accord/releases/latest">Download</a>
+        </div>
+      </div>
+      <p style="text-align:center;color:var(--faint);margin-top:1.4rem;font-size:0.9rem">First launch: see the <a href="guide.html" style="color:var(--muted);text-decoration:underline">setup guide</a>. New to peer-to-peer? <a href="guide.html#connect" style="color:var(--muted);text-decoration:underline">How to connect to a friend</a>.</p>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap footer__inner">
+      <a class="brand" href="index.html"><img src="../assets/logo.svg" alt="" width="26" height="26" /> Accord</a>
+      <nav class="footer__links">
+        <a href="guide.html">Guide</a>
+        <a href="https://github.com/Gomouu/accord">Source code</a>
+        <a href="https://github.com/Gomouu/accord/releases">Releases</a>
+        <a href="https://github.com/Gomouu/accord/blob/main/SECURITY.md">Security</a>
+      </nav>
+      <p class="footer__note">Accord — peer-to-peer desktop messaging, end-to-end encrypted. MIT license. No servers, no telemetry.</p>
+    </div>
+  </footer>
+
+  <script>
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    }, { threshold: 0.12 });
+    document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+  </script>
+</body>
+</html>

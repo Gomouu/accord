@@ -95,7 +95,9 @@ img { max-width: 100%; display: block; }
 .nav__links a:hover { color: var(--text); }
 .nav__cta { padding: 0.5rem 1.05rem; border-radius: 999px; background: var(--grad); color: #fff; font-weight: 600; font-size: 0.9rem; box-shadow: 0 6px 20px -8px rgba(91, 112, 244, 0.7); transition: transform 0.25s var(--ease), filter 0.25s var(--ease); }
 .nav__cta:hover { transform: translateY(-1px); filter: brightness(1.08); }
-@media (max-width: 680px) { .nav__links a:not(.nav__cta) { display: none; } }
+.lang { padding: 0.3rem 0.7rem; border-radius: 999px; border: 1px solid rgba(148, 163, 210, 0.28); font-size: 0.8rem !important; font-weight: 700; letter-spacing: 0.06em; }
+.lang:hover { border-color: rgba(148, 163, 210, 0.55); }
+@media (max-width: 680px) { .nav__links a:not(.nav__cta):not(.lang) { display: none; } }
 
 /* ---------- Hero ---------- */
 .hero { position: relative; padding-top: clamp(3.5rem, 6vw, 6rem); padding-bottom: var(--space-section); text-align: center; }

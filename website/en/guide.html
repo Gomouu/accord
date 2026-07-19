@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Guide — Accord</title>
+  <meta name="description" content="Install Accord, connect to a friend peer-to-peer, and fix connection issues. Step-by-step guide." />
+  <meta name="theme-color" content="#08090f" />
+  <link rel="icon" href="../assets/logo.svg" />
+  <link rel="alternate" hreflang="fr" href="../guide.html" />
+  <link rel="alternate" hreflang="en" href="guide.html" />
+  <link rel="stylesheet" href="../style.css" />
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav__inner">
+      <a class="brand" href="index.html"><img src="../assets/logo.svg" alt="" /> Accord</a>
+      <nav class="nav__links">
+        <a href="index.html#features">Features</a>
+        <a href="index.html#security">Security</a>
+        <a href="guide.html">Guide</a>
+        <a href="https://github.com/Gomouu/accord">GitHub</a>
+        <a class="lang" href="../guide.html" lang="fr" hreflang="fr" title="Version française">FR</a>
+        <a class="nav__cta" href="index.html#download">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="guide" style="padding-bottom:0">
+      <span class="eyebrow">Guide</span>
+      <h2 style="margin-top:0.4rem">Getting started with Accord</h2>
+      <p>Accord has <strong>no central server</strong>: you and your friend connect directly, device to device, end-to-end encrypted. Here is how to get going, step by step.</p>
+
+      <nav class="toc" aria-label="Contents">
+        <b>Contents</b>
+        <ul>
+          <li><a href="#install">1. Install the app</a></li>
+          <li><a href="#identity">2. Create your identity</a></li>
+          <li><a href="#connect">3. Connect to a friend</a></li>
+          <li><a href="#friends">4. Become friends</a></li>
+          <li><a href="#profile">5. Avatar, banner, servers</a></li>
+          <li><a href="#troubleshooting">6. Network troubleshooting</a></li>
+          <li><a href="#updates">7. Updates</a></li>
+        </ul>
+      </nav>
+
+      <h2 id="install">1. Install the app</h2>
+      <p>Download the build for your system from the <a href="index.html#download" style="color:var(--muted);text-decoration:underline">download page</a>.</p>
+      <ul>
+        <li><strong>macOS</strong> — open the <code>.dmg</code> and drag Accord into Applications. On first launch: right-click the app → <strong>Open</strong> (the app is not signed with an Apple developer account, so macOS asks for confirmation the first time only). Universal build: Apple Silicon (M1–M4) and Intel.</li>
+        <li><strong>Windows</strong> — run the installer. If SmartScreen steps in: <em>More info → Run anyway</em>.</li>
+        <li><strong>Linux</strong> — make the AppImage executable (<code>chmod +x</code>) and run it, or install the <code>.deb</code>.</li>
+      </ul>
+      <div class="callout">The first time you test your mic or join a voice channel, your system will ask for <strong>microphone</strong> permission — accept it (System Settings → Privacy → Microphone).</div>
+
+      <h2 id="identity">2. Create your identity</h2>
+      <p>On first launch, each person creates their identity:</p>
+      <ul>
+        <li>A <strong>password</strong> that unlocks the app on this machine.</li>
+        <li>A <strong>12-word recovery phrase</strong> — this <em>is</em> your account. Write it down and keep it safe, offline. It lets you restore your identity on another device; nobody, not even you, can regenerate it.</li>
+        <li>A <strong>display name</strong>, changeable at any time.</li>
+      </ul>
+      <div class="callout warn">There is <strong>no server</strong> to reset a forgotten password. The recovery phrase is the only safety net. You can also export a full encrypted backup from <em>Settings → My account</em>.</div>
+
+      <h2 id="connect">3. Connect to a friend</h2>
+      <p>This is the key peer-to-peer step. Accord first tries <strong>on its own</strong> to open your port (UPnP / NAT-PMP) and to find friends on the same Wi-Fi. Often there is nothing to do. Otherwise, the cases are:</p>
+      <ol class="steps">
+        <li><strong>Same local network (same Wi-Fi / router).</strong> It usually just works with zero configuration: your two apps discover each other automatically.</li>
+        <li><strong>Over the Internet.</strong> One of you opens <em>Settings → Add a friend</em> and copies their <strong>public address</strong> (<code>ip:port</code>). Send it to the other person (message, email…), who pastes it into "Add a friend by address". The "connected peers" counter should go to 1.</li>
+        <li><strong>If no public address shows up.</strong> Your router did not open the port automatically: forward <strong>UDP port 48016</strong> to your computer in your router's interface, then try again. Only one of the two friends needs a reachable port.</li>
+      </ol>
+      <div class="callout">The <em>Settings → Network</em> panel shows, for each friend, whether they are <strong>connected</strong> and the last <strong>address</strong> you reached them at — handy for diagnosing a flaky connection.</div>
+
+      <h2 id="friends">4. Become friends</h2>
+      <p>Once connected to the network:</p>
+      <ol class="steps">
+        <li>Each of you finds your <strong>friend code</strong> in <em>Settings → My account</em> (6 words + a number).</li>
+        <li>You send your code to your friend; they add it and send you a request.</li>
+        <li>You accept → you are friends. You can now exchange messages, images and files, and call each other.</li>
+      </ol>
+
+      <h2 id="profile">5. Avatar, banner, servers</h2>
+      <p>Customize your <strong>avatar</strong> and <strong>banner</strong> from <em>Settings → My account</em>: they sync automatically to your friends (images travel peer-to-peer, with a progress bar). Create a <strong>server</strong> to gather several friends around text and voice channels, with roles and permissions.</p>
+
+      <h2 id="troubleshooting">6. Network troubleshooting</h2>
+      <ul>
+        <li><strong>"Connected peers" stays at 0:</strong> UDP port 48016 is not reachable on either side. Check the port forward on the host side, or first test on the same local network to confirm everything else works.</li>
+        <li><strong>An image does not appear right away:</strong> give it a few seconds — the file downloads peer-to-peer. The Network panel confirms whether the friend is connected.</li>
+        <li><strong>The mic does not react:</strong> allow the microphone in your system's privacy settings.</li>
+        <li><strong>After sleep:</strong> Accord automatically retries your friends at their last known address on wake and on startup.</li>
+      </ul>
+
+      <h2 id="updates">7. Updates</h2>
+      <p>Since 2.0, Accord updates itself: a banner appears when a new version ships, one click installs it. Updates are <strong>cryptographically signed</strong>. To check manually: <em>Settings → Updates</em>.</p>
+
+      <p style="margin-top:2.5rem"><a class="btn btn--primary" href="index.html#download">Download Accord</a></p>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap footer__inner">
+      <a class="brand" href="index.html"><img src="../assets/logo.svg" alt="" width="26" height="26" /> Accord</a>
+      <nav class="footer__links">
+        <a href="index.html">Home</a>
+        <a href="https://github.com/Gomouu/accord">Source code</a>
+        <a href="https://github.com/Gomouu/accord/releases">Releases</a>
+        <a href="https://github.com/Gomouu/accord/blob/main/SECURITY.md">Security</a>
+      </nav>
+      <p class="footer__note">Accord — peer-to-peer desktop messaging, end-to-end encrypted. MIT license.</p>
+    </div>
+  </footer>
+</body>
+</html>

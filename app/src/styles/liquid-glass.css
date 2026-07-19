@@ -401,9 +401,10 @@
   -webkit-backdrop-filter: none;
 }
 
+/* Le menu serveur est exclu : son survol est un remplissage blurple plein
+   (global.css), le liseré/reflet du verre brouillerait la couleur. */
 .glass button:hover,
 .glass-strong button:hover,
-.server-menu-surface button:hover,
 .accord-menu button:hover,
 .liquid-floating button:hover {
   border-color: var(--liquid-rim-soft);

@@ -377,7 +377,7 @@ export const fr = {
     categoryLabel: 'Catégorie',
     noCategory: 'Sans catégorie',
     categoryNamePlaceholder: 'Nom de la catégorie',
-    createCategoryAction: 'Créer la catégorie',
+    createCategoryAction: 'Créer une catégorie',
     channelNameLabel: 'Nom du salon',
     topicLabel: 'Sujet',
     topicPlaceholder: 'Décrivez ce salon (optionnel)',

@@ -854,13 +854,13 @@ function ServerHeaderMenu({
       aria-label={t.serveur.serverMenu}
       tabIndex={-1}
       onKeyDown={onKeyDown}
-      className="server-menu-surface context-menu-enter absolute left-3 top-[calc(100%+6px)] z-50 w-[min(17rem,calc(100vw-6rem))] origin-top overflow-hidden rounded-lg focus:outline-none"
+      className="server-menu-surface context-menu-enter absolute left-3 top-[calc(100%+6px)] z-50 w-[min(16.5rem,calc(100vw-6rem))] origin-top overflow-hidden rounded-lg focus:outline-none"
     >
-      <div className="server-menu-scroll max-h-[calc(100dvh-9rem)] overflow-y-auto overscroll-contain p-2">
+      <div className="server-menu-scroll max-h-[calc(100dvh-9rem)] overflow-y-auto overscroll-contain p-1.5">
         {items.map((item, i) => (
           <div key={`${i}-${item.label}`}>
             {item.separatorBefore === true && (
-              <div className="mx-2 my-1.5 h-px bg-input/70" role="separator" />
+              <div className="mx-1.5 my-1 h-px bg-input/70" role="separator" />
             )}
             <button
               ref={(el) => {
@@ -878,23 +878,25 @@ function ServerHeaderMenu({
                   ? openSubmenu(item, e.currentTarget)
                   : activate(item)
               }
-              className={`flex h-10 w-full items-center gap-3 rounded-sm px-3 text-left text-[15px] font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-header/40 ${
-                item.danger === true
-                  ? 'server-menu-danger hover:bg-red/10 focus-visible:bg-red/10'
-                  : 'text-norm hover:bg-chat-hover focus-visible:bg-chat-hover'
+              className={`server-menu-item group flex h-9 w-full items-center gap-3 rounded-md px-2.5 text-left text-sm font-medium transition-colors duration-fast focus-visible:outline-none ${
+                item.danger === true ? 'server-menu-danger' : 'text-norm'
               }`}
             >
               <span className="min-w-0 flex-1 truncate">{item.label}</span>
               {item.checked === undefined ? (
                 <span
                   aria-hidden
-                  className={`flex shrink-0 items-center gap-1 ${item.danger === true ? '' : 'text-muted'}`}
+                  className={`flex shrink-0 items-center gap-1 ${
+                    item.danger === true
+                      ? ''
+                      : 'text-muted transition-colors duration-fast group-hover:text-white group-focus-visible:text-white'
+                  }`}
                 >
-                  <span className="flex h-5 w-5 items-center justify-center [&>svg]:h-[19px] [&>svg]:w-[19px]">
+                  <span className="flex h-5 w-5 items-center justify-center [&>svg]:h-[18px] [&>svg]:w-[18px]">
                     {item.icon}
                   </span>
                   {item.submenu !== undefined && (
-                    <span className="flex h-4 w-3.5 items-center justify-center text-faint">
+                    <span className="flex h-4 w-3.5 items-center justify-center text-faint transition-colors duration-fast group-hover:text-white group-focus-visible:text-white">
                       <MenuChevronIcon />
                     </span>
                   )}
@@ -904,8 +906,8 @@ function ServerHeaderMenu({
                   aria-hidden
                   className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-xs border transition-colors duration-fast [&>svg]:h-3.5 [&>svg]:w-3.5 ${
                     item.checked
-                      ? 'border-blurple bg-blurple text-white'
-                      : 'border-faint/70 bg-transparent'
+                      ? 'border-blurple bg-blurple text-white group-hover:border-white group-hover:bg-white group-hover:text-blurple group-focus-visible:border-white group-focus-visible:bg-white group-focus-visible:text-blurple'
+                      : 'border-faint/70 bg-transparent group-hover:border-white group-focus-visible:border-white'
                   }`}
                 >
                   {item.checked && <CheckMenuIcon />}

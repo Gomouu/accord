@@ -299,11 +299,11 @@ describe('Sidebar — menu du nom de serveur', () => {
       screen.queryByRole('menuitem', { name: 'Créer un salon' }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('menuitem', { name: 'Créer la catégorie' }),
+      screen.queryByRole('menuitem', { name: 'Créer une catégorie' }),
     ).not.toBeInTheDocument();
   });
 
-  it('affiche « Inviter » et « Créer un salon »/« Créer la catégorie » avec les permissions', () => {
+  it('affiche « Inviter » et « Créer un salon »/« Créer une catégorie » avec les permissions', () => {
     useGroups.setState({
       ids: ['g1'],
       states: {
@@ -321,7 +321,7 @@ describe('Sidebar — menu du nom de serveur', () => {
     ).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Créer un salon' })).toBeInTheDocument();
     expect(
-      screen.getByRole('menuitem', { name: 'Créer la catégorie' }),
+      screen.getByRole('menuitem', { name: 'Créer une catégorie' }),
     ).toBeInTheDocument();
   });
 
@@ -341,7 +341,7 @@ describe('Sidebar — menu du nom de serveur', () => {
     expect(screen.getByRole('button', { name: 'Inviter' })).toBeInTheDocument();
   });
 
-  it('« Créer la catégorie » ouvre les paramètres du serveur sur l’onglet Salons', () => {
+  it('« Créer une catégorie » ouvre les paramètres du serveur sur l’onglet Salons', () => {
     useGroups.setState({
       ids: ['g1'],
       states: { g1: groupState({ my_permissions: PERMISSIONS.MANAGE_CHANNELS }) },
@@ -349,7 +349,7 @@ describe('Sidebar — menu du nom de serveur', () => {
 
     render(<Sidebar />);
     fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Créer la catégorie' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Créer une catégorie' }));
 
     expect(useUi.getState().modal).toEqual({
       kind: 'serverSettings',

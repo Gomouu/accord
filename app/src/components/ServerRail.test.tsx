@@ -359,7 +359,7 @@ describe('ServerRail — accessibilité clavier', () => {
     ).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Créer un salon' })).toBeInTheDocument();
     expect(
-      screen.getByRole('menuitem', { name: 'Créer la catégorie' }),
+      screen.getByRole('menuitem', { name: 'Créer une catégorie' }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole('menuitem', { name: 'Créer un événement' }),

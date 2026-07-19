@@ -2,6 +2,16 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [3.1.0] — non publié
+
+### Changed
+
+- **Server dropdown menu redesigned** (Discord-style): hovering or keyboard-
+  focusing a row now fills it with blurple (red for "Leave server") with white
+  text and icons, rows are tighter and more polished, the "Hide muted
+  channels" checkbox inverts to white on hover, and the French label "Créer la
+  catégorie" was fixed to "Créer une catégorie".
+
 ## [3.0.0] — 2026-07-19
 
 A reliability, diagnostics and authoring release. Fully backward-compatible on

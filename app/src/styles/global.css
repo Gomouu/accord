@@ -510,6 +510,22 @@ textarea {
   color: rgb(var(--color-red));
   color: color-mix(in srgb, rgb(var(--color-red)) 72%, rgb(var(--color-header)) 28%);
 }
+
+/* Survol/focus façon Discord : la ligne se remplit de blurple, texte et icône
+   passent en blanc (rouge plein pour l'action dangereuse). Sélecteurs à deux
+   classes pour l'emporter sur les habillages génériques `button:hover` des
+   thèmes (identity-refresh, liquid-glass). */
+.server-menu-surface .server-menu-item:hover,
+.server-menu-surface .server-menu-item:focus-visible {
+  background-color: rgb(var(--color-blurple));
+  color: #fff;
+}
+
+.server-menu-surface .server-menu-item.server-menu-danger:hover,
+.server-menu-surface .server-menu-item.server-menu-danger:focus-visible {
+  background-color: rgb(var(--color-red));
+  color: #fff;
+}
 /* Repli opaque pour les moteurs sans backdrop-filter. */
 @supports not (backdrop-filter: blur(1px)) {
   .glass {

@@ -250,17 +250,13 @@ body {
   box-shadow: var(--glass-highlight), var(--shadow-3);
 }
 
-.server-menu-surface {
-  width: min(18rem, calc(100vw - 6rem));
-}
-
 .server-menu-surface button,
 .accord-menu button {
   border: 1px solid transparent;
 }
 
-.server-menu-surface button:hover,
-.server-menu-surface button:focus-visible,
+/* Le menu serveur a son propre survol (remplissage blurple, voir global.css) :
+   seul le menu contextuel générique garde l'habillage cyan/chat-hover. */
 .accord-menu button:hover,
 .accord-menu button:focus-visible {
   border-color: rgb(var(--accord-cyan) / 0.12);

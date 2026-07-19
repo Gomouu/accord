@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nouveautés — Accord</title>
+  <meta name="description" content="Les nouveautés d'Accord version par version : reconnexion plus fiable, tableaux Markdown, thèmes personnalisés, menu de serveur repensé…" />
+  <meta name="theme-color" content="#08090f" />
+  <link rel="icon" href="assets/logo.svg" />
+  <link rel="canonical" href="https://accord-chat.duckdns.org/nouveautes.html" />
+  <link rel="alternate" hreflang="en" href="https://accord-chat.duckdns.org/en/whats-new.html" />
+  <link rel="alternate" hreflang="fr" href="https://accord-chat.duckdns.org/nouveautes.html" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav__inner">
+      <a class="brand" href="index.html"><img src="assets/logo.svg" alt="" /> Accord</a>
+      <nav class="nav__links">
+        <a href="index.html#fonctions">Fonctions</a>
+        <a href="index.html#securite">Sécurité</a>
+        <a href="guide.html">Guide</a>
+        <a href="nouveautes.html">Nouveautés</a>
+        <a href="https://github.com/Gomouu/accord">GitHub</a>
+        <a class="lang" href="en/whats-new.html" lang="en" hreflang="en" title="English version">EN</a>
+        <a class="nav__cta" href="index.html#telecharger">Télécharger</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="guide" style="padding-bottom:0">
+      <span class="eyebrow">Nouveautés</span>
+      <h2 style="margin-top:0.4rem">Ce qui change, version après version</h2>
+      <p>Accord se met à jour tout seul : une bannière vous prévient dans l'application, un clic installe la nouvelle version. Voici ce que chaque version récente vous apporte.</p>
+
+      <article class="release reveal">
+        <div class="release__head">
+          <span class="release__version">3.2.0</span>
+          <span class="release__date">19 juillet 2026</span>
+          <a class="release__link" href="https://github.com/Gomouu/accord/releases/tag/v3.2.0">Release GitHub →</a>
+        </div>
+        <ul>
+          <li><strong>Menu de serveur plus utile</strong> — « Marquer comme lu » apparaît en tête du menu dès qu'il reste des salons non lus, et une nouvelle entrée « Modifier mon profil de serveur » mène directement à votre pseudo et avatar propres à ce serveur.</li>
+          <li><strong>Votre statut dans le panneau du bas</strong> — le panneau en bas à gauche affiche désormais votre présence (En ligne, Inactif, Ne pas déranger…) ou votre statut personnalisé, à la place du code ami. Le code ami reste disponible dans <em>Paramètres → Mon compte</em> et dans l'onglet Amis.</li>
+        </ul>
+      </article>
+
+      <article class="release reveal">
+        <div class="release__head">
+          <span class="release__version">3.1.0</span>
+          <span class="release__date">19 juillet 2026</span>
+          <a class="release__link" href="https://github.com/Gomouu/accord/releases/tag/v3.1.0">Release GitHub →</a>
+        </div>
+        <ul>
+          <li><strong>Menu de serveur redessiné</strong> — survol et navigation clavier remplissent chaque ligne de blurple (rouge pour « Quitter le serveur »), avec textes et icônes en blanc : plus lisible, plus proche de ce que vous connaissez.</li>
+        </ul>
+      </article>
+
+      <article class="release reveal">
+        <div class="release__head">
+          <span class="release__version">3.0.0</span>
+          <span class="release__date">19 juillet 2026</span>
+          <a class="release__link" href="https://github.com/Gomouu/accord/releases/tag/v3.0.0">Release GitHub →</a>
+        </div>
+        <p>Une grande version dédiée à la fiabilité et au confort d'écriture — entièrement compatible avec vos amis restés en 2.x.</p>
+        <h3>Connexion plus fiable</h3>
+        <ul>
+          <li><strong>Retrouvailles instantanées</strong> — Accord mémorise la dernière adresse de chaque ami et la recompose au démarrage ou au réveil du Mac : les sessions reviennent sans attendre la découverte réseau.</li>
+          <li><strong>Bannière et avatar d'ami enfin fiables</strong> — la course de reconnexion qui pouvait avaler l'annonce de profil a été corrigée à la racine.</li>
+          <li><strong>Diagnostic par ami</strong> — le panneau Réseau montre, ami par ami, si une session est active et la dernière adresse utilisée.</li>
+        </ul>
+        <h3>Écriture et lecture</h3>
+        <ul>
+          <li><strong>Tableaux et listes à cocher Markdown</strong>, <strong>bouton Copier</strong> sur les blocs de code, <strong>date complète</strong> au survol d'une heure de message.</li>
+          <li><strong>Copier toute la conversation</strong> en Markdown propre, groupée par jour.</li>
+          <li><strong>« Revenir en bas »</strong> — un bouton flottant ramène au dernier message après un long défilement.</li>
+          <li><strong>Vitesse de lecture des messages vocaux</strong> : 1×, 1,5× ou 2×.</li>
+        </ul>
+        <h3>Personnalisation</h3>
+        <ul>
+          <li><strong>Éditeur de thème personnalisé</strong> — composez vos propres couleurs sur base sombre ou claire, le reste de la palette se déduit tout seul ; partagez le résultat par un simple code <code>accord-theme:…</code>.</li>
+          <li><strong>Choix de la police</strong> (Système, Arrondie, Serif) et <strong>Ne pas déranger programmé</strong>.</li>
+          <li><strong>Défilement fluide</strong> des longues conversations, même avec des milliers de messages chargés.</li>
+        </ul>
+      </article>
+
+      <p style="margin-top:2.2rem;color:var(--faint);font-size:0.9rem">L'historique complet, version par version, vit dans le <a href="https://github.com/Gomouu/accord/blob/main/CHANGELOG.md" style="color:var(--muted);text-decoration:underline">changelog du projet</a>.</p>
+      <p style="margin-top:1.6rem"><a class="btn btn--primary" href="index.html#telecharger">Télécharger la dernière version</a></p>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap footer__inner">
+      <a class="brand" href="index.html"><img src="assets/logo.svg" alt="" width="26" height="26" /> Accord</a>
+      <nav class="footer__links">
+        <a href="index.html">Accueil</a>
+        <a href="guide.html">Guide</a>
+        <a href="nouveautes.html">Nouveautés</a>
+        <a href="https://github.com/Gomouu/accord">Code source</a>
+        <a href="https://github.com/Gomouu/accord/releases">Versions</a>
+      </nav>
+      <p class="footer__note">Accord — messagerie de bureau pair-à-pair, chiffrée de bout en bout. Licence MIT.</p>
+    </div>
+  </footer>
+
+  <script>
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    }, { threshold: 0.12 });
+    document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+  </script>
+</body>
+</html>

@@ -189,6 +189,25 @@ h2 { font-size: var(--text-h2); line-height: 1.05; letter-spacing: -0.03em; font
 .toc a { color: var(--muted); transition: color 0.2s; }
 .toc a:hover { color: var(--text); }
 
+/* ---------- Nouveautés ---------- */
+.release { border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius); padding: clamp(1.6rem, 3vw, 2.2rem); margin-bottom: 1.4rem; transition: border-color 0.35s var(--ease), background 0.35s var(--ease); }
+.release:hover { border-color: var(--border-strong); background: var(--surface-strong); }
+.release__head { display: flex; align-items: baseline; gap: 0.9rem; flex-wrap: wrap; margin-bottom: 0.9rem; }
+.release__version { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.release__date { color: var(--faint); font-size: 0.88rem; }
+.release__link { margin-left: auto; color: var(--muted); font-size: 0.88rem; text-decoration: underline; transition: color 0.2s; }
+.release__link:hover { color: var(--text); }
+.release h3 { margin: 1.1rem 0 0.3rem; font-size: 1.05rem; letter-spacing: -0.01em; }
+.release p, .release li { color: var(--muted); font-size: 0.96rem; }
+.release ul { padding-left: 1.2rem; margin: 0.4rem 0; }
+.release li { margin-bottom: 0.45rem; }
+.release strong { color: var(--text); font-weight: 640; }
+
+/* ---------- Captures du guide ---------- */
+.shot { border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border-strong); box-shadow: 0 24px 60px -30px rgba(0, 0, 0, 0.8); background: var(--bg-2); margin: 1.4rem 0 2rem; }
+.shot img { width: 100%; height: auto; }
+.shot figcaption { padding: 0.6rem 1rem; font-size: 0.84rem; color: var(--faint); border-top: 1px solid var(--border); }
+
 /* ---------- Footer ---------- */
 footer { border-top: 1px solid var(--border); padding-block: 3rem; margin-top: var(--space-section); }
 .footer__inner { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: center; justify-content: space-between; }

@@ -23,6 +23,10 @@ still on 2.3.x keeps working unchanged.
   alignment, escaped pipes, rendered in a scrollable frame.
 - **Markdown task lists** (`- [ ]` / `- [x]`): checkbox items render without a
   bullet, with a read-only checkbox.
+- **Copy conversation as Markdown**: a header button on any DM or channel
+  copies the whole loaded thread to the clipboard as a clean Markdown
+  transcript — messages grouped by day, deleted messages redacted (never their
+  content), attachments listed by name.
 - **Project website + French user guide** (GitHub Pages): a download landing
   page and a step-by-step guide (install, peer-to-peer connection,
   troubleshooting), deployed from `website/`.

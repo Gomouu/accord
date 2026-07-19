@@ -6,6 +6,7 @@ import {
   formatDay,
   formatDuration,
   formatEventDateTime,
+  formatTimeOnly,
   formatTimestamp,
   formatTimestampCompact,
   initials,
@@ -58,6 +59,18 @@ describe('formatEventDateTime', () => {
   it('force le format 12 h/24 h indépendamment de la locale', () => {
     expect(formatEventDateTime(SAME_DAY, 'en', '24h')).not.toMatch(/AM$|PM$/);
     expect(formatEventDateTime(SAME_DAY, 'fr', '12h')).toMatch(/AM$/i);
+  });
+});
+
+describe('formatTimeOnly', () => {
+  it('rend l’heure seule, jamais la date, même hors du jour même', () => {
+    expect(formatTimeOnly(CHRISTMAS, 'fr')).toBe('10:00');
+    expect(formatTimeOnly(CHRISTMAS, 'fr')).not.toMatch(/2025/);
+  });
+
+  it('force le format 12 h/24 h indépendamment de la locale', () => {
+    expect(formatTimeOnly(CHRISTMAS, 'fr', '12h')).toMatch(/AM$/i);
+    expect(formatTimeOnly(CHRISTMAS, 'en', '24h')).not.toMatch(/AM$|PM$/);
   });
 });
 

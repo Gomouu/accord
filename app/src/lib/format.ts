@@ -58,6 +58,22 @@ export function formatEventDateTime(
   return new Date(ms).toLocaleString(locale, options);
 }
 
+/**
+ * Heure seule (HH:MM), toujours — contrairement à `formatTimestamp` qui bascule
+ * sur la date hors du jour même. Utile quand la date est déjà portée ailleurs
+ * (en-tête de jour d'une transcription, par exemple).
+ */
+export function formatTimeOnly(
+  ms: number,
+  lang: Lang,
+  hourFormat: HourFormat = 'auto',
+): string {
+  const locale = lang === 'fr' ? 'fr-FR' : 'en-US';
+  const options: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
+  if (hourFormat !== 'auto') options.hour12 = hourFormat === '12h';
+  return new Date(ms).toLocaleTimeString(locale, options);
+}
+
 /** Séparateur de jour dans un fil de messages. */
 export function formatDay(ms: number, lang: Lang): string {
   const locale = lang === 'fr' ? 'fr-FR' : 'en-US';

@@ -30,3 +30,5 @@ session.json
 
 # Cache d'analyse locale (graphify) — jamais versionné
 /graphify-out/
+app/test-results/
+app/playwright-report/

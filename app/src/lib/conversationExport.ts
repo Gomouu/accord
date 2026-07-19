@@ -26,7 +26,10 @@ export interface ConversationExportLabels {
 }
 
 /** Texte lisible d'un message, avec placeholder pour les corps non textuels. */
-function texteMessage(m: DisplayMessage, labels: ConversationExportLabels): string | null {
+function texteMessage(
+  m: DisplayMessage,
+  labels: ConversationExportLabels,
+): string | null {
   const txt = displayText(m);
   if (txt !== null) return txt;
   if (m.body.type === 'sticker') return `[${labels.sticker}] ${m.body.name}`;

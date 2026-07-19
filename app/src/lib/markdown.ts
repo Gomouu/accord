@@ -354,7 +354,10 @@ const TASK_RE = /^\[([ xX])\]\s+([\s\S]*)$/;
 function itemNodes(text: string): MdNode[] {
   const m = TASK_RE.exec(text);
   if (m !== null && m[1] !== undefined && m[2] !== undefined) {
-    return [{ type: 'checkbox', checked: m[1].toLowerCase() === 'x' }, ...analyserFragment(m[2], 0)];
+    return [
+      { type: 'checkbox', checked: m[1].toLowerCase() === 'x' },
+      ...analyserFragment(m[2], 0),
+    ];
   }
   return analyserFragment(text, 0);
 }

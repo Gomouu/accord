@@ -118,7 +118,8 @@ export function importerTheme(code: string): CouleursPerso | null {
   } catch {
     return null;
   }
-  const valide = (h: unknown): h is string => typeof h === 'string' && hexVersRgb(h) !== null;
+  const valide = (h: unknown): h is string =>
+    typeof h === 'string' && hexVersRgb(h) !== null;
   if (!valide(lu.f) || !valide(lu.p) || !valide(lu.a)) return null;
   return {
     fond: lu.f,

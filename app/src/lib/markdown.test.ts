@@ -523,7 +523,10 @@ describe('analyserMarkdown — listes de tâches GFM', () => {
   });
 
   it('applique la mise en forme inline après la case', () => {
-    const list = analyserMarkdown('- [ ] **gras**')[0] as Extract<MdNode, { type: 'list' }>;
+    const list = analyserMarkdown('- [ ] **gras**')[0] as Extract<
+      MdNode,
+      { type: 'list' }
+    >;
     expect(list.items[0]?.[1]).toEqual({ type: 'bold', children: [text('gras')] });
   });
 
@@ -531,4 +534,4 @@ describe('analyserMarkdown — listes de tâches GFM', () => {
     const list = analyserMarkdown('- simple')[0] as Extract<MdNode, { type: 'list' }>;
     expect(list.items[0]?.[0]).toEqual(text('simple'));
   });
-})
+});

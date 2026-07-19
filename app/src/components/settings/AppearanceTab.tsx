@@ -33,10 +33,7 @@ function CustomThemeEditor({
   onChange: (c: CouleursPerso) => void;
   t: Dict;
 }) {
-  const champ = (
-    cle: 'fond' | 'panneaux' | 'accent',
-    label: string,
-  ): React.ReactNode => (
+  const champ = (cle: 'fond' | 'panneaux' | 'accent', label: string): React.ReactNode => (
     <label className="flex items-center justify-between gap-3 rounded-lg bg-sidebar px-4 py-3">
       <span className="text-sm font-medium text-norm">{label}</span>
       <input
@@ -346,7 +343,10 @@ export function AppearanceTab() {
           <OptionPill selected={fontUi === 'system'} onSelect={() => setFontUi('system')}>
             {t.settings.fontUiSystem}
           </OptionPill>
-          <OptionPill selected={fontUi === 'rounded'} onSelect={() => setFontUi('rounded')}>
+          <OptionPill
+            selected={fontUi === 'rounded'}
+            onSelect={() => setFontUi('rounded')}
+          >
             {t.settings.fontUiRounded}
           </OptionPill>
           <OptionPill selected={fontUi === 'serif'} onSelect={() => setFontUi('serif')}>

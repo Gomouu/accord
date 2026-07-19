@@ -22,7 +22,14 @@ const fmt: TranscriptFormatters = {
 };
 
 function msg(over: Partial<TranscriptMessage>): TranscriptMessage {
-  return { author: 'k_alice', sentMs: 1000, deleted: false, text: 'salut', edited: false, ...over };
+  return {
+    author: 'k_alice',
+    sentMs: 1000,
+    deleted: false,
+    text: 'salut',
+    edited: false,
+    ...over,
+  };
 }
 
 describe('buildTranscript', () => {

@@ -61,7 +61,12 @@ describe('toTranscriptMessages', () => {
       [
         dm({
           edited: null,
-          body: { type: 'poll', poll_id: 'p', question: 'Pizza ?', options: ['oui', 'non'] },
+          body: {
+            type: 'poll',
+            poll_id: 'p',
+            question: 'Pizza ?',
+            options: ['oui', 'non'],
+          },
         }),
       ],
       labels,
@@ -73,7 +78,9 @@ describe('toTranscriptMessages', () => {
     const [m] = toTranscriptMessages(
       [
         dm({
-          attachments: [{ merkle_root: 'r', name: 'photo.png', size: 10, mime: 'image/png' }],
+          attachments: [
+            { merkle_root: 'r', name: 'photo.png', size: 10, mime: 'image/png' },
+          ],
         }),
       ],
       labels,

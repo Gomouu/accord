@@ -39,7 +39,13 @@ import {
 import { PresenceDot } from '../PresenceDot';
 import { ownDotStatus } from '../UserMenu';
 
-export function MemberList({ groupId, fill = false }: { groupId: string; fill?: boolean }) {
+export function MemberList({
+  groupId,
+  fill = false,
+}: {
+  groupId: string;
+  fill?: boolean;
+}) {
   const t = useT();
   const contacts = useFriends((s) => s.contacts);
   const self = useSession((s) => s.self);

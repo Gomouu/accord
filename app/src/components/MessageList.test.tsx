@@ -276,7 +276,10 @@ describe('MessageList — rendu', () => {
   it('montre « revenir en bas » quand on remonte, le masque au retour', () => {
     render(
       <MessageList
-        messages={[textMsg('m1', BASE_MS, 'premier'), textMsg('m2', BASE_MS + 1_000, 'récent')]}
+        messages={[
+          textMsg('m1', BASE_MS, 'premier'),
+          textMsg('m2', BASE_MS + 1_000, 'récent'),
+        ]}
       />,
     );
     const log = screen.getByRole('log');

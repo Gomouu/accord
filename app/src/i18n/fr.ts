@@ -764,12 +764,14 @@ export const fr = {
     customImportPlaceholder: 'Colle un code accord-theme:…',
     customImportError: 'Code de thème invalide',
     fontUiTitle: 'Police de l’interface',
-    fontUiHint: 'Change la typographie de toute l’application. Toutes sont natives — rien n’est téléchargé.',
+    fontUiHint:
+      'Change la typographie de toute l’application. Toutes sont natives — rien n’est téléchargé.',
     fontUiSystem: 'Système',
     fontUiRounded: 'Arrondie',
     fontUiSerif: 'Serif',
     quietTitle: 'Ne pas déranger programmé',
-    quietHint: 'Coupe les sons et notifications pendant une plage d’heures (à cheval sur minuit accepté).',
+    quietHint:
+      'Coupe les sons et notifications pendant une plage d’heures (à cheval sur minuit accepté).',
     quietEnable: 'Activer',
     quietFrom: 'De',
     quietTo: 'à',

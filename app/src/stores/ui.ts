@@ -390,7 +390,8 @@ function initialCustomTheme(): CouleursPerso {
   if (brut === null) return PERSO_DEFAUT;
   try {
     const lu = JSON.parse(brut) as Partial<CouleursPerso>;
-    const valide = (h: unknown): h is string => typeof h === 'string' && hexVersRgb(h) !== null;
+    const valide = (h: unknown): h is string =>
+      typeof h === 'string' && hexVersRgb(h) !== null;
     return {
       fond: valide(lu.fond) ? lu.fond : PERSO_DEFAUT.fond,
       panneaux: valide(lu.panneaux) ? lu.panneaux : PERSO_DEFAUT.panneaux,

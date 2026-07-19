@@ -756,12 +756,14 @@ export const en: Dict = {
     customImportPlaceholder: 'Paste an accord-theme:… code',
     customImportError: 'Invalid theme code',
     fontUiTitle: 'Interface font',
-    fontUiHint: 'Changes the typography across the whole app. All are native — nothing is downloaded.',
+    fontUiHint:
+      'Changes the typography across the whole app. All are native — nothing is downloaded.',
     fontUiSystem: 'System',
     fontUiRounded: 'Rounded',
     fontUiSerif: 'Serif',
     quietTitle: 'Scheduled Do Not Disturb',
-    quietHint: 'Silences sounds and notifications during a time range (spanning midnight is fine).',
+    quietHint:
+      'Silences sounds and notifications during a time range (spanning midnight is fine).',
     quietEnable: 'Enable',
     quietFrom: 'From',
     quietTo: 'to',

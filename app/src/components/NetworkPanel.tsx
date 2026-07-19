@@ -172,7 +172,9 @@ export function NetworkPanel() {
   const peersTries = useMemo(() => {
     return [...peers].sort((a, b) => {
       if (a.live !== b.live) return a.live ? -1 : 1;
-      return displayNameOf(contacts, a.pubkey).localeCompare(displayNameOf(contacts, b.pubkey));
+      return displayNameOf(contacts, a.pubkey).localeCompare(
+        displayNameOf(contacts, b.pubkey),
+      );
     });
   }, [peers, contacts]);
 
@@ -262,7 +264,9 @@ export function NetworkPanel() {
                       : t.reseau.friendNoAddr}
                   </div>
                 </div>
-                <span className={`shrink-0 text-xs ${p.live ? 'text-green' : 'text-faint'}`}>
+                <span
+                  className={`shrink-0 text-xs ${p.live ? 'text-green' : 'text-faint'}`}
+                >
                   {p.live ? t.reseau.friendLive : t.reseau.friendOffline}
                 </span>
               </li>

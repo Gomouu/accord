@@ -2,7 +2,7 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
-## [Unreleased]
+## [3.3.0] — 2026-07-19
 
 ### Added
 
@@ -31,7 +31,7 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ### Tests
 
-- **Playwright end-to-end suite** (`app/e2e/`, `npm run e2e`): 14 browser
+- **Playwright end-to-end suite** (`app/e2e/`, `npm run e2e`): 15 browser
   tests against the UI showcase — navigation, server menu (keyboard included),
   composer, thread behaviors, plus 6 visual-regression baselines across
   dark/light/wisteria at two window sizes.

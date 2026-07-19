@@ -78,10 +78,10 @@ export function ServerStickersTab({ groupId }: { groupId: string }) {
       setErreur(null);
       if (name === '') setName(nomDepuisFichier(file.name));
     } catch (e) {
-      const gifTropLourd =
-        e instanceof EmojiCompressionError && e.raison === 'gif-anime-trop-lourd';
+      const animeTropLourd =
+        e instanceof EmojiCompressionError && e.raison === 'anime-trop-lourd';
       setErreur(
-        gifTropLourd ? t.serveur.stickerAnimatedTooLarge : t.serveur.stickerInvalidImage,
+        animeTropLourd ? t.serveur.stickerAnimatedTooLarge : t.serveur.stickerInvalidImage,
       );
     }
   };

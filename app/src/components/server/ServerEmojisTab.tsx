@@ -73,10 +73,10 @@ export function ServerEmojisTab({ groupId }: { groupId: string }) {
       setErreur(null);
       if (name === '') setName(nomDepuisFichier(file.name));
     } catch (e) {
-      const gifTropLourd =
-        e instanceof EmojiCompressionError && e.raison === 'gif-anime-trop-lourd';
+      const animeTropLourd =
+        e instanceof EmojiCompressionError && e.raison === 'anime-trop-lourd';
       setErreur(
-        gifTropLourd ? t.serveur.emojiAnimatedTooLarge : t.serveur.emojiInvalidImage,
+        animeTropLourd ? t.serveur.emojiAnimatedTooLarge : t.serveur.emojiInvalidImage,
       );
     }
   };

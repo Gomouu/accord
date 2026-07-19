@@ -12,6 +12,7 @@ import {
   ajusterDimensions,
   compressEmojiImage,
   estGifAnime,
+  estWebpAnime,
 } from './compressEmojiImage';
 
 /** Construit un GIF minimal à `nbFrames` images (sans table de couleurs). */
@@ -41,6 +42,37 @@ function gifOctetsAvecExtensions(nbFrames: number): Uint8Array {
     octets.push(2, 1, 0, 0); // Taille min LZW + sous-bloc + terminateur.
   }
   octets.push(0x3b);
+  return new Uint8Array(octets);
+}
+
+
+/**
+ * Construit un WebP minimal (conteneur RIFF). `forme` pilote la structure :
+ * statique simple (`VP8 `), étendu avec drapeau Animation (`VP8X`), étendu
+ * statique, ou animé sans VP8X (chunk `ANIM` seul).
+ */
+function webpOctets(forme: 'simple' | 'vp8x-anime' | 'vp8x-statique' | 'anim-seul'): Uint8Array {
+  const octets: number[] = [];
+  const pousserFourcc = (s: string) => octets.push(...[...s].map((c) => c.charCodeAt(0)));
+  const pousserTaille = (n: number) =>
+    octets.push(n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff, (n >> 24) & 0xff);
+  pousserFourcc('RIFF');
+  pousserTaille(0); // Taille totale : ignorée par le détecteur.
+  pousserFourcc('WEBP');
+  if (forme === 'vp8x-anime' || forme === 'vp8x-statique') {
+    pousserFourcc('VP8X');
+    pousserTaille(10);
+    octets.push(forme === 'vp8x-anime' ? 0x02 : 0x00); // Drapeaux (bit Animation).
+    octets.push(0, 0, 0, 0, 0, 0, 0, 0, 0); // Réservé + dimensions.
+  } else if (forme === 'anim-seul') {
+    pousserFourcc('ANIM');
+    pousserTaille(6);
+    octets.push(0, 0, 0, 0, 0, 0);
+  } else {
+    pousserFourcc('VP8 ');
+    pousserTaille(4);
+    octets.push(0, 0, 0, 0);
+  }
   return new Uint8Array(octets);
 }
 
@@ -183,6 +215,50 @@ describe('compressEmojiImage — pipeline canvas (image statique)', () => {
   });
 });
 
+
+describe('estWebpAnime', () => {
+  it('rend false pour un WebP simple et un VP8X sans drapeau Animation', () => {
+    expect(estWebpAnime(webpOctets('simple'))).toBe(false);
+    expect(estWebpAnime(webpOctets('vp8x-statique'))).toBe(false);
+  });
+
+  it('détecte le drapeau Animation de VP8X et le chunk ANIM en repli', () => {
+    expect(estWebpAnime(webpOctets('vp8x-anime'))).toBe(true);
+    expect(estWebpAnime(webpOctets('anim-seul'))).toBe(true);
+  });
+
+  it('rend false sur un flux tronqué ou non WebP', () => {
+    expect(estWebpAnime(new Uint8Array([0x52, 0x49]))).toBe(false);
+    expect(estWebpAnime(gifOctets(2))).toBe(false);
+  });
+});
+
+describe('compressEmojiImage — WebP animé', () => {
+  it('transmet tel quel un WebP animé sous la limite (animation préservée)', async () => {
+    const fichier = new File([webpOctets('vp8x-anime')], 'anim.webp', {
+      type: 'image/webp',
+    });
+
+    const resultat = await compressEmojiImage(fichier);
+
+    expect(resultat.mime).toBe('image/webp');
+    expect(resultat.dataUrl.startsWith('data:image/webp;base64,')).toBe(true);
+  });
+
+  it('échoue avec la raison dédiée si le WebP animé dépasse la limite', async () => {
+    const entete = webpOctets('vp8x-anime');
+    const remplissage = new Uint8Array(EMOJI_OCTETS_MAX).fill(0x41);
+    const gros = new Uint8Array(entete.length + remplissage.length);
+    gros.set(entete, 0);
+    gros.set(remplissage, entete.length);
+    const fichier = new File([gros], 'anim.webp', { type: 'image/webp' });
+
+    await expect(compressEmojiImage(fichier)).rejects.toMatchObject({
+      raison: 'anime-trop-lourd',
+    });
+  });
+});
+
 describe('compressEmojiImage — GIF animé', () => {
   it('transmet tel quel un GIF animé sous la limite', async () => {
     const fichier = new File([gifOctets(3)], 'anim.gif', { type: 'image/gif' });
@@ -202,7 +278,7 @@ describe('compressEmojiImage — GIF animé', () => {
     const fichier = new File([gros], 'anim.gif', { type: 'image/gif' });
 
     await expect(compressEmojiImage(fichier)).rejects.toMatchObject({
-      raison: 'gif-anime-trop-lourd',
+      raison: 'anime-trop-lourd',
     });
   });
 });

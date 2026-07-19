@@ -464,7 +464,7 @@ export const en: Dict = {
     emojiCount: 'Emojis — {count}',
     emojiEmpty: 'No emoji yet.',
     emojiTooLarge: 'The image exceeds the 256 KiB limit.',
-    emojiAnimatedTooLarge: 'Animated GIF too large (256 KiB max).',
+    emojiAnimatedTooLarge: 'Animated image too large (256 KiB max).',
     emojiInvalidImage: 'This file is not a usable image (PNG, JPEG, WebP, GIF).',
     emojiLimit: 'At most 50 emojis per server.',
     // Stickers.

@@ -12,10 +12,10 @@
  *   demandé (ratio conservé, aucun recadrage, fond transparent préservé),
  *   puis encodées en WebP (repli PNG si l'encodage WebP est indisponible) en
  *   dégradant qualité puis dimensions jusqu'à passer sous la limite.
- * - GIF animés : un ré-encodage canvas ne capturerait qu'une image fixe (perte
- *   de l'animation), donc l'original est transmis tel quel s'il tient déjà
- *   sous la limite ; sinon on échoue avec un message dédié (pas de dépendance
- *   de recompression GIF ajoutée).
+ * - GIF et WebP animés : un ré-encodage canvas ne capturerait qu'une image
+ *   fixe (perte de l'animation), donc l'original est transmis tel quel s'il
+ *   tient déjà sous la limite ; sinon on échoue avec un message dédié (pas de
+ *   dépendance de recompression ajoutée).
  */
 
 import { fichierEnB64, fichierEnDataUrl } from './attachments';
@@ -32,7 +32,7 @@ const PALIERS_TAILLE = [EMOJI_TAILLE_MAX_PX, 96, 64] as const;
 const PALIERS_QUALITE = [0.9, 0.7, 0.5] as const;
 
 /** Raison d'échec de compression, pour un message utilisateur ciblé. */
-export type RaisonEchecCompression = 'gif-anime-trop-lourd' | 'compression-impossible';
+export type RaisonEchecCompression = 'anime-trop-lourd' | 'compression-impossible';
 
 /** Échec de compression d'une image d'émoji (contrat non atteignable). */
 export class EmojiCompressionError extends Error {
@@ -111,6 +111,36 @@ function sauterSousBlocs(bytes: Uint8Array, depart: number): number {
   return offset;
 }
 
+/**
+ * Vrai si les octets `bytes` forment un WebP animé. Parcourt les chunks du
+ * conteneur RIFF sans décoder les pixels : le drapeau Animation (bit 0x02) du
+ * chunk `VP8X` fait foi, et la présence d'un chunk `ANIM`/`ANMF` est acceptée
+ * en repli (fichiers étendus sans VP8X conformes a minima). Rend `false` sur
+ * un flux tronqué ou malformé — traité comme statique, comme pour les GIF.
+ */
+export function estWebpAnime(bytes: Uint8Array): boolean {
+  if (bytes.length < 16) return false;
+  const fourcc = (o: number) =>
+    String.fromCharCode(bytes[o] ?? 0, bytes[o + 1] ?? 0, bytes[o + 2] ?? 0, bytes[o + 3] ?? 0);
+  if (fourcc(0) !== 'RIFF' || fourcc(8) !== 'WEBP') return false;
+
+  let offset = 12;
+  while (offset + 8 <= bytes.length) {
+    const nom = fourcc(offset);
+    const taille =
+      ((bytes[offset + 4] ?? 0) |
+        ((bytes[offset + 5] ?? 0) << 8) |
+        ((bytes[offset + 6] ?? 0) << 16) |
+        ((bytes[offset + 7] ?? 0) << 24)) >>>
+      0;
+    if (nom === 'VP8X') return ((bytes[offset + 8] ?? 0) & 0x02) !== 0;
+    if (nom === 'ANIM' || nom === 'ANMF') return true;
+    // Les chunks RIFF sont alignés sur 2 octets (octet de bourrage si impair).
+    offset += 8 + taille + (taille % 2);
+  }
+  return false;
+}
+
 /** Dimensions réduites (ratio conservé, jamais agrandies) tenant dans `maxCote`. */
 export function ajusterDimensions(
   largeur: number,
@@ -182,16 +212,17 @@ function octetsDepuisBase64(b64: string): Uint8Array {
   return bytes;
 }
 
-/** GIF animé sous la limite : transmis tel quel, sinon échec dédié. */
-function passerGifAnime(
+/** Image animée sous la limite : transmise telle quelle, sinon échec dédié. */
+function passerAnime(
   dataB64: string,
+  mime: 'image/gif' | 'image/webp',
   tailleOctets: number,
   maxBytes: number,
 ): EmojiImageEncode {
   if (tailleOctets > maxBytes) {
-    throw new EmojiCompressionError('gif-anime-trop-lourd');
+    throw new EmojiCompressionError('anime-trop-lourd');
   }
-  return { dataB64, mime: 'image/gif', dataUrl: `data:image/gif;base64,${dataB64}` };
+  return { dataB64, mime, dataUrl: `data:${mime};base64,${dataB64}` };
 }
 
 /** Bornes de compression paramétrables (défauts : émoji de serveur). */
@@ -206,10 +237,11 @@ export interface CompressOptions {
  * Compresse une image choisie par l'utilisateur pour tenir sous
  * `options.maxBytes` (défaut `EMOJI_OCTETS_MAX`) une fois décodée, mise à
  * l'échelle par paliers de `options.sizes` (défaut `PALIERS_TAILLE`). Ne
- * touche jamais aux GIF animés au-delà d'une vérification de taille (voir
- * en-tête de fichier) ; toute autre image (y compris un GIF statique) passe
- * par le pipeline canvas. Les stickers de serveur (`lib/sticker.ts`) réutilisent
- * ce même pipeline avec des bornes plus larges plutôt que de le dupliquer.
+ * touche jamais aux GIF ni aux WebP animés au-delà d'une vérification de
+ * taille (voir en-tête de fichier) ; toute autre image (y compris un GIF ou
+ * un WebP statique) passe par le pipeline canvas. Les stickers de serveur
+ * (`lib/sticker.ts`) réutilisent ce même pipeline avec des bornes plus larges
+ * plutôt que de le dupliquer.
  */
 export async function compressEmojiImage(
   fichier: File,
@@ -217,10 +249,14 @@ export async function compressEmojiImage(
 ): Promise<EmojiImageEncode> {
   const maxBytes = options.maxBytes ?? EMOJI_OCTETS_MAX;
   const sizes = options.sizes ?? PALIERS_TAILLE;
-  if (fichier.type === 'image/gif') {
+  if (fichier.type === 'image/gif' || fichier.type === 'image/webp') {
     const dataB64 = await fichierEnB64(fichier);
     const bytes = octetsDepuisBase64(dataB64);
-    if (estGifAnime(bytes)) return passerGifAnime(dataB64, bytes.byteLength, maxBytes);
+    const anime =
+      fichier.type === 'image/gif' ? estGifAnime(bytes) : estWebpAnime(bytes);
+    if (anime) {
+      return passerAnime(dataB64, fichier.type, bytes.byteLength, maxBytes);
+    }
   }
   const url = await fichierEnDataUrl(fichier);
   const img = await chargerImage(url);

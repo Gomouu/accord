@@ -466,7 +466,7 @@ export const fr = {
     emojiCount: 'Émojis — {count}',
     emojiEmpty: 'Aucun émoji pour le moment.',
     emojiTooLarge: 'L’image dépasse la limite de 256 Kio.',
-    emojiAnimatedTooLarge: 'GIF animé trop lourd (max 256 Kio).',
+    emojiAnimatedTooLarge: 'Image animée trop lourde (max 256 Kio).',
     emojiInvalidImage:
       'Ce fichier n’est pas une image exploitable (PNG, JPEG, WebP, GIF).',
     emojiLimit: '50 émojis au maximum par serveur.',

@@ -5,7 +5,7 @@
 > repository (crates `accord-crypto`, `accord-transport`, `accord-dht`,
 > `accord-core`, `accord-node`) and in the `SPEC.md` / `ARCHITECTURE.md`
 > contracts.
-> Last reviewed: 2026-07-12. **No external audit has been performed.**
+> Last reviewed: 2026-07-21. **No external audit has been performed.**
 > The security trade-offs deliberately accepted for v0 are detailed in
 > [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md).
 
@@ -39,8 +39,11 @@
 The cryptographic crates come from the **RustCrypto** and **dalek**
 ecosystems, maintained and independently audited (decision D-001 —
 `sodiumoxide` rejected because unmaintained). `accord-crypto` is compiled with
-`#![forbid(unsafe_code)]`; the repository convention forbids `unwrap()` outside
-tests; in-memory secrets are wiped via `zeroize`.
+`#![forbid(unsafe_code)]`; the no-panic rule is **CI-enforced** (clippy denies
+`unwrap`/`expect`/`panic`/`todo`/`unimplemented` in libraries and binaries,
+outside tests), and a `cargo-fuzz` harness (8 targets under `fuzz/`) exercises
+the wire decoders, DHT records, group state and the backup archive against
+arbitrary input; in-memory secrets are wiped via `zeroize`.
 
 ## 3. Guarantees offered
 
@@ -119,6 +122,10 @@ tests; in-memory secrets are wiped via `zeroize`.
 - **Local database**: SQLCipher — full-file encryption (data, index, WAL,
   journal) under `db_key = HKDF(seed)` (D-013). Without the passphrase, neither
   the identity nor the database open.
+- **Encrypted backups** (`.accordbackup`): a full export is sealed with
+  **Argon2id + XChaCha20-Poly1305**, streamed chunk by chunk so the plaintext
+  archive never touches the disk; imported/created files are forced to `0600`.
+  A backup is worth exactly its passphrase — the same guarantee as the vault.
 - **Blind search index** (D-011): tokens are indexed under
   `HMAC-SHA-256(k_search, token)` — never any cleartext on disk.
 - **Recovery phrase**: 12 BIP39 words shown **only once** at creation, never
@@ -275,8 +282,10 @@ Recommended entry points for an auditor, from most critical to least critical:
 - [ ] **Mnemonic** (`crates/accord-crypto/src/mnemonic.rs`): HKDF derivation of
   the seed, BIP39 checksum, non-storage of the phrase.
 - [ ] **Strict decoding** (`crates/accord-proto`): size bounds (SPEC §13),
-  rejection of excess, absence of panic on arbitrary input (ideal fuzzing
-  target — not covered to date).
+  rejection of excess, absence of panic on arbitrary input — now covered by a
+  `cargo-fuzz` harness (`fuzz/fuzz_targets/`: `proto_decode`, `core_msg`,
+  `handshake_decode`, `dht_record`, `group_op_body`, `group_state`,
+  `file_manifest`, `backup_archive`).
 - [ ] **DHT record validation** (`crates/accord-dht/src/store.rs`): signature,
   key/nature consistency, expiration, quotas.
 - [ ] **Disjoint paths** (`crates/accord-dht/src/lookup.rs`): real disjunction
@@ -294,8 +303,9 @@ Recommended entry points for an auditor, from most critical to least critical:
 - [ ] **Blind search** (`crates/accord-core/src/search.rs`): quantify the
   frequency leak (D-011).
 - [ ] Verify the absence of `unsafe` (`forbid(unsafe_code)` on the sensitive
-  crates) and of `unwrap()` outside tests; run `cargo audit` / `cargo deny` on
-  the dependency tree.
+  crates) and of `unwrap()`/`expect()`/`panic!` outside tests — **enforced in
+  CI** (`ci.sh`: clippy deny-list), together with `cargo audit` / `cargo deny`
+  on the dependency tree.
 
 ## 8. Reporting a vulnerability
 
@@ -313,11 +323,11 @@ Please do **not** open a public issue for an exploitable flaw.
 
 ### Supported versions
 
-Accord is pre-1.0: **only the latest 0.x release** receives security fixes.
-Older releases are not patched — upgrade to the current release before
-reporting.
+**Only the latest release** receives security fixes (current line: 4.x,
+delivered through the in-app updater). Older releases are not patched — upgrade
+to the current release before reporting.
 
 | Version | Supported |
 |---------|-----------|
-| latest 0.x release | ✅ |
+| latest release (4.x) | ✅ |
 | older releases | ❌ |

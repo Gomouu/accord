@@ -20,6 +20,7 @@ import {
 import { useDms } from '../stores/dms';
 import { useFriends, displayNameOf } from '../stores/friends';
 import { useGroups } from '../stores/groups';
+import { useRecentSearches } from '../stores/recentSearches';
 import { useSession } from '../stores/session';
 import { useUi, useT, type View } from '../stores/ui';
 import { CloseIcon, SearchIcon } from './ContextMenu';
@@ -111,6 +112,12 @@ export function SearchBar() {
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
   const [rows, setRows] = useState<SearchHitRow[] | null>(null);
+  /** Champ actif : conditionne l'affichage des recherches récentes. */
+  const [focused, setFocused] = useState(false);
+  const recents = useRecentSearches((s) => s.items);
+  const recordSearch = useRecentSearches((s) => s.record);
+  const removeRecent = useRecentSearches((s) => s.remove);
+  const clearRecents = useRecentSearches((s) => s.clear);
   /** Identifie la seule requête encore autorisée à modifier l'interface. */
   const requestIdRef = useRef(0);
 
@@ -131,9 +138,10 @@ export function SearchBar() {
     setRows(null);
   };
 
-  const submit = async (): Promise<void> => {
-    const trimmed = query.trim();
+  const submit = async (override?: string): Promise<void> => {
+    const trimmed = (override ?? query).trim();
     if (trimmed === '' || busy) return;
+    recordSearch(trimmed);
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     setBusy(true);
@@ -157,6 +165,15 @@ export function SearchBar() {
     clear();
   };
 
+  /** Relance une recherche récente (remplit le champ puis exécute). */
+  const runRecent = (q: string): void => {
+    setQuery(q);
+    void submit(q);
+  };
+
+  const showRecents =
+    focused && query === '' && rows === null && !busy && recents.length > 0;
+
   return (
     <div className="relative border-b border-input/50 p-2.5">
       <div className="flex items-center gap-1.5 rounded-xl border border-transparent bg-input px-2.5 transition-colors duration-fast focus-within:border-blurple/50">
@@ -171,6 +188,8 @@ export function SearchBar() {
           placeholder={t.search.placeholder}
           value={query}
           onChange={(e) => changeQuery(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') void submit();
             if (e.key === 'Escape') clear();
@@ -224,6 +243,57 @@ export function SearchBar() {
             )}
             {rows.map((row) => (
               <HitRow key={row.hit.msg_id} row={row} onOpen={open} />
+            ))}
+          </div>
+        </div>
+      )}
+      {showRecents && (
+        <div
+          className="glass-strong popover-enter absolute inset-x-2 top-full z-10 mt-1 flex flex-col overflow-hidden rounded-lg"
+          style={{ maxHeight: 'min(20rem, calc(100vh - 7rem))' }}
+        >
+          <div className="min-h-0 overflow-y-auto p-2">
+            <div className="flex items-center justify-between px-2 pb-1">
+              <span className="text-xs font-medium uppercase tracking-wide text-faint">
+                {t.search.recent}
+              </span>
+              <button
+                type="button"
+                // `onMouseDown` capté avant le blur : garde le focus pour que
+                // le clic soit traité sans replier le menu prématurément.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={clearRecents}
+                className="rounded-sm px-1.5 py-0.5 text-xs text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+              >
+                {t.search.clearRecent}
+              </button>
+            </div>
+            {recents.map((q) => (
+              <div
+                key={q}
+                className="group flex items-center gap-1 rounded-md pr-1 hover:bg-chat-hover"
+              >
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => runRecent(q)}
+                  className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+                >
+                  <span aria-hidden className="shrink-0 text-faint">
+                    <SearchIcon size={13} />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{q}</span>
+                </button>
+                <button
+                  type="button"
+                  aria-label={t.search.clearRecent}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => removeRecent(q)}
+                  className="shrink-0 rounded-sm p-1 text-faint opacity-0 transition-opacity duration-fast hover:text-norm focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple group-hover:opacity-100"
+                >
+                  <CloseIcon size={12} />
+                </button>
+              </div>
             ))}
           </div>
         </div>

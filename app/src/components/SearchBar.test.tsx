@@ -19,6 +19,7 @@ import { SearchBar } from './SearchBar';
 import { useDms } from '../stores/dms';
 import { useFriends } from '../stores/friends';
 import { useGroups } from '../stores/groups';
+import { useRecentSearches } from '../stores/recentSearches';
 import { useSession } from '../stores/session';
 import { useUi } from '../stores/ui';
 
@@ -179,5 +180,21 @@ describe('SearchBar — résultats et saut', () => {
       expect(screen.queryByText('Aller au message')).not.toBeInTheDocument(),
     );
     expect(input).toHaveValue('nouvelle recherche');
+  });
+
+  it('propose les recherches récentes au focus et en relance une au clic', async () => {
+    useRecentSearches.setState({ items: ['alice'] });
+    searchMock.mockResolvedValue({ msg_ids: [], hits: [] });
+    render(<SearchBar />);
+
+    const input = screen.getByLabelText('Rechercher');
+    fireEvent.focus(input);
+    expect(screen.getByText('Recherches récentes')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('alice'));
+    await waitFor(() => expect(searchMock).toHaveBeenCalledWith('alice'));
+    expect(input).toHaveValue('alice');
+
+    useRecentSearches.setState({ items: [] });
   });
 });

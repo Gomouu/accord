@@ -701,6 +701,8 @@ export const fr = {
     clear: 'Effacer la recherche',
     filters: 'Filtres actifs',
     jumpHint: 'Aller au message',
+    recent: 'Recherches récentes',
+    clearRecent: 'Effacer',
   },
   quickSwitch: {
     title: 'Sélecteur rapide',

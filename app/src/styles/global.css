@@ -475,6 +475,15 @@ textarea {
 }
 
 /*
+ * Sélection de texte calée sur l'accent du thème (au lieu du bleu système
+ * incohérent) : fond blurple translucide, texte inchangé pour garder le
+ * contraste sur tous les thèmes clairs comme sombres.
+ */
+::selection {
+  background-color: rgb(var(--color-blurple) / 0.32);
+}
+
+/*
  * Verre liquide — utilitaires pour surfaces flottantes uniquement (menus
  * contextuels, popovers, toasts, modales). Voir GLASS APPLICATION MAP dans
  * le bloc DESIGN SYSTEM en tête de fichier : jamais sur un conteneur

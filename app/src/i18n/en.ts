@@ -693,6 +693,8 @@ export const en: Dict = {
     clear: 'Clear search',
     filters: 'Active filters',
     jumpHint: 'Jump to message',
+    recent: 'Recent searches',
+    clearRecent: 'Clear',
   },
   quickSwitch: {
     title: 'Quick switcher',

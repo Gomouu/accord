@@ -561,6 +561,9 @@ export interface NetworkStatus {
   port_mapping: 'upnp' | 'natpmp' | 'aucun';
   /** Nombre de pairs Accord découverts sur le réseau local (mDNS). */
   lan_peers: number;
+  /** Nature du NAT local déduite (SPEC §11.1) : `'unknown'`, `'cone'` ou
+   * `'symmetric'`. Champ additif (nœud 4.0+). */
+  nat_kind?: 'unknown' | 'cone' | 'symmetric';
 }
 
 /** Lien courant vers un ami (voir `network.peers`), pour le diagnostic. */
@@ -571,6 +574,42 @@ export interface PeerLink {
   live: boolean;
   /** Dernière adresse directe connue (`ip:port`), ou `null`. */
   addr: string | null;
+  /** Nature du lien : `'direct'` (UDP/TCP poinçonné), `'relay'` (tunnel via
+   * relais, SPEC §11.3) ou `'none'`. Champ additif (nœud 4.0+). */
+  transport?: 'direct' | 'relay' | 'none';
+  /** `ip:port` du relais hébergeant le tunnel quand `transport === 'relay'`. */
+  relay?: string | null;
+  /** Âge (ms) du dernier trafic entrant reçu de ce pair, ou `null`. */
+  last_recv_age_ms?: number | null;
+  /** Latence aller-retour (ms) mesurée sur le keep-alive, ou `null`. */
+  rtt_ms?: number | null;
+  /** Horodatage (ms) de la dernière remise réussie vers ce pair, ou `null`. */
+  last_delivery_ms?: number | null;
+}
+
+/** Compteurs de diagnostic locaux depuis le démarrage (voir `diagnostics.counters`). */
+export interface DiagnosticsCounters {
+  punch: { requested: number; received: number; ok: number; fail: number };
+  relay: { open_ok: number; open_fail: number };
+  mailbox: { deposits: number; pickups: number };
+  outbox: { enqueued: number; flushed: number };
+  reconnect: { attempts: number; ok: number };
+}
+
+/** Résultat de l'auto-test réseau borné (voir `diagnostics.selftest`). */
+export interface DiagnosticsSelftest {
+  p2p_port: number;
+  nat_kind: 'unknown' | 'cone' | 'symmetric';
+  port_mapping: 'upnp' | 'natpmp' | 'aucun';
+  external_addr: string | null;
+  observed_consensus: string | null;
+  dht_nodes: number;
+  connected_peers: number;
+  relay_eligible: boolean;
+  bootstrap: { addr: string; ok: boolean }[];
+  relay_probe: { addr: string; ok: boolean } | null;
+  /** Verdict de joignabilité : `'direct'`, `'punch'`, `'relay'` ou `'unknown'`. */
+  reachability: 'direct' | 'punch' | 'relay' | 'unknown';
 }
 
 /** Phase de l'appel 1-à-1 courant (`calls.status`, voir VOICE_CALLS.md §1.3). */
@@ -2091,6 +2130,16 @@ export class Api {
   /** Lien courant vers chaque ami (diagnostic de connectivité). */
   networkPeers(): Promise<PeerLink[]> {
     return this.rpc.call('network.peers');
+  }
+
+  /** Compteurs de diagnostic locaux depuis le démarrage du nœud (4.0+). */
+  diagnosticsCounters(): Promise<DiagnosticsCounters> {
+    return this.rpc.call('diagnostics.counters');
+  }
+
+  /** Lance un auto-test réseau borné (quelques secondes) et rend son verdict (4.0+). */
+  diagnosticsSelftest(): Promise<DiagnosticsSelftest> {
+    return this.rpc.call('diagnostics.selftest');
   }
 
   /**

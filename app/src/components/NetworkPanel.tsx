@@ -9,7 +9,13 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { NetworkStatus, PeerLink } from '../lib/api';
+import { interpolate } from '../i18n';
+import type {
+  DiagnosticsCounters,
+  DiagnosticsSelftest,
+  NetworkStatus,
+  PeerLink,
+} from '../lib/api';
 import { api, rpc } from '../lib/client';
 import { displayNameOf, useFriends } from '../stores/friends';
 import { useT } from '../stores/ui';
@@ -104,6 +110,10 @@ export function NetworkPanel() {
   const [ajoutErreur, setAjoutErreur] = useState(false);
   const [enCours, setEnCours] = useState(false);
   const [copiee, setCopiee] = useState<string | null>(null);
+  const [counters, setCounters] = useState<DiagnosticsCounters | null>(null);
+  const [selftest, setSelftest] = useState<DiagnosticsSelftest | null>(null);
+  const [selftestEnCours, setSelftestEnCours] = useState(false);
+  const [selftestErreur, setSelftestErreur] = useState(false);
 
   const rafraichir = useCallback((): void => {
     api
@@ -117,7 +127,23 @@ export function NetworkPanel() {
       .networkPeers()
       .then(setPeers)
       .catch(() => {});
+    // Compteurs de diagnostic : silencieux si le nœud est antérieur à 4.0.
+    api
+      .diagnosticsCounters()
+      .then(setCounters)
+      .catch(() => setCounters(null));
   }, [t.reseau.refreshFailed]);
+
+  const lancerAutotest = (): void => {
+    if (selftestEnCours) return;
+    setSelftestEnCours(true);
+    setSelftestErreur(false);
+    api
+      .diagnosticsSelftest()
+      .then(setSelftest)
+      .catch(() => setSelftestErreur(true))
+      .finally(() => setSelftestEnCours(false));
+  };
 
   useEffect(() => {
     rafraichir();
@@ -180,6 +206,23 @@ export function NetworkPanel() {
 
   const portMapping = status?.port_mapping ?? 'aucun';
   const externalAddr = status?.external_addr ?? null;
+
+  const natLabel = (k: NetworkStatus['nat_kind']): string =>
+    k === 'cone'
+      ? t.reseau.natCone
+      : k === 'symmetric'
+        ? t.reseau.natSymmetric
+        : t.reseau.natUnknown;
+  const reachLabel = (r: DiagnosticsSelftest['reachability']): string =>
+    r === 'direct'
+      ? t.reseau.reachDirect
+      : r === 'punch'
+        ? t.reseau.reachPunch
+        : r === 'relay'
+          ? t.reseau.reachRelay
+          : t.reseau.reachUnknown;
+  /** Une paire « n/m » pour un compteur (réussis/tentés). */
+  const paire = (a: number, b: number): string => `${a} / ${b}`;
 
   return (
     <div>
@@ -246,33 +289,126 @@ export function NetworkPanel() {
           </p>
         ) : (
           <ul className="divide-y divide-input overflow-hidden rounded-lg bg-sidebar">
-            {peersTries.map((p) => (
-              <li key={p.pubkey} className="flex items-center gap-3 p-3">
-                <span
-                  aria-hidden
-                  className={`h-2.5 w-2.5 shrink-0 rounded-full ${
-                    p.live ? 'bg-green' : 'bg-faint/50'
-                  }`}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-norm">
-                    {displayNameOf(contacts, p.pubkey)}
+            {peersTries.map((p) => {
+              const relaye = p.live && p.transport === 'relay';
+              const direct = p.live && p.transport === 'direct';
+              const sousLigne = relaye
+                ? p.relay !== null && p.relay !== undefined
+                  ? interpolate(t.reseau.linkVia, { relay: p.relay })
+                  : t.reseau.linkRelay
+                : direct && p.addr !== null
+                  ? p.addr
+                  : p.addr !== null
+                    ? `${t.reseau.friendLastAddr} : ${p.addr}`
+                    : t.reseau.friendNoAddr;
+              return (
+                <li key={p.pubkey} className="flex items-center gap-3 p-3">
+                  <span
+                    aria-hidden
+                    className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                      p.live ? 'bg-green' : 'bg-faint/50'
+                    }`}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium text-norm">
+                      {displayNameOf(contacts, p.pubkey)}
+                    </div>
+                    <div className="truncate text-xs text-faint">
+                      {sousLigne}
+                      {p.rtt_ms !== null && p.rtt_ms !== undefined && ` · ${p.rtt_ms} ms`}
+                    </div>
                   </div>
-                  <div className="truncate text-xs text-faint">
-                    {p.addr !== null
-                      ? `${t.reseau.friendLastAddr} : ${p.addr}`
-                      : t.reseau.friendNoAddr}
-                  </div>
-                </div>
-                <span
-                  className={`shrink-0 text-xs ${p.live ? 'text-green' : 'text-faint'}`}
-                >
-                  {p.live ? t.reseau.friendLive : t.reseau.friendOffline}
-                </span>
-              </li>
-            ))}
+                  {direct || relaye ? (
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                        direct ? 'bg-green/15 text-green' : 'bg-yellow/15 text-yellow'
+                      }`}
+                    >
+                      {direct ? t.reseau.linkDirect : t.reseau.linkRelay}
+                    </span>
+                  ) : (
+                    <span
+                      className={`shrink-0 text-xs ${p.live ? 'text-green' : 'text-faint'}`}
+                    >
+                      {p.live ? t.reseau.friendLive : t.reseau.friendOffline}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
+      </SettingsSection>
+
+      <SettingsSection title={t.reseau.diagnosticTitle} hint={t.reseau.diagnosticHint}>
+        <div className="space-y-3 rounded-lg bg-sidebar p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm text-muted">
+              {t.reseau.natKind} :{' '}
+              <span className="font-medium text-norm">{natLabel(status?.nat_kind)}</span>
+            </div>
+            <button
+              type="button"
+              onClick={lancerAutotest}
+              disabled={selftestEnCours}
+              className="shrink-0 rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
+            >
+              {selftestEnCours ? t.reseau.selftestRunning : t.reseau.selftestRun}
+            </button>
+          </div>
+
+          {selftestErreur && (
+            <p className="text-sm text-red">{t.reseau.selftestFailed}</p>
+          )}
+
+          {selftest !== null && (
+            <div className="rounded-md bg-input/60 p-3">
+              <div className="text-sm font-medium text-norm">
+                {t.reseau.reachability} :{' '}
+                <span className="text-green">{reachLabel(selftest.reachability)}</span>
+              </div>
+              <ul className="mt-1.5 space-y-0.5 font-mono text-xs text-faint">
+                {selftest.bootstrap.map((b) => (
+                  <li key={b.addr}>
+                    {b.addr} {b.ok ? '✓' : '✗'}
+                  </li>
+                ))}
+                {selftest.relay_probe !== null && (
+                  <li>
+                    {t.reseau.linkRelay} {selftest.relay_probe.addr}{' '}
+                    {selftest.relay_probe.ok ? '✓' : '✗'}
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
+
+          {counters !== null && (
+            <div>
+              <div className="mb-2 text-xs font-medium uppercase text-faint">
+                {t.reseau.counters}
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-center">
+                <Stat
+                  label={t.reseau.countersPunch}
+                  value={paire(counters.punch.ok, counters.punch.requested)}
+                />
+                <Stat
+                  label={t.reseau.countersRelay}
+                  value={paire(counters.relay.open_ok, counters.relay.open_fail)}
+                />
+                <Stat
+                  label={t.reseau.countersReconnect}
+                  value={paire(counters.reconnect.ok, counters.reconnect.attempts)}
+                />
+                <Stat
+                  label={t.reseau.countersMailbox}
+                  value={paire(counters.mailbox.deposits, counters.mailbox.pickups)}
+                />
+              </div>
+            </div>
+          )}
+        </div>
       </SettingsSection>
 
       <SettingsSection title={t.reseau.addPeer} hint={t.reseau.addPeerHint}>

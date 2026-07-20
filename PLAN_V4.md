@@ -261,7 +261,7 @@
 
 ### C.1 Différenciation « privacy-first » (l'avantage d'Accord)
 - [ ] **C1** **Tableau de bord vie privée** : montrer exactement ce qui est stocké localement, chiffré, et ce qui transite (rien vers un serveur). Argument de vente unique.
-- [ ] **C2** **Carte de connexion** en direct (NetworkPanel enrichi) : direct vs relais, type de NAT, pairs LAN, latence — pédagogie + confiance.
+- [x] **C2** **Carte de connexion** en direct (NetworkPanel enrichi) : direct vs relais, type de NAT, pairs LAN, latence — pédagogie + confiance.
 - [ ] **C3** **Assistant de sauvegarde** : rappel périodique, sauvegarde chiffrée `.accordbackup` en un clic, vérification de restauration.
 - [ ] **C4** **Vérification d'identité** entre amis (comparaison d'empreinte / mots de sécurité) façon Signal — anti-MITM visible.
 - [ ] **C5** **Messages éphémères / minuteur d'auto-suppression** par conversation (local, honoré par le client).

@@ -16,6 +16,8 @@ vi.mock('../lib/client', () => {
       networkPeers: vi.fn(),
       networkAddPeer: vi.fn(),
       networkRemovePeer: vi.fn(),
+      diagnosticsCounters: vi.fn(),
+      diagnosticsSelftest: vi.fn(),
     },
     rpc: {
       onEvent: (handler: (method: string, params: unknown) => void) => {
@@ -55,13 +57,27 @@ async function renderPanel(): Promise<void> {
 }
 
 const peersMock = api.networkPeers as unknown as Mock;
+const countersMock = api.diagnosticsCounters as unknown as Mock;
+const selftestMock = api.diagnosticsSelftest as unknown as Mock;
+
+const COUNTERS = {
+  punch: { requested: 4, received: 3, ok: 2, fail: 1 },
+  relay: { open_ok: 1, open_fail: 0 },
+  mailbox: { deposits: 5, pickups: 3 },
+  outbox: { enqueued: 2, flushed: 2 },
+  reconnect: { attempts: 3, ok: 3 },
+};
 
 beforeEach(() => {
   statusMock.mockReset();
   addPeerMock.mockReset();
   peersMock.mockReset();
+  countersMock.mockReset();
+  selftestMock.mockReset();
   statusMock.mockResolvedValue(STATUS);
   peersMock.mockResolvedValue([]);
+  countersMock.mockResolvedValue(COUNTERS);
+  selftestMock.mockResolvedValue(null);
 });
 
 describe('isLocalAddr', () => {
@@ -141,5 +157,54 @@ describe('NetworkPanel', () => {
     expect(screen.getByText('Offline')).toBeInTheDocument();
     expect(screen.getByText(/203\.0\.113\.9:48016/)).toBeInTheDocument();
     expect(screen.getByText(/Address never learned/i)).toBeInTheDocument();
+  });
+});
+
+describe('NetworkPanel — diagnostic (4.0)', () => {
+  it('affiche le type de NAT et les compteurs de diagnostic', async () => {
+    statusMock.mockResolvedValue({ ...STATUS, nat_kind: 'cone' });
+    await renderPanel();
+    await waitFor(() => expect(screen.getByText(/cone/i)).toBeInTheDocument());
+    // Poinçonnage : ok / requested = 2 / 4 (voir COUNTERS).
+    expect(screen.getByText('2 / 4')).toBeInTheDocument();
+  });
+
+  it('montre le lien relayé et la latence d’un ami connecté', async () => {
+    peersMock.mockResolvedValue([
+      {
+        pubkey: 'alice',
+        live: true,
+        addr: null,
+        transport: 'relay',
+        relay: '9.9.9.9:48016',
+        rtt_ms: 42,
+        last_recv_age_ms: 100,
+        last_delivery_ms: null,
+      },
+    ]);
+    await renderPanel();
+    await waitFor(() => expect(screen.getByText('Relay')).toBeInTheDocument());
+    expect(screen.getByText(/42 ms/)).toBeInTheDocument();
+    expect(screen.getByText(/9\.9\.9\.9:48016/)).toBeInTheDocument();
+  });
+
+  it('lance l’auto-test et affiche le verdict de joignabilité', async () => {
+    selftestMock.mockResolvedValue({
+      p2p_port: 48016,
+      nat_kind: 'symmetric',
+      port_mapping: 'aucun',
+      external_addr: null,
+      observed_consensus: null,
+      dht_nodes: 5,
+      connected_peers: 1,
+      relay_eligible: true,
+      bootstrap: [{ addr: '1.1.1.1:48016', ok: true }],
+      relay_probe: { addr: '2.2.2.2:48016', ok: true },
+      reachability: 'relay',
+    });
+    await renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: /self-test/i }));
+    await waitFor(() => expect(screen.getByText('Via relay')).toBeInTheDocument());
+    expect(screen.getByText(/1\.1\.1\.1:48016/)).toBeInTheDocument();
   });
 });

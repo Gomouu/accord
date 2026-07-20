@@ -84,8 +84,8 @@
 - [ ] **A52** Retirer les `will-change` résiduels après animation ; n'animer que transform/opacity/clip-path.
 
 ### A.7 États vides, chargement, feedback
-- [ ] **A53** **États vides** designés : aucun ami, aucun DM, aucun serveur, aucun résultat de recherche, boîte de mentions vide.
-- [ ] **A54** **Squelettes de chargement** : historique de messages, liste de membres, avatars, liste de serveurs.
+- [x] **A53** **États vides** designés : aucun ami, aucun DM, aucun serveur, aucun résultat de recherche, boîte de mentions vide.
+- [x] **A54** **Squelettes de chargement** : historique de messages, liste de membres, avatars, liste de serveurs.
 - [ ] **A55** **Toasts** (Toasts.tsx) repensés : succès/erreur/info, action inline, empilement, auto-dismiss.
 - [ ] **A56** **Bannière de mise à jour** (UpdateBanner) soignée + notes de version rendues (déjà Markdown) mises en forme.
 - [ ] **A57** **Bannière hors-ligne / reconnexion** claire (état réseau visible sans ouvrir NetworkPanel).
@@ -122,7 +122,7 @@
 - [ ] **A82** Surlignage de **mention** (fond `@moi`) distinct et lisible sur tous les thèmes.
 
 ### A.11 Badges, indicateurs & panneaux
-- [ ] **A83** **UnreadBadge** : formes, `99+`, pastille vs compteur, position stable.
+- [x] **A83** **UnreadBadge** : formes, `99+`, pastille vs compteur, position stable.
 - [ ] **A84** **Badge de mention @** rouge distinct du non-lu, aligné (Sidebar/ServerRail).
 - [ ] **A85** **MentionInbox** : liste des mentions designée, saut au message, marquage lu.
 - [ ] **A86** **Volet des épinglés** (DM + serveur) : cartes, saut, désépinglage.
@@ -229,7 +229,7 @@
 - [ ] **B59** **Aller aux non-lus** + « marquer comme lu » / « tout marquer lu » (markServerRead).
 - [ ] **B60** **Persistance de la position de défilement** par salon/DM au retour.
 - [ ] **B61** **Restaurer la dernière vue** au lancement (navPersistence) + salon actif.
-- [ ] **B62** **Zoom** de l'interface (Ctrl +/−) accessible et persistant.
+- [x] **B62** **Zoom** de l'interface (Ctrl +/−) accessible et persistant.
 - [ ] **B63** **Correcteur orthographique** dans le compositeur (natif WebView).
 - [ ] **B64** **Coller une image** → aperçu avant envoi (déjà partiel) fiabilisé.
 - [ ] **B65** **Indicateur de limite** (longueur message, taille pièce jointe) avec feedback avant erreur.

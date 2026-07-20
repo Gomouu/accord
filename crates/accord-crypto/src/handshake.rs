@@ -73,10 +73,8 @@ fn derive_keys(shared: &[u8; 32], t2: &[u8; 32]) -> SessionKeys {
     let hk = Hkdf::<Sha256>::new(Some(t2), shared);
     let mut k_i2r = Zeroizing::new([0u8; 32]);
     let mut k_r2i = Zeroizing::new([0u8; 32]);
-    hk.expand(b"accord-i2r", k_i2r.as_mut())
-        .expect("longueur HKDF valide");
-    hk.expand(b"accord-r2i", k_r2i.as_mut())
-        .expect("longueur HKDF valide");
+    crate::hkdf_expand_fixe(&hk, b"accord-i2r", k_i2r.as_mut());
+    crate::hkdf_expand_fixe(&hk, b"accord-r2i", k_r2i.as_mut());
     SessionKeys::new(*k_i2r, *k_r2i)
 }
 
@@ -275,6 +273,10 @@ impl CookieJar {
         }
     }
 
+    // SÛRETÉ (D23) : `Hmac::new_from_slice` est infaillible — HMAC accepte
+    // toute taille de clé par construction (RFC 2104). Allow ciblé plutôt
+    // qu'un repli silencieux qui fabriquerait un cookie sous une clé nulle.
+    #[allow(clippy::expect_used)]
     fn mac(&self, addr: &str, static_pub: &[u8; 32]) -> [u8; 16] {
         use hmac::{Hmac, Mac};
         let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&self.secret)

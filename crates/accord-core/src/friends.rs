@@ -48,13 +48,14 @@ const FRIEND_REQ_WINDOW_KEY: &str = "friends.reqin.window";
 /// débit par pair serait inopérant). Rend `false` si la fenêtre courante est
 /// saturée. Miroir du motif de `files_debit_ok`.
 fn friend_request_rate_ok(db: &Db, now_ms: u64) -> Result<bool, CoreError> {
-    let (mut debut, mut compte) = match db.meta(FRIEND_REQ_WINDOW_KEY)? {
-        Some(b) if b.len() == 16 => (
-            u64::from_le_bytes(b[..8].try_into().expect("8 octets")),
-            u64::from_le_bytes(b[8..16].try_into().expect("8 octets")),
-        ),
-        _ => (now_ms, 0u64),
-    };
+    // Lecture sans voie de panique (D23) : une valeur malformée (longueur
+    // inattendue) réarme simplement la fenêtre, comme une valeur absente.
+    let fenetre = db.meta(FRIEND_REQ_WINDOW_KEY)?.and_then(|b| {
+        let debut: [u8; 8] = b.get(..8)?.try_into().ok()?;
+        let compte: [u8; 8] = b.get(8..16)?.try_into().ok()?;
+        Some((u64::from_le_bytes(debut), u64::from_le_bytes(compte)))
+    });
+    let (mut debut, mut compte) = fenetre.unwrap_or((now_ms, 0u64));
     if now_ms.saturating_sub(debut) >= FRIEND_REQ_WINDOW_MS {
         debut = now_ms;
         compte = 0;

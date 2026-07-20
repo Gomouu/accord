@@ -50,7 +50,11 @@ impl LossEstimator {
         // d'arrivée pour rester robuste au bouclage.
         let mut min_off: i32 = 0;
         let mut max_off: i32 = 0;
-        let base = self.seen.front().expect("non vide").0;
+        // `seen.len() >= 2` vérifié ci-dessus : repli neutre plutôt que
+        // panique dans le chemin voix (D23).
+        let Some(&(base, _)) = self.seen.front() else {
+            return 0;
+        };
         for &(seq, _) in &self.seen {
             let off = seq_diff(base, seq);
             min_off = min_off.min(off);

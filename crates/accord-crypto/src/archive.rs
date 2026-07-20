@@ -183,9 +183,9 @@ impl BackupOpener {
         if intro.len() < Self::INTRO_LEN || !is_sealed_backup(intro) {
             return Err(CryptoError::VaultCorrupt);
         }
-        let m_kib = u32::from_be_bytes(intro[8..12].try_into().expect("taille fixe"));
-        let t_cost = u32::from_be_bytes(intro[12..16].try_into().expect("taille fixe"));
-        let p_cost = u32::from_be_bytes(intro[16..20].try_into().expect("taille fixe"));
+        let m_kib = crate::be_u32(intro, 8).ok_or(CryptoError::VaultCorrupt)?;
+        let t_cost = crate::be_u32(intro, 12).ok_or(CryptoError::VaultCorrupt)?;
+        let p_cost = crate::be_u32(intro, 16).ok_or(CryptoError::VaultCorrupt)?;
         // Mêmes bornes anti-DoS que le coffre : un en-tête altéré ne doit pas
         // demander une dérivation démesurée.
         if !(8..=1024 * 1024).contains(&m_kib)
@@ -200,9 +200,7 @@ impl BackupOpener {
         let prefix_start = 20 + SALT_LEN;
         prefix.copy_from_slice(&intro[prefix_start..prefix_start + NONCE_PREFIX_LEN]);
 
-        let verif_len =
-            u32::from_be_bytes(intro[HEADER_LEN..HEADER_LEN + 4].try_into().expect("fixe"))
-                as usize;
+        let verif_len = crate::be_u32(intro, HEADER_LEN).ok_or(CryptoError::VaultCorrupt)? as usize;
         if verif_len != TAG_LEN {
             return Err(CryptoError::VaultCorrupt);
         }
@@ -292,7 +290,7 @@ pub fn open_backup(sealed: &[u8], secret: &[u8]) -> Result<Vec<u8>, CryptoError>
             // Fin d'entrée sans tranche « fin » vue : conteneur tronqué.
             return Err(CryptoError::VaultCorrupt);
         }
-        let longueur = u32::from_be_bytes(reste[..4].try_into().expect("taille fixe")) as usize;
+        let longueur = crate::be_u32(reste, 0).ok_or(CryptoError::VaultCorrupt)? as usize;
         let fin = match reste[4] {
             0 => false,
             1 => true,

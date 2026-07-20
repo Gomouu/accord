@@ -15,12 +15,15 @@ use zeroize::Zeroizing;
 pub fn seed_from_entropy(entropy: &[u8; 16]) -> [u8; 32] {
     let hk = Hkdf::<Sha256>::new(Some(b"accord-recovery"), entropy);
     let mut seed = [0u8; 32];
-    hk.expand(b"identity", &mut seed)
-        .expect("longueur HKDF valide");
+    crate::hkdf_expand_fixe(&hk, b"identity", &mut seed);
     seed
 }
 
 /// Génère une phrase de 12 mots et la seed d'identité correspondante.
+// SÛRETÉ (D23) : 16 octets = 128 bits d'entropie, taille BIP-39 valide par
+// construction — `from_entropy_in` est infaillible sur cette entrée. Allow
+// ciblé plutôt qu'une signature `Result` que rien ne peut produire.
+#[allow(clippy::expect_used)]
 pub fn generate() -> (String, [u8; 32]) {
     let mut entropy = Zeroizing::new([0u8; 16]);
     OsRng.fill_bytes(entropy.as_mut());

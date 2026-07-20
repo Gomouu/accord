@@ -1,0 +1,1349 @@
+warning: used `expect()` on a `Result` value
+  --> crates/accord-proto/tests/roundtrip.rs:11:16
+   |
+11 |     let back = Packet::from_bytes(&bytes).expect("decode");
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#expect_used
+   = note: requested on the command line with `-W clippy::expect-used`
+
+warning: used `expect()` on a `Result` value
+  --> crates/accord-proto/tests/roundtrip.rs:17:16
+   |
+17 |     let back = ChannelMsg::from_bytes(&bytes).expect("decode");
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#expect_used
+
+warning: used `unwrap()` on a `Result` value
+   --> crates/accord-proto/tests/roundtrip.rs:140:22
+    |
+140 |             WireAddr("192.168.1.10:4433".parse::<SocketAddr>().unwrap()),
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+    = note: requested on the command line with `-W clippy::unwrap-used`
+
+warning: used `unwrap()` on a `Result` value
+   --> crates/accord-proto/tests/roundtrip.rs:141:22
+    |
+141 |             WireAddr("[2001:db8::1]:4433".parse::<SocketAddr>().unwrap()),
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: doc quote line without `>` marker
+  --> crates/accord-crypto/src/lib.rs:60:5
+   |
+60 | /// Centralise l'unique `expect` justifié du crate (D23).
+   |     ^
+   |
+   = help: if this not intended to be a quote at all, escape it with `\>`
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#doc_lazy_continuation
+   = note: `#[warn(clippy::doc_lazy_continuation)]` on by default
+help: add markers to start of line
+   |
+60 | /// > Centralise l'unique `expect` justifié du crate (D23).
+   |     +
+
+warning: missing documentation for a function
+  --> crates/accord-crypto/src/lib.rs:71:1
+   |
+71 | pub fn derive_db_key(seed: &[u8; 32]) -> [u8; 32] {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: the lint level is defined here
+  --> crates/accord-crypto/src/lib.rs:20:9
+   |
+20 | #![warn(missing_docs)]
+   |         ^^^^^^^^^^^^
+
+warning: used `expect()` on a `Result` value
+    --> crates/accord-transport/src/endpoint.rs:2125:9
+     |
+2125 | /         self.state
+2126 | |             .lock()
+2127 | |             .expect("state mutex")
+     | |__________________________________^
+     |
+     = note: if this value is an `Err`, it will panic
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#expect_used
+     = note: requested on the command line with `-W clippy::expect-used`
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-transport/tests/hole_punch_e2e.rs:39:28
+   |
+39 |     let addr: SocketAddr = addr.parse().unwrap();
+   |                            ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+   = note: requested on the command line with `-W clippy::unwrap-used`
+
+warning: used `expect()` on an `Option` value
+  --> crates/accord-transport/tests/hole_punch_e2e.rs:71:15
+   |
+71 |           match tokio::time::timeout(Duration::from_secs(2), node.events.recv())
+   |  _______________^
+72 | |             .await
+73 | |             .expect("timeout événement")
+74 | |             .expect("canal fermé")
+   | |__________________________________^
+   |
+   = note: if this value is `None`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#expect_used
+   = note: requested on the command line with `-W clippy::expect-used`
+
+warning: used `expect()` on a `Result` value
+  --> crates/accord-transport/tests/hole_punch_e2e.rs:71:15
+   |
+71 |           match tokio::time::timeout(Duration::from_secs(2), node.events.recv())
+   |  _______________^
+72 | |             .await
+73 | |             .expect("timeout événement")
+   | |________________________________________^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#expect_used
+
+warning: used `expect()` on a `Result` value
+   --> crates/accord-transport/tests/hole_punch_e2e.rs:115:5
+    |
+115 | /     tokio::time::timeout(Duration::from_secs(3), async {
+116 | |         loop {
+117 | |             if a.session_count() == 1 && b.session_count() == 1 {
+118 | |                 break;
+...   |
+123 | |     .await
+124 | |     .expect("les deux endpoints doivent établir une session unique");
+    | |____________________________________________________________________^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#expect_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-transport/tests/tcp_link_e2e.rs:32:9
+   |
+32 | /         UdpDatagram::bind("127.0.0.1:0".parse().unwrap())
+33 | |             .await
+34 | |             .unwrap(),
+   | |_____________________^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+   = note: requested on the command line with `-W clippy::unwrap-used`
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-transport/tests/tcp_link_e2e.rs:32:27
+   |
+32 |         UdpDatagram::bind("127.0.0.1:0".parse().unwrap())
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-transport/tests/tcp_link_e2e.rs:63:20
+   |
+63 |     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-transport/tests/tcp_link_e2e.rs:64:18
+   |
+64 |     let target = listener.local_addr().unwrap();
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-transport/tests/tcp_link_e2e.rs:66:18
+   |
+66 |     let peer_b = a.links.adopt(client.unwrap()).unwrap();
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-transport/tests/tcp_link_e2e.rs:66:32
+   |
+66 |     let peer_b = a.links.adopt(client.unwrap()).unwrap();
+   |                                ^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-transport/tests/tcp_link_e2e.rs:67:18
+   |
+67 |     let peer_a = b.links.adopt(server.unwrap().0).unwrap();
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-transport/tests/tcp_link_e2e.rs:67:32
+   |
+67 |     let peer_a = b.links.adopt(server.unwrap().0).unwrap();
+   |                                ^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-transport/tests/relay_e2e.rs:35:28
+   |
+35 |     let addr: SocketAddr = addr.parse().unwrap();
+   |                            ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+   = note: requested on the command line with `-W clippy::unwrap-used`
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-transport/tests/relay_e2e.rs:51:5
+   |
+51 |     client.ep.connect(relay.addr).await.unwrap();
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `expect()` on a `Result` value
+  --> crates/accord-transport/tests/relay_e2e.rs:52:5
+   |
+52 | /     tokio::time::timeout(Duration::from_secs(3), async {
+53 | |         loop {
+54 | |             if client.ep.session_count() >= 1 && relay.ep.session_count() >= expected_relay_sessions
+...  |
+61 | |     .await
+62 | |     .expect("session client↔relais établie");
+   | |____________________________________________^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#expect_used
+   = note: requested on the command line with `-W clippy::expect-used`
+
+warning: used `expect()` on an `Option` value
+  --> crates/accord-transport/tests/relay_e2e.rs:78:15
+   |
+78 |           match tokio::time::timeout(Duration::from_secs(2), node.events.recv())
+   |  _______________^
+79 | |             .await
+80 | |             .expect("timeout RelayAccepted")
+81 | |             .expect("canal fermé")
+   | |__________________________________^
+   |
+   = note: if this value is `None`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#expect_used
+
+warning: used `expect()` on a `Result` value
+  --> crates/accord-transport/tests/relay_e2e.rs:78:15
+   |
+78 |           match tokio::time::timeout(Duration::from_secs(2), node.events.recv())
+   |  _______________^
+79 | |             .await
+80 | |             .expect("timeout RelayAccepted")
+   | |____________________________________________^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#expect_used
+
+warning: used `expect()` on an `Option` value
+  --> crates/accord-transport/tests/relay_e2e.rs:92:15
+   |
+92 |           match tokio::time::timeout(Duration::from_secs(2), node.events.recv())
+   |  _______________^
+93 | |             .await
+94 | |             .expect("timeout RelayRejected")
+95 | |             .expect("canal fermé")
+   | |__________________________________^
+   |
+   = note: if this value is `None`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#expect_used
+
+warning: used `expect()` on a `Result` value
+  --> crates/accord-transport/tests/relay_e2e.rs:92:15
+   |
+92 |           match tokio::time::timeout(Duration::from_secs(2), node.events.recv())
+   |  _______________^
+93 | |             .await
+94 | |             .expect("timeout RelayRejected")
+   | |____________________________________________^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#expect_used
+
+warning: used `expect()` on an `Option` value
+   --> crates/accord-transport/tests/relay_e2e.rs:106:15
+    |
+106 |           match tokio::time::timeout(Duration::from_secs(2), node.events.recv())
+    |  _______________^
+107 | |             .await
+108 | |             .expect("timeout blob relayé")
+109 | |             .expect("canal fermé")
+    | |__________________________________^
+    |
+    = note: if this value is `None`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#expect_used
+
+warning: used `expect()` on a `Result` value
+   --> crates/accord-transport/tests/relay_e2e.rs:106:15
+    |
+106 |           match tokio::time::timeout(Duration::from_secs(2), node.events.recv())
+    |  _______________^
+107 | |             .await
+108 | |             .expect("timeout blob relayé")
+    | |__________________________________________^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#expect_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-transport/tests/handshake_e2e.rs:46:28
+   |
+46 |     let addr: SocketAddr = addr.parse().unwrap();
+   |                            ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+   = note: requested on the command line with `-W clippy::unwrap-used`
+
+warning: used `expect()` on an `Option` value
+  --> crates/accord-transport/tests/handshake_e2e.rs:66:15
+   |
+66 |           match tokio::time::timeout(Duration::from_secs(2), node.events.recv())
+   |  _______________^
+67 | |             .await
+68 | |             .expect("timeout événement")
+69 | |             .expect("canal fermé")
+   | |__________________________________^
+   |
+   = note: if this value is `None`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#expect_used
+   = note: requested on the command line with `-W clippy::expect-used`
+
+warning: used `expect()` on a `Result` value
+  --> crates/accord-transport/tests/handshake_e2e.rs:66:15
+   |
+66 |           match tokio::time::timeout(Duration::from_secs(2), node.events.recv())
+   |  _______________^
+67 | |             .await
+68 | |             .expect("timeout événement")
+   | |________________________________________^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#expect_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-transport/tests/relay_tunnel_e2e.rs:72:28
+   |
+72 |     let addr: SocketAddr = addr.parse().unwrap();
+   |                            ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+   = note: requested on the command line with `-W clippy::unwrap-used`
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-transport/tests/relay_tunnel_e2e.rs:85:28
+   |
+85 |     let addr: SocketAddr = addr.parse().unwrap();
+   |                            ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-transport/tests/relay_tunnel_e2e.rs:86:59
+   |
+86 |     let blocked: Vec<SocketAddr> = blocked.iter().map(|s| s.parse().unwrap()).collect();
+   |                                                           ^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+   --> crates/accord-transport/tests/relay_tunnel_e2e.rs:127:5
+    |
+127 |     client.ep.connect(relay.addr).await.unwrap();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `expect()` on a `Result` value
+   --> crates/accord-transport/tests/relay_tunnel_e2e.rs:128:5
+    |
+128 | /     tokio::time::timeout(Duration::from_secs(3), async {
+129 | |         loop {
+130 | |             if client.ep.session_count() >= 1 && relay.ep.session_count() >= expected_relay_sessions
+...   |
+137 | |     .await
+138 | |     .expect("session client↔relais établie");
+    | |____________________________________________^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#expect_used
+    = note: requested on the command line with `-W clippy::expect-used`
+
+warning: used `expect()` on a `Result` value
+   --> crates/accord-transport/tests/relay_tunnel_e2e.rs:144:5
+    |
+144 | /     tokio::time::timeout(Duration::from_secs(3), async {
+145 | |         loop {
+146 | |             match node.events.recv().await {
+147 | |                 Some(TransportEvent::Connected { static_pub, .. }) if static_pub == expected => {
+...   |
+155 | |     .await
+156 | |     .expect("Connected attendu avec l'identité visée");
+    | |______________________________________________________^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#expect_used
+
+warning: `panic` should not be present in production code
+   --> crates/accord-transport/tests/relay_tunnel_e2e.rs:151:25
+    |
+151 |                 None => panic!("canal d'événements fermé"),
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#panic
+    = note: requested on the command line with `-W clippy::panic`
+
+warning: used `expect()` on a `Result` value
+   --> crates/accord-transport/tests/relay_tunnel_e2e.rs:161:5
+    |
+161 | /     tokio::time::timeout(Duration::from_secs(3), async {
+162 | |         loop {
+163 | |             match node.events.recv().await {
+164 | |                 Some(TransportEvent::Message { msg, .. }) => return *msg,
+...   |
+170 | |     .await
+171 | |     .expect("message applicatif attendu")
+    | |_________________________________________^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#expect_used
+
+warning: `panic` should not be present in production code
+   --> crates/accord-transport/tests/relay_tunnel_e2e.rs:166:25
+    |
+166 |                 None => panic!("canal d'événements fermé"),
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#panic
+
+warning: used `unwrap()` on a `Result` value
+   --> crates/accord-transport/tests/relay_tunnel_e2e.rs:179:5
+    |
+179 |     from.ep.connect(to.addr).await.unwrap();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `expect()` on a `Result` value
+   --> crates/accord-transport/tests/relay_tunnel_e2e.rs:180:5
+    |
+180 | /     tokio::time::timeout(Duration::from_secs(3), async {
+181 | |         loop {
+182 | |             if from.ep.session_count() >= from_min && to.ep.session_count() >= to_min {
+183 | |                 break;
+...   |
+188 | |     .await
+189 | |     .expect("session directe établie");
+    | |______________________________________^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#expect_used
+
+warning: used `expect()` on a `Result` value
+   --> crates/accord-transport/tests/relay_tunnel_e2e.rs:195:19
+    |
+195 |       let circuit = alice
+    |  ___________________^
+196 | |         .ep
+197 | |         .open_relay_circuit(relay.addr, relay.ep.node_id(), bob.static_pub)
+198 | |         .await
+199 | |         .expect("circuit ouvert");
+    | |_________________________________^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#expect_used
+
+warning: used `expect()` on a `Result` value
+   --> crates/accord-transport/tests/relay_tunnel_e2e.rs:200:5
+    |
+200 | /     alice
+201 | |         .ep
+202 | |         .connect_via_relay(circuit, bob.static_pub)
+203 | |         .await
+204 | |         .expect("handshake tunnelé lancé");
+    | |__________________________________________^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#expect_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/nat_code_resolution_e2e.rs:48:9
+   |
+48 |         identity::unlock(&paths, PASSPHRASE).unwrap()
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+   = note: requested on the command line with `-W clippy::unwrap-used`
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/nat_code_resolution_e2e.rs:50:9
+   |
+50 |         identity::create(&paths, PASSPHRASE, 1).unwrap()
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/nat_code_resolution_e2e.rs:62:5
+   |
+62 | /     run_with_socket(unlocked, config, fast_maintenance(), socket)
+63 | |         .await
+64 | |         .unwrap()
+   | |_________________^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/calls_e2e.rs:17:20
+   |
+17 |     let unlocked = identity::create(&paths, "phrase-de-passe-test", 1).unwrap();
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+   = note: requested on the command line with `-W clippy::unwrap-used`
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/calls_e2e.rs:20:19
+   |
+20 |         p2p_addr: "127.0.0.1:0".parse().unwrap(),
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/calls_e2e.rs:26:5
+   |
+26 |     run(unlocked, config).await.unwrap()
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/calls_e2e.rs:56:23
+   |
+56 |       let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{}", node.api_addr()))
+   |  _______________________^
+57 | |         .await
+58 | |         .unwrap();
+   | |_________________^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/calls_e2e.rs:63:5
+   |
+63 |     ws.send(Message::Text(auth.to_string())).await.unwrap();
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/calls_e2e.rs:65:38
+   |
+65 |         if let Message::Text(text) = ws.next().await.unwrap().unwrap() {
+   |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on an `Option` value
+  --> crates/accord-node/tests/calls_e2e.rs:65:38
+   |
+65 |         if let Message::Text(text) = ws.next().await.unwrap().unwrap() {
+   |                                      ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is `None`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/calls_e2e.rs:66:28
+   |
+66 |             let v: Value = serde_json::from_str(&text).unwrap();
+   |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/profil_perdu_e2e.rs:52:9
+   |
+52 |         identity::unlock(&paths, PASSPHRASE).unwrap()
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+   = note: requested on the command line with `-W clippy::unwrap-used`
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/profil_perdu_e2e.rs:54:9
+   |
+54 |         identity::create(&paths, PASSPHRASE, 1).unwrap()
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/profil_perdu_e2e.rs:58:19
+   |
+58 |         p2p_addr: "127.0.0.1:0".parse().unwrap(),
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/profil_perdu_e2e.rs:64:5
+   |
+64 | /     run_with_maintenance(unlocked, config, maintenance)
+65 | |         .await
+66 | |         .unwrap()
+   | |_________________^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/maintenance_e2e.rs:52:9
+   |
+52 |         identity::unlock(&paths, PASSPHRASE).unwrap()
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+   = note: requested on the command line with `-W clippy::unwrap-used`
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/maintenance_e2e.rs:54:9
+   |
+54 |         identity::create(&paths, PASSPHRASE, 1).unwrap()
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/maintenance_e2e.rs:58:19
+   |
+58 |         p2p_addr: "127.0.0.1:0".parse().unwrap(),
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/maintenance_e2e.rs:63:5
+   |
+63 | /     run_with_maintenance(unlocked, config, fast_maintenance())
+64 | |         .await
+65 | |         .unwrap()
+   | |_________________^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+   --> crates/accord-node/tests/calls_e2e.rs:107:5
+    |
+107 |     alice.node.friend_request(&bob_pub, "Alice").unwrap();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/profil_perdu_e2e.rs:87:5
+   |
+87 |     alice.node.friend_request(&bob_pub, "Alice").unwrap();
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+   --> crates/accord-node/tests/calls_e2e.rs:118:5
+    |
+118 |     bob.node.friend_respond(&alice_pub, true).unwrap();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/maintenance_e2e.rs:87:5
+   |
+87 |     alice.node.friend_request(&bob_pub, "Alice").unwrap();
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/network_e2e.rs:24:20
+   |
+24 |     let unlocked = identity::create(&paths, "phrase-de-passe-test", 1).unwrap();
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+   = note: requested on the command line with `-W clippy::unwrap-used`
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/maintenance_e2e.rs:98:5
+   |
+98 |     bob.node.friend_respond(&alice_pub, true).unwrap();
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/profil_perdu_e2e.rs:98:5
+   |
+98 |     bob.node.friend_respond(&alice_pub, true).unwrap();
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/network_e2e.rs:32:19
+   |
+32 |         p2p_addr: format!("127.0.0.1:{port}").parse().unwrap(),
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/network_e2e.rs:41:5
+   |
+41 | /     run_with_maintenance(unlocked, config, maintenance)
+42 | |         .await
+43 | |         .unwrap()
+   | |_________________^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/voice_e2e.rs:17:20
+   |
+17 |     let unlocked = identity::create(&paths, "phrase-de-passe-test", 1).unwrap();
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+   = note: requested on the command line with `-W clippy::unwrap-used`
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/voice_e2e.rs:20:19
+   |
+20 |         p2p_addr: "127.0.0.1:0".parse().unwrap(),
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/voice_e2e.rs:26:5
+   |
+26 |     run(unlocked, config).await.unwrap()
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/voice_e2e.rs:56:23
+   |
+56 |       let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{}", node.api_addr()))
+   |  _______________________^
+57 | |         .await
+58 | |         .unwrap();
+   | |_________________^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/voice_e2e.rs:63:5
+   |
+63 |     ws.send(Message::Text(auth.to_string())).await.unwrap();
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/voice_e2e.rs:66:38
+   |
+66 |         if let Message::Text(text) = ws.next().await.unwrap().unwrap() {
+   |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on an `Option` value
+  --> crates/accord-node/tests/voice_e2e.rs:66:38
+   |
+66 |         if let Message::Text(text) = ws.next().await.unwrap().unwrap() {
+   |                                      ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is `None`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/voice_e2e.rs:67:28
+   |
+67 |             let v: Value = serde_json::from_str(&text).unwrap();
+   |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/profil_medias_e2e.rs:48:9
+   |
+48 |         identity::unlock(&paths, PASSPHRASE).unwrap()
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+   = note: requested on the command line with `-W clippy::unwrap-used`
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/profil_medias_e2e.rs:50:9
+   |
+50 |         identity::create(&paths, PASSPHRASE, 1).unwrap()
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/profil_medias_e2e.rs:54:19
+   |
+54 |         p2p_addr: "127.0.0.1:0".parse().unwrap(),
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/profil_medias_e2e.rs:60:5
+   |
+60 | /     run_with_maintenance(unlocked, config, maintenance)
+61 | |         .await
+62 | |         .unwrap()
+   | |_________________^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/profil_medias_e2e.rs:88:5
+   |
+88 |     alice.node.friend_request(&bob_pub, "Alice").unwrap();
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/profil_medias_e2e.rs:99:5
+   |
+99 |     bob.node.friend_respond(&alice_pub, true).unwrap();
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/profil_reboot_e2e.rs:52:9
+   |
+52 |         identity::unlock(&paths, PASSPHRASE).unwrap()
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+   = note: requested on the command line with `-W clippy::unwrap-used`
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/bench_mesures.rs:34:20
+   |
+34 |     let unlocked = identity::create(&paths, "phrase-de-passe-bench", 1).unwrap();
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+   = note: requested on the command line with `-W clippy::unwrap-used`
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/profil_reboot_e2e.rs:54:9
+   |
+54 |         identity::create(&paths, PASSPHRASE, 1).unwrap()
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/profil_reboot_e2e.rs:58:19
+   |
+58 |         p2p_addr: "127.0.0.1:0".parse().unwrap(),
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/profil_reboot_e2e.rs:64:5
+   |
+64 | /     run_with_maintenance(unlocked, config, maintenance)
+65 | |         .await
+66 | |         .unwrap()
+   | |_________________^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/profil_reboot_e2e.rs:92:5
+   |
+92 |     alice.node.friend_request(&bob_pub, "Alice").unwrap();
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/bench_mesures.rs:37:19
+   |
+37 |         p2p_addr: "127.0.0.1:0".parse().unwrap(),
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+   --> crates/accord-node/tests/profil_reboot_e2e.rs:103:5
+    |
+103 |     bob.node.friend_respond(&alice_pub, true).unwrap();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/bench_mesures.rs:43:5
+   |
+43 |     run(unlocked, config).await.unwrap()
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/bench_mesures.rs:69:5
+   |
+69 |     alice.node.friend_request(&bob_pub, "Alice").unwrap();
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/bench_mesures.rs:80:5
+   |
+80 |     bob.node.friend_respond(&alice_pub, true).unwrap();
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/two_node_e2e.rs:16:20
+   |
+16 |     let unlocked = identity::create(&paths, "phrase-de-passe-test", 1).unwrap();
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+   = note: requested on the command line with `-W clippy::unwrap-used`
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/nat_default_bootstrap_e2e.rs:58:9
+   |
+58 |         identity::unlock(&paths, PASSPHRASE).unwrap()
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+   = note: requested on the command line with `-W clippy::unwrap-used`
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/two_node_e2e.rs:19:19
+   |
+19 |         p2p_addr: "127.0.0.1:0".parse().unwrap(),
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/two_node_e2e.rs:25:5
+   |
+25 |     run(unlocked, config).await.unwrap()
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/nat_default_bootstrap_e2e.rs:60:9
+   |
+60 |         identity::create(&paths, PASSPHRASE, 1).unwrap()
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/nat_default_bootstrap_e2e.rs:73:5
+   |
+73 | /     run_with_socket(unlocked, config, fast_maintenance(), socket)
+74 | |         .await
+75 | |         .unwrap()
+   | |_________________^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+   --> crates/accord-node/tests/two_node_e2e.rs:250:23
+    |
+250 |       let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{}", node.api_addr()))
+    |  _______________________^
+251 | |         .await
+252 | |         .unwrap();
+    | |_________________^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+   --> crates/accord-node/tests/two_node_e2e.rs:257:5
+    |
+257 |     ws.send(Message::Text(auth.to_string())).await.unwrap();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+   --> crates/accord-node/tests/two_node_e2e.rs:259:38
+    |
+259 |         if let Message::Text(text) = ws.next().await.unwrap().unwrap() {
+    |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on an `Option` value
+   --> crates/accord-node/tests/two_node_e2e.rs:259:38
+    |
+259 |         if let Message::Text(text) = ws.next().await.unwrap().unwrap() {
+    |                                      ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is `None`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+   --> crates/accord-node/tests/two_node_e2e.rs:260:28
+    |
+260 |             let v: Value = serde_json::from_str(&text).unwrap();
+    |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/fichiers_nat_e2e.rs:44:9
+   |
+44 |         identity::unlock(&paths, PASSPHRASE).unwrap()
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+   = note: requested on the command line with `-W clippy::unwrap-used`
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/fichiers_nat_e2e.rs:46:9
+   |
+46 |         identity::create(&paths, PASSPHRASE, 1).unwrap()
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/fichiers_nat_e2e.rs:58:5
+   |
+58 | /     run_with_socket(unlocked, config, fast_maintenance(), socket)
+59 | |         .await
+60 | |         .unwrap()
+   | |_________________^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/nat_first_contact_e2e.rs:52:9
+   |
+52 |         identity::unlock(&paths, PASSPHRASE).unwrap()
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+   = note: requested on the command line with `-W clippy::unwrap-used`
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/nat_first_contact_e2e.rs:54:9
+   |
+54 |         identity::create(&paths, PASSPHRASE, 1).unwrap()
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/reconnexion_e2e.rs:44:9
+   |
+44 |         identity::unlock(&paths, PASSPHRASE).unwrap()
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+   = note: requested on the command line with `-W clippy::unwrap-used`
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/reconnexion_e2e.rs:46:9
+   |
+46 |         identity::create(&paths, PASSPHRASE, 1).unwrap()
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/reconnexion_e2e.rs:50:19
+   |
+50 |         p2p_addr: "127.0.0.1:0".parse().unwrap(),
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/reconnexion_e2e.rs:56:5
+   |
+56 | /     run_with_maintenance(unlocked, config, fast_maintenance())
+57 | |         .await
+58 | |         .unwrap()
+   | |_________________^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/nat_first_contact_e2e.rs:66:5
+   |
+66 | /     run_with_socket(unlocked, config, fast_maintenance(), socket)
+67 | |         .await
+68 | |         .unwrap()
+   | |_________________^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/reconnexion_e2e.rs:76:5
+   |
+76 |     alice.node.friend_request(&bob_pub, "Alice").unwrap();
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/reconnexion_e2e.rs:86:5
+   |
+86 |     bob.node.friend_respond(&alice_pub, true).unwrap();
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/fichiers_e2e.rs:43:15
+   |
+43 |     let dir = tempfile::tempdir().unwrap();
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+   = note: requested on the command line with `-W clippy::unwrap-used`
+
+warning: used `unwrap()` on a `Result` value
+  --> crates/accord-node/tests/fichiers_e2e.rs:44:14
+   |
+44 |     let db = Db::open(&dir.path().join("accord.db"), &[1u8; 32]).unwrap();
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: if this value is an `Err`, it will panic
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+   --> crates/accord-node/tests/fichiers_e2e.rs:182:20
+    |
+182 |     let unlocked = identity::create(&paths, "phrase-de-passe-test", 1).unwrap();
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+   --> crates/accord-node/tests/fichiers_e2e.rs:185:19
+    |
+185 |         p2p_addr: "127.0.0.1:0".parse().unwrap(),
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+   --> crates/accord-node/tests/fichiers_e2e.rs:190:5
+    |
+190 |     run(unlocked, config).await.unwrap()
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+   --> crates/accord-node/tests/fichiers_e2e.rs:198:23
+    |
+198 |       let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{}", node.api_addr()))
+    |  _______________________^
+199 | |         .await
+200 | |         .unwrap();
+    | |_________________^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+   --> crates/accord-node/tests/fichiers_e2e.rs:205:5
+    |
+205 |     ws.send(Message::Text(auth.to_string())).await.unwrap();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+   --> crates/accord-node/tests/fichiers_e2e.rs:207:38
+    |
+207 |         if let Message::Text(text) = ws.next().await.unwrap().unwrap() {
+    |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on an `Option` value
+   --> crates/accord-node/tests/fichiers_e2e.rs:207:38
+    |
+207 |         if let Message::Text(text) = ws.next().await.unwrap().unwrap() {
+    |                                      ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is `None`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+   --> crates/accord-node/tests/fichiers_e2e.rs:208:28
+    |
+208 |             let v: Value = serde_json::from_str(&text).unwrap();
+    |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `unwrap()` on a `Result` value
+   --> crates/accord-node/tests/fichiers_e2e.rs:220:5
+    |
+220 |     ws.send(Message::Text(req.to_string())).await.unwrap();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+
+warning: used `expect()` on a `Result` value
+   --> crates/accord-node/tests/fichiers_e2e.rs:223:20
+    |
+223 |           let next = tokio::time::timeout_at(deadline, ws.next())
+    |  ____________________^
+224 | |             .await
+225 | |             .expect("réponse RPC attendue");
+    | |___________________________________________^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#expect_used
+    = note: requested on the command line with `-W clippy::expect-used`
+
+warning: used `unwrap()` on a `Result` value
+   --> crates/accord-node/tests/fichiers_e2e.rs:229:24
+    |
+229 |         let v: Value = serde_json::from_str(&text).unwrap();
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: if this value is an `Err`, it will panic
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#unwrap_used
+

@@ -133,7 +133,12 @@ impl TransportDhtRpc {
 
     /// Corrèle une réponse DHT entrante à sa requête en attente.
     pub fn complete(&self, rpc_id: [u8; 20], body: DhtBody) {
-        if let Some(tx) = self.pending.lock().expect("pending mutex").remove(&rpc_id) {
+        if let Some(tx) = self
+            .pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&rpc_id)
+        {
             let _ = tx.send(body);
         }
     }
@@ -153,17 +158,23 @@ impl DhtRpc for TransportDhtRpc {
         let (tx, rx) = oneshot::channel();
         self.pending
             .lock()
-            .expect("pending mutex")
+            .unwrap_or_else(|e| e.into_inner())
             .insert(rpc_id, tx);
         let msg = ChannelMsg::Dht(DhtMessage { rpc_id, body });
         if self.endpoint.send(addr, &msg).await.is_err() {
-            self.pending.lock().expect("pending mutex").remove(&rpc_id);
+            self.pending
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&rpc_id);
             return None;
         }
         match tokio::time::timeout(RPC_TIMEOUT, rx).await {
             Ok(Ok(body)) => Some(body),
             _ => {
-                self.pending.lock().expect("pending mutex").remove(&rpc_id);
+                self.pending
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&rpc_id);
                 None
             }
         }

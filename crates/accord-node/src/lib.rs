@@ -88,7 +88,7 @@ impl Default for NodeConfig {
     fn default() -> Self {
         Self {
             paths: Paths::new("."),
-            p2p_addr: "0.0.0.0:0".parse().expect("adresse littérale valide"),
+            p2p_addr: SocketAddr::new(std::net::Ipv4Addr::UNSPECIFIED.into(), 0),
             api_port: 0,
             pow_bits: accord_proto::limits::IDENTITY_POW_BITS,
             voice_backend: VoiceBackend::default(),

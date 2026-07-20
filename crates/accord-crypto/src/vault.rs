@@ -107,9 +107,9 @@ pub fn open_vault(vault: &[u8], secret: &[u8]) -> Result<([u8; 32], u64), Crypto
     if vault.len() != expected_len || &vault[..8] != MAGIC {
         return Err(CryptoError::VaultCorrupt);
     }
-    let m_kib = u32::from_be_bytes(vault[8..12].try_into().expect("taille fixe"));
-    let t_cost = u32::from_be_bytes(vault[12..16].try_into().expect("taille fixe"));
-    let p_cost = u32::from_be_bytes(vault[16..20].try_into().expect("taille fixe"));
+    let m_kib = crate::be_u32(vault, 8).ok_or(CryptoError::VaultCorrupt)?;
+    let t_cost = crate::be_u32(vault, 12).ok_or(CryptoError::VaultCorrupt)?;
+    let p_cost = crate::be_u32(vault, 16).ok_or(CryptoError::VaultCorrupt)?;
     // Bornes anti-DoS : un coffre altéré ne doit pas demander 1 To de RAM.
     if !(8..=1024 * 1024).contains(&m_kib)
         || !(1..=16).contains(&t_cost)
@@ -143,7 +143,7 @@ pub fn open_vault(vault: &[u8], secret: &[u8]) -> Result<([u8; 32], u64), Crypto
     }
     let mut seed = [0u8; 32];
     seed.copy_from_slice(&plaintext[..32]);
-    let pow_nonce = u64::from_be_bytes(plaintext[32..].try_into().expect("taille fixe"));
+    let pow_nonce = crate::be_u64(&plaintext, 32).ok_or(CryptoError::VaultCorrupt)?;
     Ok((seed, pow_nonce))
 }
 

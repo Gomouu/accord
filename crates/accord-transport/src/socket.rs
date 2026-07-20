@@ -206,7 +206,7 @@ pub mod sim {
         /// Enregistre un nœud à `addr` et rend son socket.
         pub fn bind(&self, addr: SocketAddr) -> SimSocket {
             let (tx, rx) = mpsc::unbounded_channel();
-            let mut f = self.fabric.lock().expect("fabric mutex");
+            let mut f = self.fabric.lock().unwrap_or_else(|e| e.into_inner());
             f.inboxes.insert(addr, tx);
             f.conditions.insert(addr, self.default_conditions);
             f.down.insert(addr, false);
@@ -219,13 +219,13 @@ pub mod sim {
 
         /// Simule une coupure réseau d'un nœud (churn).
         pub fn set_down(&self, addr: SocketAddr, down: bool) {
-            let mut f = self.fabric.lock().expect("fabric mutex");
+            let mut f = self.fabric.lock().unwrap_or_else(|e| e.into_inner());
             f.down.insert(addr, down);
         }
 
         /// Ajuste les conditions réseau d'un nœud spécifique.
         pub fn set_conditions(&self, addr: SocketAddr, c: NetConditions) {
-            let mut f = self.fabric.lock().expect("fabric mutex");
+            let mut f = self.fabric.lock().unwrap_or_else(|e| e.into_inner());
             f.conditions.insert(addr, c);
         }
 
@@ -233,7 +233,7 @@ pub mod sim {
         /// SYMÉTRIQUE simulé d'IP externe `external_ip` : mapping par
         /// destination, filtrage entrant strict, aucun entrant non sollicité.
         pub fn set_symmetric_nat(&self, internal: SocketAddr, external_ip: std::net::IpAddr) {
-            let mut f = self.fabric.lock().expect("fabric mutex");
+            let mut f = self.fabric.lock().unwrap_or_else(|e| e.into_inner());
             f.nat.insert(
                 internal,
                 NatState {
@@ -246,7 +246,7 @@ pub mod sim {
 
         fn deliver(&self, from: SocketAddr, to: SocketAddr, buf: Vec<u8>) {
             let (inbox, src, delay) = {
-                let mut f = self.fabric.lock().expect("fabric mutex");
+                let mut f = self.fabric.lock().unwrap_or_else(|e| e.into_inner());
                 if *f.down.get(&from).unwrap_or(&false) {
                     return;
                 }
@@ -289,7 +289,7 @@ pub mod sim {
                     return;
                 }
                 let cond = f.conditions.get(&dest).copied().unwrap_or_default();
-                let mut rng = self.rng.lock().expect("rng mutex");
+                let mut rng = self.rng.lock().unwrap_or_else(|e| e.into_inner());
                 if rng.gen::<f64>() < cond.loss {
                     return; // datagramme perdu
                 }

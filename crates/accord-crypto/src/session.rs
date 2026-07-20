@@ -33,8 +33,7 @@ impl SessionKeys {
 fn next_epoch_key(k: &[u8; 32]) -> [u8; 32] {
     let hk = Hkdf::<Sha256>::new(None, k);
     let mut out = [0u8; 32];
-    hk.expand(b"accord-rekey", &mut out)
-        .expect("longueur HKDF valide");
+    crate::hkdf_expand_fixe(&hk, b"accord-rekey", &mut out);
     out
 }
 

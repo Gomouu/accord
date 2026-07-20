@@ -340,12 +340,12 @@ pub async fn punch_connect(
     let (socket, bind_addr): (TcpSocket, SocketAddr) = if remote.is_ipv4() {
         (
             TcpSocket::new_v4()?,
-            format!("0.0.0.0:{local_port}").parse().expect("addr v4"),
+            SocketAddr::new(std::net::Ipv4Addr::UNSPECIFIED.into(), local_port),
         )
     } else {
         (
             TcpSocket::new_v6()?,
-            format!("[::]:{local_port}").parse().expect("addr v6"),
+            SocketAddr::new(std::net::Ipv6Addr::UNSPECIFIED.into(), local_port),
         )
     };
     socket.set_reuseaddr(true)?;

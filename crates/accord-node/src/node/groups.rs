@@ -227,7 +227,7 @@ fn pending_redeem_key(group_id: &[u8; 16]) -> String {
 fn decode_fired_ids(bytes: &[u8]) -> BTreeSet<[u8; 16]> {
     bytes
         .chunks_exact(16)
-        .map(|c| c.try_into().expect("chunks_exact(16) produit 16 octets"))
+        .filter_map(|c| c.try_into().ok())
         .collect()
 }
 

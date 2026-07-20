@@ -15,6 +15,17 @@ cargo fmt --all --check
 step "Rust: cargo clippy --workspace --all-targets -D warnings"
 cargo clippy --workspace --all-targets -- -D warnings
 
+# Zéro panic en chemin de production (D23) : unwrap/expect/panic!/todo! sont
+# interdits dans les libs et binaires (les tests inline sont exclus via
+# clippy.toml, les tests d'intégration via la portée --lib --bins). Les rares
+# infaillibilités prouvées portent un #[allow] justifié en commentaire.
+# Même famille de garde-fous que debug_assert_with_mut_call (régression 3.0.0).
+step "Rust: clippy anti-panic (libs + bins)"
+cargo clippy --workspace --lib --bins -- -D warnings \
+  -D clippy::debug_assert_with_mut_call \
+  -D clippy::unwrap_used -D clippy::expect_used \
+  -D clippy::panic -D clippy::todo -D clippy::unimplemented
+
 step "Rust: cargo test --workspace"
 cargo test --workspace --quiet
 

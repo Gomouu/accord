@@ -226,7 +226,7 @@ fn ouvrir_fichier_scelle(src: &Path, dst: &Path, secret: &[u8]) -> Result<(), No
             // Fin d'entrée sans tranche « fin » vue : conteneur tronqué.
             return Err(accord_crypto::CryptoError::VaultCorrupt.into());
         }
-        let longueur = u32::from_be_bytes(tete[..4].try_into().expect("taille fixe")) as usize;
+        let longueur = u32::from_be_bytes([tete[0], tete[1], tete[2], tete[3]]) as usize;
         let fin = match tete[4] {
             0 => false,
             1 => true,

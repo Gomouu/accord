@@ -266,6 +266,19 @@ pub(super) fn contact_json(c: &Contact) -> Value {
 /// `{ "type": "unknown" }` (affiché comme message non pris en charge).
 fn body_json(kind: u8, body: &[u8]) -> Value {
     use accord_proto::core_msg::MsgBody;
+    // Kind LOCAL (jamais filaire) : carte d'invitation de serveur dans un MP.
+    if kind == accord_core::messaging::DM_KIND_INVITE {
+        return match accord_core::messaging::decode_invite_card(body) {
+            Ok(card) => json!({
+                "type": "invite",
+                "group_id": hex::encode(&card.group_id),
+                "invite_id": hex::encode(&card.invite_id),
+                "inviter": hex::encode(&card.inviter),
+                "group_name": card.group_name,
+            }),
+            Err(_) => json!({ "type": "unknown" }),
+        };
+    }
     match MsgBody::decode_body(kind, body) {
         Ok(MsgBody::Text {
             text,

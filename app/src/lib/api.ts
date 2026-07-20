@@ -111,6 +111,13 @@ export type MsgBody =
   | { type: 'reaction'; target: string; emoji: string; add: boolean }
   | { type: 'sticker'; name: string; merkle_root: string }
   | { type: 'poll'; poll_id: string; question: string; options: string[] }
+  | {
+      type: 'invite';
+      group_id: string;
+      invite_id: string;
+      inviter: string;
+      group_name: string;
+    }
   | { type: 'meta' }
   | { type: 'unknown' };
 

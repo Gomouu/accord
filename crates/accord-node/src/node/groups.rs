@@ -21,6 +21,7 @@ use accord_core::db::{IncomingInvite, LocalMembership};
 use accord_core::group;
 use accord_core::group::invite as group_invite;
 use accord_core::group::GroupState;
+use accord_core::messaging;
 use accord_proto::core_msg::{perms, ChannelKind, CoreMsg, FileRef, GroupOp, GroupOpBody};
 use serde_json::json;
 
@@ -1777,8 +1778,78 @@ impl Node {
             to: *invitee,
             msg: Box::new(ticket),
         });
+        // La conversation matérialise l'invitation (parité Discord) : carte
+        // locale dans le MP avec l'invité — le ticket filaire, lui, part
+        // inchangé (compat 3.x totale).
+        self.record_invite_card(
+            invitee,
+            &self.identity.public_key(),
+            &messaging::InviteCardBody {
+                group_id: *group_id,
+                invite_id: authored.invite_id,
+                inviter: self.identity.public_key(),
+                group_name,
+            },
+        );
         self.emit_group_state(group_id);
         Ok(hex::encode(&authored.invite_id))
+    }
+
+    /// Insère la carte d'invitation dans l'historique du MP avec
+    /// `conversation_peer` et prévient l'UI comme pour tout nouveau message
+    /// direct. Best-effort : une carte qui ne peut pas être posée (pair plus
+    /// ami, base indisponible) n'empêche jamais le flux d'invitation.
+    fn record_invite_card(
+        &self,
+        conversation_peer: &[u8; 32],
+        author: &[u8; 32],
+        card: &messaging::InviteCardBody,
+    ) {
+        let inserted = self
+            .with_db(|db| {
+                Ok(messaging::record_invite_card(
+                    db,
+                    conversation_peer,
+                    author,
+                    card,
+                    now_ms(),
+                )?)
+            })
+            .unwrap_or(false);
+        if inserted {
+            self.emit(
+                "event.dm",
+                json!({
+                    "peer": hex::encode(conversation_peer),
+                    "msg_id": hex::encode(&card.invite_id),
+                    "attachments": [],
+                }),
+            );
+        }
+    }
+
+    /// Migration douce (une fois par démarrage) : les invitations reçues
+    /// AVANT cette version vivaient uniquement dans l'onglet Amis — on les
+    /// re-présente comme cartes dans le MP de leur inviteur. Idempotent
+    /// (`msg_id = invite_id`) : les invitations déjà matérialisées en carte
+    /// sont ignorées par la contrainte d'unicité.
+    pub fn migrate_incoming_invites_to_dm(&self) {
+        let invites = match self.group_invites_list() {
+            Ok(invites) => invites,
+            Err(_) => return,
+        };
+        for inv in invites {
+            self.record_invite_card(
+                &inv.inviter,
+                &inv.inviter,
+                &messaging::InviteCardBody {
+                    group_id: inv.group_id,
+                    invite_id: inv.invite_id,
+                    inviter: inv.inviter,
+                    group_name: inv.group_name,
+                },
+            );
+        }
     }
 
     /// Invitations entrantes en attente (reçues, ni acceptées ni refusées).
@@ -2035,10 +2106,22 @@ impl Node {
             json!({
                 "group_id": hex::encode(&group_id),
                 "invite_id": hex::encode(&invite_id),
-                "group_name": stored.group_name,
+                "group_name": stored.group_name.clone(),
                 "inviter": hex::encode(&inviter),
                 "expires_ms": expires_ms,
             }),
+        );
+        // L'invitation apparaît DANS la conversation avec l'inviteur (parité
+        // Discord) : carte locale, comptée dans les non-lus comme un message.
+        self.record_invite_card(
+            &inviter,
+            &inviter,
+            &messaging::InviteCardBody {
+                group_id,
+                invite_id,
+                inviter,
+                group_name: stored.group_name,
+            },
         );
     }
 

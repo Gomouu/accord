@@ -121,6 +121,18 @@ export const fr = {
     empty: 'Aucune invitation en attente.',
     badge: '{count} invitation(s) en attente',
   },
+  inviteCard: {
+    title: 'Invitation à un serveur',
+    sentTitle: 'Invitation envoyée',
+    join: 'Rejoindre',
+    joinLabel: 'Rejoindre le serveur {name}',
+    declineLabel: 'Refuser l’invitation au serveur {name}',
+    joined: 'Rejoint',
+    goToServer: 'Aller au serveur',
+    accepted: 'Invitation acceptée — en attente de l’inviteur',
+    declined: 'Invitation refusée',
+    stale: 'Invitation expirée ou déjà traitée',
+  },
   dm: {
     placeholder: 'Écrire à @{name}',
     directMessages: 'Messages privés',

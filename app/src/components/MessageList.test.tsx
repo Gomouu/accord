@@ -1221,3 +1221,60 @@ describe('MessageList — fenêtre de rendu (windowing)', () => {
     expect(screen.queryByText('msg 0')).not.toBeInTheDocument();
   });
 });
+
+describe('MessageList — carte d’invitation de serveur (kind local)', () => {
+  function inviteMsg(id: string, author: string): DisplayMessage {
+    return {
+      msg_id: id,
+      author,
+      sent_ms: BASE_MS,
+      deleted: false,
+      body: {
+        type: 'invite',
+        group_id: 'g1',
+        invite_id: 'i1',
+        inviter: 'aabbccddee',
+        group_name: 'Guilde',
+      },
+      edited: null,
+    };
+  }
+
+  beforeEach(() => {
+    useUi.setState({ view: { kind: 'dm', peer: 'aabbccddee' } });
+    useGroups.setState({ ids: [], states: {}, pendingInvites: [] });
+  });
+
+  it('rend la carte avec le nom du serveur dans un MP', () => {
+    render(<MessageList messages={[inviteMsg('m1', 'aabbccddee')]} />);
+
+    expect(screen.getByText('Invitation à un serveur')).toBeInTheDocument();
+    expect(screen.getByText('Guilde')).toBeInTheDocument();
+  });
+
+  it('propose Rejoindre quand l’invitation est en attente', () => {
+    useGroups.setState({
+      pendingInvites: [
+        {
+          group_id: 'g1',
+          invite_id: 'i1',
+          group_name: 'Guilde',
+          inviter: 'aabbccddee',
+          expires_ms: 0,
+        },
+      ],
+    });
+    render(<MessageList messages={[inviteMsg('m1', 'aabbccddee')]} />);
+
+    expect(
+      screen.getByRole('button', { name: 'Rejoindre le serveur Guilde' }),
+    ).toBeInTheDocument();
+  });
+
+  it('côté inviteur : la carte affiche « Invitation envoyée »', () => {
+    useSession.setState({ self: { ...SELF, pubkey: 'moi' } });
+    render(<MessageList messages={[inviteMsg('m1', 'moi')]} />);
+
+    expect(screen.getByText('Invitation envoyée')).toBeInTheDocument();
+  });
+});

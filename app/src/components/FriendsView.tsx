@@ -7,13 +7,11 @@ import { copyToClipboard } from '../lib/clipboard';
 import { buildFriendLink, parseFriendLink } from '../lib/friendLink';
 import { useContextMenu } from '../stores/contextMenu';
 import { presenceOf, useFriends } from '../stores/friends';
-import { useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import { Avatar } from './Avatar';
 import { buildContactMenu } from './contactMenu';
 import { NetworkPanel } from './NetworkPanel';
-import { PendingInvites } from './PendingInvites';
 import { PresenceDot } from './PresenceDot';
 
 // Le QR d'ami embarque la librairie `qrcode` : chargé à la demande (à
@@ -22,7 +20,7 @@ const FriendQrModal = lazy(() =>
   import('./FriendQrModal').then((m) => ({ default: m.FriendQrModal })),
 );
 
-type Tab = 'all' | 'pending' | 'invitations' | 'blocked' | 'add';
+type Tab = 'all' | 'pending' | 'blocked' | 'add';
 /** Onglets adossés à la liste de contacts (`byTab`) — distincts d'« invitations » et « add ». */
 type ContactTab = 'all' | 'pending' | 'blocked';
 
@@ -424,7 +422,6 @@ export function FriendsView() {
   const t = useT();
   const contacts = useFriends((s) => s.contacts);
   const load = useFriends((s) => s.load);
-  const pendingInvites = useGroups((s) => s.pendingInvites);
   const [tab, setTab] = useState<Tab>('all');
 
   useEffect(() => {
@@ -447,7 +444,6 @@ export function FriendsView() {
   const tabs: { id: Tab; label: string; badge?: number }[] = [
     { id: 'all', label: t.friends.all },
     { id: 'pending', label: t.friends.pending },
-    { id: 'invitations', label: t.invitations.tabLabel, badge: pendingInvites.length },
     { id: 'blocked', label: t.friends.blocked },
   ];
 
@@ -521,13 +517,6 @@ export function FriendsView() {
       </header>
       {tab === 'add' ? (
         <AddFriend />
-      ) : tab === 'invitations' ? (
-        <div className="flex-1 overflow-y-auto p-4">
-          <div className="mb-2 px-1 text-[11px] font-medium uppercase tracking-wide text-muted">
-            {t.invitations.tabLabel} — {pendingInvites.length}
-          </div>
-          <PendingInvites />
-        </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-4">
           <div className="mb-2 px-1 text-[11px] font-medium uppercase tracking-wide text-muted">

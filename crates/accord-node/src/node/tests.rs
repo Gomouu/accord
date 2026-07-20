@@ -1532,3 +1532,52 @@ fn soundboard_play_broadcastable_requires_registered_sound() {
         &registered
     ));
 }
+
+/// L'invitation de serveur se matérialise comme CARTE dans le MP des deux
+/// côtés (parité Discord) : chez l'inviteur dès l'envoi du ticket, chez
+/// l'invité à l'ingestion — même `msg_id` (= `invite_id`), kind local
+/// [`accord_core::messaging::DM_KIND_INVITE`], jamais émis sur le fil.
+#[test]
+fn invitation_de_serveur_materialisee_en_carte_dans_le_mp_des_deux_cotes() {
+    use accord_core::messaging::{decode_invite_card, DM_KIND_INVITE};
+
+    let (alice, mut rx_a) = node_with_channel();
+    let (bob, _rx_b) = node_with_channel();
+    let alice_pub = alice.public_key();
+    let bob_pub = bob.public_key();
+
+    let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
+    let invite_id = hex::decode::<16>(&alice.group_invite_create(&gid, &bob_pub).unwrap()).unwrap();
+
+    let carte_alice = alice.dm_history(&bob_pub, u64::MAX, 10).unwrap();
+    assert_eq!(carte_alice.len(), 1);
+    assert_eq!(carte_alice[0].kind, DM_KIND_INVITE);
+    assert_eq!(carte_alice[0].msg_id, invite_id);
+    assert_eq!(carte_alice[0].author, alice_pub);
+    let corps = decode_invite_card(&carte_alice[0].body).unwrap();
+    assert_eq!(corps.group_id, gid);
+    assert_eq!(corps.group_name, "Guilde");
+    assert_eq!(corps.inviter, alice_pub);
+
+    deliver(&mut rx_a, &alice_pub, &bob, &bob_pub);
+    let carte_bob = bob.dm_history(&alice_pub, u64::MAX, 10).unwrap();
+    assert_eq!(carte_bob.len(), 1);
+    assert_eq!(carte_bob[0].kind, DM_KIND_INVITE);
+    assert_eq!(carte_bob[0].msg_id, invite_id);
+    assert_eq!(carte_bob[0].author, alice_pub);
+    assert!(bob
+        .group_invites_list()
+        .unwrap()
+        .iter()
+        .any(|i| i.invite_id == invite_id));
+
+    // L'acceptation retire l'invitation en attente mais la carte RESTE dans
+    // l'historique (trace de la conversation, l'UI en déduit l'état).
+    bob.group_invite_accept(&gid, &invite_id).unwrap();
+    assert!(bob.group_invites_list().unwrap().is_empty());
+    assert_eq!(bob.dm_history(&alice_pub, u64::MAX, 10).unwrap().len(), 1);
+
+    // Migration idempotente : re-jouer la migration ne duplique rien.
+    bob.migrate_incoming_invites_to_dm();
+    assert_eq!(bob.dm_history(&alice_pub, u64::MAX, 10).unwrap().len(), 1);
+}

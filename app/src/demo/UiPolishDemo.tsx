@@ -340,6 +340,25 @@ const DM_MESSAGES: DmMessage[] = [
     reactions: [{ emoji: '👌', author: 'noa' }],
     attachments: [],
   },
+  {
+    msg_id: 'dm-3',
+    author: 'noa',
+    lamport: 3,
+    sent_ms: now - 4 * 60_000,
+    acked: true,
+    delivery: 'sent',
+    deleted: false,
+    body: {
+      type: 'invite',
+      group_id: 'demo-invite-serveur',
+      invite_id: 'demo-invite-1',
+      inviter: 'noa',
+      group_name: 'Laboratoire Photon',
+    },
+    edited: null,
+    reactions: [],
+    attachments: [],
+  },
 ];
 
 const noop = async (): Promise<void> => {};
@@ -365,7 +384,15 @@ function seedDemoStores(): void {
     unread: { [GROUP_ID]: { design: 4 } },
     mentions: { [GROUP_ID]: 1 },
     channelMentions: { [GROUP_ID]: { [CHANNEL_ID]: 1 } },
-    pendingInvites: [],
+    pendingInvites: [
+      {
+        group_id: 'demo-invite-serveur',
+        invite_id: 'demo-invite-1',
+        group_name: 'Laboratoire Photon',
+        inviter: 'noa',
+        expires_ms: 0,
+      },
+    ],
     loadList: noop,
     refreshHistory: noop,
     loadPins: noop,

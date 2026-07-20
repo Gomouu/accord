@@ -406,6 +406,76 @@ pub fn ingest_ack(db: &Db, msg_id: &[u8; 16]) -> Result<(), CoreError> {
     db.ack_dm(msg_id)
 }
 
+/// Kind LOCAL d'une carte d'invitation de serveur dans l'historique direct.
+/// JAMAIS émis sur le fil : l'invitation voyage via `CoreMsg::InviteTicket`
+/// (0x0E) inchangé — cette ligne n'existe que dans la base locale des deux
+/// côtés pour matérialiser l'invitation DANS la conversation (parité
+/// Discord). Valeur haute, loin des kinds filaires de `MsgBody` (0-8), pour
+/// qu'une future extension filaire n'entre jamais en collision.
+pub const DM_KIND_INVITE: u8 = 200;
+
+/// Corps décodé d'une carte d'invitation locale ([`DM_KIND_INVITE`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InviteCardBody {
+    /// Groupe (serveur) concerné.
+    pub group_id: [u8; 16],
+    /// Invitation correspondante (`invite_id` du ticket).
+    pub invite_id: [u8; 16],
+    /// Inviteur (clé publique).
+    pub inviter: [u8; 32],
+    /// Nom du serveur au moment de l'invitation.
+    pub group_name: String,
+}
+
+/// Encode le corps d'une carte d'invitation locale.
+pub fn encode_invite_card(card: &InviteCardBody) -> Vec<u8> {
+    let mut w = accord_proto::Writer::new();
+    w.put_arr(&card.group_id);
+    w.put_arr(&card.invite_id);
+    w.put_arr(&card.inviter);
+    w.put_str(&card.group_name);
+    w.into_bytes()
+}
+
+/// Décode le corps d'une carte d'invitation locale (borne du nom alignée sur
+/// le décodage filaire du ticket).
+pub fn decode_invite_card(body: &[u8]) -> Result<InviteCardBody, CoreError> {
+    let mut r = accord_proto::Reader::new(body);
+    Ok(InviteCardBody {
+        group_id: r.arr()?,
+        invite_id: r.arr()?,
+        inviter: r.arr()?,
+        group_name: r.str(256, "invite_card.group_name")?,
+    })
+}
+
+/// Insère la carte d'invitation dans l'historique de la conversation avec
+/// `conversation_peer`. `msg_id = invite_id` : idempotent (ré-annonce du même
+/// ticket, migration re-jouée) et stable entre les deux côtés. Rend vrai si
+/// une ligne a réellement été insérée.
+pub fn record_invite_card(
+    db: &Db,
+    conversation_peer: &[u8; 32],
+    author: &[u8; 32],
+    card: &InviteCardBody,
+    now_ms: u64,
+) -> Result<bool, CoreError> {
+    let lamport = db.bump_lamport(0)?;
+    db.insert_dm(&DmRecord {
+        msg_id: card.invite_id,
+        peer: *conversation_peer,
+        author: *author,
+        lamport,
+        sent_ms: now_ms,
+        kind: DM_KIND_INVITE,
+        body: encode_invite_card(card),
+        // Ligne locale des deux côtés : aucune livraison à suivre.
+        acked: true,
+        deleted: false,
+        edited: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -810,5 +880,71 @@ mod tests {
         assert!(rec.deleted);
         assert!(rec.body.is_empty());
         assert!(search::search(&db, &SK, "secret").unwrap().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod tests_invite_card {
+    use super::*;
+    use crate::friends;
+
+    fn setup_friends() -> (Db, Identity, Identity) {
+        let db = Db::open_in_memory(&[5u8; 32]).unwrap();
+        let me = Identity::generate_with_pow_bits(1);
+        let peer = Identity::generate_with_pow_bits(1);
+        friends::request_friend(&db, &peer.public_key(), "Pair", 0).unwrap();
+        friends::ingest_friend_response(&db, &peer.public_key(), true, 0).unwrap();
+        (db, me, peer)
+    }
+
+    fn carte() -> InviteCardBody {
+        InviteCardBody {
+            group_id: [1; 16],
+            invite_id: [2; 16],
+            inviter: [3; 32],
+            group_name: "Atelier".into(),
+        }
+    }
+
+    #[test]
+    fn encode_decode_round_trip() {
+        let c = carte();
+        assert_eq!(decode_invite_card(&encode_invite_card(&c)).unwrap(), c);
+    }
+
+    #[test]
+    fn record_est_idempotent_par_invite_id() {
+        let (db, _me, peer) = setup_friends();
+        let c = carte();
+        assert!(record_invite_card(&db, &peer.public_key(), &peer.public_key(), &c, 10).unwrap());
+        assert!(!record_invite_card(&db, &peer.public_key(), &peer.public_key(), &c, 20).unwrap());
+        let hist = db.dm_history(&peer.public_key(), u64::MAX, 10).unwrap();
+        assert_eq!(hist.len(), 1);
+        assert_eq!(hist[0].kind, DM_KIND_INVITE);
+        assert_eq!(hist[0].msg_id, c.invite_id);
+        assert!(hist[0].acked);
+    }
+
+    /// Filet de compat filaire : `DM_KIND_INVITE` n'est PAS un kind filaire —
+    /// un nœud (ancien ou actuel) qui recevrait un `DirectMsg` avec ce kind
+    /// doit échouer au décodage sans rien stocker ni acquitter.
+    #[test]
+    fn kind_local_recu_sur_le_fil_est_rejete_sans_stockage() {
+        let (db, _me, peer) = setup_friends();
+        let res = ingest_dm(
+            &db,
+            &[6u8; 32],
+            &peer.public_key(),
+            &[9; 16],
+            1,
+            0,
+            DM_KIND_INVITE,
+            &encode_invite_card(&carte()),
+        );
+        assert!(res.is_err());
+        assert!(db
+            .dm_history(&peer.public_key(), u64::MAX, 10)
+            .unwrap()
+            .is_empty());
     }
 }

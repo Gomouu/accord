@@ -343,6 +343,10 @@ async fn run_node(
         sink.clone(),
         Some(hub.clone()),
     ));
+    // Migration douce : les invitations de serveur reçues avant cette
+    // version (onglet Amis) sont re-présentées comme cartes dans le MP de
+    // leur inviteur — idempotent, aucun état perdu.
+    node.migrate_incoming_invites_to_dm();
 
     // Runtime réseau (construit avant l'API : il résout les codes amis).
     let rpc = TransportDhtRpc::new(Arc::clone(&endpoint));

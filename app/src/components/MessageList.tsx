@@ -45,6 +45,7 @@ import {
   type MessageListActions,
 } from './messageModel';
 import { MessageQuote } from './MessageQuote';
+import { InviteCard } from './InviteCard';
 import { PollCard } from './PollCard';
 import { ReactionRow } from './Reactions';
 import { messageOf } from './server/controls';
@@ -283,6 +284,7 @@ export function MessageList({
       m.body.type === 'text' ||
       m.body.type === 'sticker' ||
       m.body.type === 'poll' ||
+      m.body.type === 'invite' ||
       m.body.type === 'unknown',
   );
 
@@ -750,6 +752,8 @@ export function MessageList({
                       }}
                       onCancel={() => setEditingId(null)}
                     />
+                  ) : !m.deleted && m.body.type === 'invite' ? (
+                    <InviteCard body={m.body} isOwn={isOwn} peer={dmPeer} />
                   ) : !m.deleted && m.body.type === 'sticker' ? (
                     <div className="leading-6">
                       <StickerImage

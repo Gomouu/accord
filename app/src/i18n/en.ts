@@ -120,6 +120,18 @@ export const en: Dict = {
     empty: 'No pending invitations.',
     badge: '{count} pending invitation(s)',
   },
+  inviteCard: {
+    title: 'Server invitation',
+    sentTitle: 'Invitation sent',
+    join: 'Join',
+    joinLabel: 'Join the {name} server',
+    declineLabel: 'Decline the invitation to the {name} server',
+    joined: 'Joined',
+    goToServer: 'Go to server',
+    accepted: 'Invitation accepted — waiting for the inviter',
+    declined: 'Invitation declined',
+    stale: 'Invitation expired or already handled',
+  },
   dm: {
     placeholder: 'Message @{name}',
     directMessages: 'Direct messages',

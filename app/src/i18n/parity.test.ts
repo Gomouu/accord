@@ -39,6 +39,15 @@ describe('parité i18n FR/EN', () => {
     expect(keysEn).toEqual(keysFr);
   });
 
+  it('n’a aucune valeur vide dans l’une ou l’autre langue', () => {
+    const vides: string[] = [];
+    for (const [key, value] of Object.entries(flatFr))
+      if (value.trim() === '') vides.push(`fr.${key}`);
+    for (const [key, value] of Object.entries(flatEn))
+      if (value.trim() === '') vides.push(`en.${key}`);
+    expect(vides).toEqual([]);
+  });
+
   it('a les mêmes marqueurs d’interpolation pour chaque clé', () => {
     const divergences: string[] = [];
     for (const [key, textFr] of Object.entries(flatFr)) {

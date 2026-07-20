@@ -20,6 +20,8 @@ session.json
 /RAPPORT.md
 /DECISIONS.md
 /ROADMAP.md
+# Prompts de délégation internes (coordination, jamais publiés)
+/PROMPT_LOT_*.md
 
 # Demo mode — local only (screenshots), never published
 /app/src/lib/demo.ts

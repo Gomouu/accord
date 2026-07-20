@@ -142,7 +142,9 @@ impl Declicker {
             }
             self.in_gap = false;
         }
-        self.last = *mono.last().expect("bloc non vide");
+        // Bloc non vide (garde en tête de fonction) : repli neutre plutôt que
+        // panique dans la boucle audio 20 ms (D23).
+        self.last = mono.last().copied().unwrap_or(self.last);
     }
 
     /// Complète `mono` jusqu'à `count` échantillons : rampe courte du dernier

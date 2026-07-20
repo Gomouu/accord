@@ -23,11 +23,9 @@ fn derive(shared: &[u8; 32], eph_pub: &[u8; 32], recipient_x: &[u8; 32]) -> ([u8
     salt[32..].copy_from_slice(recipient_x);
     let hk = Hkdf::<Sha256>::new(Some(&salt), shared);
     let mut key = [0u8; 32];
-    hk.expand(b"accord-seal", &mut key)
-        .expect("longueur HKDF valide");
+    crate::hkdf_expand_fixe(&hk, b"accord-seal", &mut key);
     let mut nonce = [0u8; 24];
-    hk.expand(b"accord-seal-nonce", &mut nonce)
-        .expect("longueur HKDF valide");
+    crate::hkdf_expand_fixe(&hk, b"accord-seal-nonce", &mut nonce);
     (key, *XNonce::from_slice(&nonce))
 }
 

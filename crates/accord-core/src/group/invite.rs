@@ -471,10 +471,15 @@ pub fn decode_invite_link(code: &str) -> Result<InviteLink, CoreError> {
     if checksum != &expected[..INVITE_LINK_CHECKSUM_LEN] {
         return Err(CoreError::Invalid("lien d'invitation corrompu"));
     }
+    // Lecture sans voie de panique (D23) : les bornes fixes sont vérifiées en
+    // amont ; un dépassement impossible rend un tableau nul (traité « absent »
+    // par `opt_root`) plutôt que de paniquer.
     fn arr<const N: usize>(payload: &[u8], from: usize) -> [u8; N] {
-        payload[from..from + N]
-            .try_into()
-            .expect("bornes fixes vérifiées ci-dessus")
+        let mut out = [0u8; N];
+        if let Some(s) = payload.get(from..from + N) {
+            out.copy_from_slice(s);
+        }
+        out
     }
     // Une racine toute à zéro (ou couleur nulle) signifie « absente ».
     fn opt_root(root: [u8; 32]) -> Option<[u8; 32]> {

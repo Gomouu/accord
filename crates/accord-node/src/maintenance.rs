@@ -714,6 +714,9 @@ async fn outbox_tick(rt: &Runtime, cfg: &MaintenanceConfig) {
             // session relayée a pour adresse celle du relais et l'envoi par
             // adresse y échoue en liaison d'identité).
             let sent = rt.send_via_best_link(&dest, &ChannelMsg::Core(msg)).await;
+            if sent {
+                rt.net_counters().outbox_flushed(1);
+            }
             if sent && !await_ack {
                 let _ = node.outbox_remove(item.id);
             } else {
@@ -749,6 +752,7 @@ async fn outbox_tick(rt: &Runtime, cfg: &MaintenanceConfig) {
                 // On ne solde que les dépôts réellement répliqués ; sinon la
                 // passe suivante retentera (directe ET dépôt).
                 if replicas > 0 {
+                    rt.net_counters().mailbox_deposit();
                     for id in ids {
                         let _ = node.outbox_mark_mailboxed(id, offline::day_of_ms(now));
                     }
@@ -801,6 +805,9 @@ pub(crate) async fn flush_peer(rt: &Runtime, peer: &[u8; 32], _addr: SocketAddr)
             let _ = rt.node().outbox_reschedule(item.id, now);
         }
     }
+    if pushed > 0 {
+        rt.net_counters().outbox_flushed(pushed as u64);
+    }
     tracing::debug!(total, pushed, "outbox : vidage à la connexion d'un pair");
 }
 
@@ -852,6 +859,7 @@ async fn mailbox_tick(rt: &Runtime, cfg: &MaintenanceConfig) {
             match rt.node().open_mailbox_deposit(&sender_node, &values) {
                 Ok(payloads) => {
                     let messages = payloads.len();
+                    rt.net_counters().mailbox_pickup(messages as u64);
                     for payload in payloads {
                         match decode_core(&payload) {
                             Ok(msg) => rt.route_core(&friend, msg).await,

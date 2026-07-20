@@ -35,7 +35,8 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::error::NodeError;
 use crate::maintenance::{self, MaintenanceConfig};
-use crate::node::network::{NetworkControl, NetworkStatus, PeerLink};
+use crate::node::diagnostics::{self, NetCounters, ProbeResult, SelfTestReport};
+use crate::node::network::{LinkTransport, NetworkControl, NetworkStatus, PeerLink};
 use crate::node::relay::{self, NatKind};
 use crate::node::Node;
 use crate::node::{discovery, holepunch, nat};
@@ -91,6 +92,13 @@ const FILES_REQUESTERS_MAX_PAR_ROOT: usize = 16;
 /// par fenêtre, les émissions échouées n'empilent pas de nouvelles tâches.
 const FILES_REPLI_MIN_MS: u64 = 10_000;
 
+/// Pairs d'amorçage sondés au plus par un auto-test réseau (borne de durée).
+const SELFTEST_BOOTSTRAP_MAX: usize = 8;
+/// Interrogations d'une sonde d'auto-test avant verdict d'échec.
+const SELFTEST_PROBE_POLLS: u32 = 10;
+/// Attente entre deux interrogations d'une sonde d'auto-test.
+const SELFTEST_PROBE_POLL_WAIT: Duration = Duration::from_millis(100);
+
 /// Borne du carnet d'adresses (cache best-effort, ré-résolu via la DHT au
 /// besoin) : au-delà, une entrée est évincée à l'insertion d'un nouveau pair.
 /// Empêche une croissance non bornée sous un flot de handshakes (PoW 16 bits) —
@@ -125,7 +133,12 @@ impl TransportDhtRpc {
 
     /// Corrèle une réponse DHT entrante à sa requête en attente.
     pub fn complete(&self, rpc_id: [u8; 20], body: DhtBody) {
-        if let Some(tx) = self.pending.lock().expect("pending mutex").remove(&rpc_id) {
+        if let Some(tx) = self
+            .pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&rpc_id)
+        {
             let _ = tx.send(body);
         }
     }
@@ -145,17 +158,23 @@ impl DhtRpc for TransportDhtRpc {
         let (tx, rx) = oneshot::channel();
         self.pending
             .lock()
-            .expect("pending mutex")
+            .unwrap_or_else(|e| e.into_inner())
             .insert(rpc_id, tx);
         let msg = ChannelMsg::Dht(DhtMessage { rpc_id, body });
         if self.endpoint.send(addr, &msg).await.is_err() {
-            self.pending.lock().expect("pending mutex").remove(&rpc_id);
+            self.pending
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&rpc_id);
             return None;
         }
         match tokio::time::timeout(RPC_TIMEOUT, rx).await {
             Ok(Ok(body)) => Some(body),
             _ => {
-                self.pending.lock().expect("pending mutex").remove(&rpc_id);
+                self.pending
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&rpc_id);
                 None
             }
         }
@@ -283,6 +302,13 @@ pub struct Runtime {
     /// l'assemblage ([`crate::run_with_maintenance`]) ; absent dans les tests
     /// sans réseau réel — le repli TCP est alors simplement désactivé.
     tcp_links: OnceLock<Arc<TcpLinks>>,
+    /// Compteurs réseau locaux (D3/D35) : poinçonnage, relais, boîtes aux
+    /// lettres, outbox, reconnexions. Jamais transmis — diagnostic local.
+    counters: NetCounters,
+    /// Dernière remise RÉUSSIE d'un message par pair (ms epoch), tout canal
+    /// confondu (direct, relais, vidage d'outbox). Alimente `network.peers`
+    /// (D4). Borné façon [`MAX_BOOK`] par éviction du plus ancien.
+    last_delivery: Mutex<HashMap<[u8; 32], u64>>,
 }
 
 /// Signal compact de changement réseau : ne déclenche `event.network` que sur
@@ -337,6 +363,8 @@ impl Runtime {
             self_ref: OnceLock::new(),
             punch: holepunch::PunchCoordinator::default(),
             tcp_links: OnceLock::new(),
+            counters: NetCounters::default(),
+            last_delivery: Mutex::new(HashMap::new()),
         })
     }
 
@@ -539,10 +567,12 @@ impl Runtime {
             if !due {
                 continue;
             }
+            self.counters.reconnect_attempt();
             let ok = self.seed_peer(addr).await;
             let connected = ok && self.is_peer_connected(&addr);
             let mut bo = self.boot_backoff.lock().unwrap_or_else(|e| e.into_inner());
             if connected {
+                self.counters.reconnect_ok();
                 bo.remove(&addr);
             } else {
                 let entry = bo.entry(addr).or_insert((0, 0));
@@ -716,6 +746,22 @@ impl Runtime {
                 .unwrap_or_else(|e| e.into_inner())
                 .insert(pubkey, addr);
         }
+    }
+
+    /// Compteurs réseau locaux (incrémentés par le runtime et la maintenance).
+    /// Nom distinct du `NetworkControl::counters` (photographie) pour lever
+    /// l'ambiguïté inhérent/trait.
+    pub(crate) fn net_counters(&self) -> &NetCounters {
+        &self.counters
+    }
+
+    /// Note une remise RÉUSSIE vers `to` (alimente `network.peers`, D4).
+    /// Bornée : éviction du plus ancien au-delà de [`MAX_BOOK`] entrées.
+    pub(crate) fn note_delivery(&self, to: &[u8; 32]) {
+        let now = crate::node::now_ms();
+        let mut map = self.last_delivery.lock().unwrap_or_else(|e| e.into_inner());
+        evict_oldest_if_full(&mut map, MAX_BOOK, to);
+        map.insert(*to, now);
     }
 
     // ---- Suivi des sessions vivantes (repli relais idempotent) ----
@@ -915,10 +961,12 @@ impl Runtime {
                 continue;
             }
             if self.open_and_tunnel(relay_addr, relay_node, friend).await {
+                self.counters.relay_open_ok();
                 tracing::debug!("repli : circuit relais ouvert vers l'ami");
                 return;
             }
         }
+        self.counters.relay_open_fail();
     }
 
     /// Ouvre le circuit relais puis initie le handshake tunnelé A↔B. Réessaie
@@ -985,6 +1033,7 @@ impl Runtime {
             candidates: candidates.into_iter().map(WireAddr).collect(),
         });
         if self.send_via_best_link(&friend, &msg).await {
+            self.counters.punch_requested();
             tracing::debug!("poinçonnage : demande coordonnée émise");
         }
     }
@@ -1007,7 +1056,10 @@ impl Runtime {
         // lien — `flush_peer` à la connexion, ou la passe d'outbox suivante).
         if let Some(addr) = self.endpoint.direct_session_addr(to) {
             match self.endpoint.send_to(addr, Some(*to), msg).await {
-                Ok(()) => return true,
+                Ok(()) => {
+                    self.note_delivery(to);
+                    return true;
+                }
                 Err(e) => tracing::debug!(
                     ami = %crate::hex::encode(&to[..4]),
                     %addr,
@@ -1023,7 +1075,10 @@ impl Runtime {
         }
         if let Some(circuit) = self.endpoint.circuit_for_peer(node_id_of(to)) {
             match self.endpoint.send_via_relay(circuit, msg).await {
-                Ok(()) => return true,
+                Ok(()) => {
+                    self.note_delivery(to);
+                    return true;
+                }
                 Err(e) => tracing::debug!(
                     ami = %crate::hex::encode(&to[..4]),
                     erreur = %e,
@@ -1060,6 +1115,7 @@ impl Runtime {
         if candidates.is_empty() {
             return;
         }
+        self.counters.punch_received();
         let ours: Vec<WireAddr> = self.presence_addrs().into_iter().map(WireAddr).collect();
         let resp = ChannelMsg::Control(ControlMsg::PunchResponse {
             token,
@@ -1090,6 +1146,9 @@ impl Runtime {
     fn spawn_punch(&self, friend: [u8; 32], candidates: Vec<SocketAddr>) {
         let endpoint = self.endpoint_arc();
         let tcp = self.tcp_links.get().cloned();
+        // Comptage du résultat (D3) : `None` si les boucles ne sont pas
+        // démarrées (tests sans réseau) — on ne compte alors rien.
+        let rt = self.arc();
         tokio::spawn(async move {
             let cands: Vec<Candidate> = candidates
                 .iter()
@@ -1099,13 +1158,18 @@ impl Runtime {
             if let Err(e) = endpoint.punch(&cands, friend).await {
                 tracing::debug!(erreur = %e, "poinçonnage coordonné : salve UDP échouée");
             }
-            if endpoint.has_direct_session_with(&friend) {
-                return;
+            if !endpoint.has_direct_session_with(&friend) {
+                if let Some(links) = tcp {
+                    tcp_punch_toward(Arc::clone(&endpoint), links, friend, &candidates).await;
+                }
             }
-            let Some(links) = tcp else {
-                return; // repli TCP non câblé (tests) : on s'arrête à l'UDP
-            };
-            tcp_punch_toward(endpoint, links, friend, &candidates).await;
+            if let Some(rt) = rt {
+                if endpoint.has_direct_session_with(&friend) {
+                    rt.counters.punch_ok();
+                } else {
+                    rt.counters.punch_fail();
+                }
+            }
         });
     }
 
@@ -1392,6 +1456,7 @@ impl Runtime {
                 .await
                 .is_ok()
             {
+                self.note_delivery(to_pubkey);
                 return;
             }
         }
@@ -1407,6 +1472,7 @@ impl Runtime {
                 .await
                 .is_ok()
             {
+                self.note_delivery(to_pubkey);
                 return;
             }
         }
@@ -1419,7 +1485,10 @@ impl Runtime {
             return;
         }
         match self.node.outbox_enqueue(to_pubkey, &msg) {
-            Ok(()) => tracing::debug!("core : destinataire injoignable, mis en file hors-ligne"),
+            Ok(()) => {
+                self.counters.outbox_enqueued();
+                tracing::debug!("core : destinataire injoignable, mis en file hors-ligne");
+            }
             Err(e) => tracing::warn!(erreur = %e, "core : mise en file hors-ligne impossible"),
         }
     }
@@ -1557,6 +1626,82 @@ impl Runtime {
             }
             Err(e) => tracing::debug!(erreur = %e, "core: ingestion refusée"),
         }
+    }
+
+    // ---- Auto-test réseau (D36, `diagnostics.selftest`) ----
+
+    /// Auto-test réseau borné : photographie de l'état (NAT, mapping,
+    /// consensus, DHT), sonde des pairs d'amorçage effectifs et d'UN relais
+    /// candidat. Chaque sonde est un `connect` idempotent suivi d'une courte
+    /// attente de session — au pire quelques secondes au total, jamais
+    /// bloquant pour le reste du nœud (appelé depuis le service API).
+    pub(crate) async fn run_self_test(&self) -> SelfTestReport {
+        let port = self.endpoint.local_addr().port();
+        let nat = self.nat.snapshot();
+        let consensus = self.observed_consensus();
+        let eligible = relay::relay_eligible(consensus, port, nat.external);
+
+        let mut bootstrap = Vec::new();
+        for addr in self
+            .all_bootstrap_peers()
+            .into_iter()
+            .take(SELFTEST_BOOTSTRAP_MAX)
+        {
+            let ok = self.probe_session(addr).await;
+            bootstrap.push(ProbeResult {
+                addr: addr.to_string(),
+                ok,
+            });
+        }
+
+        // Relais candidat : le premier relais annoncé joignable en principe
+        // (relais domicile de soi-même — même dérivation que le rendez-vous
+        // de premier contact). Aucun candidat : rien à sonder.
+        let me = self.node.public_key();
+        let relay_probe = match self
+            .home_relays_of(&me)
+            .into_iter()
+            .find_map(|info| info.addrs.first().map(|a| a.0))
+        {
+            Some(addr) => Some(ProbeResult {
+                addr: addr.to_string(),
+                ok: self.probe_session(addr).await,
+            }),
+            None => None,
+        };
+
+        SelfTestReport {
+            p2p_port: port,
+            nat_kind: self.nat_kind(),
+            port_mapping: nat.method,
+            external_addr: nat.external.map(|a| a.to_string()),
+            observed_consensus: consensus.map(|a| a.to_string()),
+            dht_nodes: self.dht.peer_count(),
+            connected_peers: self.book_len(),
+            relay_eligible: eligible,
+            bootstrap,
+            relay_probe,
+            reachability: diagnostics::reachability(eligible, self.nat_kind()),
+        }
+    }
+
+    /// Sonde une adresse : `connect` (idempotent — no-op si la session existe)
+    /// puis attente courte que la session soit apprise au carnet. Vrai si une
+    /// session est en place avant l'échéance.
+    async fn probe_session(&self, addr: SocketAddr) -> bool {
+        if self.is_peer_connected(&addr) {
+            return true;
+        }
+        if self.endpoint.connect(addr).await.is_err() {
+            return false;
+        }
+        for _ in 0..SELFTEST_PROBE_POLLS {
+            if self.is_peer_connected(&addr) {
+                return true;
+            }
+            tokio::time::sleep(SELFTEST_PROBE_POLL_WAIT).await;
+        }
+        self.is_peer_connected(&addr)
     }
 
     // ---- Fichiers (canal FILE) : service des pairs et téléchargements ----
@@ -2199,14 +2344,65 @@ impl NetworkControl for Runtime {
 
     fn peer_links(&self) -> Vec<PeerLink> {
         let friends = self.node.friend_pubkeys().unwrap_or_default();
+        let now = crate::node::now_ms();
+        // Vue des sessions par pair : la session DIRECTE la plus fraîche prime
+        // (même règle que `direct_session_addr` — après un redémarrage
+        // silencieux, la session cadavre coexiste 2 min avec la fraîche),
+        // une session relayée sert de repli d'affichage.
+        let mut sessions: HashMap<[u8; 32], accord_transport::SessionView> = HashMap::new();
+        for view in self.endpoint.session_views() {
+            match sessions.get(&view.peer_static) {
+                Some(cur) => {
+                    let cur_direct = cur.relay_circuit.is_none();
+                    let new_direct = view.relay_circuit.is_none();
+                    let remplace = match (cur_direct, new_direct) {
+                        (false, true) => true,
+                        (true, false) => false,
+                        _ => view.last_recv_ms > cur.last_recv_ms,
+                    };
+                    if remplace {
+                        sessions.insert(view.peer_static, view);
+                    }
+                }
+                None => {
+                    sessions.insert(view.peer_static, view);
+                }
+            }
+        }
+        let delivered = self
+            .last_delivery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         friends
             .into_iter()
-            .map(|pk| PeerLink {
-                pubkey: crate::hex::encode(&pk),
-                live: self.is_peer_live(&pk),
-                addr: self.addr_of(&pk).map(|a| a.to_string()),
+            .map(|pk| {
+                let session = sessions.get(&pk);
+                let (transport, relay) = match session {
+                    Some(s) if s.relay_circuit.is_none() => (LinkTransport::Direct, None),
+                    Some(s) => (LinkTransport::Relay, Some(s.addr.to_string())),
+                    None => (LinkTransport::None, None),
+                };
+                PeerLink {
+                    pubkey: crate::hex::encode(&pk),
+                    live: self.is_peer_live(&pk),
+                    addr: self.addr_of(&pk).map(|a| a.to_string()),
+                    transport,
+                    relay,
+                    last_recv_age_ms: session.map(|s| now.saturating_sub(s.last_recv_ms)),
+                    rtt_ms: session.and_then(|s| s.last_rtt_ms),
+                    last_delivery_ms: delivered.get(&pk).copied(),
+                }
             })
             .collect()
+    }
+
+    fn counters(&self) -> diagnostics::CountersSnapshot {
+        self.counters.snapshot()
+    }
+
+    async fn self_test(&self) -> SelfTestReport {
+        self.run_self_test().await
     }
 }
 

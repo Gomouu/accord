@@ -26,6 +26,12 @@ libfuzzer-sys = "0.4"
 [dependencies.accord-proto]
 path = "../crates/accord-proto"
 
+[dependencies.accord-core]
+path = "../crates/accord-core"
+
+[dependencies.accord-crypto]
+path = "../crates/accord-crypto"
+
 [[bin]]
 name = "proto_decode"
 path = "fuzz_targets/proto_decode.rs"
@@ -43,6 +49,41 @@ bench = false
 [[bin]]
 name = "core_msg"
 path = "fuzz_targets/core_msg.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "handshake_decode"
+path = "fuzz_targets/handshake_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dht_record"
+path = "fuzz_targets/dht_record.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "file_manifest"
+path = "fuzz_targets/file_manifest.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "group_state"
+path = "fuzz_targets/group_state.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "backup_archive"
+path = "fuzz_targets/backup_archive.rs"
 test = false
 doc = false
 bench = false

@@ -1,9 +1,12 @@
-# Fuzzing nocturne accord-proto — cargo-fuzz (libFuzzer, toolchain nightly).
+# Fuzzing nocturne — cargo-fuzz (libFuzzer, toolchain nightly).
 #
-# Invariant vérifié : aucun décodage du protocole filaire ne panique sur une
-# entrée arbitraire (les cibles vivent dans fuzz/fuzz_targets/). Chaque cible
-# tourne 4 minutes ; un crash/panic fait échouer le job avec l'entrée fautive
-# dans les logs.
+# Invariant vérifié : aucune surface exposée à une entrée non fiable ne panique
+# sur des octets arbitraires — décodage du protocole filaire (proto_decode,
+# core_msg, group_op_body, handshake_decode, dht_record, file_manifest), repli
+# du CRDT de groupe (group_state) et ouverture d'un conteneur chiffré importé
+# (backup_archive : coffre + archive de sauvegarde). Les cibles vivent dans
+# fuzz/fuzz_targets/. Chaque cible tourne 4 minutes sur son corpus de graines
+# committé ; un crash/panic fait échouer le job avec l'entrée fautive en logs.
 #
 # Déclencheurs : cron nocturne + lancement manuel depuis l'onglet Actions.
 name: Fuzz
@@ -41,13 +44,31 @@ jobs:
       - name: Build fuzz targets
         run: cargo +nightly fuzz build
 
-      # accord-proto est pur (aucune I/O) : 4 min/cible suffisent à couvrir
-      # largement les chemins de décodage à chaque nuit.
+      # Chaque cible démarre sur le corpus de graines committé (fuzz/seeds/,
+      # réutilisé entre campagnes, D72) et tourne 4 min. accord-proto/-core/
+      # -crypto sont purs (aucune I/O) : cette durée couvre largement les
+      # chemins de décodage chaque nuit. Un crash/panic fait échouer le job
+      # avec l'entrée fautive dans les logs.
       - name: Fuzz proto_decode
-        run: cargo +nightly fuzz run proto_decode -- -max_total_time=240
+        run: cargo +nightly fuzz run proto_decode seeds/proto_decode -- -max_total_time=240
 
       - name: Fuzz group_op_body
-        run: cargo +nightly fuzz run group_op_body -- -max_total_time=240
+        run: cargo +nightly fuzz run group_op_body seeds/group_op_body -- -max_total_time=240
 
       - name: Fuzz core_msg
-        run: cargo +nightly fuzz run core_msg -- -max_total_time=240
+        run: cargo +nightly fuzz run core_msg seeds/core_msg -- -max_total_time=240
+
+      - name: Fuzz handshake_decode
+        run: cargo +nightly fuzz run handshake_decode seeds/handshake_decode -- -max_total_time=240
+
+      - name: Fuzz dht_record
+        run: cargo +nightly fuzz run dht_record seeds/dht_record -- -max_total_time=240
+
+      - name: Fuzz file_manifest
+        run: cargo +nightly fuzz run file_manifest seeds/file_manifest -- -max_total_time=240
+
+      - name: Fuzz group_state
+        run: cargo +nightly fuzz run group_state seeds/group_state -- -max_total_time=240
+
+      - name: Fuzz backup_archive
+        run: cargo +nightly fuzz run backup_archive seeds/backup_archive -- -max_total_time=240

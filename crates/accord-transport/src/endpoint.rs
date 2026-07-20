@@ -207,6 +207,34 @@ struct Session {
     /// ré-annonces, ~3 observations par cycle de présence) : la capacité
     /// couvre les rafales normales, la recharge lente écrête tout flood.
     ctrl_bucket: Bucket,
+    /// Dernier PING keep-alive émis en attente de PONG : `(jeton, émis_ms)`.
+    /// Sert à la mesure de latence locale ([`Session::last_rtt_ms`]) sans
+    /// aucun octet nouveau sur le fil (le PING/PONG keep-alive existe depuis
+    /// la 1.0). Un PONG au jeton inattendu (rejoué, forgé, croisé avec un
+    /// `connect`) est simplement ignoré.
+    ping_pending: Option<(u64, u64)>,
+    /// Dernier aller-retour mesuré (ms) sur un PONG corrélé au keep-alive.
+    /// Purement local (diagnostic) ; `None` tant qu'aucun cycle n'a abouti.
+    last_rtt_ms: Option<u64>,
+}
+
+/// Photographie d'une session établie, exposée à la couche nœud pour le
+/// diagnostic de connectivité par pair (D4/D35) : lien direct ou tunnelé,
+/// fraîcheur du dernier trafic entrant, latence estimée. Aucune donnée
+/// applicative ni clé n'y figure.
+#[derive(Debug, Clone, Copy)]
+pub struct SessionView {
+    /// Clé publique Ed25519 du pair (session authentifiée).
+    pub peer_static: [u8; 32],
+    /// Adresse de transport : celle du pair en direct, celle du RELAIS pour
+    /// une session tunnelée.
+    pub addr: SocketAddr,
+    /// `Some(circuit)` si la session transite par un circuit relais.
+    pub relay_circuit: Option<u32>,
+    /// Horodatage (ms, horloge du nœud) du dernier trafic entrant.
+    pub last_recv_ms: u64,
+    /// Dernier aller-retour keep-alive mesuré (ms), si un cycle a abouti.
+    pub last_rtt_ms: Option<u64>,
 }
 
 /// Préfixe hexadécimal court (4 octets) d'une clé publique, pour les logs.
@@ -374,6 +402,16 @@ pub struct Endpoint {
 }
 
 impl Endpoint {
+    /// Verrou de l'état, robuste à l'empoisonnement : la boucle réseau est le
+    /// seul chemin de livraison de TOUS les pairs — un panic ponctuel d'un
+    /// autre thread (bug isolé) ne doit jamais condamner le transport entier
+    /// en propageant l'empoisonnement (D23, zéro panic en production). Les
+    /// invariants de l'état sont re-vérifiés à l'usage (session retrouvée par
+    /// identifiant, tables nettoyées par la maintenance).
+    fn state_lock(&self) -> std::sync::MutexGuard<'_, State> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// Crée un endpoint et le canal d'événements associé.
     pub fn new(
         socket: Arc<dyn DatagramSocket>,
@@ -436,7 +474,7 @@ impl Endpoint {
     /// Borné par le nombre de sessions ; best-effort.
     pub async fn reannounce_direct_sessions(&self) {
         let addrs: Vec<SocketAddr> = {
-            let st = self.state.lock().expect("state mutex");
+            let st = self.state_lock();
             st.sessions_by_id
                 .values()
                 .filter(|s| s.relay_circuit.is_none())
@@ -514,9 +552,12 @@ impl Endpoint {
         }
         let now = self.clock.now_ms();
         let outgoing: Vec<Vec<u8>> = {
-            let mut st = self.state.lock().expect("state mutex");
-            if let Some(sid) = st.id_by_addr.get(&addr).copied() {
-                let session = st.sessions_by_id.get_mut(&sid).expect("session cohérente");
+            let mut st = self.state_lock();
+            // Session retrouvée par identifiant (jamais supposée : une
+            // désynchronisation `id_by_addr`/`sessions_by_id` retombe sur le
+            // handshake plutôt que de paniquer, D23).
+            let sid = st.id_by_addr.get(&addr).copied();
+            if let Some(session) = sid.and_then(|sid| st.sessions_by_id.get_mut(&sid)) {
                 // Défense en profondeur : un envoi lié ne doit jamais être scellé
                 // sous une session dont l'identité du pair diffère de la cible
                 // (ex. session usurpée déjà en place à cette adresse). Comparaison
@@ -666,7 +707,7 @@ impl Endpoint {
     ) -> Result<(), TransportError> {
         let now = self.clock.now_ms();
         let hello_bytes: Option<Vec<u8>> = {
-            let mut st = self.state.lock().expect("state mutex");
+            let mut st = self.state_lock();
             if st.id_by_addr.contains_key(&addr) {
                 None // session déjà en place vers ce candidat
             } else if let Some(pending) = st.pending.get_mut(&addr) {
@@ -717,7 +758,7 @@ impl Endpoint {
     /// handshake spéculatif) — c'est ce qui permet aux boucles de maintenance
     /// de ne consommer l'outbox que sur une livraison effective.
     pub fn direct_session_addr(&self, static_pub: &[u8; 32]) -> Option<SocketAddr> {
-        let st = self.state.lock().expect("state mutex");
+        let st = self.state_lock();
         // Après un redémarrage SILENCIEUX du pair (extinction UDP sans adieu),
         // deux sessions directes coexistent pour la même identité jusqu'à
         // l'expiration d'inactivité (2 min) : la morte (ancienne adresse) et la
@@ -733,13 +774,56 @@ impl Endpoint {
             .map(|s| s.peer_addr)
     }
 
+    /// Corrèle un PONG entrant au dernier PING keep-alive émis sur cette
+    /// session et enregistre l'aller-retour mesuré. La session est retrouvée
+    /// par le lien d'arrivée : adresse pour un lien direct, circuit pour un
+    /// tunnel. Jeton inattendu (rejoué, croisé avec un `connect`) : ignoré —
+    /// un pair ne peut pas fabriquer une latence sans connaître le jeton
+    /// aléatoire du PING scellé sous la session.
+    fn note_pong(&self, link: PeerLink, token: u64) {
+        let now = self.clock.now_ms();
+        let mut st = self.state_lock();
+        let sid = match link {
+            PeerLink::Direct(addr) => st.id_by_addr.get(&addr).copied(),
+            PeerLink::Tunnel { circuit, .. } => {
+                st.client_circuits.get(&circuit).and_then(|c| c.session_id)
+            }
+        };
+        let Some(session) = sid.and_then(|sid| st.sessions_by_id.get_mut(&sid)) else {
+            return;
+        };
+        if let Some((attendu, emis_ms)) = session.ping_pending {
+            if attendu == token {
+                session.ping_pending = None;
+                session.last_rtt_ms = Some(now.saturating_sub(emis_ms));
+            }
+        }
+    }
+
+    /// Photographie des sessions établies (directes et tunnelées), pour le
+    /// diagnostic par pair de la couche nœud ([`SessionView`]). Instantané
+    /// sous verrou court, sans E/S.
+    pub fn session_views(&self) -> Vec<SessionView> {
+        let st = self.state_lock();
+        st.sessions_by_id
+            .values()
+            .map(|s| SessionView {
+                peer_static: s.peer_static,
+                addr: s.peer_addr,
+                relay_circuit: s.relay_circuit,
+                last_recv_ms: s.last_recv_ms,
+                last_rtt_ms: s.last_rtt_ms,
+            })
+            .collect()
+    }
+
     /// Consomme un jeton du seau de contrôle de la session DIRECTE à `addr`
     /// (bornage post-handshake des messages de contrôle changeant l'état,
     /// H1/M1b). Rend `false` si aucune session directe n'existe à cette adresse
     /// ou si le quota par session est épuisé — l'appelant ignore alors le
     /// message. Le verrou n'est jamais tenu pendant un `await`.
     fn take_ctrl_token(&self, addr: SocketAddr, now: u64) -> bool {
-        let mut st = self.state.lock().expect("state mutex");
+        let mut st = self.state_lock();
         match st
             .id_by_addr
             .get(&addr)
@@ -756,7 +840,7 @@ impl Endpoint {
     /// session). `None` = pas de session directe à cette adresse ou quota de
     /// contrôle épuisé (l'annonce est alors ignorée sans aucune remontée).
     fn accept_announce(&self, addr: SocketAddr, now: u64) -> Option<bool> {
-        let mut st = self.state.lock().expect("state mutex");
+        let mut st = self.state_lock();
         let sid = st.id_by_addr.get(&addr).copied()?;
         let session = st.sessions_by_id.get_mut(&sid)?;
         if !session.ctrl_bucket.try_take(now) {
@@ -826,7 +910,7 @@ impl Endpoint {
         // adresse). Sur un tunnel, les rôles sont fixés : l'initiateur est le
         // seul à appeler `connect_via_relay`, l'autre bord est toujours répondeur.
         if let PeerLink::Direct(from) = link {
-            let st = self.state.lock().expect("state mutex");
+            let st = self.state_lock();
             if st.pending.contains_key(&from) && self.identity.public_key() < hello.static_pub {
                 drop(st);
                 tracing::trace!(
@@ -859,7 +943,7 @@ impl Endpoint {
         // l'étage de réinjection : ni `respond` ni le handshake ne connaissent la
         // cible attendue d'un circuit, seul ce point de contrôle la connaît.
         if let PeerLink::Tunnel { circuit, .. } = link {
-            let st = self.state.lock().expect("state mutex");
+            let st = self.state_lock();
             if let Some(cc) = st.client_circuits.get(&circuit) {
                 if !bool::from(hello.static_pub.ct_eq(&cc.peer_static)) {
                     drop(st);
@@ -873,7 +957,7 @@ impl Endpoint {
         }
 
         let reply: Option<Vec<u8>> = {
-            let mut st = self.state.lock().expect("state mutex");
+            let mut st = self.state_lock();
 
             // Comptage de pression + rate limit par IP (celle du relais en tunnel :
             // tous les HELLO tunnelés d'un relais partagent son seau, ce qui borne
@@ -922,7 +1006,7 @@ impl Endpoint {
         // même lien direct (un croisement ne se produit pas en tunnel).
         let mut file_rescellee: Vec<Vec<u8>> = Vec::new();
         {
-            let mut st = self.state.lock().expect("state mutex");
+            let mut st = self.state_lock();
             let (welcome, established) = respond(
                 &self.identity,
                 &hello,
@@ -950,6 +1034,8 @@ impl Endpoint {
                     // l'initiateur (jamais sur un tunnel).
                     announced: link.circuit().is_some(),
                     ctrl_bucket: Bucket::new(CTRL_MSG_BURST, CTRL_MSG_REFILL_PER_S, now),
+                    ping_pending: None,
+                    last_rtt_ms: None,
                 },
                 sid,
             );
@@ -995,7 +1081,7 @@ impl Endpoint {
         let peer_addr = link.addr();
         let mut to_send: Vec<Vec<u8>> = Vec::new();
         {
-            let mut st = self.state.lock().expect("state mutex");
+            let mut st = self.state_lock();
             // Le pending initiateur vit dans `pending` (lien direct, indexé par
             // adresse) ou dans `relay_pending` (tunnel, indexé par circuit).
             let pending = match link {
@@ -1046,6 +1132,8 @@ impl Endpoint {
                 // direct seulement), le pair y répondra avec la sienne.
                 announced: true,
                 ctrl_bucket: Bucket::new(CTRL_MSG_BURST, CTRL_MSG_REFILL_PER_S, now),
+                ping_pending: None,
+                last_rtt_ms: None,
             };
             // Vider la file d'attente sous la nouvelle session (fragmentée au
             // besoin).
@@ -1093,7 +1181,7 @@ impl Endpoint {
     async fn on_cookie(&self, cookie: CookiePacket, link: PeerLink) -> Result<(), TransportError> {
         let now = self.clock.now_ms();
         let hello_bytes: Option<Vec<u8>> = {
-            let mut st = self.state.lock().expect("state mutex");
+            let mut st = self.state_lock();
             // Même dualité que `on_welcome` : pending direct vs pending tunnelé.
             let pending = match link {
                 PeerLink::Direct(addr) => st.pending.get_mut(&addr),
@@ -1130,7 +1218,7 @@ impl Endpoint {
     ) -> Result<(), TransportError> {
         let now = self.clock.now_ms();
         let ready: Option<(Vec<u8>, NodeId, [u8; 32], PeerLink)> = {
-            let mut st = self.state.lock().expect("state mutex");
+            let mut st = self.state_lock();
             let Some(session) = st.sessions_by_id.get_mut(&data.session_id) else {
                 return Ok(()); // session inconnue
             };
@@ -1151,7 +1239,11 @@ impl Endpoint {
                 }
                 st.id_by_addr.insert(from, data.session_id);
             }
-            let session = st.sessions_by_id.get(&data.session_id).expect("session");
+            // Ré-obtention après la mise à jour de mobilité : disparition
+            // impossible sous ce même verrou — repli silencieux (D23).
+            let Some(session) = st.sessions_by_id.get(&data.session_id) else {
+                return Ok(());
+            };
             // Le lien de réponse suit le chemin d'arrivée : tunnel pour une session
             // relayée, direct sinon.
             let link = match relay_circuit {
@@ -1189,7 +1281,10 @@ impl Endpoint {
                     self.send_msg_via_link(link, &pong).await?;
                     return Ok(());
                 }
-                ControlMsg::Pong { .. } => return Ok(()),
+                ControlMsg::Pong { token } => {
+                    self.note_pong(link, *token);
+                    return Ok(());
+                }
                 ControlMsg::Close { .. } => {
                     self.close_link(link);
                     let _ = self
@@ -1331,7 +1426,7 @@ impl Endpoint {
                 // qu'un tiers ferme un circuit qui ne le concerne pas (FAILLE D) :
                 // les identifiants sont petits et devinables.
                 let disconnected = {
-                    let mut st = self.state.lock().expect("state mutex");
+                    let mut st = self.state_lock();
                     // Copie des champs utiles sans conserver l'emprunt de `st`.
                     let client_hit = st
                         .client_circuits
@@ -1404,7 +1499,7 @@ impl Endpoint {
         //    SERVI (id de notre propre table). La provenance tranche sans ambiguïté
         //    et lève ainsi la limitation « un nœud servant ne peut être extrémité ».
         let is_client = {
-            let st = self.state.lock().expect("state mutex");
+            let st = self.state_lock();
             st.client_circuits
                 .get(&circuit)
                 .is_some_and(|cc| cc.relay_node == relay_node)
@@ -1419,7 +1514,7 @@ impl Endpoint {
         // 2. Rôle serveur : acheminer si l'on héberge ce circuit.
         if self.config.relay_serving {
             let decision = {
-                let mut st = self.state.lock().expect("state mutex");
+                let mut st = self.state_lock();
                 st.relay.forward(circuit, relay_node, blob.len(), now)
             };
             match decision {
@@ -1524,7 +1619,7 @@ impl Endpoint {
         }
 
         let reserved = {
-            let mut st = self.state.lock().expect("state mutex");
+            let mut st = self.state_lock();
             match st.client_circuits.get(&circuit) {
                 // Collision d'identifiant entre deux relais distincts : on ne peut
                 // pas héberger deux circuits clients de même id. On ignore ce HELLO
@@ -1579,7 +1674,7 @@ impl Endpoint {
         // jusqu'au balayage. On ne retire que NOTRE réservation (`reserved`), et
         // uniquement si aucune session ne s'y est installée entre-temps.
         if reserved && outcome.is_err() {
-            let mut st = self.state.lock().expect("state mutex");
+            let mut st = self.state_lock();
             if let Some(cc) = st.client_circuits.get(&circuit) {
                 if cc.relay_node == relay_node && cc.session_id.is_none() {
                     st.client_circuits.remove(&circuit);
@@ -1608,7 +1703,7 @@ impl Endpoint {
     ) {
         let now = self.clock.now_ms();
         let resolved = {
-            let mut st = self.state.lock().expect("state mutex");
+            let mut st = self.state_lock();
             let key = st
                 .pending_relay_open
                 .keys()
@@ -1617,10 +1712,11 @@ impl Endpoint {
             let Some(key) = key else {
                 return; // aucune ouverture en attente (ex. Accept déjà consommé)
             };
-            let po = st
-                .pending_relay_open
-                .remove(&key)
-                .expect("clé présente à l'instant");
+            // La clé vient d'être trouvée sous CE MÊME verrou : l'absence est
+            // impossible en pratique — repli silencieux plutôt que panic (D23).
+            let Some(po) = st.pending_relay_open.remove(&key) else {
+                return;
+            };
             if let Ok(circuit) = result {
                 let (_, peer_node) = key;
                 // NOTE LOW : ne JAMAIS écraser une entrée existante ni dépasser le
@@ -1675,7 +1771,7 @@ impl Endpoint {
                 code: REJECT_NOT_RELAY,
             });
         }
-        let mut st = self.state.lock().expect("state mutex");
+        let mut st = self.state_lock();
         if Self::addr_of_node(&st, &target).is_none() {
             return ChannelMsg::Relay(RelayMsg::Reject {
                 code: REJECT_NO_TARGET,
@@ -1701,7 +1797,7 @@ impl Endpoint {
     /// déjà en place). Le verrou d'état n'est pas tenu pendant l'envoi réseau.
     async fn send_to_node(&self, node: NodeId, msg: &ChannelMsg) -> Result<(), TransportError> {
         let addr = {
-            let st = self.state.lock().expect("state mutex");
+            let st = self.state_lock();
             Self::addr_of_node(&st, &node)
         };
         match addr {
@@ -1778,7 +1874,7 @@ impl Endpoint {
         // Prérequis : session DIRECTE avec le relais (une session relayée ne peut
         // pas elle-même porter un `Open`).
         {
-            let st = self.state.lock().expect("state mutex");
+            let st = self.state_lock();
             let has_direct = st
                 .id_by_addr
                 .get(&relay_addr)
@@ -1790,7 +1886,7 @@ impl Endpoint {
         }
         let (tx, rx) = oneshot::channel();
         {
-            let mut st = self.state.lock().expect("state mutex");
+            let mut st = self.state_lock();
             st.pending_relay_open
                 .insert((relay_node, peer_node), PendingOpen { peer_static, tx });
         }
@@ -1800,7 +1896,7 @@ impl Endpoint {
             target: peer_node.0,
         });
         if let Err(e) = self.send(relay_addr, &open).await {
-            let mut st = self.state.lock().expect("state mutex");
+            let mut st = self.state_lock();
             st.pending_relay_open.remove(&(relay_node, peer_node));
             return Err(e);
         }
@@ -1811,13 +1907,13 @@ impl Endpoint {
             Ok(Ok(Err(code))) => Err(TransportError::RelayOpenRejected(code)),
             Ok(Err(_)) => {
                 // Émetteur abandonné (endpoint arrêté) : nettoyer l'entrée.
-                let mut st = self.state.lock().expect("state mutex");
+                let mut st = self.state_lock();
                 st.pending_relay_open.remove(&(relay_node, peer_node));
                 Err(TransportError::Shutdown)
             }
             Err(_) => {
                 // Délai dépassé : abandon de l'ouverture et purge de l'attente.
-                let mut st = self.state.lock().expect("state mutex");
+                let mut st = self.state_lock();
                 st.pending_relay_open.remove(&(relay_node, peer_node));
                 Err(TransportError::RelayOpenTimeout)
             }
@@ -1842,7 +1938,7 @@ impl Endpoint {
     ) -> Result<(), TransportError> {
         let now = self.clock.now_ms();
         let (relay_addr, hello_bytes) = {
-            let mut st = self.state.lock().expect("state mutex");
+            let mut st = self.state_lock();
             let Some(cc) = st.client_circuits.get(&circuit) else {
                 return Err(TransportError::UnknownPeer);
             };
@@ -1895,7 +1991,7 @@ impl Endpoint {
         }
         let now = self.clock.now_ms();
         let (relay_addr, frames) = {
-            let mut st = self.state.lock().expect("state mutex");
+            let mut st = self.state_lock();
             let (relay_addr, sid) = {
                 let cc = st
                     .client_circuits
@@ -1932,7 +2028,7 @@ impl Endpoint {
     /// le cas échéant. Permet à une couche haute de répondre à un pair reçu via un
     /// tunnel ([`TransportEvent::Message`] porte le NodeId de l'émetteur).
     pub fn circuit_for_peer(&self, peer_node: NodeId) -> Option<u32> {
-        let st = self.state.lock().expect("state mutex");
+        let st = self.state_lock();
         st.client_circuits
             .iter()
             .find(|(_, cc)| cc.peer_node == peer_node)
@@ -1943,7 +2039,7 @@ impl Endpoint {
     /// peer_static)`, le cas échéant. Exposé pour la couche nœud (observabilité,
     /// et sélection/ré-ouverture du relais, incrément suivant hors périmètre ici).
     pub fn relay_circuit_descriptor(&self, circuit: u32) -> Option<(SocketAddr, NodeId, [u8; 32])> {
-        let st = self.state.lock().expect("state mutex");
+        let st = self.state_lock();
         st.client_circuits
             .get(&circuit)
             .map(|cc| (cc.relay_addr, cc.relay_node, cc.peer_static))
@@ -1998,7 +2094,7 @@ impl Endpoint {
     /// Ferme la session jointe par `link` : par adresse (direct) ou par circuit
     /// (tunnel). Symétrique de [`Endpoint::install_session`].
     fn close_link(&self, link: PeerLink) {
-        let mut st = self.state.lock().expect("state mutex");
+        let mut st = self.state_lock();
         match link {
             PeerLink::Direct(addr) => {
                 if let Some(sid) = st.id_by_addr.remove(&addr) {
@@ -2019,18 +2115,14 @@ impl Endpoint {
 
     /// Nombre de sessions établies (observabilité/tests).
     pub fn session_count(&self) -> usize {
-        self.state.lock().expect("state mutex").sessions_by_id.len()
+        self.state_lock().sessions_by_id.len()
     }
 
     /// Nombre de circuits relais dont ce nœud est extrémité CLIENTE
     /// (observabilité/tests). Distinct de [`Endpoint::session_count`] : borne
     /// surveillée par le plafond anti-DoS [`MAX_CLIENT_CIRCUITS`].
     pub fn client_circuit_count(&self) -> usize {
-        self.state
-            .lock()
-            .expect("state mutex")
-            .client_circuits
-            .len()
+        self.state_lock().client_circuits.len()
     }
 
     /// Déclenche immédiatement un tour de maintenance (retransmissions de
@@ -2062,7 +2154,7 @@ impl Endpoint {
         // de connaître le `session_id` bout-en-bout).
         let mut tunnel_keepalives: Vec<(SocketAddr, u32, Vec<u8>)> = Vec::new();
         {
-            let mut st = self.state.lock().expect("state mutex");
+            let mut st = self.state_lock();
 
             // Retransmission des HELLO (timeout 2 s, 2 retransmissions).
             let mut abandon: Vec<SocketAddr> = Vec::new();
@@ -2106,9 +2198,12 @@ impl Endpoint {
                 if now.saturating_sub(session.last_send_ms) >= keepalive {
                     let mut token = [0u8; 8];
                     OsRng.fill_bytes(&mut token);
-                    let ping = ChannelMsg::Control(ControlMsg::Ping {
-                        token: u64::from_be_bytes(token),
-                    });
+                    let token = u64::from_be_bytes(token);
+                    let ping = ChannelMsg::Control(ControlMsg::Ping { token });
+                    // Mesure de latence : le PONG corrélé à CE jeton donnera le
+                    // dernier aller-retour (voir `note_pong`). Un cycle non
+                    // soldé est simplement remplacé au keep-alive suivant.
+                    session.ping_pending = Some((token, now));
                     // Un PING tient dans un cadre unique (framing SPEC §13.1).
                     let addr = session.peer_addr;
                     let relay_circuit = session.relay_circuit;

@@ -61,6 +61,18 @@ pub struct NetworkStatus {
     pub nat_kind: super::relay::NatKind,
 }
 
+/// Nature du lien de session courant vers un ami (`network.peers`, D4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LinkTransport {
+    /// Session directe (UDP ou lien TCP poinçonné).
+    Direct,
+    /// Session bout-en-bout tunnelée par un circuit relais (SPEC §11.3).
+    Relay,
+    /// Aucune session établie en ce moment.
+    None,
+}
+
 /// Lien courant vers un ami, exposé par `network.peers` pour le diagnostic de
 /// connectivité (sérialisé tel quel). Additif : le carnet d'adresses et le
 /// suivi des sessions vivantes sont déjà maintenus par le runtime.
@@ -72,6 +84,21 @@ pub struct PeerLink {
     pub live: bool,
     /// Dernière adresse directe connue (`ip:port`), ou `null` si jamais apprise.
     pub addr: Option<String>,
+    /// Nature du lien de session courant. Champ additif.
+    pub transport: LinkTransport,
+    /// Adresse du relais qui héberge le tunnel quand `transport` vaut
+    /// `"relay"`, `null` sinon. Champ additif.
+    pub relay: Option<String>,
+    /// Âge (ms) du dernier trafic ENTRANT reçu de ce pair sur la session
+    /// courante, ou `null` sans session. Champ additif.
+    pub last_recv_age_ms: Option<u64>,
+    /// Dernier aller-retour keep-alive mesuré (ms), si un cycle a abouti.
+    /// Champ additif.
+    pub rtt_ms: Option<u64>,
+    /// Horodatage (ms epoch) de la dernière remise RÉUSSIE d'un message à ce
+    /// pair (tout canal confondu), ou `null` si aucune depuis le démarrage.
+    /// Champ additif.
+    pub last_delivery_ms: Option<u64>,
 }
 
 /// Contrôle du réseau depuis l'API : implémenté par le runtime, branché sur le
@@ -87,6 +114,11 @@ pub trait NetworkControl: Send + Sync {
     fn status(&self) -> NetworkStatus;
     /// Lien courant vers chaque ami (diagnostic de connectivité).
     fn peer_links(&self) -> Vec<PeerLink>;
+    /// Photographie des compteurs réseau locaux (`diagnostics.counters`).
+    fn counters(&self) -> super::diagnostics::CountersSnapshot;
+    /// Auto-test réseau borné (`diagnostics.selftest`) : joignabilité, type de
+    /// NAT, sondes des pairs d'amorçage et d'un relais candidat.
+    async fn self_test(&self) -> super::diagnostics::SelfTestReport;
 }
 
 // ---- Encodage/décodage des valeurs `meta` (pur, testable) ----

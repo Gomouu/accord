@@ -19,6 +19,13 @@ nnnoiseless = { version = "0.5.2", default-features = false }
 # dépendances via nnnoiseless (easyfft → realfft → rustfft) : aucun ajout net.
 realfft = "3"
 
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "dsp"
+harness = false
+
 [features]
 default = []
 # Active la vraie liaison Opus et la capture/lecture cpal.

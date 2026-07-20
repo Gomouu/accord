@@ -621,3 +621,57 @@ async fn initiateur_installe_sa_session_et_peut_emettre() {
         other => panic!("message inattendu: {other:?}"),
     }
 }
+
+/// D4/D35 : la latence par pair est mesurée sur le PING/PONG keep-alive
+/// existant (aucun octet nouveau sur le fil) et exposée par `session_views`
+/// avec la nature du lien et la fraîcheur du dernier trafic entrant.
+#[tokio::test]
+async fn keepalive_mesure_la_latence_et_session_views_l_expose() {
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(13, NetConditions::default());
+    let alice = spawn_node(&net, &clock, "10.0.13.1:4000");
+    let bob = spawn_node(&net, &clock, "10.0.13.2:4000");
+    let bob_pub = bob.static_pub;
+
+    let ping = ChannelMsg::Control(ControlMsg::Ping { token: 3 });
+    alice.ep.send(bob.addr, &ping).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if alice.ep.session_count() == 1 && bob.ep.session_count() == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("session établie");
+
+    // Avant tout keep-alive : la vue existe, sans latence mesurée.
+    let vues = alice.ep.session_views();
+    assert_eq!(vues.len(), 1);
+    assert_eq!(vues[0].peer_static, bob_pub);
+    assert_eq!(vues[0].addr, bob.addr);
+    assert!(vues[0].relay_circuit.is_none(), "session directe");
+    assert!(
+        vues[0].last_rtt_ms.is_none(),
+        "aucun cycle keep-alive encore"
+    );
+
+    // Échéance keep-alive : la maintenance émet un PING corrélé ; le PONG de
+    // Bob solde le cycle et enregistre l'aller-retour.
+    clock.advance(25_000);
+    alice.ep.run_maintenance().await;
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let vues = alice.ep.session_views();
+            if vues.first().and_then(|v| v.last_rtt_ms).is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("latence mesurée sur le PONG keep-alive");
+    // Horloge manuelle figée entre PING et PONG : aller-retour nul, mesuré.
+    assert_eq!(alice.ep.session_views()[0].last_rtt_ms, Some(0));
+}

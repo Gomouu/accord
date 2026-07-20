@@ -76,6 +76,7 @@ pub(super) fn group_mark_key(group_id: &[u8; 16], channel_id: &[u8; 16]) -> Stri
     )
 }
 
+pub(crate) mod diagnostics;
 pub(crate) mod discovery;
 mod dm;
 mod files;
@@ -251,7 +252,7 @@ impl Node {
 
     /// Exécute une opération synchrone sous le verrou de la base.
     fn with_db<T>(&self, f: impl FnOnce(&Db) -> Result<T, NodeError>) -> Result<T, NodeError> {
-        let db = self.db.lock().expect("verrou base empoisonné");
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         f(&db)
     }
 
@@ -280,7 +281,7 @@ impl Node {
         if let Some(explicit) = self
             .peer_status
             .lock()
-            .expect("verrou présence empoisonné")
+            .unwrap_or_else(|e| e.into_inner())
             .get(peer)
             .cloned()
         {
@@ -289,7 +290,7 @@ impl Node {
         let reachable = self
             .online
             .lock()
-            .expect("verrou présence empoisonné")
+            .unwrap_or_else(|e| e.into_inner())
             .contains(peer);
         (if reachable { 0 } else { 3 }, None)
     }
@@ -316,7 +317,7 @@ impl Node {
     fn set_presence(&self, peer: &[u8; 32], online: bool) {
         let before = self.effective_presence(peer);
         {
-            let mut set = self.online.lock().expect("verrou présence empoisonné");
+            let mut set = self.online.lock().unwrap_or_else(|e| e.into_inner());
             if online {
                 set.insert(*peer);
             } else {
@@ -326,7 +327,7 @@ impl Node {
         if !online {
             self.peer_status
                 .lock()
-                .expect("verrou présence empoisonné")
+                .unwrap_or_else(|e| e.into_inner())
                 .remove(peer);
         }
         let after = self.effective_presence(peer);
@@ -351,11 +352,11 @@ impl Node {
         let before = self.effective_presence(peer);
         self.online
             .lock()
-            .expect("verrou présence empoisonné")
+            .unwrap_or_else(|e| e.into_inner())
             .insert(*peer);
         self.peer_status
             .lock()
-            .expect("verrou présence empoisonné")
+            .unwrap_or_else(|e| e.into_inner())
             .insert(*peer, (status, custom));
         let after = self.effective_presence(peer);
         if before != after && self.is_friend(peer) {
@@ -375,7 +376,7 @@ impl Node {
     pub fn is_online(&self, peer: &[u8; 32]) -> bool {
         self.online
             .lock()
-            .expect("verrou présence empoisonné")
+            .unwrap_or_else(|e| e.into_inner())
             .contains(peer)
     }
 
@@ -423,7 +424,7 @@ impl Node {
     /// [`TYPING_MIN_INTERVAL_MS`] ms par pair. Rend vrai si l'événement est
     /// accepté (et enregistre l'instant).
     fn typing_allowed(&self, peer: &[u8; 32], now: u64) -> bool {
-        let mut seen = self.typing_seen.lock().expect("verrou frappe empoisonné");
+        let mut seen = self.typing_seen.lock().unwrap_or_else(|e| e.into_inner());
         match seen.get(peer) {
             Some(&last) if now.saturating_sub(last) < TYPING_MIN_INTERVAL_MS => false,
             _ => {
@@ -439,7 +440,7 @@ impl Node {
     /// traité (et crédite la fenêtre). Table bornée : pleine, elle purge les
     /// fenêtres expirées puis, à défaut, ignore les pairs inconnus.
     fn redeem_allowed(&self, peer: &[u8; 32], now: u64) -> bool {
-        let mut seen = self.redeem_seen.lock().expect("verrou rachat empoisonné");
+        let mut seen = self.redeem_seen.lock().unwrap_or_else(|e| e.into_inner());
         if seen.len() >= REDEEM_SEEN_MAX_PEERS && !seen.contains_key(peer) {
             seen.retain(|_, (start, _)| now.saturating_sub(*start) < REDEEM_WINDOW_MS);
             if seen.len() >= REDEEM_SEEN_MAX_PEERS {
@@ -465,7 +466,7 @@ impl Node {
         let mut seen = self
             .soundboard_seen
             .lock()
-            .expect("verrou soundboard empoisonné");
+            .unwrap_or_else(|e| e.into_inner());
         if seen.len() >= SOUNDBOARD_SEEN_MAX_PEERS && !seen.contains_key(peer) {
             seen.retain(|_, (start, _)| now.saturating_sub(*start) < SOUNDBOARD_WINDOW_MS);
             if seen.len() >= SOUNDBOARD_SEEN_MAX_PEERS {
@@ -945,7 +946,7 @@ impl Node {
                 if removed {
                     self.peer_status
                         .lock()
-                        .expect("verrou présence empoisonné")
+                        .unwrap_or_else(|e| e.into_inner())
                         .remove(peer_pubkey);
                     self.emit(
                         "event.friend_removed",

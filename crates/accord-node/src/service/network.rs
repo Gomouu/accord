@@ -1,6 +1,7 @@
-//! Méthodes `network.*` (B2) : port P2P stable, pairs d'amorçage et statut
-//! réseau. Le pilotage passe par le [`NetworkControl`] branché sur le nœud
-//! (implémenté par le runtime réseau), sans coupler le service au runtime.
+//! Méthodes `network.*` (B2) et `diagnostics.*` (Lot D) : port P2P stable,
+//! pairs d'amorçage, statut réseau, compteurs locaux et auto-test. Le
+//! pilotage passe par le [`NetworkControl`] branché sur le nœud (implémenté
+//! par le runtime réseau), sans coupler le service au runtime.
 
 use serde_json::{json, Value};
 
@@ -11,7 +12,8 @@ use super::helpers::param_str;
 use super::NodeService;
 
 impl NodeService {
-    /// Aiguille les méthodes `network.*` vers le contrôle réseau du nœud.
+    /// Aiguille les méthodes `network.*` et `diagnostics.*` vers le contrôle
+    /// réseau du nœud.
     pub(super) async fn call_network(
         &self,
         method: &str,
@@ -24,6 +26,17 @@ impl NodeService {
         if method == "network.peers" {
             let links = ctrl.peer_links();
             return Ok(serde_json::to_value(links).unwrap_or_else(|_| json!([])));
+        }
+        // Diagnostics (Lot D) : compteurs locaux photographiés, auto-test
+        // borné. Contrats JSON documentés dans docs/API.md — sérialisation
+        // d'objets simples, repli défensif sur objet vide.
+        if method == "diagnostics.counters" {
+            let snapshot = ctrl.counters();
+            return Ok(serde_json::to_value(snapshot).unwrap_or_else(|_| json!({})));
+        }
+        if method == "diagnostics.selftest" {
+            let report = ctrl.self_test().await;
+            return Ok(serde_json::to_value(report).unwrap_or_else(|_| json!({})));
         }
         let status = match method {
             "network.status" => ctrl.status(),

@@ -209,3 +209,101 @@ async fn amorcage_resout_code_ami_puis_amitie_et_dm() {
     alice.shutdown();
     bob.shutdown();
 }
+
+/// Lot D (D4/D35/D36) : diagnostic de connectivité de bout en bout sur UDP
+/// réel — lien par pair (`network.peers` enrichi), compteurs locaux et
+/// auto-test réseau avec sonde d'amorçage.
+#[tokio::test]
+async fn diagnostics_par_pair_compteurs_et_autotest() {
+    use accord_node::LinkTransport;
+
+    let dir_a = tempfile::tempdir().unwrap();
+    let dir_b = tempfile::tempdir().unwrap();
+    let alice = boot(dir_a.path()).await;
+    let bob = boot(dir_b.path()).await;
+
+    let alice_pub = alice.node.public_key();
+    let bob_pub = bob.node.public_key();
+
+    // Amitié directe (adresses échangées à la main, comme two_node_e2e).
+    bob.add_bootstrap_peer(alice.p2p_addr()).await.unwrap();
+    alice.register_peer(bob_pub, bob.p2p_addr());
+    bob.node.friend_request(&alice_pub, "Bob").unwrap();
+    assert!(
+        eventually(|| {
+            alice
+                .node
+                .contacts()
+                .map(|cs| cs.iter().any(|c| c.pubkey == bob_pub))
+                .unwrap_or(false)
+        })
+        .await,
+        "demande d'ami non reçue"
+    );
+    alice.node.friend_respond(&bob_pub, true).unwrap();
+    assert!(
+        eventually(|| {
+            use accord_core::db::ContactState;
+            bob.node
+                .contacts()
+                .map(|cs| {
+                    cs.iter()
+                        .any(|c| c.pubkey == alice_pub && c.state == ContactState::Friend)
+                })
+                .unwrap_or(false)
+        })
+        .await,
+        "amitié non confirmée chez Bob"
+    );
+    bob.node.dm_send(&alice_pub, "diagnostic", None).unwrap();
+    assert!(
+        eventually(|| {
+            alice
+                .node
+                .dm_history(&bob_pub, u64::MAX, 10)
+                .map(|h| h.iter().any(|m| m.author == bob_pub))
+                .unwrap_or(false)
+        })
+        .await,
+        "DM non livré"
+    );
+
+    // Lien par pair : session DIRECTE vers Alice, trafic entrant frais, une
+    // remise réussie horodatée. La latence keep-alive peut ne pas encore
+    // avoir un cycle complet (première échéance à 25 s) : non exigée ici.
+    assert!(
+        eventually(|| {
+            bob.peer_links().iter().any(|l| {
+                l.pubkey == accord_node::hex::encode(&alice_pub)
+                    && l.live
+                    && l.transport == LinkTransport::Direct
+                    && l.relay.is_none()
+                    && l.last_recv_age_ms.is_some()
+                    && l.last_delivery_ms.is_some()
+            })
+        })
+        .await,
+        "network.peers doit exposer un lien direct vivant vers Alice: {:?}",
+        bob.peer_links()
+    );
+
+    // Auto-test de Bob : la sonde du pair d'amorçage (Alice) doit aboutir —
+    // la session existe déjà, la sonde est un no-op positif.
+    let rapport = bob.self_test().await;
+    assert_eq!(rapport.p2p_port, bob.p2p_addr().port());
+    assert!(
+        rapport
+            .bootstrap
+            .iter()
+            .any(|p| p.addr == alice.p2p_addr().to_string() && p.ok),
+        "la sonde d'amorçage vers Alice doit réussir: {rapport:?}"
+    );
+
+    // Compteurs : photographie lisible ; rien d'exigé sur les valeurs (le
+    // chemin direct n'a besoin ni de poinçonnage ni de relais ici).
+    let compteurs = bob.diagnostics_counters();
+    assert_eq!(compteurs.punch.requested + compteurs.punch.received, 0);
+
+    alice.shutdown();
+    bob.shutdown();
+}

@@ -28,7 +28,7 @@ pub mod socket;
 pub mod tcp;
 
 pub use clock::{Clock, ManualClock, SystemClock};
-pub use endpoint::{Endpoint, EndpointConfig, TransportEvent};
+pub use endpoint::{Endpoint, EndpointConfig, SessionView, TransportEvent};
 pub use error::TransportError;
 pub use ratelimit::RateLimiter;
 pub use socket::{DatagramSocket, UdpDatagram};

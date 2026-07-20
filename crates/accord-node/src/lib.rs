@@ -29,6 +29,8 @@ use accord_transport::{DatagramSocket, Endpoint, EndpointConfig, UdpDatagram};
 pub use error::NodeError;
 pub use identity::{Paths, Unlocked};
 pub use maintenance::MaintenanceConfig;
+pub use node::diagnostics::{CountersSnapshot, ProbeResult, Reachability, SelfTestReport};
+pub use node::network::{LinkTransport, NetworkStatus, PeerLink};
 pub use node::Node;
 pub use registry::{AccountEntry, Registry};
 pub use service::NodeService;
@@ -86,7 +88,7 @@ impl Default for NodeConfig {
     fn default() -> Self {
         Self {
             paths: Paths::new("."),
-            p2p_addr: "0.0.0.0:0".parse().expect("adresse littérale valide"),
+            p2p_addr: SocketAddr::new(std::net::Ipv4Addr::UNSPECIFIED.into(), 0),
             api_port: 0,
             pow_bits: accord_proto::limits::IDENTITY_POW_BITS,
             voice_backend: VoiceBackend::default(),
@@ -188,6 +190,24 @@ impl RunningNode {
     pub fn network_status(&self) -> node::network::NetworkStatus {
         use node::network::NetworkControl;
         self.runtime.status()
+    }
+
+    /// Lien courant vers chaque ami (diagnostic de connectivité par pair).
+    pub fn peer_links(&self) -> Vec<node::network::PeerLink> {
+        use node::network::NetworkControl;
+        self.runtime.peer_links()
+    }
+
+    /// Photographie des compteurs réseau locaux (`diagnostics.counters`).
+    pub fn diagnostics_counters(&self) -> node::diagnostics::CountersSnapshot {
+        use node::network::NetworkControl;
+        self.runtime.counters()
+    }
+
+    /// Auto-test réseau borné (`diagnostics.selftest`).
+    pub async fn self_test(&self) -> node::diagnostics::SelfTestReport {
+        use node::network::NetworkControl;
+        self.runtime.self_test().await
     }
 
     /// Résout un code ami en clé publique via la DHT (repli d'amorçage

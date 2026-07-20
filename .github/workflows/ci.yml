@@ -89,6 +89,19 @@ jobs:
       - name: Rust clippy
         run: cargo clippy --workspace --all-targets -- -D warnings -D clippy::debug_assert_with_mut_call
 
+      # Zéro panic en chemin de production (D23) : unwrap/expect/panic!/todo!
+      # interdits dans les libs et binaires. Les tests inline sont exclus via
+      # clippy.toml (allow-*-in-tests), les tests d'intégration par la portée
+      # --lib --bins. Les rares infaillibilités prouvées (HKDF taille fixe,
+      # HMAC toute clé) portent un #[allow] justifié. Même famille de
+      # garde-fous que debug_assert_with_mut_call (régression 3.0.0→3.3.0).
+      - name: Rust clippy anti-panic (libs + bins)
+        run: >
+          cargo clippy --workspace --lib --bins -- -D warnings
+          -D clippy::debug_assert_with_mut_call
+          -D clippy::unwrap_used -D clippy::expect_used
+          -D clippy::panic -D clippy::todo -D clippy::unimplemented
+
       # Tests unitaires seulement (`--lib`) : déterministes et hermétiques. Les
       # tests d'intégration e2e (`crates/*/tests/*.rs`) lancent de vrais nœuds
       # P2P (UDP, DHT, poinçonnage NAT, temporisation de convergence) — fiables

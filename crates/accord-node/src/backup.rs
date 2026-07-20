@@ -226,7 +226,7 @@ fn ouvrir_fichier_scelle(src: &Path, dst: &Path, secret: &[u8]) -> Result<(), No
             // Fin d'entrée sans tranche « fin » vue : conteneur tronqué.
             return Err(accord_crypto::CryptoError::VaultCorrupt.into());
         }
-        let longueur = u32::from_be_bytes(tete[..4].try_into().expect("taille fixe")) as usize;
+        let longueur = u32::from_be_bytes([tete[0], tete[1], tete[2], tete[3]]) as usize;
         let fin = match tete[4] {
             0 => false,
             1 => true,
@@ -413,11 +413,18 @@ fn extraire<R: std::io::Read + std::io::Seek>(
         }
         let mut sortie = File::create(&cible)?;
         std::io::copy(&mut entree, &mut sortie)?;
-        // Reporte les permissions Unix archivées (coffre en 0600).
+        // Permissions FIXES et sûres (0600), jamais celles ARCHIVÉES : le mode
+        // Unix d'une entrée de zip est contrôlé par l'archive. Un fichier de
+        // profil n'est que de la donnée (coffre, base, médias) — 0600 est
+        // exactement ce qu'un profil neuf pose. Reprendre le mode de l'archive
+        // laisserait un zip en clair FORGÉ (format legacy non scellé, remis par
+        // un tiers) poser des bits exécutable/world-writable/setgid sur les
+        // fichiers extraits dans le profil. On ne fait donc pas confiance à
+        // `unix_mode` — durcissement de la surface d'import (revue adverse D17).
         #[cfg(unix)]
-        if let Some(mode) = entree.unix_mode() {
+        {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&cible, std::fs::Permissions::from_mode(mode))?;
+            std::fs::set_permissions(&cible, std::fs::Permissions::from_mode(0o600))?;
         }
     }
     Ok(())
@@ -535,6 +542,54 @@ mod tests {
         import_backup(&zip_clair, &dest, None).unwrap();
 
         assert!(crate::identity::unlock(&Paths::new(&dest), "phrase-de-passe-test").is_ok());
+    }
+
+    /// Durcissement D17 : un zip en clair FORGÉ (format legacy, remis par un
+    /// tiers) portant des bits de permission dangereux (exécutable +
+    /// world-writable + setgid) ne doit PAS les reporter — les fichiers
+    /// extraits dans le profil restent en 0600, jamais le mode de l'archive.
+    #[cfg(unix)]
+    #[test]
+    fn import_ignore_les_permissions_forgees_de_l_archive() {
+        use std::os::unix::fs::PermissionsExt;
+        use zip::write::SimpleFileOptions;
+
+        let source = tempfile::tempdir().unwrap();
+        let paths = profil_de_test(source.path());
+        let sortie = tempfile::tempdir().unwrap();
+        let zip_forge = sortie.path().join("forge.accordbackup");
+
+        // Reconstruit une archive légitime mais en marquant le coffre avec un
+        // mode hostile (0777 + setgid) au lieu du 0600 d'origine.
+        let mut fichiers = Vec::new();
+        let mut repertoires = Vec::new();
+        collecter(&paths.root, &paths.root, &mut fichiers, &mut repertoires).unwrap();
+        let f = File::create(&zip_forge).unwrap();
+        let mut zip = ZipWriter::new(BufWriter::new(f));
+        for relatif in &fichiers {
+            let hostile = SimpleFileOptions::default().unix_permissions(0o2777);
+            zip.start_file(nom_zip(relatif).unwrap(), hostile).unwrap();
+            let mut lecture = File::open(paths.root.join(relatif)).unwrap();
+            std::io::copy(&mut lecture, &mut zip).unwrap();
+        }
+        zip.finish().unwrap();
+
+        let dest = sortie.path().join("importe");
+        import_backup(&zip_forge, &dest, None).unwrap();
+
+        // Chaque fichier extrait est en 0600 exactement — les bits forgés
+        // (exécutable, world-writable, setgid) ont été écartés.
+        for relatif in &fichiers {
+            let mode = std::fs::metadata(dest.join(relatif))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(
+                mode & 0o7777,
+                0o600,
+                "mode forgé de l'archive ignoré pour {relatif:?}"
+            );
+        }
     }
 
     #[cfg(unix)]

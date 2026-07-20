@@ -3423,3 +3423,154 @@ async fn friends_note_set_get_and_folded_in_list() {
         .unwrap();
     assert_eq!(got["note"], json!(null));
 }
+
+// ---- Frontière JSON : réseau & diagnostics (Lot D) ----
+
+/// Faux contrôle réseau : valeurs figées, pour geler les contrats JSON de
+/// `network.peers`, `diagnostics.counters` et `diagnostics.selftest` sans
+/// démarrer de runtime réseau.
+struct FakeNetwork;
+
+#[async_trait::async_trait]
+impl crate::node::network::NetworkControl for FakeNetwork {
+    async fn add_peer(
+        &self,
+        _addr: std::net::SocketAddr,
+    ) -> Result<crate::node::network::NetworkStatus, NodeError> {
+        Err(NodeError::Invalid("non câblé"))
+    }
+    async fn remove_peer(
+        &self,
+        _addr: std::net::SocketAddr,
+    ) -> Result<crate::node::network::NetworkStatus, NodeError> {
+        Err(NodeError::Invalid("non câblé"))
+    }
+    fn status(&self) -> crate::node::network::NetworkStatus {
+        crate::node::network::NetworkStatus {
+            p2p_port: 48016,
+            local_addrs: vec![],
+            bootstrap: vec![],
+            connected_peers: 0,
+            dht_nodes: 0,
+            external_addr: None,
+            port_mapping: crate::node::nat::PortMappingMethod::Aucun,
+            lan_peers: 0,
+            nat_kind: crate::node::relay::NatKind::Unknown,
+        }
+    }
+    fn peer_links(&self) -> Vec<crate::node::network::PeerLink> {
+        vec![crate::node::network::PeerLink {
+            pubkey: "aa".repeat(32),
+            live: true,
+            addr: Some("203.0.113.7:48016".into()),
+            transport: crate::node::network::LinkTransport::Relay,
+            relay: Some("203.0.113.9:48016".into()),
+            last_recv_age_ms: Some(1_500),
+            rtt_ms: Some(42),
+            last_delivery_ms: Some(1_700_000_000_000),
+        }]
+    }
+    fn counters(&self) -> crate::node::diagnostics::CountersSnapshot {
+        let c = crate::node::diagnostics::NetCounters::default();
+        c.punch_requested();
+        c.relay_open_ok();
+        c.snapshot()
+    }
+    async fn self_test(&self) -> crate::node::diagnostics::SelfTestReport {
+        crate::node::diagnostics::SelfTestReport {
+            p2p_port: 48016,
+            nat_kind: crate::node::relay::NatKind::Cone,
+            port_mapping: crate::node::nat::PortMappingMethod::Aucun,
+            external_addr: None,
+            observed_consensus: Some("203.0.113.7:48016".into()),
+            dht_nodes: 3,
+            connected_peers: 1,
+            relay_eligible: true,
+            bootstrap: vec![crate::node::diagnostics::ProbeResult {
+                addr: "203.0.113.9:48016".into(),
+                ok: true,
+            }],
+            relay_probe: None,
+            reachability: crate::node::diagnostics::Reachability::Direct,
+        }
+    }
+}
+
+/// Service adossé à un nœud dont le contrôle réseau est le faux figé.
+fn service_with_network() -> NodeService {
+    let id = Identity::generate_with_pow_bits(1);
+    let db = Db::open_in_memory(&[1u8; 32]).unwrap();
+    let node = Arc::new(Node::new(id, db, OutboundSink::null()));
+    node.set_network_control(Arc::new(FakeNetwork));
+    NodeService::new(node)
+}
+
+#[tokio::test]
+async fn network_peers_expose_les_champs_additifs_du_lien() {
+    let s = service_with_network();
+    let v = s.call("network.peers", json!({})).await.unwrap();
+    let lien = &v[0];
+    assert_eq!(
+        sorted_keys(lien),
+        [
+            "addr",
+            "last_delivery_ms",
+            "last_recv_age_ms",
+            "live",
+            "pubkey",
+            "relay",
+            "rtt_ms",
+            "transport"
+        ]
+    );
+    assert_eq!(lien["transport"], "relay");
+    assert_eq!(lien["relay"], "203.0.113.9:48016");
+    assert_eq!(lien["last_recv_age_ms"], 1_500);
+    assert_eq!(lien["rtt_ms"], 42);
+    assert_eq!(lien["live"], true);
+}
+
+#[tokio::test]
+async fn diagnostics_counters_expose_les_groupes_de_compteurs() {
+    let s = service_with_network();
+    let v = s.call("diagnostics.counters", json!({})).await.unwrap();
+    assert_eq!(
+        sorted_keys(&v),
+        ["mailbox", "outbox", "punch", "reconnect", "relay"]
+    );
+    assert_eq!(v["punch"]["requested"], 1);
+    assert_eq!(v["relay"]["open_ok"], 1);
+    assert_eq!(v["mailbox"]["deposits"], 0);
+}
+
+#[tokio::test]
+async fn diagnostics_selftest_expose_le_rapport_complet() {
+    let s = service_with_network();
+    let v = s.call("diagnostics.selftest", json!({})).await.unwrap();
+    assert_eq!(
+        sorted_keys(&v),
+        [
+            "bootstrap",
+            "connected_peers",
+            "dht_nodes",
+            "external_addr",
+            "nat_kind",
+            "observed_consensus",
+            "p2p_port",
+            "port_mapping",
+            "reachability",
+            "relay_eligible",
+            "relay_probe"
+        ]
+    );
+    assert_eq!(v["reachability"], "direct");
+    assert_eq!(v["bootstrap"][0]["ok"], true);
+    assert_eq!(v["nat_kind"], "cone");
+}
+
+#[tokio::test]
+async fn diagnostics_sans_reseau_rend_indisponible() {
+    let s = service();
+    let err = s.call("diagnostics.counters", json!({})).await.unwrap_err();
+    assert!(err.message.contains("indisponible"));
+}

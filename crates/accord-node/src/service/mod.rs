@@ -86,7 +86,7 @@ impl Service for NodeService {
                 .await
                 .map_err(node_error_to_rpc);
         }
-        if method.starts_with("network.") {
+        if method.starts_with("network.") || method.starts_with("diagnostics.") {
             return self
                 .call_network(method, &params)
                 .await

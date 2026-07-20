@@ -549,6 +549,9 @@ adds it as a bootstrap peer.
 | `network.status` | — | `{ p2p_port, local_addrs: [string], bootstrap: [string], connected_peers, dht_nodes, external_addr: string\|null, port_mapping: "upnp"\|"natpmp"\|"aucun", lan_peers, nat_kind: "unknown"\|"cone"\|"symmetric" }` |
 | `network.add_peer` | `{ addr }` | up-to-date network status — validates `addr` (`ip:port`), persists it, connects immediately (handshake) and seeds the DHT |
 | `network.remove_peer` | `{ addr }` | up-to-date network status — removes the persisted bootstrap peer |
+| `network.peers` | — | `[{ pubkey, live, addr: string\|null, transport: "direct"\|"relay"\|"none", relay: string\|null, last_recv_age_ms: number\|null, rtt_ms: number\|null, last_delivery_ms: number\|null }]` — one entry per friend (see Diagnostics below) |
+| `diagnostics.counters` | — | `{ punch: { requested, received, ok, fail }, relay: { open_ok, open_fail }, mailbox: { deposits, pickups }, outbox: { enqueued, flushed }, reconnect: { attempts, ok } }` — local counters since node start |
+| `diagnostics.selftest` | — | `{ p2p_port, nat_kind, port_mapping, external_addr: string\|null, observed_consensus: string\|null, dht_nodes, connected_peers, relay_eligible: bool, bootstrap: [{ addr, ok }], relay_probe: { addr, ok }\|null, reachability: "direct"\|"punch"\|"relay"\|"unknown" }` — bounded network self-test (a few seconds at most) |
 
 - **Stable P2P port**: by default `48016/udp`. If it is occupied, the range
   `48017`…`48026` is tried, then an ephemeral port as a last resort. The
@@ -597,6 +600,52 @@ adds it as a bootstrap peer.
   peers.
 - Once bootstrapping is done, the normal flow works: `friends.resolve`
   (friend code → verified DHT identity record) then `friends.request`.
+
+#### Diagnostics (per-peer link, local counters, self-test)
+
+Everything below is **local only** — no counter or report ever leaves the
+machine (no telemetry). All fields are **additive**; future fields will be
+additive too.
+
+- `network.peers` — one entry per friend, for the UI connection card:
+  - `transport`: `"direct"` (UDP or punched TCP link), `"relay"` (end-to-end
+    session tunneled through a relay circuit, SPEC §11.3) or `"none"` (no
+    established session right now). When both a dead and a fresh direct
+    session coexist (silent peer restart), the freshest one is reported.
+  - `relay`: the relay's `ip:port` hosting the tunnel when `transport` is
+    `"relay"`, `null` otherwise.
+  - `last_recv_age_ms`: age of the last **inbound** traffic on the current
+    session, `null` without a session.
+  - `rtt_ms`: last round-trip measured on the transport keep-alive PING/PONG
+    (measured locally, no new wire bytes; `null` until a first cycle
+    completes — first keep-alive fires 25 s into an idle session).
+  - `last_delivery_ms`: epoch ms of the last **successful** message delivery
+    to that peer (any channel: direct, relay, outbox flush), `null` if none
+    since node start.
+- `diagnostics.counters` — monotonic counters since node start:
+  - `punch`: coordinated hole-punching (SPEC §11.2) — `requested` (outgoing
+    requests sent), `received` (inbound accepted), `ok`/`fail` (salvo ended
+    with/without a direct session).
+  - `relay`: fallback circuits (SPEC §11.3) — `open_ok` (circuit opened and
+    tunneled handshake launched), `open_fail` (all candidates exhausted).
+  - `mailbox`: DHT offline mailboxes — `deposits` (deposits actually
+    replicated), `pickups` (messages retrieved and ingested).
+  - `outbox`: persistent offline queue — `enqueued` (unreachable recipient),
+    `flushed` (messages that left on a link).
+  - `reconnect`: bootstrap reconnection — `attempts` (backoff due), `ok`.
+- `diagnostics.selftest` — triggerable, bounded self-test (a few seconds at
+  most; backend data only, the UI renders it):
+  - snapshot fields (`nat_kind`, `port_mapping`, `external_addr`,
+    `observed_consensus`, `dht_nodes`, `connected_peers`, `relay_eligible`);
+  - `bootstrap`: probes the effective bootstrap peers (up to 8) — idempotent
+    `connect` then a short wait for the session; `ok` means a session is in
+    place before the deadline;
+  - `relay_probe`: same probe against the closest announced relay (own home
+    relay derivation), `null` when no relay candidate is known;
+  - `reachability` verdict: `"direct"` (port mapping active or public port
+    confirmed by observation consensus), `"punch"` (cone NAT: direct
+    hole punching viable), `"relay"` (symmetric NAT: relay required),
+    `"unknown"` (too few observations).
 
 > **NAT limit.** Direct P2P requires that at least **one of the two peers** has
 > its UDP port reachable from outside. The **automatic mapping**

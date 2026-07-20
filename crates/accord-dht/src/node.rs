@@ -81,24 +81,36 @@ impl KademliaNode {
         }
         self.inner
             .lock()
-            .expect("inner mutex")
+            .unwrap_or_else(|e| e.into_inner())
             .routing
             .insert(info, now_ms)
     }
 
     /// Nombre de pairs connus.
     pub fn peer_count(&self) -> usize {
-        self.inner.lock().expect("inner mutex").routing.len()
+        self.inner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .routing
+            .len()
     }
 
     /// Nombre de records stockés.
     pub fn record_count(&self) -> usize {
-        self.inner.lock().expect("inner mutex").store.len()
+        self.inner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .store
+            .len()
     }
 
     /// Instantané des pairs connus (cache persistant).
     pub fn peers_snapshot(&self) -> Vec<NodeInfo> {
-        self.inner.lock().expect("inner mutex").routing.snapshot()
+        self.inner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .routing
+            .snapshot()
     }
 
     /// Traite un RPC entrant de `from`, rend la réponse à renvoyer (même
@@ -107,7 +119,7 @@ impl KademliaNode {
         let ip = from.addrs.first()?.0.ip();
         let is_store = matches!(msg.body, DhtBody::Store { .. });
 
-        let mut inner = self.inner.lock().expect("inner mutex");
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         // Anti-abus : token bucket par IP ; STORE plus coûteux.
         let allowed = if is_store {
             inner.store_rate.check(ip, 1.0, now_ms) && inner.rpc_rate.check(ip, 4.0, now_ms)
@@ -158,14 +170,18 @@ impl KademliaNode {
 
     /// Purge les records expirés ; rend le nombre supprimé.
     pub fn expire_records(&self, now_ms: u64) -> usize {
-        self.inner.lock().expect("inner mutex").store.expire(now_ms)
+        self.inner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .store
+            .expire(now_ms)
     }
 
     /// Records valides détenus (pour republication périodique).
     pub fn records_to_republish(&self, now_ms: u64) -> Vec<DhtRecord> {
         self.inner
             .lock()
-            .expect("inner mutex")
+            .unwrap_or_else(|e| e.into_inner())
             .store
             .all_valid(now_ms)
     }
@@ -174,7 +190,7 @@ impl KademliaNode {
     pub fn closest_local(&self, key: &NodeId, count: usize) -> Vec<NodeInfo> {
         self.inner
             .lock()
-            .expect("inner mutex")
+            .unwrap_or_else(|e| e.into_inner())
             .routing
             .closest(key, count)
     }
@@ -211,7 +227,7 @@ impl KademliaNode {
         if let Some(rec) = self
             .inner
             .lock()
-            .expect("inner mutex")
+            .unwrap_or_else(|e| e.into_inner())
             .store
             .get(&key, now_ms)
         {
@@ -235,7 +251,7 @@ impl KademliaNode {
                 let _ = self
                     .inner
                     .lock()
-                    .expect("inner mutex")
+                    .unwrap_or_else(|e| e.into_inner())
                     .store
                     .put(rec.clone(), now_ms);
                 Some(rec)
@@ -250,7 +266,7 @@ impl KademliaNode {
         let _ = self
             .inner
             .lock()
-            .expect("inner mutex")
+            .unwrap_or_else(|e| e.into_inner())
             .store
             .put(record.clone(), now_ms);
         let target = NodeId(record.key);

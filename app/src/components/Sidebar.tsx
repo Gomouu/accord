@@ -29,6 +29,7 @@ import {
   PERMISSIONS,
 } from '../stores/groups';
 import { channelLevel, serverLevel, useMute, type NotifLevel } from '../stores/mute';
+import { sortPinnedFirst, usePinnedDms } from '../stores/pinnedDms';
 import { useSession } from '../stores/session';
 import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 import { useUi, useT } from '../stores/ui';
@@ -166,7 +167,11 @@ function HomeSidebar({
   const contacts = useFriends((s) => s.contacts);
   const missedPeers = useCalls((s) => s.missedPeers);
   const draftKeys = useDrafts((s) => s.keys);
-  const friends = contacts.filter((c) => c.state === 'friend');
+  const pinnedDms = usePinnedDms((s) => s.pinned);
+  const friends = sortPinnedFirst(
+    contacts.filter((c) => c.state === 'friend'),
+    new Set(pinnedDms),
+  );
 
   return (
     <>

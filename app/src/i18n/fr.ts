@@ -1163,6 +1163,8 @@ export const fr = {
     mention: 'Mentionner {name}',
     viewProfile: 'Voir le profil',
     markAsRead: 'Marquer comme lu',
+    pinConversation: 'Épingler la conversation',
+    unpinConversation: 'Désépingler',
     editChannel: 'Modifier le salon',
     voiceMuteServer: 'Rendre muet (serveur)',
     voiceUnmuteServer: 'Retirer la sourdine (serveur)',

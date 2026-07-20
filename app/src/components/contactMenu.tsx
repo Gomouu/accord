@@ -14,6 +14,7 @@ import { useCalls } from '../stores/calls';
 import type { ContextMenuItem } from '../stores/contextMenu';
 import { useDms } from '../stores/dms';
 import { useFriends } from '../stores/friends';
+import { usePinnedDms } from '../stores/pinnedDms';
 import { useUi, type AncrePopover } from '../stores/ui';
 import {
   CheckMenuIcon,
@@ -22,6 +23,7 @@ import {
   EnvelopeMenuIcon,
   GearMenuIcon,
   PhoneIcon,
+  PinMenuIcon,
   ProfileMenuIcon,
 } from './ContextMenu';
 import { BlockUserMenuIcon, RemoveFriendMenuIcon } from './messageMenus';
@@ -101,6 +103,12 @@ export function buildContactMenu(
         onClick: () => marquerLu(contact.pubkey, onError),
       });
     }
+    const pinned = usePinnedDms.getState().isPinned(contact.pubkey);
+    items.push({
+      label: pinned ? t.contextMenu.unpinConversation : t.contextMenu.pinConversation,
+      icon: <PinMenuIcon />,
+      onClick: () => usePinnedDms.getState().toggle(contact.pubkey),
+    });
   }
 
   // Demande d'ami reçue : mêmes actions que les boutons en ligne de la vue Amis.

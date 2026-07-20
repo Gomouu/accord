@@ -1147,6 +1147,8 @@ export const en: Dict = {
     mention: 'Mention {name}',
     viewProfile: 'View profile',
     markAsRead: 'Mark as read',
+    pinConversation: 'Pin conversation',
+    unpinConversation: 'Unpin',
     editChannel: 'Edit channel',
     voiceMuteServer: 'Server mute',
     voiceUnmuteServer: 'Remove server mute',

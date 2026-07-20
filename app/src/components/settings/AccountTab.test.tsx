@@ -382,7 +382,9 @@ describe('AccountTab — sauvegarde', () => {
 
     await waitFor(() => {
       expect(
-        useUi.getState().toasts.some((t) => t.kind === 'error' && /incorrecte/.test(t.text)),
+        useUi
+          .getState()
+          .toasts.some((t) => t.kind === 'error' && /incorrecte/.test(t.text)),
       ).toBe(true);
     });
   });

@@ -81,7 +81,9 @@ export function ServerStickersTab({ groupId }: { groupId: string }) {
       const animeTropLourd =
         e instanceof EmojiCompressionError && e.raison === 'anime-trop-lourd';
       setErreur(
-        animeTropLourd ? t.serveur.stickerAnimatedTooLarge : t.serveur.stickerInvalidImage,
+        animeTropLourd
+          ? t.serveur.stickerAnimatedTooLarge
+          : t.serveur.stickerInvalidImage,
       );
     }
   };

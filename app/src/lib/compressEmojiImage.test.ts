@@ -45,13 +45,14 @@ function gifOctetsAvecExtensions(nbFrames: number): Uint8Array {
   return new Uint8Array(octets);
 }
 
-
 /**
  * Construit un WebP minimal (conteneur RIFF). `forme` pilote la structure :
  * statique simple (`VP8 `), étendu avec drapeau Animation (`VP8X`), étendu
  * statique, ou animé sans VP8X (chunk `ANIM` seul).
  */
-function webpOctets(forme: 'simple' | 'vp8x-anime' | 'vp8x-statique' | 'anim-seul'): Uint8Array {
+function webpOctets(
+  forme: 'simple' | 'vp8x-anime' | 'vp8x-statique' | 'anim-seul',
+): Uint8Array {
   const octets: number[] = [];
   const pousserFourcc = (s: string) => octets.push(...[...s].map((c) => c.charCodeAt(0)));
   const pousserTaille = (n: number) =>
@@ -214,7 +215,6 @@ describe('compressEmojiImage — pipeline canvas (image statique)', () => {
     expect(erreur).toMatchObject({ raison: 'compression-impossible' });
   });
 });
-
 
 describe('estWebpAnime', () => {
   it('rend false pour un WebP simple et un VP8X sans drapeau Animation', () => {

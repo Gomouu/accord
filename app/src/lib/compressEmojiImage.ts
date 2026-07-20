@@ -121,7 +121,12 @@ function sauterSousBlocs(bytes: Uint8Array, depart: number): number {
 export function estWebpAnime(bytes: Uint8Array): boolean {
   if (bytes.length < 16) return false;
   const fourcc = (o: number) =>
-    String.fromCharCode(bytes[o] ?? 0, bytes[o + 1] ?? 0, bytes[o + 2] ?? 0, bytes[o + 3] ?? 0);
+    String.fromCharCode(
+      bytes[o] ?? 0,
+      bytes[o + 1] ?? 0,
+      bytes[o + 2] ?? 0,
+      bytes[o + 3] ?? 0,
+    );
   if (fourcc(0) !== 'RIFF' || fourcc(8) !== 'WEBP') return false;
 
   let offset = 12;
@@ -252,8 +257,7 @@ export async function compressEmojiImage(
   if (fichier.type === 'image/gif' || fichier.type === 'image/webp') {
     const dataB64 = await fichierEnB64(fichier);
     const bytes = octetsDepuisBase64(dataB64);
-    const anime =
-      fichier.type === 'image/gif' ? estGifAnime(bytes) : estWebpAnime(bytes);
+    const anime = fichier.type === 'image/gif' ? estGifAnime(bytes) : estWebpAnime(bytes);
     if (anime) {
       return passerAnime(dataB64, fichier.type, bytes.byteLength, maxBytes);
     }

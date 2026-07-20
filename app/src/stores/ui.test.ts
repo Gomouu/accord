@@ -9,6 +9,7 @@ import {
   useUi,
   THEME_IDS,
   FONT_SCALES,
+  pickLang,
   stepFontScale,
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MIN,
@@ -159,6 +160,20 @@ describe('useUi — langue', () => {
 
     useUi.getState().setLang('fr');
     expect(window.localStorage.getItem('accord.lang')).toBe('fr');
+  });
+});
+
+describe('pickLang', () => {
+  it('choisit le français pour une étiquette francophone', () => {
+    expect(pickLang('fr')).toBe('fr');
+    expect(pickLang('fr-FR')).toBe('fr');
+    expect(pickLang('FR-ca')).toBe('fr');
+  });
+
+  it('retombe sur l’anglais pour toute autre étiquette', () => {
+    expect(pickLang('en-US')).toBe('en');
+    expect(pickLang('de')).toBe('en');
+    expect(pickLang('')).toBe('en');
   });
 });
 

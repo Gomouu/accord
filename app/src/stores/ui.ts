@@ -277,9 +277,21 @@ function initialFontScale(): FontScale {
  * Langue au démarrage : celle choisie par l'utilisateur (persistée), sinon
  * anglais par défaut (décision produit — pas de détection système).
  */
+/**
+ * Langue déduite d'une étiquette BCP-47 (`navigator.language`) parmi celles
+ * supportées : français si l'étiquette commence par `fr`, anglais sinon
+ * (défaut sûr). Pure et testable ; étendre ici à l'ajout d'une langue.
+ */
+export function pickLang(tag: string): Lang {
+  return tag.toLowerCase().startsWith('fr') ? 'fr' : 'en';
+}
+
 function initialLang(): Lang {
   const stored = readStored(STORAGE_KEYS.lang);
-  return isLang(stored) ? stored : 'en';
+  if (isLang(stored)) return stored;
+  // Premier lancement : suit la langue du système plutôt qu'un défaut figé.
+  const tag = typeof navigator !== 'undefined' ? navigator.language : '';
+  return pickLang(tag);
 }
 
 /** Booléen persisté (`'true'`/`'false'`), avec repli en valeur par défaut. */

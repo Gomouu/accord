@@ -86,7 +86,7 @@
 ### A.7 États vides, chargement, feedback
 - [x] **A53** **États vides** designés : aucun ami, aucun DM, aucun serveur, aucun résultat de recherche, boîte de mentions vide.
 - [x] **A54** **Squelettes de chargement** : historique de messages, liste de membres, avatars, liste de serveurs.
-- [ ] **A55** **Toasts** (Toasts.tsx) repensés : succès/erreur/info, action inline, empilement, auto-dismiss.
+- [x] **A55** **Toasts** (Toasts.tsx) repensés : succès/erreur/info, action inline, empilement, auto-dismiss.
 - [ ] **A56** **Bannière de mise à jour** (UpdateBanner) soignée + notes de version rendues (déjà Markdown) mises en forme.
 - [ ] **A57** **Bannière hors-ligne / reconnexion** claire (état réseau visible sans ouvrir NetworkPanel).
 - [ ] **A58** **Écran d'onboarding** (Onboarding) : illustrations, progression, moments de confiance (« aucun compte, aucune donnée envoyée »).
@@ -179,7 +179,7 @@
 - [ ] **B18** **Formatage localisé** des dates/heures/tailles/nombres (`Intl`), pas de format codé en dur.
 - [ ] **B19** Ajouter au moins **2 langues** supplémentaires (es, de) avec la même couverture que FR/EN.
 - [ ] **B20** Préparer la **RTL** (logical properties CSS : `margin-inline`, `padding-inline`) même sans langue RTL livrée.
-- [ ] **B21** Test i18n : échouer la CI si une clé existe dans `fr` mais pas dans une autre langue (parité de clés).
+- [x] **B21** Test i18n : échouer la CI si une clé existe dans `fr` mais pas dans une autre langue (parité de clés).
 
 ### B.4 Flux produit (UX)
 - [ ] **B22** **Onboarding** : étape de **vérification de la phrase mnémonique** (re-saisie de quelques mots) avant de continuer.
@@ -240,7 +240,7 @@
 - [ ] **B68** UX de **demande de permission** notifications (NotificationsTab) claire, testable.
 - [ ] **B69** UX **démarrage auto** (plugin autostart) + **minimiser dans le tray** (tray.rs) expliquée.
 - [ ] **B70** **Mode Ne pas déranger** basculable rapidement (barre d'état/palette).
-- [ ] **B71** **Détection de langue OS** au premier lancement (défaut i18n).
+- [x] **B71** **Détection de langue OS** au premier lancement (défaut i18n).
 - [ ] **B72** **Import/export des réglages** (hors identité) en fichier.
 - [ ] **B73** **Temps relatifs vivants** (« il y a 2 min ») qui se mettent à jour sans re-render coûteux.
 
@@ -269,7 +269,7 @@
 - [ ] **C7** Transparence **hors-ligne** : afficher clairement l'état de remise (mailbox 7 j) et « ton ami est hors-ligne, remise différée ».
 
 ### C.2 Messagerie avancée
-- [ ] **C8** **Messages enregistrés / favoris** (bookmark local) avec vue dédiée.
+- [x] **C8** **Messages enregistrés / favoris** (bookmark local) avec vue dédiée.
 - [ ] **C9** **Messages programmés** (envoi différé local quand le pair est joignable).
 - [ ] **C10** **Rappels** sur un message (« me le rappeler dans 3 h »).
 - [ ] **C11** **Traduction** locale d'un message (opt-in, sans service tiers — ou clairement signalé si tiers).

@@ -11,6 +11,7 @@ import { useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import { Avatar } from './Avatar';
 import { buildContactMenu } from './contactMenu';
+import { EmptyState } from './EmptyState';
 import { NetworkPanel } from './NetworkPanel';
 import { PresenceDot } from './PresenceDot';
 
@@ -368,11 +369,9 @@ function EmptyFriends({
   action?: { label: string; onClick: () => void };
 }) {
   return (
-    <div className="flex flex-col items-center gap-3 py-12 text-center text-muted">
-      <span
-        aria-hidden
-        className="flex h-11 w-11 items-center justify-center rounded-full bg-sidebar text-faint"
-      >
+    <EmptyState
+      label={label}
+      icon={
         <svg
           width="22"
           height="22"
@@ -389,32 +388,30 @@ function EmptyFriends({
           <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
           <path d="M16 3.13a4 4 0 0 1 0 7.75" />
         </svg>
-      </span>
-      <p className="max-w-xs text-pretty">{label}</p>
-      {action !== undefined && (
-        <button
-          type="button"
-          onClick={action.onClick}
-          className="mt-1 inline-flex h-9 items-center gap-2 rounded-full bg-green px-4 text-sm font-medium text-on-green transition-colors duration-fast hover:brightness-110 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <line x1="12" x2="12" y1="5" y2="19" />
-            <line x1="5" x2="19" y1="12" y2="12" />
-          </svg>
-          {action.label}
-        </button>
-      )}
-    </div>
+      }
+      action={
+        action && {
+          label: action.label,
+          onClick: action.onClick,
+          icon: (
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <line x1="12" x2="12" y1="5" y2="19" />
+              <line x1="5" x2="19" y1="12" y2="12" />
+            </svg>
+          ),
+        }
+      }
+    />
   );
 }
 

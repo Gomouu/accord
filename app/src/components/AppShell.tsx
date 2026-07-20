@@ -250,6 +250,24 @@ function useGlobalShortcuts(): void {
         return;
       }
 
+      // Zoom d'interface (comme un navigateur) : actif même dans le composeur,
+      // donc avant le filtre des cibles éditables. « = » couvre Ctrl++ sans Maj.
+      if (mod && (e.key === '=' || e.key === '+')) {
+        e.preventDefault();
+        useUi.getState().zoomIn();
+        return;
+      }
+      if (mod && e.key === '-') {
+        e.preventDefault();
+        useUi.getState().zoomOut();
+        return;
+      }
+      if (mod && e.key === '0') {
+        e.preventDefault();
+        useUi.getState().zoomReset();
+        return;
+      }
+
       if (isEditableTarget(e.target)) return;
 
       if (mod && e.shiftKey && e.key.toLowerCase() === 'm') {

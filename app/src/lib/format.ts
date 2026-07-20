@@ -137,6 +137,18 @@ export function tailleLisible(octets: number, lang: Lang): string {
   return `${texte} ${unites[rang] ?? ''}`;
 }
 
+/** Plafond d'affichage d'un compteur de pastille : au-delà, on rend « 99+ ». */
+export const BADGE_COUNT_MAX = 99;
+
+/**
+ * Compteur borné pour l'affichage d'une pastille (non-lus, mentions) : rend
+ * « 99+ » dès que le total dépasse le plafond, pour ne jamais déformer la
+ * pastille. La valeur exacte reste réservée à l'étiquette d'accessibilité.
+ */
+export function formatBadgeCount(count: number): string {
+  return count > BADGE_COUNT_MAX ? `${BADGE_COUNT_MAX}+` : String(count);
+}
+
 /**
  * Horodatage compact pour la gouttière des messages groupés (40 px) : même
  * heure que [`formatTimestamp`], mais le méridien 12 h est collé et en

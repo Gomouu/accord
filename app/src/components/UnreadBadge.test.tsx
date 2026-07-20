@@ -22,6 +22,12 @@ describe('UnreadBadge', () => {
     const { container } = render(<UnreadBadge count={0} />);
     expect(container).toBeEmptyDOMElement();
   });
+
+  it('plafonne l’affichage à « 99+ » mais garde le compte exact en accessibilité', () => {
+    render(<UnreadBadge count={150} />);
+    expect(screen.getByText('99+')).toBeInTheDocument();
+    expect(screen.getByLabelText('150 message(s) non lu(s)')).toBeInTheDocument();
+  });
 });
 
 describe('MentionBadge', () => {

@@ -26,7 +26,7 @@ import {
 } from './ContextMenu';
 import { lireFichier } from '../lib/files';
 import { estOuvertureMenu, pointAncrageMenu } from '../lib/focus';
-import { initials } from '../lib/format';
+import { formatBadgeCount, initials } from '../lib/format';
 import type { GroupStateJson } from '../lib/api';
 
 /** Salon ouvert à l'arrivée dans un groupe : premier non-vocal en position. */
@@ -139,7 +139,7 @@ function RailBadge({ badge }: { badge: RailBadgeInfo }) {
           @
         </span>
       )}
-      {badge.count > 99 ? '99+' : badge.count}
+      {formatBadgeCount(badge.count)}
     </span>
   );
 }

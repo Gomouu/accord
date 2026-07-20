@@ -8,6 +8,7 @@
  */
 
 import { interpolate } from '../i18n';
+import { formatBadgeCount } from '../lib/format';
 import { useT } from '../stores/ui';
 
 export function UnreadBadge({ count }: { count: number }) {
@@ -18,7 +19,7 @@ export function UnreadBadge({ count }: { count: number }) {
       aria-label={interpolate(t.dm.unreadBadge, { count: String(count) })}
       className="badge-pop min-w-4 shrink-0 rounded-full bg-red px-1.5 text-center text-[11px] font-semibold leading-4 text-on-red"
     >
-      {count}
+      {formatBadgeCount(count)}
     </span>
   );
 }
@@ -35,7 +36,7 @@ export function MentionBadge({ count }: { count: number }) {
       <span aria-hidden className="font-semibold leading-none">
         @
       </span>
-      {count}
+      {formatBadgeCount(count)}
     </span>
   );
 }

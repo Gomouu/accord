@@ -23,6 +23,7 @@ import { useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
 import { useUi, useT, type View } from '../stores/ui';
 import { CloseIcon, SearchIcon } from './ContextMenu';
+import { EmptyState } from './EmptyState';
 
 /** Vue cible (conversation) d'un résultat, pour le saut au message. */
 function hitView(hit: SearchQueryHit): View {
@@ -200,7 +201,26 @@ export function SearchBar() {
               {t.search.results} — {rows.length}
             </div>
             {rows.length === 0 && (
-              <p className="px-2 py-2 text-sm text-muted">{t.search.noResults}</p>
+              <EmptyState
+                compact
+                label={t.search.noResults}
+                icon={
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                  >
+                    <circle cx="11" cy="11" r="8" />
+                    <path d="m21 21-4.3-4.3" />
+                  </svg>
+                }
+              />
             )}
             {rows.map((row) => (
               <HitRow key={row.hit.msg_id} row={row} onOpen={open} />

@@ -241,6 +241,18 @@ function isFontScale(value: number): value is FontScale {
   return (FONT_SCALES as readonly number[]).includes(value);
 }
 
+/**
+ * Palier de zoom voisin : avance de `direction` (+1 agrandit, −1 réduit) dans
+ * `FONT_SCALES`, borné aux extrêmes (un zoom au-delà ne fait rien). Pur et
+ * testable, réutilisé par `zoomIn`/`zoomOut`.
+ */
+export function stepFontScale(current: FontScale, direction: 1 | -1): FontScale {
+  const index = FONT_SCALES.indexOf(current);
+  const next = index + direction;
+  if (next < 0 || next >= FONT_SCALES.length) return current;
+  return FONT_SCALES[next] ?? current;
+}
+
 function isLang(value: string | null): value is Lang {
   return value === 'fr' || value === 'en';
 }
@@ -613,6 +625,10 @@ interface UiState {
   setCustomTheme: (couleurs: CouleursPerso) => void;
   setDensity: (density: Density) => void;
   setFontScale: (fontScale: FontScale) => void;
+  /** Zoom clavier : monte/descend d'un palier de `FONT_SCALES`, ou revient à 100 %. */
+  zoomIn: () => void;
+  zoomOut: () => void;
+  zoomReset: () => void;
   setPttEnabled: (enabled: boolean) => void;
   setPttKey: (key: string) => void;
   setNotifyDms: (enabled: boolean) => void;
@@ -800,6 +816,9 @@ export const useUi = create<UiState>((set, get) => {
       writeStored(STORAGE_KEYS.fontScale, String(nextFontScale));
       set({ fontScale: nextFontScale });
     },
+    zoomIn: () => get().setFontScale(stepFontScale(get().fontScale, 1)),
+    zoomOut: () => get().setFontScale(stepFontScale(get().fontScale, -1)),
+    zoomReset: () => get().setFontScale(100),
     setPttEnabled: (enabled) => {
       writeStored(STORAGE_KEYS.pttEnabled, String(enabled));
       set({ pttEnabled: enabled });

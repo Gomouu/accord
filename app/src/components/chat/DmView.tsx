@@ -21,6 +21,7 @@ import { buildContactMenu } from '../contactMenu';
 import { PhoneIcon } from '../ContextMenu';
 import { MessageInput } from '../MessageInput';
 import { MessageList, type DisplayMessage } from '../MessageList';
+import { MessageListSkeleton } from '../Skeleton';
 import { deliveryOf } from '../messageModel';
 import { TypingIndicator } from '../TypingIndicator';
 import {
@@ -61,6 +62,12 @@ export function DmView({ peer }: { peer: string }) {
   const groupIds = useGroups((s) => s.ids);
   const groupStates = useGroups((s) => s.states);
   const name = displayNameOf(contacts, peer);
+  /**
+   * Première page d'historique pas encore résolue : affiche le squelette tant
+   * que le fil est vide et que le chargement initial est en cours (évite
+   * l'éclair « aucun message » sur une conversation qui en a).
+   */
+  const [chargement, setChargement] = useState(true);
   /** Volet des messages épinglés (fermé par défaut). */
   const [pinsOpen, setPinsOpen] = useState(false);
   /** Message auquel la prochaine saisie répondra (null : envoi simple). */
@@ -81,12 +88,17 @@ export function DmView({ peer }: { peer: string }) {
   useEffect(() => {
     setPinsOpen(false);
     setReplyTo(null);
+    setChargement(true);
     // Un saut vers cette conversation charge lui-même la fenêtre du message
     // ciblé : on évite alors le rechargement récent qui l'écraserait.
     const jump = useUi.getState().jump;
     const jumpingHere = jump?.view.kind === 'dm' && jump.view.peer === peer;
-    if (!jumpingHere) {
-      refresh(peer).catch(() => toast('error', t.errors.loadFailed));
+    if (jumpingHere) {
+      setChargement(false);
+    } else {
+      refresh(peer)
+        .catch(() => toast('error', t.errors.loadFailed))
+        .finally(() => setChargement(false));
     }
     // Épinglés en best effort : le volet affichera ce qui est connu.
     loadPins(peer).catch(() => {});
@@ -302,38 +314,44 @@ export function DmView({ peer }: { peer: string }) {
           </div>
         </div>
       )}
-      <MessageList
-        key={peer}
-        messages={messages}
-        hasMore={hasMore}
-        scrollTarget={scrollTarget}
-        dividerLamport={dividerLamport}
-        pinnedIds={pinnedIds}
-        knownMentions={knownMentions}
-        emojiMap={emojiMap}
-        onLoadOlder={() => {
-          loadOlder(peer).catch(() => toast('error', t.errors.loadFailed));
-        }}
-        actions={{
-          onReact: (message, emoji) => {
-            if (!self) return;
-            toggleReaction(peer, message.msg_id, emoji, self.pubkey).catch(onActionError);
-          },
-          onReply: (message) => setReplyTo(message),
-          onEdit: (message, text) => {
-            edit(peer, message.msg_id, text).catch(onActionError);
-          },
-          onDelete: (message) => {
-            deleteMessage(peer, message.msg_id).catch(onActionError);
-          },
-          onTogglePin: (message, pinned) => {
-            togglePin(peer, message.msg_id, pinned).catch(onActionError);
-          },
-          onRetry: (message) => {
-            retry(peer, message.msg_id).catch(onActionError);
-          },
-        }}
-      />
+      {chargement && messages.length === 0 ? (
+        <MessageListSkeleton label={t.app.loading} />
+      ) : (
+        <MessageList
+          key={peer}
+          messages={messages}
+          hasMore={hasMore}
+          scrollTarget={scrollTarget}
+          dividerLamport={dividerLamport}
+          pinnedIds={pinnedIds}
+          knownMentions={knownMentions}
+          emojiMap={emojiMap}
+          onLoadOlder={() => {
+            loadOlder(peer).catch(() => toast('error', t.errors.loadFailed));
+          }}
+          actions={{
+            onReact: (message, emoji) => {
+              if (!self) return;
+              toggleReaction(peer, message.msg_id, emoji, self.pubkey).catch(
+                onActionError,
+              );
+            },
+            onReply: (message) => setReplyTo(message),
+            onEdit: (message, text) => {
+              edit(peer, message.msg_id, text).catch(onActionError);
+            },
+            onDelete: (message) => {
+              deleteMessage(peer, message.msg_id).catch(onActionError);
+            },
+            onTogglePin: (message, pinned) => {
+              togglePin(peer, message.msg_id, pinned).catch(onActionError);
+            },
+            onRetry: (message) => {
+              retry(peer, message.msg_id).catch(onActionError);
+            },
+          }}
+        />
+      )}
       {replyTo !== null && (
         <ReplyBanner
           name={

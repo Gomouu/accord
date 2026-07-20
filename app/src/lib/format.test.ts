@@ -3,6 +3,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   avatarColor,
+  BADGE_COUNT_MAX,
+  formatBadgeCount,
   formatDay,
   formatDuration,
   formatEventDateTime,
@@ -164,5 +166,18 @@ describe('formatDuration', () => {
   it('tronque les fractions de seconde et borne les durées négatives à 0', () => {
     expect(formatDuration(59.9)).toBe('0:59');
     expect(formatDuration(-10)).toBe('0:00');
+  });
+});
+
+describe('formatBadgeCount', () => {
+  it('rend le compte exact sous le plafond', () => {
+    expect(formatBadgeCount(0)).toBe('0');
+    expect(formatBadgeCount(7)).toBe('7');
+    expect(formatBadgeCount(BADGE_COUNT_MAX)).toBe(String(BADGE_COUNT_MAX));
+  });
+
+  it('rend « 99+ » au-delà du plafond', () => {
+    expect(formatBadgeCount(BADGE_COUNT_MAX + 1)).toBe('99+');
+    expect(formatBadgeCount(4823)).toBe('99+');
   });
 });

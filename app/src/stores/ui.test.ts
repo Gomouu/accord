@@ -8,6 +8,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   useUi,
   THEME_IDS,
+  FONT_SCALES,
+  stepFontScale,
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MIN,
   SIDEBAR_WIDTH_MAX,
@@ -118,6 +120,33 @@ describe('useUi — taille de police', () => {
     expect(root.style.fontSize).toBe('150%');
     expect(window.localStorage.getItem('accord.fontScale')).toBe('150');
     expect(useUi.getState().fontScale).toBe(150);
+  });
+});
+
+describe('stepFontScale', () => {
+  it('avance d’un palier dans chaque sens', () => {
+    expect(stepFontScale(100, 1)).toBe(125);
+    expect(stepFontScale(125, -1)).toBe(100);
+  });
+
+  it('reste borné aux extrêmes', () => {
+    const min = FONT_SCALES[0];
+    const max = FONT_SCALES[FONT_SCALES.length - 1];
+    expect(stepFontScale(75, -1)).toBe(min);
+    expect(stepFontScale(150, 1)).toBe(max);
+  });
+});
+
+describe('useUi — zoom clavier', () => {
+  it('agrandit, réduit et réinitialise l’échelle de police', () => {
+    useUi.getState().setFontScale(100);
+    useUi.getState().zoomIn();
+    expect(useUi.getState().fontScale).toBe(125);
+    useUi.getState().zoomOut();
+    expect(useUi.getState().fontScale).toBe(100);
+    useUi.getState().setFontScale(150);
+    useUi.getState().zoomReset();
+    expect(useUi.getState().fontScale).toBe(100);
   });
 });
 

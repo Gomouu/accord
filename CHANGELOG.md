@@ -36,6 +36,26 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 - The server-emoji hint no longer shows a misleading `:{name}:` placeholder; it
   now reads `:name:`, the actual shortcode syntax.
 
+### Security
+
+- **Backup import hardening.** Importing a backup used to apply the Unix file
+  permissions stored *in the archive* verbatim — so a forged legacy
+  (unencrypted) zip handed to you by someone else could drop executable,
+  world-writable or setgid files into your profile. Imported files are now
+  always written with safe `0600` permissions, never the archive's
+  (adversarially tested).
+- Production code paths are now **panic-free by construction**: a CI lint
+  rejects `unwrap`/`expect`/`panic!` outside tests, and fuzzing was expanded to
+  eight targets (handshake, DHT records, group state, file manifests, the
+  encrypted backup archive…) with a committed seed corpus.
+
+### Under the hood
+
+- **Network diagnostics.** New local, on-device diagnostics (per-peer link type
+  — direct vs relay —, latency reused from the existing keep-alive, connection
+  counters, and a bounded reachability self-test), exposed for a future
+  in-app connection panel. No new bytes on the wire; fully 3.x-compatible.
+
 ## [3.5.0] — 2026-07-20
 
 ### Added

@@ -371,8 +371,8 @@
 > Le travail ci-dessous est de **prouver, durcir, et instrumenter**, pas de recoder.
 - [ ] **D1** **Prouver la joignabilité** sous conditions adverses : e2e SimNet couvrant NAT symétrique des DEUX côtés, churn de relais, rejet de relais, expiration de circuit, glare — au-delà de `relay_tunnel_e2e` actuel.
 - [ ] **D2** **Durcir la sélection/repli** : timing de bascule (`PUNCH_FALLBACK_MS`), santé de relais mesurée (pas seulement « vérifié »), éviction d'un relais défaillant en cours de session, re-tentative sur un autre.
-- [ ] **D3** **Instrumenter l'orchestration** direct LAN → punch → relais : compteurs de succès/échec par étape, exposés (voir D.5) — c'est ce qui manque vraiment, pas la logique.
-- [ ] **D4** **Étendre l'exposition NAT/relais par pair** : `nat_kind` global existe ; ajouter par pair « direct vs relayé », relais utilisé, latence — pour la carte de connexion de l'UI (contrat D.5).
+- [x] **D3** **Instrumenter l'orchestration** direct LAN → punch → relais : compteurs de succès/échec par étape, exposés (voir D.5) — c'est ce qui manque vraiment, pas la logique.
+- [x] **D4** **Étendre l'exposition NAT/relais par pair** : `nat_kind` global existe ; ajouter par pair « direct vs relayé », relais utilisé, latence — pour la carte de connexion de l'UI (contrat D.5).
 - [ ] **D5** Audit **IPv6** de bout en bout (candidats, punch, relais).
 - [ ] **D6** **UPnP-IGD / NAT-PMP** : renouvellement du mapping, dégradation propre, re-tentative sur changement de réseau.
 - [ ] **D7** **Détection de changement de réseau** (Wi-Fi↔4G, réveil de veille) → re-résolution de présence + reconnexion rapide.
@@ -389,13 +389,13 @@
 - [ ] **D16** Tests DHT **60+ nœuds** sous perte/latence/churn (le SimNet existe) — scénarios de partition.
 
 ### D.3 Sécurité & vie privée (crypto/hardening)
-- [ ] **D17** **Rafraîchir le THREAT-MODEL.md** et lancer une revue adverse des surfaces v3.4/3.5 (sauvegarde chiffrée `archive.rs`, invitations MP, backup import).
-- [ ] **D18** **Élargir le fuzzing** au-delà des 3 cibles (`core_msg`, `group_op_body`, `proto_decode`) : ajouter handshake, session AEAD, décodage d'état de groupe, records DHT, manifests fichiers, **archive de sauvegarde**.
-- [ ] **D19** **Fuzzing continu en CI** (temps borné par PR + campagne de nuit) avec corpus persistant.
+- [x] **D17** **Rafraîchir le THREAT-MODEL.md** et lancer une revue adverse des surfaces v3.4/3.5 (sauvegarde chiffrée `archive.rs`, invitations MP, backup import).
+- [x] **D18** **Élargir le fuzzing** au-delà des 3 cibles (`core_msg`, `group_op_body`, `proto_decode`) : ajouter handshake, session AEAD, décodage d'état de groupe, records DHT, manifests fichiers, **archive de sauvegarde**.
+- [x] **D19** **Fuzzing continu en CI** (temps borné par PR + campagne de nuit) avec corpus persistant.
 - [ ] **D20** Revue **forward secrecy** : rotation d'epochs, re-keying, gestion des nonces directionnels, fenêtre anti-rejeu.
 - [ ] **D21** Audit **temps constant** (subtle) sur toutes les comparaisons de secrets/jetons.
 - [ ] **D22** Audit **zeroization** (zeroize) des secrets en mémoire (clés d'epoch, seed, phrases de passe de sauvegarde).
-- [ ] **D23** **Chasse aux panics** en chemin de production : bannir `unwrap`/`expect`/`panic!` hors tests ; lint clippy dédié (dans la lignée de la régression `debug_assert`).
+- [x] **D23** **Chasse aux panics** en chemin de production : bannir `unwrap`/`expect`/`panic!` hors tests ; lint clippy dédié (dans la lignée de la régression `debug_assert`).
 - [ ] **D24** **Minimisation des métadonnées** : réduire ce que révèlent les records DHT et les entêtes.
 - [ ] **D25** **Chaîne d'approvisionnement** : `cargo deny`/`audit` déjà en CI → ajouter génération **SBOM** et politique de licences stricte (deny.toml).
 - [ ] **D26** **Rotation de clés** (identité compromise) : chemin de migration documenté et testé.
@@ -407,18 +407,18 @@
 - [ ] **D30** **CPU du moteur vocal** (`voice/engine.rs` 2281 l.) : profiler la boucle 20 ms, jitter buffer, mix (mix.rs).
 - [ ] **D31** **Passage à l'échelle des gros groupes** : op-log CRDT (`group/state.rs` 4924 l.), listes wire plafonnées à 4096 — mesurer, borner, paginer.
 - [ ] **D32** **Débit de transfert de fichiers** (Merkle + Reed-Solomon 10+4, multi-sources) : fenêtre, reprise bitmap, mesures.
-- [ ] **D33** **Bench criterion** pour crypto (handshake, AEAD), codec voix, décodage proto, requêtes DB — anti-régression perf.
+- [x] **D33** **Bench criterion** pour crypto (handshake, AEAD), codec voix, décodage proto, requêtes DB — anti-régression perf.
 
 ### D.5 Observabilité & diagnostic
 - [ ] **D34** **Tracing structuré** : spans cohérents, niveaux, champs (rpc_id, peer, session) — exploiter `ACCORD_LOG_FILE` déjà en place.
-- [ ] **D35** **Compteurs locaux** (succès de connexion, usage relais, latence de remise, échecs de punch) exposés via une méthode API `diagnostics.*`.
-- [ ] **D36** **Panneau de diagnostic** (données backend seulement ; l'UI est côté Lot B/C) : auto-test réseau, joignabilité, type de NAT, test de relais.
+- [x] **D35** **Compteurs locaux** (succès de connexion, usage relais, latence de remise, échecs de punch) exposés via une méthode API `diagnostics.*`.
+- [x] **D36** **Panneau de diagnostic** (données backend seulement ; l'UI est côté Lot B/C) : auto-test réseau, joignabilité, type de NAT, test de relais.
 - [ ] **D37** **Journal de crash local** (aucune télémétrie) : capture panics + contexte, consultable par l'utilisateur.
 - [ ] **D38** **Endpoint de santé** interne du nœud (état DHT, sessions actives, mappings NAT).
 
 ### D.6 Tests & CI
 - [ ] **D39** **Corriger la flakiness e2e** : les suites réseau (`calls_e2e`, `reconnexion_e2e`, `maintenance_e2e`, `tcp_link_e2e`, `profil_reboot_e2e`) échouent par **starvation** sous parallélisme complet → sérialiser ou isoler (groupe de tests dédié `--test-threads`).
-- [ ] **D40** **Property tests** (proptest) sur les codecs (`accord-proto`), le CRDT de groupe (repli déterministe), les codes amis.
+- [x] **D40** **Property tests** (proptest) sur les codecs (`accord-proto`), le CRDT de groupe (repli déterministe), les codes amis.
 - [ ] **D41** **Couverture Rust** mesurée (llvm-cov/tarpaulin) et publiée ; cibler les modules critiques.
 - [ ] **D42** **Étendre les tests en profil release** (la classe de bug `debug_assert` qui avale du code) : couvrir plus de chemins hermétiques SimNet en release.
 - [ ] **D43** **Matrice CI** vérifiée sur les 3 OS (macOS arm64, Ubuntu 22.04, Windows) — pas seulement le build, aussi les tests pertinents.
@@ -452,7 +452,7 @@
 ### D.10 API & contrats
 - [ ] **D64** **Validation d'entrée** systématique à la frontière des ~40 méthodes RPC (accord-api/accord-node/service).
 - [ ] **D65** Re-vérifier les défenses locales : **comparaison temps constant** du jeton, **timeout WS**, **contrôle d'Origin**, limite de connexions.
-- [ ] **D66** **Contrat de diagnostic** (`diagnostics.*`, `network.status` enrichi, événements) documenté dans `API.md` pour l'UI (Lots B/C).
+- [x] **D66** **Contrat de diagnostic** (`diagnostics.*`, `network.status` enrichi, événements) documenté dans `API.md` pour l'UI (Lots B/C).
 - [ ] **D67** **Versionner le contrat wire** et garantir la compat 3.x/4.x (bandes de kinds, champs optionnels).
 
 ### D.11 Tests & fuzz (extension)
@@ -460,7 +460,7 @@
 - [ ] **D69** **Graines déterministes** contrôlées pour le SimNet (repro exacte des flakes).
 - [ ] **D70** **Cibles de fuzz** supplémentaires : friendcode, mnemonic, vault, link d'invitation, manifest fichier.
 - [ ] **D71** **Étendre la suite transport release** (au-delà des 4 suites actuelles) pour couvrir plus de chemins non évalués en debug.
-- [ ] **D72** **Corpus de fuzz persistant** committé et réutilisé entre campagnes.
+- [x] **D72** **Corpus de fuzz persistant** committé et réutilisé entre campagnes.
 
 ### D.12 CI & release (extension)
 - [ ] **D73** **Vitesse CI** : cache Rust/cargo affiné, jobs parallélisés, temps de PR mesuré.

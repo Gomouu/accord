@@ -1,0 +1,206 @@
+@keyframes botanical-bloom {
+  50% {
+    opacity: 0.82;
+    transform: scale(0.9) rotate(4deg);
+  }
+}
+
+@keyframes botanical-petal-fall {
+  10% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(18px, 92px, 0) rotate(280deg);
+  }
+}
+
+@keyframes botanical-wisteria-sway {
+  to {
+    transform: rotate(5deg) translateX(2px);
+  }
+}
+
+@keyframes botanical-firefly {
+  33% {
+    opacity: 0.3;
+    transform: translate3d(8px, -10px, 0) scale(0.65);
+  }
+  66% {
+    opacity: 1;
+    transform: translate3d(-7px, 6px, 0) scale(1.2);
+  }
+}
+
+@keyframes botanical-water-ring {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes botanical-koi-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes botanical-lotus-bob {
+  50% {
+    transform: translateY(-3px) scale(1.04);
+  }
+}
+
+@keyframes manga-impact-pulse {
+  50% {
+    transform: scale(1.035) rotate(1deg);
+  }
+}
+
+@keyframes manga-bubble-bob {
+  50% {
+    transform: translateY(-4px) rotate(1deg);
+  }
+}
+
+@keyframes shojo-lace-flow {
+  50% {
+    opacity: 0.68;
+  }
+}
+
+@keyframes shojo-twinkle {
+  50% {
+    opacity: 1;
+    transform: scale(1.45) rotate(45deg);
+  }
+}
+
+@keyframes shonen-speed-pulse {
+  50% {
+    opacity: 0.45;
+    transform: scale(1.03);
+  }
+}
+
+@keyframes effect-petal-fall {
+  9% {
+    opacity: 0.92;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(42px, 240px, 0) rotate(420deg);
+  }
+}
+
+@keyframes effect-wisteria-sway {
+  from {
+    transform: scaleX(var(--effect-wisteria-mirror)) rotate(-2deg) translateX(-2px);
+  }
+  to {
+    transform: scaleX(var(--effect-wisteria-mirror)) rotate(4deg) translateX(6px);
+  }
+}
+
+@keyframes effect-ripple {
+  15% {
+    opacity: 0.72;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.4);
+  }
+}
+
+@keyframes effect-koi-swim {
+  50% {
+    transform: translate3d(190px, -24px, 0) rotate(8deg);
+  }
+}
+
+@keyframes manga-speedline {
+  50% {
+    opacity: 0.16;
+    transform: rotate(calc(var(--line-angle) * 1deg)) translateX(4%) scaleX(0.72);
+  }
+}
+
+@keyframes shojo-ribbon-float {
+  to {
+    transform: translate3d(-8px, -7px, 0) rotate(-14deg);
+  }
+}
+
+@keyframes shonen-burst {
+  50% {
+    transform: scale(1.04) rotate(1deg);
+  }
+}
+
+@keyframes shonen-impact-line {
+  50% {
+    opacity: 0.35;
+    transform: rotate(calc(var(--impact-angle) * 1deg)) translateX(18%) scaleX(0.78);
+  }
+}
+
+@keyframes frame-blossom-pulse {
+  50% {
+    opacity: 0.76;
+    transform: scale(0.82) rotate(12deg);
+  }
+}
+
+@keyframes frame-petal-fall {
+  12% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(24px, 270px, 0) rotate(360deg);
+  }
+}
+
+@keyframes frame-wisteria-sway {
+  to {
+    transform: rotate(4deg) translateX(2px);
+  }
+}
+
+@keyframes frame-water-flow {
+  50% {
+    opacity: 0.72;
+  }
+}
+
+@keyframes frame-koi-glide {
+  to {
+    transform: translateX(22px) rotate(4deg);
+  }
+}
+
+@keyframes frame-manga-jolt {
+  50% {
+    opacity: 0.54;
+    transform: translateX(3px);
+  }
+}
+
+@keyframes frame-rose-bloom {
+  50% {
+    transform: scale(0.87) rotate(5deg);
+  }
+}
+
+@media (prefers-contrast: more) {
+  .figurative-effect {
+    display: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .nature-decoration,
+  .figurative-effect,
+  .figurative-frame {
+    display: none;
+  }
+}

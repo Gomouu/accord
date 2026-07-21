@@ -15,9 +15,10 @@ import {
 } from '../../lib/customTheme';
 import { copyToClipboard } from '../../lib/clipboard';
 import { useUi, useT, THEME_IDS, type Theme } from '../../stores/ui';
-import type { Dict } from '../../i18n';
+import { interpolate, type Dict } from '../../i18n';
 import { ThemeAtmosphere } from '../ThemeAtmosphere';
 import { OptionPill, SettingsSection } from './controls';
+import './appearance-theme-gallery.css';
 
 /**
  * Éditeur du thème personnalisé : trois sélecteurs de couleur natifs + base
@@ -171,6 +172,39 @@ function ThemeCheckIcon() {
   );
 }
 
+let themeTransitionId = 0;
+
+function prefersReducedThemeMotion(): boolean {
+  return (
+    document.documentElement.dataset.motion === 'reduce' ||
+    window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+  );
+}
+
+function applyThemeWithTransition(theme: Theme, setTheme: (theme: Theme) => void): void {
+  const startViewTransition = Reflect.get(document, 'startViewTransition') as
+    ((update: () => void) => ViewTransition) | undefined;
+  if (startViewTransition === undefined || prefersReducedThemeMotion()) {
+    setTheme(theme);
+    return;
+  }
+
+  const transitionId = ++themeTransitionId;
+  const root = document.documentElement;
+  root.dataset.themeTransition = 'active';
+  const clearTransition = (): void => {
+    if (transitionId === themeTransitionId) delete root.dataset.themeTransition;
+  };
+
+  try {
+    const transition = startViewTransition.call(document, () => setTheme(theme));
+    void transition.finished.then(clearTransition, clearTransition);
+  } catch {
+    clearTransition();
+    setTheme(theme);
+  }
+}
+
 /**
  * Vignette de thème : aperçu miniature fidèle + libellé, façon Discord.
  * `data-theme` sur l'aperçu (et lui seul — jamais sur le libellé) scope les
@@ -189,6 +223,9 @@ function ThemeCard({
   buttonRef,
   previewVars,
   previewBase,
+  accountName,
+  accountStatus,
+  composerLabel,
 }: {
   id: Theme;
   label: string;
@@ -199,6 +236,9 @@ function ThemeCard({
   previewVars?: Record<string, string> | undefined;
   /** Base d'aperçu de la tuile « Personnalisé » (texte, verre). */
   previewBase?: 'dark' | 'light' | undefined;
+  accountName: string;
+  accountStatus: string;
+  composerLabel: string;
 }) {
   return (
     <button
@@ -214,28 +254,71 @@ function ThemeCard({
         data-theme={id === 'custom' ? previewBase : id}
         style={previewVars as React.CSSProperties | undefined}
         aria-hidden
-        className={`theme-preview relative flex h-20 w-full overflow-hidden rounded-lg border-2 transition-colors duration-150 ${
+        className={`theme-preview theme-conversation-preview ${
           selected ? 'border-blurple' : 'border-input group-hover:border-faint'
         }`}
       >
-        <span className="theme-preview__rail flex h-full w-[18%] shrink-0 flex-col items-center gap-1 pt-2">
-          <span className="h-2 w-2 rounded-full bg-blurple" />
-          <span className="theme-preview__secondary h-2 w-2 rounded-full" />
+        <span className="theme-preview__rail theme-conversation-preview__rail">
+          <span className="theme-conversation-preview__server theme-conversation-preview__server--home">
+            A
+          </span>
+          <span className="theme-conversation-preview__server">S</span>
+          <span className="theme-conversation-preview__server">+</span>
         </span>
-        <span className="theme-preview__sidebar flex h-full w-[28%] shrink-0 flex-col gap-1 p-1.5">
-          <span className="h-1.5 w-4/5 rounded-full bg-input" />
-          <span className="h-1.5 w-3/5 rounded-full bg-input" />
-          <span className="mt-1 h-1.5 w-full rounded-full bg-chat/70" />
+        <span className="theme-preview__sidebar theme-conversation-preview__sidebar">
+          <span className="theme-conversation-preview__workspace">Accord</span>
+          <span className="theme-conversation-preview__channel theme-conversation-preview__channel--active">
+            <span>#</span>
+            <span className="theme-conversation-preview__channel-line" />
+          </span>
+          <span className="theme-conversation-preview__channel">
+            <span>#</span>
+            <span className="theme-conversation-preview__channel-line theme-conversation-preview__channel-line--short" />
+          </span>
+          <span className="theme-conversation-preview__account">
+            <span className="theme-conversation-preview__account-avatar">Y</span>
+            <span className="theme-conversation-preview__account-copy">
+              <span>{accountName}</span>
+              <span>{accountStatus}</span>
+            </span>
+          </span>
         </span>
-        <span className="theme-preview__chat flex min-w-0 flex-1 flex-col gap-1 p-1.5">
+        <span className="theme-preview__chat theme-conversation-preview__chat">
           <span className="theme-preview__motion" />
           <ThemeAtmosphere theme={id} preview />
-          <span className="h-1.5 w-3/4 rounded-full bg-input/80" />
-          <span className="h-1.5 w-1/2 rounded-full bg-input/80" />
-          <span className="theme-preview__accent mt-auto h-1.5 w-4/5 rounded-full" />
+          <span className="theme-conversation-preview__header">
+            <span>#</span>
+            <span className="theme-conversation-preview__channel-line" />
+            <span className="theme-conversation-preview__header-status" />
+          </span>
+          <span className="theme-conversation-preview__messages">
+            <span className="theme-conversation-preview__message">
+              <span className="theme-conversation-preview__avatar theme-conversation-preview__avatar--one">
+                M
+              </span>
+              <span className="theme-conversation-preview__message-copy">
+                <span className="theme-conversation-preview__name">Maya</span>
+                <span className="theme-conversation-preview__line" />
+                <span className="theme-conversation-preview__line theme-conversation-preview__line--short" />
+              </span>
+            </span>
+            <span className="theme-conversation-preview__message">
+              <span className="theme-conversation-preview__avatar theme-conversation-preview__avatar--two">
+                K
+              </span>
+              <span className="theme-conversation-preview__message-copy">
+                <span className="theme-conversation-preview__name">Kai</span>
+                <span className="theme-conversation-preview__line theme-conversation-preview__line--medium" />
+              </span>
+            </span>
+          </span>
+          <span className="theme-conversation-preview__composer">
+            <span>+</span>
+            <span>{composerLabel}</span>
+          </span>
         </span>
         {selected && (
-          <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-blurple text-white">
+          <span className="absolute right-1 top-1 z-[4] flex h-4 w-4 items-center justify-center rounded-full bg-blurple text-white">
             <ThemeCheckIcon />
           </span>
         )}
@@ -270,11 +353,15 @@ function ThemeGallery({
   const customTheme = useUi((s) => s.customTheme);
   const persoVars = useMemo(() => deriverVariables(customTheme), [customTheme]);
 
+  const selectTheme = (id: Theme): void => {
+    if (id !== theme) applyThemeWithTransition(id, setTheme);
+  };
+
   const selectAt = (next: number): void => {
     const bounded = ((next % THEME_IDS.length) + THEME_IDS.length) % THEME_IDS.length;
     const id = THEME_IDS[bounded];
     if (id === undefined) return;
-    setTheme(id);
+    selectTheme(id);
     buttonRefs.current[bounded]?.focus();
   };
 
@@ -302,12 +389,15 @@ function ThemeGallery({
           id={id}
           label={t.settings[THEME_LABEL_KEYS[id]]}
           selected={theme === id}
-          onSelect={() => setTheme(id)}
+          onSelect={() => selectTheme(id)}
           buttonRef={(el) => {
             buttonRefs.current[index] = el;
           }}
           previewVars={id === 'custom' ? persoVars : undefined}
           previewBase={id === 'custom' ? customTheme.base : undefined}
+          accountName={t.app.you}
+          accountStatus={t.profil.online}
+          composerLabel={interpolate(t.dm.placeholder, { name: t.app.you })}
         />
       ))}
     </div>

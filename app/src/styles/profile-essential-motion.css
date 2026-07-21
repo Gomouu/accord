@@ -1,0 +1,139 @@
+@keyframes avatar-aura-breathe {
+  0%,
+  100% {
+    opacity: 0.34;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 0.62;
+    transform: scale(1.04);
+  }
+}
+
+@keyframes avatar-glint {
+  0%,
+  100% {
+    opacity: 0.42;
+    transform: rotate(45deg) scale(0.58);
+  }
+  50% {
+    opacity: 1;
+    transform: rotate(45deg) scale(1);
+  }
+}
+
+@keyframes avatar-eclipse-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes avatar-orbit-clockwise {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes avatar-orbit-counter {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@keyframes avatar-comet-pulse {
+  0%,
+  100% {
+    opacity: 0.65;
+    transform: scale(0.7);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes avatar-laurel-breathe {
+  0%,
+  100% {
+    transform: scale(0.985);
+  }
+  50% {
+    transform: scale(1.015);
+  }
+}
+
+@keyframes avatar-sakura-sway {
+  0%,
+  100% {
+    transform: rotate(-1.5deg);
+  }
+  50% {
+    transform: rotate(1.5deg);
+  }
+}
+
+@keyframes avatar-crown-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2.5%);
+  }
+}
+
+@keyframes profile-mesh-drift {
+  0%,
+  100% {
+    opacity: 0.52;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  40% {
+    opacity: 0.74;
+    transform: translate3d(12%, 8%, 0) scale(1.12);
+  }
+  72% {
+    opacity: 0.6;
+    transform: translate3d(-7%, 14%, 0) scale(0.94);
+  }
+}
+
+@keyframes profile-star-twinkle {
+  0%,
+  100% {
+    opacity: 0.24;
+    transform: scale(0.65);
+  }
+  50% {
+    opacity: 0.94;
+    transform: scale(1.12);
+  }
+}
+
+@keyframes profile-petal-cross {
+  0% {
+    opacity: 0;
+    transform: translate3d(-8px, 0, 0) rotate(-12deg);
+  }
+  12%,
+  84% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(18px, 210%, 0) rotate(220deg);
+  }
+}
+
+@keyframes profile-mote-rise {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 8%, 0) scale(0.7);
+  }
+  18%,
+  76% {
+    opacity: 0.75;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(8px, -102%, 0) scale(1.1);
+  }
+}

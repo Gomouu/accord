@@ -1,0 +1,250 @@
+.more-frame {
+  color: var(--mf-stroke);
+}
+.more-frame__aura {
+  position: absolute;
+  inset: 19px;
+  border: 1px solid var(--mf-soft);
+  border-radius: 20px;
+  box-shadow:
+    inset 0 0 20px var(--mf-soft),
+    0 0 14px var(--mf-soft);
+}
+.more-frame__rail {
+  position: absolute;
+  top: 24%;
+  bottom: 24%;
+  width: 2px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, transparent, var(--mf-stroke) 30% 70%, transparent);
+  opacity: 0.55;
+}
+.more-frame__rail--left {
+  left: 12px;
+}
+.more-frame__rail--right {
+  right: 12px;
+}
+.more-frame__crown {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 0 5px var(--mf-soft));
+}
+.more-frame__crown--top {
+  top: 0;
+  height: 70px;
+}
+.more-frame__crown--bottom {
+  bottom: 0;
+  height: 58px;
+}
+.more-frame__mote {
+  position: absolute;
+  display: block;
+  width: 4px;
+  height: 4px;
+  pointer-events: none;
+  border-radius: 50%;
+  background: var(--mf-stroke);
+  box-shadow: 0 0 7px 1px var(--mf-soft);
+  animation: more-mote-float 6s ease-in-out infinite;
+}
+.more-frame__mote--1 {
+  top: 16%;
+  left: 6%;
+}
+.more-frame__mote--2 {
+  top: 9%;
+  left: 30%;
+  animation-delay: -1.5s;
+}
+.more-frame__mote--3 {
+  top: 6%;
+  right: 26%;
+  animation-delay: -3s;
+}
+.more-frame__mote--4 {
+  top: 18%;
+  right: 5%;
+  animation-delay: -4.5s;
+}
+.more-frame__mote--5 {
+  bottom: 14%;
+  left: 9%;
+  animation-delay: -2.2s;
+}
+.more-frame__mote--6 {
+  bottom: 7%;
+  left: 38%;
+  animation-delay: -3.7s;
+}
+.more-frame__mote--7 {
+  bottom: 9%;
+  right: 30%;
+  animation-delay: -0.8s;
+}
+.more-frame__mote--8 {
+  bottom: 17%;
+  right: 7%;
+  animation-delay: -5.2s;
+}
+
+.profile-frame--royal-gilt {
+  --mf-stroke: #f3cd6e;
+  --mf-soft: rgb(214 158 46 / 0.4);
+  animation: more-frame-breathe 5.4s ease-in-out infinite;
+}
+.more-gilt__scroll {
+  fill: none;
+  stroke: #f3cd6e;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-dasharray: 10 6 3 6;
+  animation: more-dash-flow 10s linear infinite;
+}
+.more-gilt__scroll--echo {
+  opacity: 0.4;
+  stroke-width: 1.4;
+  animation-direction: reverse;
+}
+.more-gilt__gem {
+  fill: #ffe9a8;
+  stroke: #b8860b;
+  stroke-width: 1;
+  animation: more-gem-pulse 3.4s ease-in-out infinite;
+}
+.more-gilt__gem--soft {
+  opacity: 0.75;
+  animation-delay: -1.7s;
+}
+.more-gilt__curl {
+  fill: none;
+  stroke: rgb(243 205 110 / 0.8);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.profile-frame--frost-veil {
+  --mf-stroke: var(--more-frost-stroke, #bfe8ff);
+  --mf-soft: var(--more-frost-soft, rgb(125 196 255 / 0.35));
+  animation: more-frame-breathe 6s ease-in-out infinite;
+}
+.more-frost__branch {
+  fill: none;
+  stroke: var(--more-frost-branch-stroke, rgb(191 232 255 / 0.9));
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 14 5 4 5;
+  animation: more-dash-flow 12s linear infinite;
+}
+.more-frost__flake {
+  stroke: var(--more-frost-flake-stroke, #e3f6ff);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  fill: none;
+  animation: more-flake-spin 9s linear infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.more-frost__flake--2 {
+  animation-delay: -1.5s;
+}
+.more-frost__flake--3 {
+  animation-delay: -3s;
+  animation-duration: 12s;
+}
+.more-frost__flake--4 {
+  animation-delay: -4.5s;
+}
+.more-frost__flake--5 {
+  animation-delay: -6s;
+}
+.more-frost__flake--6 {
+  animation-delay: -2.4s;
+}
+.more-frost__shard {
+  fill: var(--more-frost-shard-fill, rgb(191 232 255 / 0.45));
+  stroke: var(--more-frost-shard-stroke, rgb(227 246 255 / 0.8));
+  stroke-width: 0.8;
+}
+
+.profile-frame--emberforge {
+  --mf-stroke: #fb923c;
+  --mf-soft: rgb(234 88 12 / 0.42);
+  animation: more-frame-breathe 4.6s ease-in-out infinite;
+}
+.more-forge__arc {
+  fill: none;
+  stroke: #fb923c;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-dasharray: 16 7 5 7;
+  animation: more-dash-flow 8s linear infinite reverse;
+}
+.more-forge__arc--melt {
+  stroke: #f97316;
+  stroke-width: 3.2;
+  stroke-dasharray: none;
+  opacity: 0.85;
+  animation: more-forge-heat 3.2s ease-in-out infinite;
+}
+.more-forge__drip {
+  fill: rgb(253 186 116 / 0.9);
+  animation: more-gem-pulse 2.6s ease-in-out infinite;
+}
+.more-forge__core {
+  fill: #fde68a;
+  stroke: #ea580c;
+  stroke-width: 1.2;
+  animation: more-gem-pulse 2.8s ease-in-out infinite;
+}
+
+.profile-frame--wild-ivy {
+  --mf-stroke: #86efac;
+  --mf-soft: rgb(52 211 153 / 0.35);
+  animation: more-frame-breathe 6.4s ease-in-out infinite;
+}
+.more-ivy__vine {
+  fill: none;
+  stroke: #4ade80;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-dasharray: 12 5 3 5;
+  animation: more-dash-flow 11s linear infinite;
+}
+.more-ivy__sprig {
+  animation: more-sprig-sway 4.8s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center bottom;
+}
+.more-ivy__sprig--2 {
+  animation-delay: -1.2s;
+}
+.more-ivy__sprig--3 {
+  animation-delay: -2.4s;
+}
+.more-ivy__sprig--4 {
+  animation-delay: -3.6s;
+}
+.more-ivy__sprig--5 {
+  animation-delay: -0.6s;
+}
+.more-ivy__sprig--6 {
+  animation-delay: -1.8s;
+}
+.more-ivy__leaf {
+  fill: rgb(74 222 128 / 0.85);
+  stroke: #bbf7d0;
+  stroke-width: 0.7;
+}
+.more-ivy__leaf--right {
+  fill: rgb(34 197 94 / 0.85);
+}
+.more-ivy__bud {
+  fill: #fefce8;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: more-twinkle 3.8s ease-in-out infinite;
+}

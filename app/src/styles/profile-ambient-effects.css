@@ -1,0 +1,193 @@
+.profile-effect--aurora {
+  background: var(
+    --profile-aurora-bg,
+    linear-gradient(145deg, rgba(17, 34, 58, 0.74), rgba(31, 24, 54, 0.44)),
+    rgb(var(--color-modal) / 0.42)
+  );
+}
+
+:is(
+  [data-theme='light'],
+  [data-theme='paper'],
+  [data-theme='sakura'],
+  [data-theme='lotus'],
+  [data-theme='manga'],
+  [data-theme='shojo'],
+  [data-theme='frost'],
+  [data-theme='dream']
+) {
+  --profile-aurora-bg:
+    linear-gradient(145deg, rgba(224, 247, 255, 0.78), rgba(241, 228, 255, 0.62)),
+    rgb(var(--color-modal) / 0.55);
+  --profile-starfield-bg:
+    radial-gradient(circle at 72% 8%, rgba(114, 92, 235, 0.24), transparent 32%),
+    linear-gradient(160deg, rgba(223, 233, 255, 0.92), rgba(238, 228, 255, 0.84));
+  --profile-constellation-stroke: rgba(66, 68, 142, 0.25);
+  --profile-star-color: #6557b8;
+  --profile-star-shadow: 0 0 4px rgba(101, 87, 184, 0.38);
+  --profile-petals-bg:
+    radial-gradient(circle at 12% 0, rgba(255, 166, 207, 0.42), transparent 38%),
+    linear-gradient(155deg, rgba(255, 234, 244, 0.9), rgba(239, 232, 255, 0.76));
+  --profile-embers-bg:
+    radial-gradient(circle at 82% 14%, rgba(238, 153, 54, 0.24), transparent 34%),
+    linear-gradient(145deg, rgba(255, 240, 223, 0.9), rgba(229, 238, 252, 0.8));
+}
+
+.profile-effect__mesh {
+  position: absolute;
+  width: 70%;
+  height: 80%;
+  border-radius: 50%;
+  opacity: 0.62;
+  filter: blur(22px);
+  animation: profile-mesh-drift 12s ease-in-out infinite;
+}
+
+.profile-effect__mesh--one {
+  top: -38%;
+  left: -24%;
+  background: rgba(69, 231, 193, 0.68);
+}
+
+.profile-effect__mesh--two {
+  top: -28%;
+  right: -18%;
+  background: rgba(115, 99, 255, 0.68);
+  animation-delay: -4s;
+}
+
+.profile-effect__mesh--three {
+  right: 8%;
+  bottom: -55%;
+  background: rgba(255, 92, 174, 0.48);
+  animation-delay: -8s;
+}
+
+.profile-effect__grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.12;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.82) 0.7px, transparent 0.7px);
+  background-size: 7px 7px;
+  -webkit-mask-image: linear-gradient(to bottom, #000, transparent 74%);
+  mask-image: linear-gradient(to bottom, #000, transparent 74%);
+}
+
+.profile-effect--starfield {
+  background: var(
+    --profile-starfield-bg,
+    radial-gradient(circle at 72% 8%, rgba(121, 94, 255, 0.32), transparent 30%),
+    linear-gradient(160deg, rgba(8, 18, 38, 0.94), rgba(31, 24, 58, 0.78))
+  );
+}
+
+.profile-effect__constellation {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: var(--profile-constellation-stroke, rgba(155, 196, 255, 0.2));
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.profile-effect__star {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--profile-star-color, #f2f7ff);
+  box-shadow: var(--profile-star-shadow, 0 0 5px rgba(175, 216, 255, 0.9));
+  animation: profile-star-twinkle 3s ease-in-out infinite;
+}
+
+.profile-effect--petals {
+  background: var(
+    --profile-petals-bg,
+    radial-gradient(circle at 12% 0, rgba(255, 181, 213, 0.46), transparent 36%),
+    linear-gradient(155deg, rgba(74, 31, 57, 0.82), rgba(38, 30, 61, 0.6))
+  );
+}
+
+.profile-effect__petal-track {
+  position: absolute;
+  top: -100%;
+  width: 18px;
+  height: 100%;
+  opacity: 0;
+  animation: profile-petal-cross 8s linear infinite;
+}
+
+.profile-effect__petal {
+  position: absolute;
+  right: 0;
+  bottom: -5px;
+  display: block;
+  width: 9px;
+  height: 6px;
+  border-radius: 70% 15% 70% 15%;
+  background: linear-gradient(145deg, #fff2f8, #ff83b7);
+  box-shadow: 0 0 4px rgba(255, 132, 183, 0.34);
+}
+
+.profile-effect__rose-light {
+  position: absolute;
+  right: -18%;
+  bottom: -45%;
+  width: 70%;
+  height: 70%;
+  border-radius: 50%;
+  background: rgba(255, 105, 170, 0.28);
+  filter: blur(26px);
+}
+
+.profile-effect--embers {
+  background: var(
+    --profile-embers-bg,
+    radial-gradient(circle at 82% 14%, rgba(255, 180, 80, 0.24), transparent 32%),
+    linear-gradient(145deg, rgba(48, 28, 36, 0.84), rgba(19, 29, 48, 0.7))
+  );
+}
+
+.profile-effect__ember-arc {
+  position: absolute;
+  width: 72%;
+  height: 52%;
+  border: 1px solid rgba(255, 181, 82, 0.28);
+  border-left-color: transparent;
+  border-bottom-color: transparent;
+  border-radius: 50%;
+  transform: rotate(-18deg);
+}
+
+.profile-effect__ember-arc--one {
+  top: -12%;
+  right: -15%;
+}
+.profile-effect__ember-arc--two {
+  right: 8%;
+  bottom: -25%;
+  transform: rotate(156deg);
+}
+
+.profile-effect__mote {
+  position: absolute;
+  top: 0;
+  width: 8px;
+  height: 100%;
+  opacity: 0;
+  animation: profile-mote-rise 7s ease-in infinite;
+}
+
+.profile-effect__mote::after {
+  position: absolute;
+  bottom: -3px;
+  left: 2px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #ffd37a;
+  box-shadow: 0 0 6px rgba(255, 175, 65, 0.86);
+  content: '';
+}

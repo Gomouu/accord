@@ -1,0 +1,141 @@
+.profile-effect--shonen-impact {
+  background:
+    radial-gradient(
+      circle at 50% 50%,
+      transparent 0 16%,
+      rgb(255 255 255 / 0.18) 17% 20%,
+      transparent 21%
+    ),
+    repeating-radial-gradient(
+      circle at 50% 50%,
+      rgb(18 16 18 / 0.82) 0 1px,
+      transparent 1px 7px
+    ),
+    #d8c75e;
+}
+
+.effect-shonen-burst {
+  position: absolute;
+  inset: 14%;
+  background: #fff9dc;
+  clip-path: polygon(
+    50% 0,
+    57% 28%,
+    72% 8%,
+    70% 34%,
+    94% 22%,
+    76% 43%,
+    100% 50%,
+    76% 57%,
+    94% 78%,
+    70% 66%,
+    72% 92%,
+    57% 72%,
+    50% 100%,
+    43% 72%,
+    28% 92%,
+    30% 66%,
+    6% 78%,
+    24% 57%,
+    0 50%,
+    24% 43%,
+    6% 22%,
+    30% 34%,
+    28% 8%,
+    43% 28%
+  );
+  animation: shonen-burst 2.4s steps(2, end) infinite;
+}
+
+.effect-shonen-line {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 68%;
+  height: 3px;
+  background: #191619;
+  transform: rotate(calc(var(--impact-angle) * 1deg)) translateX(32%);
+  transform-origin: left center;
+  animation: shonen-impact-line 1.8s steps(2, end) infinite;
+}
+
+.effect-shonen-line--1 {
+  --impact-angle: 0;
+}
+
+.effect-shonen-line--2 {
+  --impact-angle: 26;
+}
+
+.effect-shonen-line--3 {
+  --impact-angle: 52;
+}
+
+.effect-shonen-line--4 {
+  --impact-angle: 78;
+}
+
+.effect-shonen-line--5 {
+  --impact-angle: 104;
+}
+
+.effect-shonen-line--6 {
+  --impact-angle: 130;
+}
+
+.effect-shonen-line--7 {
+  --impact-angle: 156;
+}
+
+.effect-shonen-line--8 {
+  --impact-angle: 182;
+}
+
+.effect-shonen-line--9 {
+  --impact-angle: 208;
+}
+
+.effect-shonen-line--10 {
+  --impact-angle: 234;
+}
+
+.effect-shonen-line--11 {
+  --impact-angle: 260;
+}
+
+.effect-shonen-line--12 {
+  --impact-angle: 286;
+}
+
+.effect-shonen-line--13 {
+  --impact-angle: 312;
+}
+
+.effect-shonen-line--14 {
+  --impact-angle: 338;
+}
+
+.effect-shonen-ink {
+  position: absolute;
+  right: 3%;
+  bottom: 4%;
+  width: 22%;
+  height: 20%;
+  background: #191619;
+  clip-path: polygon(
+    0 40%,
+    20% 31%,
+    8% 6%,
+    38% 23%,
+    50% 0,
+    61% 26%,
+    91% 13%,
+    79% 42%,
+    100% 57%,
+    69% 64%,
+    75% 96%,
+    47% 73%,
+    22% 100%,
+    25% 67%
+  );
+}

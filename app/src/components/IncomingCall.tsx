@@ -83,7 +83,7 @@ export function IncomingCall() {
         }
         bouclerTab(e, overlayRef.current);
       }}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50"
+      className="liquid-overlay fixed inset-0 z-[60] flex items-center justify-center bg-black/50"
     >
       <div className="glass-strong flex w-80 max-w-[90vw] flex-col items-center gap-5 rounded-xl p-6 shadow-3">
         <Avatar

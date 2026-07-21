@@ -109,12 +109,12 @@ beforeEach(() => {
 });
 
 describe('UserPanel — menu utilisateur rapide', () => {
-  it('rend la décoration de son propre avatar', () => {
+  it('rend la décoration de son propre avatar', async () => {
     useSession.setState({ self: { ...self, avatar_decoration: 'neon_ring' } });
 
     render(<UserPanel />);
 
-    expect(screen.getByTestId('avatar-decoration')).toBeInTheDocument();
+    expect(await screen.findByTestId('avatar-decoration')).toBeInTheDocument();
   });
 
   it('affiche la présence sous le pseudo — jamais le code ami', () => {

@@ -33,7 +33,7 @@ describe('ProfileCardPreview', () => {
     useFriends.setState({ ownStatus: 'online', ownStatusText: null });
   });
 
-  it('rend la carte avec cadre, effet et décoration choisis', () => {
+  it('rend la carte avec cadre, effet et décoration choisis', async () => {
     useSession.setState({
       self: {
         ...MOI,
@@ -47,9 +47,9 @@ describe('ProfileCardPreview', () => {
     expect(screen.getByTestId('profile-card-preview')).toBeInTheDocument();
     expect(screen.getByText('Moi')).toBeInTheDocument();
     expect(screen.getByText('iel')).toBeInTheDocument();
-    expect(screen.getByTestId('profile-frame')).toBeInTheDocument();
-    expect(screen.getByTestId('profile-effect')).toBeInTheDocument();
-    expect(screen.getByTestId('avatar-decoration')).toBeInTheDocument();
+    expect(await screen.findByTestId('profile-frame')).toBeInTheDocument();
+    expect(await screen.findByTestId('profile-effect')).toBeInTheDocument();
+    expect(await screen.findByTestId('avatar-decoration')).toBeInTheDocument();
   });
 
   it("n'affiche aucune couche décorative sans sélection", () => {

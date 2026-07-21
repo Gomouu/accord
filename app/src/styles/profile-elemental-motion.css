@@ -1,0 +1,157 @@
+@keyframes extra-moon-pulse {
+  50% {
+    opacity: 0.72;
+    transform: scale(1.06);
+  }
+}
+@keyframes extra-moth-hover {
+  50% {
+    transform: translate3d(0, -4px, 0) rotate(7deg);
+  }
+}
+@keyframes extra-crystals-breathe {
+  50% {
+    transform: translate3d(0, -2px, 0) scale(1.03);
+  }
+}
+@keyframes extra-svg-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes extra-ring-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes extra-wing-left {
+  50% {
+    transform: rotate(-5deg) scaleX(0.9);
+  }
+}
+@keyframes extra-wing-right {
+  50% {
+    transform: rotate(5deg) scaleX(0.9);
+  }
+}
+@keyframes extra-bubble-rise {
+  15% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(4px, -55px, 0) scale(0.6);
+  }
+}
+@keyframes extra-leaf-sway {
+  50% {
+    transform: rotate(2deg);
+  }
+}
+@keyframes extra-frost-glint {
+  50% {
+    opacity: 0.72;
+    transform: scale(1.035);
+  }
+}
+@keyframes extra-heart-beat {
+  45% {
+    transform: scale(1);
+  }
+  55% {
+    transform: scale(1.14);
+  }
+  65% {
+    transform: scale(1.02);
+  }
+}
+@keyframes extra-pixel-pop {
+  50% {
+    opacity: 0.35;
+    transform: scale(0.55) rotate(45deg);
+  }
+}
+@keyframes extra-cloud-drift {
+  to {
+    transform: translate3d(260%, 16px, 0);
+  }
+}
+@keyframes extra-caustic-drift {
+  50% {
+    transform: translate3d(18%, 12%, 0) rotate(28deg) scale(1.1);
+  }
+}
+@keyframes extra-sea-rise {
+  14% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(7px, -230px, 0) scale(1.5);
+  }
+}
+@keyframes extra-rain-fall {
+  12% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(30px, 700%, 0) rotate(12deg);
+  }
+}
+@keyframes extra-grid-glide {
+  to {
+    transform: rotateX(55deg) translateY(34%);
+  }
+}
+@keyframes extra-scan {
+  50% {
+    transform: translate3d(0, 620%, 0);
+  }
+}
+@keyframes extra-orb-float {
+  50% {
+    transform: translate3d(14px, -18px, 0) scale(1.3);
+  }
+}
+@keyframes extra-firefly-drift {
+  33% {
+    opacity: 0.35;
+    transform: translate3d(14px, -16px, 0) scale(0.7);
+  }
+  66% {
+    opacity: 1;
+    transform: translate3d(-9px, 12px, 0) scale(1.25);
+  }
+}
+@keyframes extra-snow-fall {
+  18% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(18px, 245px, 0) rotate(180deg);
+  }
+}
+@keyframes extra-ink-breathe {
+  50% {
+    opacity: 0.72;
+    transform: translate3d(12%, 8%, 0) scale(1.16) rotate(12deg);
+  }
+}
+@keyframes extra-portal-spin {
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+@keyframes extra-portal-core {
+  0%,
+  100% {
+    opacity: 0.72;
+    transform: translate(-50%, -50%) scale(0.78);
+  }
+  50% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+}

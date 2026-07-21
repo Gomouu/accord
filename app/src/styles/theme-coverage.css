@@ -1,0 +1,174 @@
+.theme-world {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  overflow: hidden;
+  contain: paint;
+  pointer-events: none;
+}
+
+.theme-world > .theme-atmosphere {
+  inset: 0;
+}
+
+:root:is(
+  [data-theme='sakura'],
+  [data-theme='wisteria'],
+  [data-theme='lotus'],
+  [data-theme='manga'],
+  [data-theme='shojo']
+) {
+  --theme-chat-art: none;
+}
+
+:root[data-theme='wisteria'] {
+  --liquid-rail: rgb(var(--color-rail) / 0.46);
+  --liquid-sidebar: rgb(var(--color-sidebar) / 0.5);
+  --liquid-stage: rgb(var(--color-chat) / 0.36);
+  --liquid-chrome: rgb(var(--color-chat) / 0.56);
+  --liquid-floating: rgb(var(--color-modal) / 0.7);
+  --liquid-control: rgb(var(--color-input) / 0.52);
+}
+
+:root:is(
+  [data-theme='sakura'],
+  [data-theme='lotus'],
+  [data-theme='manga'],
+  [data-theme='shojo']
+) {
+  --liquid-rail: rgb(var(--color-rail) / 0.62);
+  --liquid-sidebar: rgb(var(--color-sidebar) / 0.64);
+  --liquid-stage: rgb(var(--color-chat) / 0.55);
+  --liquid-chrome: rgb(var(--color-chat) / 0.68);
+  --liquid-floating: rgb(var(--color-modal) / 0.77);
+  --liquid-control: rgb(var(--color-input) / 0.62);
+}
+
+.theme-world .theme-atmosphere[data-scene='sakura'] .theme-atmosphere__art {
+  opacity: 0.72;
+}
+
+.theme-world .theme-atmosphere[data-scene='wisteria'] .theme-atmosphere__art {
+  opacity: 0.86;
+}
+
+.theme-world .theme-atmosphere[data-scene='lotus'] .theme-atmosphere__art {
+  opacity: 0.7;
+}
+
+.theme-world .theme-atmosphere[data-scene='manga'] .theme-atmosphere__art {
+  opacity: 0.48;
+}
+
+.theme-world .theme-atmosphere[data-scene='shojo'] .theme-atmosphere__art {
+  opacity: 0.68;
+}
+
+.theme-world .theme-atmosphere__motion {
+  opacity: 0.82;
+}
+
+:root:is(
+    [data-theme='sakura'],
+    [data-theme='wisteria'],
+    [data-theme='lotus'],
+    [data-theme='manga'],
+    [data-theme='shojo']
+  )
+  .accord-members {
+  background-color: rgb(var(--color-sidebar) / 0.48);
+}
+
+:root:is(
+    [data-theme='sakura'],
+    [data-theme='wisteria'],
+    [data-theme='lotus'],
+    [data-theme='manga'],
+    [data-theme='shojo']
+  )
+  .accord-composer-zone {
+  background: linear-gradient(
+    180deg,
+    transparent,
+    rgb(var(--color-chat) / 0.3) 40%,
+    rgb(var(--color-chat) / 0.5)
+  );
+}
+
+:root:is(
+    [data-theme='sakura'],
+    [data-theme='wisteria'],
+    [data-theme='lotus'],
+    [data-theme='manga'],
+    [data-theme='shojo']
+  )
+  :is(.accord-settings, .liquid-settings) {
+  background-color: rgb(var(--color-chat) / 0.7);
+}
+
+:root:is(
+    [data-theme='sakura'],
+    [data-theme='wisteria'],
+    [data-theme='lotus'],
+    [data-theme='manga'],
+    [data-theme='shojo']
+  )
+  :is(.accord-settings-nav, .liquid-settings-nav) {
+  background-color: rgb(var(--color-sidebar) / 0.62);
+}
+
+:root:is(
+    [data-theme='sakura'],
+    [data-theme='wisteria'],
+    [data-theme='lotus'],
+    [data-theme='manga'],
+    [data-theme='shojo']
+  )
+  :is(.liquid-drawer, .thread-panel) {
+  background-color: rgb(var(--color-sidebar) / 0.68);
+}
+
+:root:is(
+    [data-theme='sakura'],
+    [data-theme='wisteria'],
+    [data-theme='lotus'],
+    [data-theme='manga'],
+    [data-theme='shojo']
+  )
+  .onboarding-shell {
+  --onboarding-cyan: var(--theme-accent-secondary);
+  --onboarding-violet: var(--color-blurple);
+  --onboarding-magenta: var(--ambient-b);
+  background: rgb(var(--color-rail) / 0.3);
+}
+
+:root:is(
+    [data-theme='sakura'],
+    [data-theme='wisteria'],
+    [data-theme='lotus'],
+    [data-theme='manga'],
+    [data-theme='shojo']
+  )
+  .onboarding-brand {
+  background:
+    linear-gradient(150deg, rgb(255 255 255 / 0.12), transparent 30%),
+    radial-gradient(
+      circle at 30% 28%,
+      rgb(var(--theme-accent-secondary) / 0.3),
+      transparent 34%
+    ),
+    radial-gradient(circle at 82% 72%, rgb(var(--color-blurple) / 0.28), transparent 38%),
+    rgb(var(--color-tooltip) / 0.68);
+}
+
+.onboarding-frame {
+  position: relative;
+  z-index: 1;
+}
+
+@media (prefers-contrast: more), (forced-colors: active) {
+  .theme-world__legacy-motion {
+    display: none;
+  }
+}

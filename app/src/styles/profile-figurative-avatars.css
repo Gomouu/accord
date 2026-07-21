@@ -1,0 +1,298 @@
+.nature-decoration {
+  filter: drop-shadow(0 3px 5px rgb(17 11 24 / 0.38));
+}
+
+.nature-decoration .avatar-decoration__svg {
+  overflow: visible;
+}
+
+.nature-branch {
+  fill: none;
+  stroke: #6f3c48;
+  stroke-linecap: round;
+  stroke-width: 2.7;
+}
+
+.nature-branch--lower {
+  stroke: #a8626e;
+  stroke-width: 1.8;
+}
+
+.nature-leaf {
+  fill: #487452;
+  stroke: #bdd594;
+  stroke-width: 0.8;
+}
+
+.nature-flower {
+  fill: #e97991;
+  stroke: #fff1ed;
+  stroke-width: 0.65;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: botanical-bloom 4.8s ease-in-out infinite;
+}
+
+.nature-flower-anchor:nth-of-type(2n) .nature-flower {
+  animation-delay: -2.4s;
+}
+
+.nature-flower__core {
+  fill: #f8ce67;
+  stroke: #a56733;
+}
+
+.nature-falling-petal {
+  position: absolute;
+  top: 16%;
+  left: 50%;
+  width: 8%;
+  height: 5%;
+  border-radius: 90% 12% 90% 18%;
+  background: #ffafbd;
+  opacity: 0;
+  transform: rotate(25deg);
+  animation: botanical-petal-fall 5s linear infinite;
+}
+
+.nature-falling-petal--1 {
+  left: 24%;
+  animation-delay: -1.2s;
+}
+
+.nature-falling-petal--2 {
+  left: 62%;
+  animation-delay: -3.4s;
+}
+
+.nature-falling-petal--3 {
+  left: 82%;
+  animation-delay: -4.3s;
+}
+
+.wisteria-branch {
+  fill: none;
+  stroke: #5a4938;
+  stroke-linecap: round;
+  stroke-width: 3.2;
+}
+
+.wisteria-cluster {
+  fill: #9563cf;
+  stroke: #eadbff;
+  stroke-width: 0.7;
+  transform-box: fill-box;
+  transform-origin: top center;
+  animation: botanical-wisteria-sway 4.6s ease-in-out infinite alternate;
+}
+
+.wisteria-cluster--2,
+.wisteria-cluster--4 {
+  fill: #be8fe3;
+  animation-delay: -2.3s;
+}
+
+.wisteria-firefly,
+.effect-firefly,
+.frame-firefly {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #fffbd0;
+  box-shadow: 0 0 8px 3px rgb(222 247 112 / 0.72);
+  animation: botanical-firefly 4.2s ease-in-out infinite;
+}
+
+.wisteria-firefly--1 {
+  top: 42%;
+  left: 13%;
+}
+
+.wisteria-firefly--2 {
+  top: 70%;
+  left: 32%;
+  animation-delay: -1.4s;
+}
+
+.wisteria-firefly--3 {
+  top: 48%;
+  right: 16%;
+  animation-delay: -2.6s;
+}
+
+.wisteria-firefly--4 {
+  right: 34%;
+  bottom: 11%;
+  animation-delay: -3.3s;
+}
+
+.lotus-water-ring {
+  fill: none;
+  stroke: #58c5bd;
+  stroke-dasharray: 7 5;
+  stroke-width: 1.8;
+  transform-origin: center;
+  animation: botanical-water-ring 8s linear infinite;
+}
+
+.lotus-koi {
+  fill: #f36f4f;
+  stroke: #fff0cf;
+  stroke-width: 1.2;
+  transform-box: view-box;
+  transform-origin: 60px 60px;
+  animation: botanical-koi-orbit 12s linear infinite;
+}
+
+.lotus-koi--two {
+  fill: #f1c15f;
+  animation-direction: reverse;
+  animation-duration: 15s;
+}
+
+.lotus-bloom {
+  fill: #f17f9b;
+  stroke: #ffeaf0;
+  stroke-width: 1;
+  transform-box: fill-box;
+  transform-origin: bottom center;
+  animation: botanical-lotus-bob 3.8s ease-in-out infinite;
+}
+
+.lotus-bloom--small {
+  fill: #ffc0cb;
+  animation-delay: -1.9s;
+}
+
+.manga-burst {
+  fill: rgb(255 255 255 / 0.15);
+  stroke: #171417;
+  stroke-linejoin: round;
+  stroke-width: 2.2;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: manga-impact-pulse 2.2s steps(2, end) infinite;
+}
+
+.manga-bubble {
+  fill: #fff;
+  stroke: #171417;
+  stroke-linejoin: round;
+  stroke-width: 2.2;
+  animation: manga-bubble-bob 3s ease-in-out infinite;
+}
+
+.manga-ink {
+  fill: #171417;
+}
+
+.shojo-ribbon {
+  fill: #d4527d;
+  stroke: #ffe6ef;
+  stroke-width: 1.3;
+}
+
+.shojo-ribbon-tail {
+  fill: none;
+  stroke: #8d3158;
+  stroke-linecap: round;
+  stroke-width: 3;
+}
+
+.shojo-lace {
+  fill: none;
+  stroke: #f4b6cc;
+  stroke-dasharray: 2 4;
+  stroke-linecap: round;
+  stroke-width: 2.2;
+  animation: shojo-lace-flow 7s linear infinite;
+}
+
+.shojo-spark,
+.effect-shojo-spark,
+.frame-shojo-spark {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  background: #fff4bb;
+  clip-path: polygon(
+    50% 0,
+    61% 38%,
+    100% 50%,
+    61% 62%,
+    50% 100%,
+    39% 62%,
+    0 50%,
+    39% 38%
+  );
+  opacity: 0.28;
+  animation: shojo-twinkle 2.8s ease-in-out infinite;
+}
+
+.shojo-spark--1 {
+  top: 8%;
+  left: 13%;
+}
+
+.shojo-spark--2 {
+  top: 31%;
+  right: 9%;
+  animation-delay: -0.8s;
+}
+
+.shojo-spark--3 {
+  right: 22%;
+  bottom: 6%;
+  animation-delay: -1.6s;
+}
+
+.shojo-spark--4 {
+  bottom: 14%;
+  left: 7%;
+  animation-delay: -2.2s;
+}
+
+.shonen-panel {
+  fill: rgb(255 255 255 / 0.9);
+  stroke: #171417;
+  stroke-width: 3;
+}
+
+.shonen-panel--right {
+  fill: rgb(230 230 230 / 0.86);
+}
+
+.shonen-panel--bottom {
+  fill: rgb(247 220 96 / 0.82);
+}
+
+.shonen-speed {
+  fill: none;
+  stroke: #171417;
+  stroke-linecap: round;
+  stroke-width: 2.6;
+  animation: shonen-speed-pulse 1.8s steps(2, end) infinite;
+}
+
+.shonen-dot {
+  fill: #171417;
+  stroke: #fff;
+  stroke-dasharray: 2 3;
+  stroke-width: 2;
+}
+
+.figurative-effect {
+  background-position: center;
+  background-size: cover;
+}
+
+.figurative-effect__veil {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgb(var(--color-modal) / 0.05),
+    rgb(var(--color-modal) / 0.58)
+  );
+}

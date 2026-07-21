@@ -4,6 +4,16 @@
  * au-dessus du texte, sans blur plein écran et sans dépendance graphique.
  */
 :root {
+  --color-accent-text: 184 192 255;
+  --color-link-text: 114 204 255;
+  --color-warning-text: 255 208 128;
+  --color-success-text: 111 221 160;
+  --color-danger-text: 255 154 169;
+  --color-focus: 170 208 255;
+  --color-syntax-keyword: 210 168 255;
+  --color-syntax-string: 126 226 168;
+  --color-syntax-comment: 190 196 210;
+  --color-syntax-number: 255 204 128;
   --theme-accent-secondary: var(--color-link);
   --theme-seam: rgb(var(--color-input) / 0.28);
   --theme-rail-art: none;
@@ -19,18 +29,31 @@
   --theme-motion-duration: 24s;
 }
 
-.theme-surface-chat {
-  position: relative;
-  isolation: isolate;
-  /* La couche motion (::before, scale + translate animés) déborde de la boîte :
-   * sans clip elle peint par-dessus la barre latérale voisine. */
-  overflow: clip;
+[data-theme='light'],
+[data-theme='paper'],
+[data-theme='sakura'],
+[data-theme='lotus'],
+[data-theme='manga'],
+[data-theme='shojo'],
+[data-theme='frost'],
+[data-theme='dream'] {
+  --color-accent-text: 44 40 140;
+  --color-link-text: 0 80 145;
+  --color-warning-text: 95 59 0;
+  --color-success-text: 0 85 48;
+  --color-danger-text: 140 10 30;
+  --color-focus: 0 77 128;
+  --color-syntax-keyword: 90 44 160;
+  --color-syntax-string: 0 85 48;
+  --color-syntax-comment: 76 82 92;
+  --color-syntax-number: 95 59 0;
 }
 
-.theme-surface-chat::before {
+.theme-world__legacy-motion {
   position: absolute;
-  inset: 0;
-  z-index: -1;
+  inset: -8%;
+  z-index: 0;
+  display: block;
   background-image: var(--theme-motion-art);
   background-position: center;
   background-size: 120% 120%;
@@ -39,7 +62,6 @@
   transform: translate3d(-2%, -1%, 0) scale(1.04);
   animation: theme-scene-float var(--theme-motion-duration) ease-in-out infinite alternate;
   animation-play-state: paused;
-  content: '';
 }
 
 .theme-preview__motion {
@@ -64,7 +86,7 @@
     [data-theme='circuit'],
     [data-theme='dream']
   )
-  .theme-surface-chat::before,
+  .theme-world__legacy-motion,
 button[role='radio'][aria-checked='true'] .theme-preview__motion,
 button[role='radio']:is(:hover, :focus-visible) .theme-preview__motion {
   animation-play-state: running;
@@ -617,7 +639,7 @@ button[role='radio']:is(:hover, :focus-visible) .theme-preview__motion {
   --color-tooltip: 15 28 38;
   --color-norm: 36 54 66;
   --color-muted: 69 91 105;
-  --color-faint: 85 107 120;
+  --color-faint: 74 96 109;
   --color-header: 17 39 53;
   --color-blurple: 48 86 158;
   --color-blurple-hover: 35 65 126;
@@ -728,7 +750,7 @@ button[role='radio']:is(:hover, :focus-visible) .theme-preview__motion {
   --color-tooltip: 26 20 37;
   --color-norm: 56 47 70;
   --color-muted: 91 77 109;
-  --color-faint: 106 90 124;
+  --color-faint: 102 86 120;
   --color-header: 34 27 46;
   --color-blurple: 106 65 170;
   --color-blurple-hover: 82 47 139;
@@ -789,14 +811,14 @@ button[role='radio']:is(:hover, :focus-visible) .theme-preview__motion {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .theme-surface-chat::before,
+  .theme-world__legacy-motion,
   .theme-preview__motion {
     animation: none;
     transform: none;
   }
 }
 
-:root[data-motion='reduce'] .theme-surface-chat::before,
+:root[data-motion='reduce'] .theme-world__legacy-motion,
 :root[data-motion='reduce'] .theme-preview__motion {
   animation: none;
   transform: none;

@@ -1,0 +1,197 @@
+.avatar-decoration--storm-halo {
+  filter: drop-shadow(0 0 5px rgb(96 189 255 / 0.6));
+}
+.more-storm-ring {
+  fill: none;
+  stroke: rgb(125 211 252 / 0.75);
+  stroke-width: 2;
+  stroke-dasharray: 26 9 4 9;
+  stroke-linecap: round;
+  transform-origin: center;
+  animation: more-spin 11s linear infinite;
+}
+.more-bolt {
+  fill: #ffe17d;
+  stroke: #f59e0b;
+  stroke-width: 0.8;
+  animation: more-bolt-flicker 2.6s steps(1) infinite;
+}
+.more-bolt--two {
+  animation-delay: -0.9s;
+}
+.more-bolt--three {
+  animation-delay: -1.8s;
+}
+
+.avatar-decoration--galaxy {
+  filter: drop-shadow(0 0 5px rgb(167 139 250 / 0.55));
+}
+.more-galaxy-orbit {
+  transform-origin: center;
+  animation: more-spin 14s linear infinite;
+}
+.more-galaxy-orbit ellipse {
+  fill: none;
+  stroke: rgb(167 139 250 / 0.5);
+  stroke-dasharray: 5 7;
+  stroke-linecap: round;
+}
+.more-galaxy-orbit--fast {
+  animation-duration: 9s;
+  animation-direction: reverse;
+}
+.more-galaxy-orbit--fast ellipse {
+  stroke: rgb(103 232 249 / 0.5);
+}
+.more-galaxy-star {
+  fill: #e0f2fe;
+}
+.more-galaxy-twinkle {
+  fill: #ddd6fe;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: more-twinkle 3.2s ease-in-out infinite;
+}
+.more-galaxy-twinkle--2 {
+  animation-delay: -0.8s;
+}
+.more-galaxy-twinkle--3 {
+  animation-delay: -1.6s;
+}
+.more-galaxy-twinkle--4 {
+  animation-delay: -2.4s;
+}
+
+.avatar-decoration--clockwork {
+  filter: drop-shadow(0 1px 3px rgb(232 176 75 / 0.5));
+}
+.more-gear {
+  fill: none;
+  stroke: #e8b04b;
+  transform-origin: center;
+}
+.more-gear--teeth {
+  stroke-width: 6;
+  stroke-dasharray: 5 6.14;
+  animation: more-spin 26s linear infinite;
+}
+.more-gear--rim {
+  stroke: rgb(138 90 28 / 0.85);
+  stroke-width: 1.6;
+}
+.more-gear-small {
+  transform-origin: 98px 22px;
+  animation: more-spin 8s linear infinite reverse;
+}
+.more-gear--small-teeth {
+  stroke-width: 4;
+  stroke-dasharray: 3.2 3.7;
+}
+.more-gear--axle {
+  fill: #f7d488;
+  stroke: none;
+}
+
+.avatar-decoration--butterflies {
+  filter: drop-shadow(0 0 4px rgb(244 174 245 / 0.5));
+}
+.more-flutter-path {
+  fill: none;
+  stroke: rgb(244 174 245 / 0.35);
+  stroke-dasharray: 2 8;
+  stroke-linecap: round;
+}
+.more-flutter-orbit {
+  transform-origin: center;
+  animation: more-spin 12s linear infinite;
+}
+.more-flutter-orbit--reverse {
+  animation-duration: 17s;
+  animation-direction: reverse;
+}
+.more-butterfly__wing {
+  fill: rgb(240 171 252 / 0.85);
+  stroke: #f5d0fe;
+  stroke-width: 0.7;
+  transform-box: fill-box;
+  transform-origin: right center;
+  animation: more-flap 0.9s ease-in-out infinite alternate;
+}
+.more-butterfly__wing--right {
+  transform-origin: left center;
+  animation-name: more-flap-right;
+}
+.more-butterfly__body {
+  fill: #a21caf;
+}
+.more-butterfly--small .more-butterfly__wing {
+  fill: rgb(196 181 253 / 0.85);
+  stroke: #ddd6fe;
+}
+
+.avatar-decoration--runes {
+  filter: drop-shadow(0 0 5px rgb(110 231 183 / 0.5));
+}
+.more-rune-ring {
+  fill: none;
+  stroke: rgb(110 231 183 / 0.55);
+  stroke-width: 1.6;
+  stroke-dasharray: 12 6 3 6;
+  transform-origin: center;
+  animation: more-spin 24s linear infinite reverse;
+}
+.more-rune {
+  fill: none;
+  stroke: #b5f5d8;
+  stroke-width: 2;
+  stroke-linecap: round;
+  animation: more-rune-glow 3.5s ease-in-out infinite;
+}
+.more-rune--2 {
+  animation-delay: -0.7s;
+}
+.more-rune--3 {
+  animation-delay: -1.4s;
+}
+.more-rune--4 {
+  animation-delay: -2.1s;
+}
+.more-rune--5 {
+  animation-delay: -2.8s;
+}
+
+.avatar-decoration--phoenix {
+  filter: drop-shadow(0 1px 5px rgb(251 146 60 / 0.6));
+}
+.more-plume {
+  fill: rgb(249 115 22 / 0.85);
+  stroke: #fdba74;
+  stroke-width: 1;
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: more-plume-lick 2.2s ease-in-out infinite;
+}
+.more-plume--two {
+  animation-delay: -0.7s;
+  fill: rgb(234 88 12 / 0.9);
+}
+.more-plume--three {
+  animation-delay: -1.4s;
+}
+.more-ember {
+  fill: #fcd34d;
+  opacity: 0;
+  animation: more-ember-rise 3s ease-out infinite;
+}
+.more-ember--2 {
+  animation-delay: -0.6s;
+}
+.more-ember--3 {
+  animation-delay: -1.2s;
+}
+.more-ember--4 {
+  animation-delay: -1.8s;
+}
+.more-ember--5 {
+  animation-delay: -2.4s;
+}

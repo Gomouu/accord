@@ -1,0 +1,186 @@
+.avatar-decoration > i,
+.profile-effect > i {
+  position: absolute;
+  display: block;
+  pointer-events: none;
+}
+
+.avatar-decoration--moon-moths {
+  filter: drop-shadow(0 0 4px rgb(137 117 255 / 0.5));
+}
+.extra-moon {
+  fill: #ddd7ff;
+  stroke: #8d7ce9;
+  stroke-width: 1.5;
+  animation: extra-moon-pulse 4.8s ease-in-out infinite;
+}
+.extra-moth {
+  fill: #f8eaff;
+  stroke: #b798ff;
+  stroke-width: 0.8;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: extra-moth-hover 3.4s ease-in-out infinite;
+}
+.extra-moth--two {
+  animation-delay: -1.7s;
+}
+.extra-moon-orbit {
+  fill: none;
+  stroke: rgb(203 191 255 / 0.62);
+  stroke-dasharray: 3 5;
+  stroke-linecap: round;
+}
+
+.avatar-decoration--crystal-bloom {
+  filter: drop-shadow(0 0 4px rgb(80 220 255 / 0.55));
+}
+.extra-crystals {
+  fill: #82eaff;
+  stroke: #ebfdff;
+  stroke-width: 1.1;
+  transform-origin: center;
+  animation: extra-crystals-breathe 4.2s ease-in-out infinite;
+}
+.extra-crystal-ring {
+  fill: none;
+  stroke: rgb(143 119 255 / 0.62);
+  stroke-dasharray: 2 7;
+  animation: extra-svg-spin 15s linear infinite;
+  transform-origin: center;
+}
+
+.avatar-decoration--ember-wings {
+  filter: drop-shadow(0 1px 4px rgb(255 97 36 / 0.55));
+}
+.extra-wing {
+  fill: rgb(239 85 39 / 0.76);
+  stroke: #ffc061;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transform-box: fill-box;
+  transform-origin: center right;
+  animation: extra-wing-left 3.2s ease-in-out infinite;
+}
+.extra-wing--right {
+  transform-origin: center left;
+  animation-name: extra-wing-right;
+}
+.extra-ember-gem {
+  fill: #ffe28a;
+  stroke: #f06a31;
+  animation: extra-moon-pulse 2.2s ease-in-out infinite;
+}
+
+.avatar-decoration--ocean-tide {
+  filter: drop-shadow(0 0 4px rgb(43 207 221 / 0.55));
+}
+.extra-tide {
+  inset: 4%;
+  border: 2px solid transparent;
+  border-top-color: #9ff9ed;
+  border-left-color: #3ec8e5;
+  animation: extra-ring-spin 10s linear infinite;
+}
+.extra-tide--two {
+  inset: 10%;
+  border-width: 1px;
+  border-right-color: #718cff;
+  border-bottom-color: #52e0ca;
+  animation-direction: reverse;
+  animation-duration: 7s;
+}
+.extra-bubble {
+  width: 8%;
+  height: 8%;
+  border: 1px solid #c8fffa;
+  border-radius: 50%;
+  opacity: 0;
+  animation: extra-bubble-rise 4s ease-in infinite;
+}
+
+.avatar-decoration--forest-spirit {
+  filter: drop-shadow(0 1px 3px rgb(48 133 78 / 0.55));
+}
+.extra-vine {
+  fill: none;
+  stroke: #88c66e;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+.extra-leaves {
+  fill: #87dd82;
+  transform-origin: center;
+  animation: extra-leaf-sway 5s ease-in-out infinite;
+}
+.extra-spirit-light {
+  fill: #ecffad;
+  stroke: #8be0a4;
+  stroke-width: 2;
+  animation: extra-moon-pulse 2.8s ease-in-out infinite;
+}
+
+.avatar-decoration--frost-shards {
+  filter: drop-shadow(0 0 4px rgb(132 211 255 / 0.62));
+}
+.extra-frost-shards {
+  fill: rgb(170 229 255 / 0.72);
+  stroke: #f0fbff;
+  stroke-width: 1.2;
+  animation: extra-frost-glint 3.8s ease-in-out infinite;
+}
+.extra-frost-ring {
+  fill: none;
+  stroke: rgb(171 221 255 / 0.6);
+  stroke-dasharray: 1 8;
+  animation: extra-svg-spin 18s linear infinite reverse;
+  transform-origin: center;
+}
+
+.avatar-decoration--heart-ribbon {
+  filter: drop-shadow(0 2px 3px rgb(180 49 111 / 0.45));
+}
+.extra-ribbon {
+  fill: #e85e9f;
+  stroke: #ffd0e6;
+  stroke-width: 1.2;
+}
+.extra-ribbon-tail {
+  fill: none;
+  stroke: #ff9bc7;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+.extra-heart {
+  fill: #ff7ab4;
+  stroke: #fff0f7;
+  stroke-width: 1.2;
+  transform-origin: 60px 34px;
+  animation: extra-heart-beat 2.7s ease-in-out infinite;
+}
+
+.avatar-decoration--pixel-portal {
+  image-rendering: pixelated;
+  filter: drop-shadow(0 0 4px rgb(103 232 255 / 0.62));
+}
+.extra-pixel-ring {
+  inset: 4%;
+  border: 3px dashed #67e8f9;
+  border-radius: 28%;
+  animation: extra-ring-spin 8s steps(12) infinite;
+}
+.extra-pixel-ring--two {
+  inset: 11%;
+  border-width: 2px;
+  border-color: #d86cff;
+  animation-direction: reverse;
+  animation-duration: 5s;
+}
+.extra-pixel {
+  width: 7%;
+  height: 7%;
+  background: #ecfeff;
+  box-shadow: 0 0 5px #67e8f9;
+  animation: extra-pixel-pop 2.4s steps(4) infinite;
+}

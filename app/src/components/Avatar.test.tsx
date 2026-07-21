@@ -69,12 +69,12 @@ describe('Avatar', () => {
     expect(lireMock).toHaveBeenLastCalledWith('cd'.repeat(32), undefined);
   });
 
-  it('rend une décoration connue dans un calque SVG dimensionné par le cadre', () => {
+  it('rend une décoration connue dans un calque SVG dimensionné par le cadre', async () => {
     const { container } = render(
       <Avatar id="x" name="Alice" decoration="golden_laurel" />,
     );
 
-    expect(screen.getByTestId('avatar-decoration')).toBeInTheDocument();
+    expect(await screen.findByTestId('avatar-decoration')).toBeInTheDocument();
     expect(container.querySelector('svg')).toHaveClass('avatar-decoration__svg');
   });
 

@@ -1,0 +1,367 @@
+.profile-effect--thunderstorm {
+  background: var(
+    --more-thunder-bg,
+    linear-gradient(180deg, rgb(30 41 59 / 0.55), transparent 55%)
+  );
+}
+.more-storm-cloud {
+  position: absolute;
+  height: 42%;
+  border-radius: 50%;
+  background: var(
+    --more-cloud-bg,
+    radial-gradient(closest-side, rgb(51 65 85 / 0.85), transparent)
+  );
+  filter: blur(6px);
+  animation: more-cloud-drift 12s ease-in-out infinite alternate;
+}
+.more-storm-cloud--one {
+  top: -16%;
+  left: -8%;
+  width: 70%;
+}
+.more-storm-cloud--two {
+  top: -12%;
+  right: -10%;
+  width: 62%;
+  animation-delay: -6s;
+}
+.more-storm-flash {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 30% 0%, rgb(191 219 254 / 0.9), transparent 55%),
+    radial-gradient(ellipse at 72% 4%, rgb(147 197 253 / 0.6), transparent 45%);
+  opacity: 0;
+  animation: more-flash 7s linear infinite;
+}
+.more-storm-drop {
+  top: -18%;
+  width: 1.5px;
+  height: 14%;
+  border-radius: 2px;
+  background: var(
+    --more-rain-bg,
+    linear-gradient(180deg, transparent, rgb(148 197 255 / 0.75))
+  );
+  transform: rotate(12deg);
+  animation: more-rain-fall 1.4s linear infinite;
+}
+.more-storm-drop--1 {
+  left: 8%;
+  animation-delay: -0.2s;
+}
+.more-storm-drop--2 {
+  left: 21%;
+  animation-delay: -0.9s;
+}
+.more-storm-drop--3 {
+  left: 34%;
+  animation-delay: -0.5s;
+}
+.more-storm-drop--4 {
+  left: 47%;
+  animation-delay: -1.2s;
+}
+.more-storm-drop--5 {
+  left: 59%;
+  animation-delay: -0.7s;
+}
+.more-storm-drop--6 {
+  left: 71%;
+  animation-delay: -1s;
+}
+.more-storm-drop--7 {
+  left: 83%;
+  animation-delay: -0.3s;
+}
+.more-storm-drop--8 {
+  left: 93%;
+  animation-delay: -1.3s;
+}
+
+.profile-effect--lava-flow {
+  background: var(
+    --more-lava-bg,
+    linear-gradient(200deg, rgb(69 10 10 / 0.5), transparent 60%)
+  );
+}
+.more-lava-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(10px);
+  animation: more-lava-drift 11s ease-in-out infinite alternate;
+}
+.more-lava-blob--one {
+  top: 6%;
+  left: 4%;
+  width: 46%;
+  height: 40%;
+  background: radial-gradient(closest-side, rgb(249 115 22 / 0.5), transparent);
+}
+.more-lava-blob--two {
+  top: 34%;
+  right: -6%;
+  width: 52%;
+  height: 46%;
+  background: radial-gradient(closest-side, rgb(220 38 38 / 0.45), transparent);
+  animation-delay: -3.6s;
+}
+.more-lava-blob--three {
+  bottom: -10%;
+  left: 22%;
+  width: 56%;
+  height: 44%;
+  background: radial-gradient(closest-side, rgb(252 165 29 / 0.4), transparent);
+  animation-delay: -7.4s;
+}
+.more-lava-glow {
+  position: absolute;
+  inset: auto 0 0;
+  height: 30%;
+  background: linear-gradient(0deg, rgb(251 146 60 / 0.28), transparent);
+}
+
+.profile-effect--code-rain {
+  background: var(
+    --more-code-bg,
+    linear-gradient(180deg, rgb(2 44 34 / 0.5), rgb(6 78 59 / 0.18) 60%)
+  );
+}
+.more-code {
+  top: -46%;
+  width: 2px;
+  height: 42%;
+  background: var(
+    --more-code-column-bg,
+    repeating-linear-gradient(180deg, rgb(74 222 128 / 0.85) 0 5px, transparent 5px 9px)
+  );
+  animation: more-code-fall 2.8s linear infinite;
+}
+.more-code--1 {
+  left: 6%;
+  animation-delay: -0.4s;
+}
+.more-code--2 {
+  left: 17%;
+  animation-delay: -1.8s;
+  height: 34%;
+}
+.more-code--3 {
+  left: 28%;
+  animation-delay: -1s;
+}
+.more-code--4 {
+  left: 39%;
+  animation-delay: -2.4s;
+  height: 30%;
+}
+.more-code--5 {
+  left: 51%;
+  animation-delay: -0.2s;
+}
+.more-code--6 {
+  left: 62%;
+  animation-delay: -1.5s;
+  height: 36%;
+}
+.more-code--7 {
+  left: 74%;
+  animation-delay: -2.1s;
+}
+.more-code--8 {
+  left: 85%;
+  animation-delay: -0.8s;
+  height: 32%;
+}
+.more-code--9 {
+  left: 94%;
+  animation-delay: -1.2s;
+}
+.more-code:nth-child(even) {
+  background: var(
+    --more-code-column-even-bg,
+    repeating-linear-gradient(180deg, rgb(45 212 191 / 0.7) 0 4px, transparent 4px 8px)
+  );
+}
+.more-code-haze {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 0%, rgb(16 185 129 / 0.14), transparent 55%);
+}
+
+.profile-effect--light-beams {
+  background: var(
+    --more-beams-bg,
+    radial-gradient(ellipse at 50% 8%, rgb(129 140 248 / 0.14), transparent 55%)
+  );
+}
+.more-beam-wheel {
+  position: absolute;
+  inset: -55% -30%;
+  background: var(
+    --more-beam-wheel-bg,
+    conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      rgb(165 180 252 / 0.16) 14deg,
+      transparent 30deg 118deg,
+      rgb(103 232 249 / 0.13) 132deg,
+      transparent 148deg 244deg,
+      rgb(240 171 252 / 0.12) 258deg,
+      transparent 274deg
+    )
+  );
+  mask-image: radial-gradient(closest-side, black 30%, transparent 78%);
+  animation: more-spin 22s linear infinite;
+}
+.more-beam-wheel--reverse {
+  animation-duration: 34s;
+  animation-direction: reverse;
+  opacity: 0.7;
+}
+.more-beam-core {
+  position: absolute;
+  top: 12%;
+  left: 50%;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--more-beam-core-bg, #e0e7ff);
+  box-shadow: var(--more-beam-core-shadow, 0 0 14px 5px rgb(165 180 252 / 0.5));
+  animation: more-twinkle 4s ease-in-out infinite;
+}
+
+.profile-effect--confetti {
+  background: var(
+    --more-confetti-bg,
+    linear-gradient(180deg, rgb(59 7 100 / 0.14), transparent 45%)
+  );
+}
+.more-confetti {
+  top: -12%;
+  width: 6px;
+  height: 10px;
+  border-radius: 2px;
+  animation: more-confetti-fall 4.6s linear infinite;
+}
+.more-confetti--1 {
+  left: 5%;
+  background: #f472b6;
+  animation-delay: -0.6s;
+}
+.more-confetti--2 {
+  left: 13%;
+  background: #60a5fa;
+  animation-delay: -2.8s;
+}
+.more-confetti--3 {
+  left: 22%;
+  background: #facc15;
+  animation-delay: -1.4s;
+}
+.more-confetti--4 {
+  left: 31%;
+  background: #4ade80;
+  animation-delay: -3.6s;
+}
+.more-confetti--5 {
+  left: 40%;
+  background: #c084fc;
+  animation-delay: -0.2s;
+}
+.more-confetti--6 {
+  left: 49%;
+  background: #fb923c;
+  animation-delay: -2.2s;
+}
+.more-confetti--7 {
+  left: 58%;
+  background: #22d3ee;
+  animation-delay: -4s;
+}
+.more-confetti--8 {
+  left: 67%;
+  background: #f472b6;
+  animation-delay: -1.8s;
+}
+.more-confetti--9 {
+  left: 76%;
+  background: #facc15;
+  animation-delay: -3.2s;
+}
+.more-confetti--10 {
+  left: 84%;
+  background: #60a5fa;
+  animation-delay: -1s;
+}
+.more-confetti--11 {
+  left: 91%;
+  background: #4ade80;
+  animation-delay: -2.5s;
+}
+.more-confetti--12 {
+  left: 96%;
+  background: #fb923c;
+  animation-delay: -4.3s;
+}
+
+.profile-effect--hearts {
+  background: var(
+    --more-hearts-bg,
+    linear-gradient(180deg, rgb(131 24 67 / 0.16), transparent 50%)
+  );
+}
+.more-heart {
+  bottom: -14%;
+  width: 14px;
+  height: 13px;
+  background: var(--more-heart-bg, rgb(244 114 182 / 0.85));
+  clip-path: path('M7 13C2 9 0 6.5 0 4a4 4 0 0 1 7-2.6A4 4 0 0 1 14 4c0 2.5-2 5-7 9Z');
+  animation: more-heart-rise 5.4s ease-in infinite;
+}
+.more-heart--1 {
+  left: 8%;
+  animation-delay: -0.9s;
+}
+.more-heart--2 {
+  left: 20%;
+  animation-delay: -3.1s;
+  scale: 0.7;
+}
+.more-heart--3 {
+  left: 33%;
+  animation-delay: -1.7s;
+}
+.more-heart--4 {
+  left: 46%;
+  animation-delay: -4.4s;
+  scale: 1.15;
+}
+.more-heart--5 {
+  left: 58%;
+  animation-delay: -2.4s;
+  scale: 0.8;
+}
+.more-heart--6 {
+  left: 70%;
+  animation-delay: -5s;
+}
+.more-heart--7 {
+  left: 82%;
+  animation-delay: -0.4s;
+  scale: 0.65;
+}
+.more-heart--8 {
+  left: 92%;
+  animation-delay: -3.7s;
+}
+.more-heart:nth-child(3n) {
+  background: var(--more-heart-alt-bg, rgb(251 113 133 / 0.8));
+}
+.more-heart-glow {
+  position: absolute;
+  inset: auto 0 0;
+  height: 26%;
+  background: radial-gradient(ellipse at 50% 100%, rgb(244 114 182 / 0.2), transparent);
+}

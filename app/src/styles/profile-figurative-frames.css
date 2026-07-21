@@ -1,0 +1,327 @@
+.figurative-frame {
+  filter: drop-shadow(0 3px 4px rgb(22 13 25 / 0.42));
+}
+
+.figurative-frame__inner {
+  position: absolute;
+  inset: 19px;
+  border: 2px solid currentColor;
+  border-radius: 20px;
+  opacity: 0.5;
+}
+
+.figurative-frame__top,
+.figurative-frame__bottom,
+.figurative-frame__full {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  overflow: visible;
+}
+
+.figurative-frame__top {
+  top: 0;
+  height: 95px;
+}
+
+.figurative-frame__bottom {
+  bottom: 0;
+  height: 76px;
+}
+
+.figurative-frame__full {
+  inset: 0;
+  height: 100%;
+}
+
+.profile-frame--sakura-gate {
+  color: #d9577e;
+}
+
+.frame-gate {
+  fill: none;
+  stroke: #a62d47;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 6;
+  vector-effect: non-scaling-stroke;
+}
+
+.frame-branch {
+  fill: none;
+  stroke: #74434a;
+  stroke-linecap: round;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.frame-blossom {
+  fill: #f38da8;
+  stroke: #fff0f4;
+  stroke-width: 1.2;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: frame-blossom-pulse 3.8s ease-in-out infinite;
+}
+
+.frame-blossom:nth-of-type(2n) {
+  animation-delay: -1.9s;
+}
+
+.frame-petal {
+  position: absolute;
+  top: 20%;
+  left: var(--frame-petal-x);
+  width: 9px;
+  height: 6px;
+  border-radius: 90% 18% 90% 18%;
+  background: #ef8aa8;
+  opacity: 0;
+  animation: frame-petal-fall 6s linear infinite;
+  animation-delay: var(--frame-petal-delay);
+}
+
+.frame-petal--1,
+.frame-petal--5 {
+  --frame-petal-x: 9%;
+  --frame-petal-delay: -1s;
+}
+
+.frame-petal--2,
+.frame-petal--6 {
+  --frame-petal-x: 31%;
+  --frame-petal-delay: -4s;
+}
+
+.frame-petal--3,
+.frame-petal--7 {
+  --frame-petal-x: 64%;
+  --frame-petal-delay: -2.6s;
+}
+
+.frame-petal--4 {
+  --frame-petal-x: 89%;
+  --frame-petal-delay: -5.1s;
+}
+
+.profile-frame--wisteria-arch {
+  color: #9e6bd0;
+}
+
+.frame-wisteria-vine {
+  fill: none;
+  stroke: #4f6847;
+  stroke-linecap: round;
+  stroke-width: 6;
+  vector-effect: non-scaling-stroke;
+}
+
+.frame-wisteria-bloom {
+  fill: #9a65ca;
+  stroke: #ead8ff;
+  stroke-width: 1.3;
+  transform-box: fill-box;
+  transform-origin: top center;
+  animation: frame-wisteria-sway 4.8s ease-in-out infinite alternate;
+}
+
+.frame-wisteria-bloom:nth-of-type(2n) {
+  fill: #c398e6;
+  animation-delay: -2.4s;
+}
+
+.frame-firefly {
+  top: var(--frame-fly-y);
+  left: var(--frame-fly-x);
+  animation-delay: var(--frame-fly-delay);
+}
+
+.frame-firefly--1,
+.frame-firefly--5 {
+  --frame-fly-x: 8%;
+  --frame-fly-y: 41%;
+  --frame-fly-delay: -0.8s;
+}
+
+.frame-firefly--2,
+.frame-firefly--6 {
+  --frame-fly-x: 32%;
+  --frame-fly-y: 15%;
+  --frame-fly-delay: -2s;
+}
+
+.frame-firefly--3,
+.frame-firefly--7 {
+  --frame-fly-x: 66%;
+  --frame-fly-y: 23%;
+  --frame-fly-delay: -3.1s;
+}
+
+.frame-firefly--4,
+.frame-firefly--8 {
+  --frame-fly-x: 91%;
+  --frame-fly-y: 52%;
+  --frame-fly-delay: -1.4s;
+}
+
+.profile-frame--lotus-lacquer {
+  color: #4aa99d;
+}
+
+.frame-water {
+  fill: none;
+  stroke: #6ed1c4;
+  stroke-dasharray: 10 6;
+  stroke-linecap: round;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+  animation: frame-water-flow 9s linear infinite;
+}
+
+.frame-lotus {
+  fill: #ed7e9c;
+  stroke: #fff0f3;
+  stroke-width: 1.2;
+  transform-box: fill-box;
+  transform-origin: bottom center;
+  animation: botanical-lotus-bob 4s ease-in-out infinite;
+}
+
+.frame-lotus--2,
+.frame-lotus--4 {
+  fill: #ffc0d0;
+  animation-delay: -2s;
+}
+
+.frame-koi {
+  fill: #ed684e;
+  stroke: #fff2d1;
+  stroke-width: 1.2;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: frame-koi-glide 8s ease-in-out infinite alternate;
+}
+
+.profile-frame--manga-page {
+  color: #171417;
+  filter: drop-shadow(3px 4px 0 rgb(255 255 255 / 0.74));
+}
+
+.profile-frame--manga-page .figurative-frame__inner {
+  border-width: 4px;
+  border-radius: 8px;
+  opacity: 1;
+}
+
+.frame-manga-panel {
+  fill: #fff;
+  stroke: #171417;
+  stroke-linejoin: round;
+  stroke-width: 4;
+  vector-effect: non-scaling-stroke;
+}
+
+.frame-manga-line {
+  fill: none;
+  stroke: #171417;
+  stroke-linecap: round;
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+  animation: frame-manga-jolt 2.4s steps(2, end) infinite;
+}
+
+.frame-manga-bubble {
+  fill: #fff;
+  stroke: #171417;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.profile-frame--shojo-lace {
+  color: #bf5179;
+}
+
+.frame-shojo-ribbon {
+  fill: none;
+  stroke: #b84270;
+  stroke-linecap: round;
+  stroke-width: 8;
+  vector-effect: non-scaling-stroke;
+}
+
+.frame-shojo-lace {
+  fill: none;
+  stroke: #f1a7c1;
+  stroke-dasharray: 2 5;
+  stroke-linecap: round;
+  stroke-width: 4;
+  vector-effect: non-scaling-stroke;
+  animation: shojo-lace-flow 8s linear infinite;
+}
+
+.frame-rose {
+  fill: #dd698e;
+  stroke: #fff0f5;
+  stroke-width: 1.3;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: frame-rose-bloom 4.6s ease-in-out infinite;
+}
+
+.frame-rose--2,
+.frame-rose--4 {
+  fill: #a84978;
+  animation-delay: -2.3s;
+}
+
+.frame-shojo-spark {
+  top: var(--frame-spark-y);
+  left: var(--frame-spark-x);
+  animation-delay: var(--frame-spark-delay);
+}
+
+.frame-shojo-spark--1,
+.frame-shojo-spark--5 {
+  --frame-spark-x: 7%;
+  --frame-spark-y: 24%;
+  --frame-spark-delay: -0.5s;
+}
+
+.frame-shojo-spark--2,
+.frame-shojo-spark--6 {
+  --frame-spark-x: 29%;
+  --frame-spark-y: 9%;
+  --frame-spark-delay: -1.3s;
+}
+
+.frame-shojo-spark--3,
+.frame-shojo-spark--7 {
+  --frame-spark-x: 68%;
+  --frame-spark-y: 13%;
+  --frame-spark-delay: -2.1s;
+}
+
+.frame-shojo-spark--4,
+.frame-shojo-spark--8 {
+  --frame-spark-x: 92%;
+  --frame-spark-y: 31%;
+  --frame-spark-delay: -2.8s;
+}
+
+.personalization-choice__frame > .figurative-frame .figurative-frame__top,
+.personalization-choice__frame > .figurative-frame .figurative-frame__bottom {
+  height: 28px;
+}
+
+.personalization-choice:not(:hover):not(:focus-visible):not([aria-pressed='true'])
+  .profile-frame,
+.personalization-choice:not(:hover):not(:focus-visible):not([aria-pressed='true'])
+  .profile-frame
+  :is(*, *::before, *::after) {
+  animation-play-state: paused !important;
+}
+
+.cosmetic-showcase-card:not(:hover):not(:focus-within)
+  :is(.profile-effect, .profile-frame, .profile-effect *, .profile-frame *) {
+  animation-play-state: paused !important;
+}

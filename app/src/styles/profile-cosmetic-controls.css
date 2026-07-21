@@ -1,0 +1,39 @@
+@media (prefers-reduced-motion: reduce) {
+  :is(.avatar-decoration, .profile-effect, .profile-frame),
+  :is(.avatar-decoration, .profile-effect, .profile-frame) :is(*, *::before, *::after) {
+    animation: none !important;
+  }
+}
+
+:root[data-motion='reduce'] :is(.avatar-decoration, .profile-effect, .profile-frame),
+:root[data-motion='reduce']
+  :is(.avatar-decoration, .profile-effect, .profile-frame)
+  :is(*, *::before, *::after) {
+  animation: none !important;
+}
+
+.avatar-root[data-decoration-motion='interaction']
+  .avatar-decoration
+  :is(*, *::before, *::after),
+.personalization-choice:not(:hover):not(:focus-visible):not([aria-pressed='true'])
+  .profile-effect
+  :is(*, *::before, *::after) {
+  animation-play-state: paused;
+}
+.avatar-root[data-decoration-motion='interaction']:is(:hover, :focus-within)
+  .avatar-decoration
+  :is(*, *::before, *::after),
+.personalization-choice:focus-visible
+  .avatar-root[data-decoration-motion='interaction']
+  .avatar-decoration
+  :is(*, *::before, *::after) {
+  animation-play-state: running;
+}
+.avatar-root[data-decoration-motion='static']
+  .avatar-decoration
+  :is(*, *::before, *::after) {
+  animation: none;
+}
+.personalization-choice {
+  contain: layout paint;
+}

@@ -1,0 +1,225 @@
+@keyframes more-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes more-twinkle {
+  50% {
+    opacity: 0.35;
+    transform: scale(0.72);
+  }
+}
+@keyframes more-bolt-flicker {
+  0%,
+  7% {
+    opacity: 1;
+  }
+  9%,
+  48% {
+    opacity: 0;
+  }
+  50%,
+  55% {
+    opacity: 0.85;
+  }
+  57%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes more-flap {
+  to {
+    transform: scaleX(0.4);
+  }
+}
+@keyframes more-flap-right {
+  to {
+    transform: scaleX(0.4);
+  }
+}
+@keyframes more-rune-glow {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes more-plume-lick {
+  50% {
+    transform: scaleY(1.18) scaleX(0.94);
+    opacity: 0.9;
+  }
+}
+@keyframes more-ember-rise {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0);
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(3px, -34px, 0);
+  }
+}
+@keyframes more-cloud-drift {
+  to {
+    transform: translate3d(6%, 4px, 0);
+  }
+}
+@keyframes more-flash {
+  0%,
+  55%,
+  61%,
+  100% {
+    opacity: 0;
+  }
+  56%,
+  57.6% {
+    opacity: 1;
+  }
+  58.8% {
+    opacity: 0.25;
+  }
+  59.6% {
+    opacity: 0.8;
+  }
+}
+@keyframes more-rain-fall {
+  to {
+    transform: rotate(12deg) translate3d(0, 900%, 0);
+  }
+}
+@keyframes more-lava-drift {
+  to {
+    transform: translate3d(-8%, 10%, 0) scale(1.18);
+  }
+}
+@keyframes more-code-fall {
+  to {
+    transform: translate3d(0, 520%, 0);
+  }
+}
+@keyframes more-confetti-fall {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  8% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.9;
+    transform: translate3d(-14px, 6200%, 0) rotate(560deg);
+  }
+}
+@keyframes more-heart-rise {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0);
+  }
+  12% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(8px, -3800%, 0);
+  }
+}
+@keyframes more-mote-float {
+  50% {
+    opacity: 0.45;
+    transform: translate3d(0, -7px, 0);
+  }
+}
+@keyframes more-frame-breathe {
+  50% {
+    transform: scale(1.006);
+  }
+}
+@keyframes more-dash-flow {
+  50% {
+    opacity: 0.72;
+  }
+}
+@keyframes more-gem-pulse {
+  50% {
+    opacity: 0.6;
+  }
+}
+@keyframes more-flake-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes more-forge-heat {
+  50% {
+    opacity: 0.5;
+  }
+}
+@keyframes more-sprig-sway {
+  50% {
+    transform: rotate(6deg);
+  }
+}
+
+:is(
+  [data-theme='light'],
+  [data-theme='paper'],
+  [data-theme='sakura'],
+  [data-theme='lotus'],
+  [data-theme='manga'],
+  [data-theme='shojo'],
+  [data-theme='frost'],
+  [data-theme='dream']
+) {
+  --more-thunder-bg: linear-gradient(180deg, rgb(148 163 184 / 0.4), transparent 55%);
+  --more-cloud-bg: radial-gradient(closest-side, rgb(100 116 139 / 0.55), transparent);
+  --more-rain-bg: linear-gradient(180deg, transparent, rgb(59 108 181 / 0.7));
+  --more-lava-bg: linear-gradient(200deg, rgb(254 215 170 / 0.5), transparent 60%);
+  --more-code-bg: linear-gradient(
+    180deg,
+    rgb(209 250 229 / 0.55),
+    rgb(236 253 245 / 0.3) 60%
+  );
+  --more-code-column-bg: repeating-linear-gradient(
+    180deg,
+    rgb(5 150 105 / 0.75) 0 5px,
+    transparent 5px 9px
+  );
+  --more-code-column-even-bg: repeating-linear-gradient(
+    180deg,
+    rgb(13 148 136 / 0.65) 0 4px,
+    transparent 4px 8px
+  );
+  --more-beams-bg: radial-gradient(
+    ellipse at 50% 8%,
+    rgb(99 102 241 / 0.16),
+    transparent 55%
+  );
+  --more-beam-wheel-bg: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    rgb(99 102 241 / 0.24) 14deg,
+    transparent 30deg 118deg,
+    rgb(8 145 178 / 0.2) 132deg,
+    transparent 148deg 244deg,
+    rgb(192 38 211 / 0.18) 258deg,
+    transparent 274deg
+  );
+  --more-beam-core-bg: #6366f1;
+  --more-beam-core-shadow: 0 0 14px 5px rgb(99 102 241 / 0.45);
+  --more-confetti-bg: linear-gradient(180deg, rgb(221 214 254 / 0.4), transparent 45%);
+  --more-hearts-bg: linear-gradient(180deg, rgb(252 231 243 / 0.55), transparent 50%);
+  --more-heart-bg: rgb(219 39 119 / 0.75);
+  --more-heart-alt-bg: rgb(225 29 72 / 0.7);
+  --more-frost-stroke: #3b82c4;
+  --more-frost-soft: rgb(37 99 235 / 0.28);
+  --more-frost-branch-stroke: rgb(37 99 195 / 0.8);
+  --more-frost-flake-stroke: #2d7fb8;
+  --more-frost-shard-fill: rgb(96 165 250 / 0.4);
+  --more-frost-shard-stroke: rgb(37 99 195 / 0.7);
+}

@@ -1,0 +1,374 @@
+.profile-effect--sakura-garden {
+  background-image: url('../assets/themes/sakura-garden.jpg');
+}
+
+.profile-effect--wisteria-fireflies {
+  background-image: url('../assets/themes/wisteria-night.jpg');
+}
+
+.profile-effect--lotus-ripples {
+  background-image: url('../assets/themes/lotus-pond.jpg');
+}
+
+.profile-effect--manga-panels {
+  background-image: url('../assets/themes/manga-ink.jpg');
+}
+
+.profile-effect--shojo-roses {
+  background-image: url('../assets/themes/shojo-bloom.jpg');
+}
+
+.figurative-petal {
+  position: absolute;
+  top: -10%;
+  left: var(--petal-x);
+  width: 12px;
+  height: 8px;
+  border: 1px solid rgb(255 244 247 / 0.72);
+  border-radius: 95% 20% 95% 20%;
+  background: #ef8ca8;
+  opacity: 0;
+  animation: effect-petal-fall var(--petal-duration) linear infinite;
+  animation-delay: var(--petal-delay);
+}
+
+.figurative-petal--1,
+.figurative-petal--8 {
+  --petal-x: 8%;
+  --petal-duration: 7s;
+  --petal-delay: -1s;
+}
+
+.figurative-petal--2,
+.figurative-petal--9 {
+  --petal-x: 21%;
+  --petal-duration: 9s;
+  --petal-delay: -5s;
+}
+
+.figurative-petal--3,
+.figurative-petal--10 {
+  --petal-x: 36%;
+  --petal-duration: 6.8s;
+  --petal-delay: -3.2s;
+}
+
+.figurative-petal--4,
+.figurative-petal--11 {
+  --petal-x: 52%;
+  --petal-duration: 8.4s;
+  --petal-delay: -6.1s;
+}
+
+.figurative-petal--5,
+.figurative-petal--12 {
+  --petal-x: 67%;
+  --petal-duration: 7.7s;
+  --petal-delay: -4.4s;
+}
+
+.figurative-petal--6,
+.figurative-petal--13 {
+  --petal-x: 82%;
+  --petal-duration: 9.2s;
+  --petal-delay: -7.2s;
+}
+
+.figurative-petal--7,
+.figurative-petal--14 {
+  --petal-x: 94%;
+  --petal-duration: 6.5s;
+  --petal-delay: -2.6s;
+}
+
+.figurative-petal:nth-of-type(n + 8) {
+  width: 8px;
+  height: 6px;
+  background: #ffd1dc;
+  animation-delay: calc(var(--petal-delay) - 2s);
+}
+
+.effect-wisteria {
+  --effect-wisteria-mirror: 1;
+  position: absolute;
+  top: -4%;
+  width: 38%;
+  height: 58%;
+  background-image:
+    radial-gradient(ellipse at 20% 15%, #cfa4ee 0 5%, transparent 6%),
+    radial-gradient(ellipse at 50% 33%, #a56bd2 0 6%, transparent 7%),
+    radial-gradient(ellipse at 30% 52%, #bc83e2 0 6%, transparent 7%),
+    radial-gradient(ellipse at 60% 72%, #8250b8 0 5%, transparent 6%);
+  transform-origin: top center;
+  transform: scaleX(var(--effect-wisteria-mirror));
+  animation: effect-wisteria-sway 5.4s ease-in-out infinite alternate;
+}
+
+.effect-wisteria--left {
+  left: -4%;
+}
+
+.effect-wisteria--right {
+  --effect-wisteria-mirror: -1;
+  right: -4%;
+  animation-delay: -2.7s;
+}
+
+.effect-firefly {
+  top: var(--fly-y);
+  left: var(--fly-x);
+  animation-duration: var(--fly-duration);
+  animation-delay: var(--fly-delay);
+}
+
+.effect-firefly--1,
+.effect-firefly--6 {
+  --fly-x: 8%;
+  --fly-y: 36%;
+  --fly-duration: 4.2s;
+  --fly-delay: -1.3s;
+}
+
+.effect-firefly--2,
+.effect-firefly--7 {
+  --fly-x: 27%;
+  --fly-y: 68%;
+  --fly-duration: 5.1s;
+  --fly-delay: -3.4s;
+}
+
+.effect-firefly--3,
+.effect-firefly--8 {
+  --fly-x: 48%;
+  --fly-y: 29%;
+  --fly-duration: 4.7s;
+  --fly-delay: -2.1s;
+}
+
+.effect-firefly--4,
+.effect-firefly--9 {
+  --fly-x: 71%;
+  --fly-y: 57%;
+  --fly-duration: 5.6s;
+  --fly-delay: -4.4s;
+}
+
+.effect-firefly--5,
+.effect-firefly--10 {
+  --fly-x: 91%;
+  --fly-y: 22%;
+  --fly-duration: 4.4s;
+  --fly-delay: -2.8s;
+}
+
+.effect-firefly:nth-of-type(n + 6) {
+  animation-delay: calc(var(--fly-delay) - 1.8s);
+}
+
+.effect-ripple {
+  position: absolute;
+  top: var(--ripple-y);
+  left: var(--ripple-x);
+  width: 60px;
+  height: 18px;
+  border: 1px solid rgb(223 255 245 / 0.6);
+  border-radius: 50%;
+  opacity: 0;
+  animation: effect-ripple 5.6s ease-out infinite;
+  animation-delay: var(--ripple-delay);
+}
+
+.effect-ripple--1 {
+  --ripple-x: 12%;
+  --ripple-y: 32%;
+  --ripple-delay: -1s;
+}
+
+.effect-ripple--2 {
+  --ripple-x: 58%;
+  --ripple-y: 20%;
+  --ripple-delay: -3.8s;
+}
+
+.effect-ripple--3 {
+  --ripple-x: 72%;
+  --ripple-y: 67%;
+  --ripple-delay: -2.4s;
+}
+
+.effect-ripple--4 {
+  --ripple-x: 26%;
+  --ripple-y: 76%;
+  --ripple-delay: -4.9s;
+}
+
+.effect-koi {
+  position: absolute;
+  width: 34px;
+  height: 12px;
+  border-radius: 70% 35% 35% 70%;
+  background: linear-gradient(90deg, #fff5d6 0 24%, #e76247 25% 56%, #fff5d6 57%);
+  opacity: 0.7;
+  animation: effect-koi-swim 12s ease-in-out infinite;
+}
+
+.effect-koi::after {
+  position: absolute;
+  top: 1px;
+  right: -8px;
+  border-width: 5px 0 5px 9px;
+  border-style: solid;
+  border-color: transparent transparent transparent #fff5d6;
+  content: '';
+}
+
+.effect-koi--one {
+  top: 52%;
+  left: 8%;
+}
+
+.effect-koi--two {
+  right: 8%;
+  bottom: 16%;
+  animation-delay: -6s;
+  animation-direction: reverse;
+}
+
+.effect-manga-panel {
+  position: absolute;
+  border: 3px solid #111;
+  background: rgb(255 255 255 / 0.44);
+  box-shadow: 5px 5px 0 rgb(17 17 17 / 0.25);
+}
+
+.effect-manga-panel--one {
+  top: -8%;
+  right: -7%;
+  width: 43%;
+  height: 47%;
+  transform: rotate(5deg);
+}
+
+.effect-manga-panel--two {
+  bottom: -12%;
+  left: -6%;
+  width: 37%;
+  height: 51%;
+  transform: rotate(-7deg);
+}
+
+.effect-speedline {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 64%;
+  height: 2px;
+  background: #111;
+  opacity: 0.4;
+  transform: rotate(calc(var(--line-angle) * 1deg)) translateX(20%);
+  transform-origin: left center;
+  animation: manga-speedline 2.2s steps(2, end) infinite;
+  animation-delay: var(--line-delay);
+}
+
+.effect-speedline--1 {
+  --line-angle: 0;
+  --line-delay: -0.2s;
+}
+
+.effect-speedline--2 {
+  --line-angle: 36;
+  --line-delay: -0.4s;
+}
+
+.effect-speedline--3 {
+  --line-angle: 72;
+  --line-delay: -0.6s;
+}
+
+.effect-speedline--4 {
+  --line-angle: 108;
+  --line-delay: -0.8s;
+}
+
+.effect-speedline--5 {
+  --line-angle: 144;
+  --line-delay: -1s;
+}
+
+.effect-speedline--6 {
+  --line-angle: 180;
+  --line-delay: -1.2s;
+}
+
+.effect-speedline--7 {
+  --line-angle: 216;
+  --line-delay: -1.4s;
+}
+
+.effect-speedline--8 {
+  --line-angle: 252;
+  --line-delay: -1.6s;
+}
+
+.effect-speedline--9 {
+  --line-angle: 288;
+  --line-delay: -1.8s;
+}
+
+.effect-speedline--10 {
+  --line-angle: 324;
+  --line-delay: -2s;
+}
+
+.effect-shojo-ribbon {
+  position: absolute;
+  right: -15%;
+  bottom: -22%;
+  width: 85%;
+  height: 72%;
+  border: 8px double rgb(150 49 87 / 0.55);
+  border-radius: 50%;
+  transform: rotate(-18deg);
+  animation: shojo-ribbon-float 7s ease-in-out infinite alternate;
+}
+
+.effect-shojo-spark {
+  top: var(--spark-y);
+  left: var(--spark-x);
+  animation-delay: var(--spark-delay);
+}
+
+.effect-shojo-spark--1,
+.effect-shojo-spark--6 {
+  --spark-x: 9%;
+  --spark-y: 17%;
+  --spark-delay: -0.4s;
+}
+
+.effect-shojo-spark--2,
+.effect-shojo-spark--7 {
+  --spark-x: 28%;
+  --spark-y: 66%;
+  --spark-delay: -1.1s;
+}
+
+.effect-shojo-spark--3,
+.effect-shojo-spark--8 {
+  --spark-x: 52%;
+  --spark-y: 22%;
+  --spark-delay: -1.9s;
+}
+
+.effect-shojo-spark--4,
+.effect-shojo-spark--9 {
+  --spark-x: 73%;
+  --spark-y: 71%;
+  --spark-delay: -2.5s;
+}
+
+.effect-shojo-spark--5 {
+  --spark-x: 91%;
+  --spark-y: 38%;
+  --spark-delay: -3.1s;
+}

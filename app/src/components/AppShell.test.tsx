@@ -110,6 +110,7 @@ function groupState(over: Partial<GroupStateJson> = {}): GroupStateJson {
 beforeEach(() => {
   window.localStorage.clear();
   useUi.setState({
+    theme: 'dark',
     quickSwitcherOpen: false,
     view: { kind: 'friends' },
     lastDmPeer: null,
@@ -128,6 +129,16 @@ afterEach(() => {
 });
 
 describe('AppShell — raccourcis globaux', () => {
+  it('renders one global theme scene at the application shell root', () => {
+    useUi.setState({ theme: 'wisteria' });
+    const { container } = render(<AppShell />);
+
+    expect(container.querySelectorAll('.theme-world')).toHaveLength(1);
+    expect(container.querySelector('.accord-shell > .theme-world')).not.toBeNull();
+    expect(container.querySelector('[data-scene="wisteria"]')).not.toBeNull();
+    expect(container.querySelector('.accord-stage .theme-atmosphere')).toBeNull();
+  });
+
   it('Ctrl+K bascule le sélecteur rapide', () => {
     render(<AppShell />);
     expect(screen.queryByRole('dialog')).toBeNull();

@@ -14,7 +14,7 @@
   --color-tooltip: 8 7 18;
   --color-norm: 229 224 242;
   --color-muted: 187 177 211;
-  --color-faint: 158 146 187;
+  --color-faint: 170 158 200;
   --color-header: 250 247 255;
   --color-blurple: 129 84 188;
   --color-blurple-hover: 112 61 165;
@@ -23,7 +23,7 @@
   --color-yellow: 233 184 84;
   --color-link: 132 190 240;
   --color-on-green: 12 18 15;
-  --color-on-red: 255 255 255;
+  --color-on-red: 17 18 20;
   --theme-accent-secondary: 211 143 224;
   --ambient-a: 151 95 213;
   --ambient-b: 228 159 216;
@@ -57,8 +57,8 @@
   --color-modal: 232 242 229;
   --color-tooltip: 15 27 25;
   --color-norm: 42 64 58;
-  --color-muted: 75 99 89;
-  --color-faint: 91 113 104;
+  --color-muted: 68 92 82;
+  --color-faint: 70 94 84;
   --color-header: 24 48 43;
   --color-blurple: 26 117 104;
   --color-blurple-hover: 18 91 82;
@@ -102,7 +102,7 @@
   --color-tooltip: 15 15 15;
   --color-norm: 40 39 36;
   --color-muted: 76 74 69;
-  --color-faint: 99 96 89;
+  --color-faint: 84 81 74;
   --color-header: 18 18 17;
   --color-blurple: 35 34 32;
   --color-blurple-hover: 10 10 10;
@@ -150,7 +150,7 @@
   --color-tooltip: 31 17 22;
   --color-norm: 65 44 51;
   --color-muted: 103 72 84;
-  --color-faint: 119 87 98;
+  --color-faint: 108 76 88;
   --color-header: 43 25 31;
   --color-blurple: 158 55 91;
   --color-blurple-hover: 129 40 72;
@@ -188,10 +188,6 @@
 .theme-preview__chat > :not(.theme-atmosphere, .theme-preview__motion) {
   position: relative;
   z-index: 1;
-}
-
-[data-theme='wisteria'] .text-blurple {
-  color: rgb(196 151 235);
 }
 
 .theme-atmosphere {

@@ -245,7 +245,7 @@ describe('ProfilePopover — pseudos de serveur', () => {
     expect(screen.getByRole('dialog', { name: 'Menu utilisateur' })).toBeInTheDocument();
   });
 
-  it('rend le cadre et l’effet dans le menu ouvert depuis le panneau local', () => {
+  it('rend le cadre et l’effet dans le menu ouvert depuis le panneau local', async () => {
     useSession.setState({
       self: { ...MOI, profile_effect: 'starfield', profile_frame: 'lumen_bloom' },
     });
@@ -253,8 +253,8 @@ describe('ProfilePopover — pseudos de serveur', () => {
     render(<ProfilePopover />);
 
     expect(screen.getByRole('dialog', { name: 'Menu utilisateur' })).toBeInTheDocument();
-    expect(screen.getByTestId('profile-frame')).toBeInTheDocument();
-    expect(screen.getByTestId('profile-effect')).toBeInTheDocument();
+    expect(await screen.findByTestId('profile-frame')).toBeInTheDocument();
+    expect(await screen.findByTestId('profile-effect')).toBeInTheDocument();
   });
 
   it('n’affiche aucun cadre dans le menu local sans cadre choisi', () => {
@@ -374,7 +374,7 @@ describe('ProfilePopover — bio et liens', () => {
 });
 
 describe('ProfilePopover — personnalisation', () => {
-  it("rend séparément la décoration, l'effet et le cadre du profil local", () => {
+  it("rend séparément la décoration, l'effet et le cadre du profil local", async () => {
     useSession.setState({
       self: {
         ...MOI,
@@ -386,12 +386,12 @@ describe('ProfilePopover — personnalisation', () => {
     openFor('moi');
     render(<ProfilePopover />);
 
-    expect(screen.getByTestId('avatar-decoration')).toBeInTheDocument();
-    expect(screen.getByTestId('profile-effect')).toBeInTheDocument();
-    expect(screen.getByTestId('profile-frame')).toBeInTheDocument();
+    expect(await screen.findByTestId('avatar-decoration')).toBeInTheDocument();
+    expect(await screen.findByTestId('profile-effect')).toBeInTheDocument();
+    expect(await screen.findByTestId('profile-frame')).toBeInTheDocument();
   });
 
-  it("rend séparément la décoration, l'effet et le cadre annoncés par un ami", () => {
+  it("rend séparément la décoration, l'effet et le cadre annoncés par un ami", async () => {
     useFriends.setState({
       contacts: [
         {
@@ -405,9 +405,9 @@ describe('ProfilePopover — personnalisation', () => {
     openFor('ami-pk');
     render(<ProfilePopover />);
 
-    expect(screen.getByTestId('avatar-decoration')).toBeInTheDocument();
-    expect(screen.getByTestId('profile-effect')).toBeInTheDocument();
-    expect(screen.getByTestId('profile-frame')).toBeInTheDocument();
+    expect(await screen.findByTestId('avatar-decoration')).toBeInTheDocument();
+    expect(await screen.findByTestId('profile-effect')).toBeInTheDocument();
+    expect(await screen.findByTestId('profile-frame')).toBeInTheDocument();
   });
 
   it("ignore les ids inconnus d'un pair sans les refléter dans le DOM", () => {

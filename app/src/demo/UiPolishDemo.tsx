@@ -22,12 +22,10 @@ import '../styles/global.css';
 import '../styles/theme-scenes.css';
 import '../styles/figurative-themes.css';
 import '../styles/profile-personalization.css';
-import '../styles/profile-personalization-extra.css';
-import '../styles/profile-personalization-more.css';
-import '../styles/profile-personalization-nature-manga.css';
 import '../styles/profile-surfaces.css';
 import '../styles/identity-refresh.css';
 import '../styles/liquid-glass.css';
+import '../styles/theme-coverage.css';
 
 const SELF_ID = 'demo-self';
 const GROUP_ID = 'demo-cipher';

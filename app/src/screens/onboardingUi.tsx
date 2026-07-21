@@ -6,6 +6,7 @@
  */
 
 import type { ReactNode } from 'react';
+import { ThemeWorld } from '../components/ThemeWorld';
 import { useT } from '../stores/ui';
 import './onboarding.css';
 
@@ -28,6 +29,7 @@ export function Card({
   const t = useT();
   return (
     <div className="onboarding-shell overflow-y-auto">
+      <ThemeWorld />
       <div className="onboarding-haze" aria-hidden="true">
         <span />
         <span />

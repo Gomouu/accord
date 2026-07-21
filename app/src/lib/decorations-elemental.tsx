@@ -1,17 +1,79 @@
-import type { ReactNode } from 'react';
-import type { AvatarDecoration, ProfileEffect } from './decorations';
+import type { CSSProperties } from 'react';
+import {
+  AvatarDecorationLayer as Decoration,
+  ProfileEffectLayer as Effect,
+} from './decorationLayers';
+import '../styles/profile-elemental-avatars.css';
+import '../styles/profile-elemental-effects.css';
+import '../styles/profile-elemental-motion.css';
 
-function Decoration({ className, children }: { className: string; children: ReactNode }) {
-  return (
-    <span
-      aria-hidden
-      data-testid="avatar-decoration"
-      className={`avatar-decoration ${className}`}
-    >
-      {children}
-    </span>
-  );
-}
+const BUBBLE_STYLES = [
+  { left: '4%', bottom: '14%' },
+  { right: '3%', bottom: '26%', animationDelay: '-1s' },
+  { left: '19%', bottom: 0, width: '5%', height: '5%', animationDelay: '-2.2s' },
+  { right: '18%', bottom: '2%', width: '6%', height: '6%', animationDelay: '-3s' },
+] satisfies readonly CSSProperties[];
+
+const PIXEL_STYLES = [
+  { top: '2%', left: '20%' },
+  { top: '16%', right: 0, animationDelay: '-0.4s' },
+  { right: '5%', bottom: '15%', animationDelay: '-0.8s' },
+  { bottom: 0, left: '34%', animationDelay: '-1.2s' },
+  { bottom: '18%', left: 0, animationDelay: '-1.6s' },
+  { top: '10%', left: '2%', animationDelay: '-2s' },
+] satisfies readonly CSSProperties[];
+
+const SEA_BUBBLE_STYLES = [
+  { left: '8%' },
+  { left: '24%', animationDelay: '-3s' },
+  { left: '43%', animationDelay: '-6s' },
+  { left: '62%', animationDelay: '-2s' },
+  { left: '79%', animationDelay: '-5s' },
+  { left: '93%', animationDelay: '-7s' },
+] satisfies readonly CSSProperties[];
+
+const RAIN_STYLES = [
+  { left: '4%' },
+  { left: '14%', animationDelay: '-0.5s' },
+  { left: '25%', animationDelay: '-1.2s' },
+  { left: '36%', animationDelay: '-2s' },
+  { left: '47%', animationDelay: '-0.8s' },
+  { left: '58%', animationDelay: '-1.7s' },
+  { left: '68%', animationDelay: '-0.2s' },
+  { left: '78%', animationDelay: '-2.4s' },
+  { left: '88%', animationDelay: '-1s' },
+  { left: '97%', animationDelay: '-2.1s' },
+] satisfies readonly CSSProperties[];
+
+const FIREFLY_STYLES = [
+  { top: '13%', left: '7%' },
+  { top: '25%', left: '25%', animationDelay: '-3s' },
+  { top: '12%', left: '45%', animationDelay: '-5s' },
+  { top: '32%', left: '67%', animationDelay: '-1s' },
+  { top: '19%', left: '88%', animationDelay: '-4s' },
+  { top: '48%', left: '13%', animationDelay: '-6s' },
+  { top: '57%', left: '37%', animationDelay: '-2s' },
+  { top: '48%', left: '76%', animationDelay: '-5.5s' },
+  { top: '74%', left: '20%', animationDelay: '-1.5s' },
+  { top: '83%', left: '51%', animationDelay: '-4.5s' },
+  { top: '68%', left: '91%', animationDelay: '-2.5s' },
+  { top: '90%', left: '72%', animationDelay: '-6.5s' },
+] satisfies readonly CSSProperties[];
+
+const SNOW_STYLES = [
+  { left: '4%' },
+  { left: '13%', animationDelay: '-2s' },
+  { left: '22%', animationDelay: '-5s' },
+  { left: '33%', animationDelay: '-1s' },
+  { left: '43%', animationDelay: '-4s' },
+  { left: '52%', animationDelay: '-6s' },
+  { left: '61%', animationDelay: '-2.8s' },
+  { left: '70%', animationDelay: '-5.8s' },
+  { left: '79%', animationDelay: '-1.8s' },
+  { left: '88%', animationDelay: '-4.8s' },
+  { left: '95%', animationDelay: '-3.7s' },
+  { left: '48%', animationDelay: '-0.5s' },
+] satisfies readonly CSSProperties[];
 
 function MoonMoths() {
   return (
@@ -72,8 +134,8 @@ function OceanTide() {
     <Decoration className="avatar-decoration--ocean-tide">
       <span className="extra-tide extra-tide--one" />
       <span className="extra-tide extra-tide--two" />
-      {[1, 2, 3, 4].map((index) => (
-        <i key={index} className={`extra-bubble extra-bubble--${index}`} />
+      {BUBBLE_STYLES.map((style, index) => (
+        <i key={index} className="extra-bubble" style={style} />
       ))}
     </Decoration>
   );
@@ -139,22 +201,10 @@ function PixelPortal() {
     <Decoration className="avatar-decoration--pixel-portal">
       <span className="extra-pixel-ring extra-pixel-ring--one" />
       <span className="extra-pixel-ring extra-pixel-ring--two" />
-      {[1, 2, 3, 4, 5, 6].map((index) => (
-        <i key={index} className={`extra-pixel extra-pixel--${index}`} />
+      {PIXEL_STYLES.map((style, index) => (
+        <i key={index} className="extra-pixel" style={style} />
       ))}
     </Decoration>
-  );
-}
-
-function Effect({ className, children }: { className: string; children: ReactNode }) {
-  return (
-    <span
-      aria-hidden
-      data-testid="profile-effect"
-      className={`profile-effect ${className}`}
-    >
-      {children}
-    </span>
   );
 }
 
@@ -174,8 +224,8 @@ function DeepSea() {
     <Effect className="profile-effect--deep-sea">
       <span className="extra-caustic extra-caustic--one" />
       <span className="extra-caustic extra-caustic--two" />
-      {[1, 2, 3, 4, 5, 6].map((index) => (
-        <i key={index} className={`extra-sea-bubble extra-sea-bubble--${index}`} />
+      {SEA_BUBBLE_STYLES.map((style, index) => (
+        <i key={index} className="extra-sea-bubble" style={style} />
       ))}
     </Effect>
   );
@@ -184,8 +234,8 @@ function DeepSea() {
 function SoftRain() {
   return (
     <Effect className="profile-effect--soft-rain">
-      {Array.from({ length: 10 }, (_, index) => (
-        <i key={index} className={`extra-rain extra-rain--${index + 1}`} />
+      {RAIN_STYLES.map((style, index) => (
+        <i key={index} className="extra-rain" style={style} />
       ))}
       <span className="extra-rain-glow" />
     </Effect>
@@ -206,8 +256,8 @@ function HoloGrid() {
 function Fireflies() {
   return (
     <Effect className="profile-effect--fireflies">
-      {Array.from({ length: 12 }, (_, index) => (
-        <i key={index} className={`extra-firefly extra-firefly--${index + 1}`} />
+      {FIREFLY_STYLES.map((style, index) => (
+        <i key={index} className="extra-firefly" style={style} />
       ))}
       <span className="extra-forest-haze" />
     </Effect>
@@ -217,8 +267,8 @@ function Fireflies() {
 function Snowfall() {
   return (
     <Effect className="profile-effect--snowfall">
-      {Array.from({ length: 12 }, (_, index) => (
-        <i key={index} className={`extra-snow extra-snow--${index + 1}`} />
+      {SNOW_STYLES.map((style, index) => (
+        <i key={index} className="extra-snow" style={style} />
       ))}
       <span className="extra-frost-glow" />
     </Effect>
@@ -247,84 +297,21 @@ function CosmicPortal() {
   );
 }
 
-export const EXTRA_AVATAR_DECORATIONS = [
-  {
-    id: 'moon_moths',
-    label: { fr: 'Papillons lunaires', en: 'Moon Moths' },
-    render: () => <MoonMoths />,
-  },
-  {
-    id: 'crystal_bloom',
-    label: { fr: 'Floraison cristal', en: 'Crystal Bloom' },
-    render: () => <CrystalBloom />,
-  },
-  {
-    id: 'ember_wings',
-    label: { fr: 'Ailes de braise', en: 'Ember Wings' },
-    render: () => <EmberWings />,
-  },
-  {
-    id: 'ocean_tide',
-    label: { fr: 'Marée', en: 'Ocean Tide' },
-    render: () => <OceanTide />,
-  },
-  {
-    id: 'forest_spirit',
-    label: { fr: 'Esprit sylvestre', en: 'Forest Spirit' },
-    render: () => <ForestSpirit />,
-  },
-  {
-    id: 'frost_shards',
-    label: { fr: 'Éclats polaires', en: 'Frost Shards' },
-    render: () => <FrostShards />,
-  },
-  {
-    id: 'heart_ribbon',
-    label: { fr: 'Ruban cœur', en: 'Heart Ribbon' },
-    render: () => <HeartRibbon />,
-  },
-  {
-    id: 'pixel_portal',
-    label: { fr: 'Portail pixel', en: 'Pixel Portal' },
-    render: () => <PixelPortal />,
-  },
-] as const satisfies readonly AvatarDecoration[];
-
-export const EXTRA_PROFILE_EFFECTS = [
-  {
-    id: 'moon_clouds',
-    label: { fr: 'Clair de lune', en: 'Moonlight' },
-    render: () => <MoonClouds />,
-  },
-  {
-    id: 'deep_sea',
-    label: { fr: 'Grand bleu', en: 'Deep Sea' },
-    render: () => <DeepSea />,
-  },
-  {
-    id: 'soft_rain',
-    label: { fr: 'Pluie douce', en: 'Soft Rain' },
-    render: () => <SoftRain />,
-  },
-  {
-    id: 'holo_grid',
-    label: { fr: 'Hologramme', en: 'Hologram' },
-    render: () => <HoloGrid />,
-  },
-  {
-    id: 'fireflies',
-    label: { fr: 'Lucioles', en: 'Fireflies' },
-    render: () => <Fireflies />,
-  },
-  { id: 'snowfall', label: { fr: 'Neige', en: 'Snowfall' }, render: () => <Snowfall /> },
-  {
-    id: 'ink_bloom',
-    label: { fr: 'Encre vivante', en: 'Living Ink' },
-    render: () => <InkBloom />,
-  },
-  {
-    id: 'cosmic_portal',
-    label: { fr: 'Portail cosmique', en: 'Cosmic Portal' },
-    render: () => <CosmicPortal />,
-  },
-] as const satisfies readonly ProfileEffect[];
+export const DECORATION_RENDERERS = {
+  moon_moths: MoonMoths,
+  crystal_bloom: CrystalBloom,
+  ember_wings: EmberWings,
+  ocean_tide: OceanTide,
+  forest_spirit: ForestSpirit,
+  frost_shards: FrostShards,
+  heart_ribbon: HeartRibbon,
+  pixel_portal: PixelPortal,
+  moon_clouds: MoonClouds,
+  deep_sea: DeepSea,
+  soft_rain: SoftRain,
+  holo_grid: HoloGrid,
+  fireflies: Fireflies,
+  snowfall: Snowfall,
+  ink_bloom: InkBloom,
+  cosmic_portal: CosmicPortal,
+} as const;

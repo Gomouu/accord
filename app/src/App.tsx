@@ -5,6 +5,7 @@
 
 import { useEffect } from 'react';
 import { AppShell } from './components/AppShell';
+import { ThemeWorld } from './components/ThemeWorld';
 import { Toasts } from './components/Toasts';
 import { UpdateBanner } from './components/UpdateBanner';
 import { AccountPicker } from './screens/AccountPicker';
@@ -39,8 +40,12 @@ function useUpdateChecks(): void {
 
 function BootScreen({ label }: { label: string }) {
   return (
-    <div className="app-ambient flex h-full items-center justify-center bg-rail px-6">
-      <div role="status" className="flex flex-col items-center text-center">
+    <div className="app-ambient relative isolate flex h-full items-center justify-center overflow-hidden bg-rail px-6">
+      <ThemeWorld />
+      <div
+        role="status"
+        className="relative z-[1] flex flex-col items-center text-center"
+      >
         <div className="relative mb-5">
           <span
             aria-hidden

@@ -165,7 +165,7 @@ describe('MessageList — transfert et lien', () => {
 });
 
 describe('MessageList — rendu', () => {
-  it("rend la décoration d'avatar annoncée par un contact", () => {
+  it("rend la décoration d'avatar annoncée par un contact", async () => {
     useFriends.setState({
       contacts: [
         {
@@ -185,7 +185,7 @@ describe('MessageList — rendu', () => {
 
     render(<MessageList messages={[textMsg('m1', BASE_MS, 'bonjour')]} />);
 
-    expect(screen.getByTestId('avatar-decoration')).toBeInTheDocument();
+    expect(await screen.findByTestId('avatar-decoration')).toBeInTheDocument();
   });
 
   it('affiche le texte des messages et le nom court de l’auteur inconnu', () => {

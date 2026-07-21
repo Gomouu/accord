@@ -49,7 +49,7 @@ import { QuickSwitcher } from './QuickSwitcher';
 import { ResizeHandle } from './ResizeHandle';
 import { ServerRail } from './ServerRail';
 import { Sidebar } from './Sidebar';
-import { ThemeAtmosphere } from './ThemeAtmosphere';
+import { ThemeWorld } from './ThemeWorld';
 
 /**
  * Notification native « Nouveau message de <nom> » si les réglages
@@ -537,7 +537,6 @@ function useUnreadBadge(): void {
 export function AppShell() {
   const t = useT();
   const view = useUi((s) => s.view);
-  const theme = useUi((s) => s.theme);
   const toast = useUi((s) => s.toast);
   const sidebarWidth = useUi((s) => s.sidebarWidth);
   const setSidebarWidth = useUi((s) => s.setSidebarWidth);
@@ -575,6 +574,7 @@ export function AppShell() {
 
   return (
     <div className="app-ambient accord-shell flex h-full">
+      <ThemeWorld />
       {/*
        * Lien d'évitement : premier élément tabbable, visible uniquement au
        * focus clavier — saute rail et barre latérale pour atteindre la zone
@@ -604,7 +604,6 @@ export function AppShell() {
         className="theme-surface-chat accord-stage min-w-0 flex-1 bg-chat focus:outline-none"
         aria-label={t.app.name}
       >
-        <ThemeAtmosphere theme={theme} />
         {/*
          * Garde-fou : un crash de la vue courante affiche un repli local ;
          * rail, barre latérale et navigation restent utilisables, et changer

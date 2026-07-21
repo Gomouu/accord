@@ -824,6 +824,18 @@
   }
 }
 
+:root :focus-visible {
+  --tw-ring-color: rgb(var(--color-focus));
+  outline: 3px solid rgb(var(--color-focus));
+  outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+  :root :focus-visible {
+    outline-color: Highlight;
+  }
+}
+
 :root[data-motion='reduce'] .accord-shell::before,
 :root[data-motion='reduce'] .accord-shell::after {
   animation: none;

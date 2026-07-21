@@ -468,10 +468,40 @@ textarea {
   background: transparent;
 }
 
-/* Focus visible au clavier uniquement (accessibilité). */
-:focus-visible {
-  outline: 2px solid rgb(var(--color-blurple));
-  outline-offset: 2px;
+.text-blurple {
+  color: rgb(var(--color-accent-text));
+}
+
+.text-link {
+  color: rgb(var(--color-link-text));
+}
+
+.text-yellow {
+  color: rgb(var(--color-warning-text));
+}
+
+.text-green {
+  color: rgb(var(--color-success-text));
+}
+
+.text-red {
+  color: rgb(var(--color-danger-text));
+}
+
+pre code .text-blurple {
+  color: rgb(var(--color-syntax-keyword));
+}
+
+pre code .text-green {
+  color: rgb(var(--color-syntax-string));
+}
+
+pre code .text-faint {
+  color: rgb(var(--color-syntax-comment));
+}
+
+pre code .text-yellow {
+  color: rgb(var(--color-syntax-number));
 }
 
 /*
@@ -516,8 +546,7 @@ textarea {
 }
 
 .server-menu-danger {
-  color: rgb(var(--color-red));
-  color: color-mix(in srgb, rgb(var(--color-red)) 72%, rgb(var(--color-header)) 28%);
+  color: rgb(var(--color-danger-text));
 }
 
 /* Survol/focus façon Discord : la ligne se remplit de blurple, texte et icône
@@ -533,7 +562,7 @@ textarea {
 .server-menu-surface .server-menu-item.server-menu-danger:hover,
 .server-menu-surface .server-menu-item.server-menu-danger:focus-visible {
   background-color: rgb(var(--color-red));
-  color: #fff;
+  color: rgb(var(--color-on-red));
 }
 /* Repli opaque pour les moteurs sans backdrop-filter. */
 @supports not (backdrop-filter: blur(1px)) {

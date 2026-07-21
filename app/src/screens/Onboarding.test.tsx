@@ -30,7 +30,7 @@ function stubImage(largeur: number, hauteur: number): void {
 
 beforeEach(() => {
   vi.mocked(backupImport).mockReset().mockResolvedValue(null);
-  useUi.setState({ lang: 'fr', toasts: [] });
+  useUi.setState({ lang: 'fr', theme: 'dark', toasts: [] });
   useSession.setState({
     phase: 'setup',
     askName: true,
@@ -50,6 +50,14 @@ beforeEach(() => {
 });
 
 describe('Onboarding — import de sauvegarde', () => {
+  it('applies the active scene on first launch', () => {
+    useUi.setState({ theme: 'wisteria' });
+    const { container } = render(<Onboarding />);
+
+    expect(container.querySelector('.onboarding-shell > .theme-world')).not.toBeNull();
+    expect(container.querySelector('[data-scene="wisteria"]')).not.toBeNull();
+  });
+
   it('propose l’import dès le premier écran', () => {
     render(<Onboarding />);
 

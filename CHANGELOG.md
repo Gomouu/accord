@@ -2,6 +2,32 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [4.3.0] — 2026-07-21
+
+### Changed
+
+- **Themes everywhere.** The 24 built-in themes now reach every surface —
+  onboarding, navigation, chat, member list, settings and overlays — instead
+  of stopping at the main window. The theme picker shows a real preview of
+  each one, and honours reduced-motion.
+
+### Fixed
+
+- **Readable text on every theme.** All 24 themes were audited for WCAG AA
+  contrast and corrected where they fell short: body text, glass surfaces,
+  pills, focus rings and syntax highlighting now clear the 4.5:1 minimum
+  (measured lows: 4.53 / 4.88 / 4.74 / 5.57 / 5.30). An automated test
+  enforces it, so a future theme cannot silently regress.
+
+### Under the hood
+
+- Profile personalization consolidated: the decoration registry and its
+  stylesheets were merged and de-duplicated (personalization CSS 4,349 →
+  3,622 lines). All 63 cosmetic identifiers are preserved — and now locked
+  by test, so a saved decoration can never disappear under a refactor.
+- Decorations are lazy-loaded in 8 modules: main stylesheet −21.7 %
+  (237.8 → 186.3 kB) and main script −5.5 % (729.8 → 690.0 kB).
+
 ## [4.2.0] — 2026-07-21
 
 ### Added

@@ -94,6 +94,33 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
 ];
 
 /** Retrouve un onglet par identifiant (repli : onglet par défaut). */
+/** Casse + accents ignorés pour une recherche tolérante (« reglages » ⇒ « Réglages »). */
+function fold(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '');
+}
+
+/**
+ * Filtre les groupes/onglets par libellé selon `query` (casse et accents
+ * ignorés). Les groupes vidés disparaissent ; une requête vide rend tout.
+ */
+export function filterSettingsGroups(
+  groups: SettingsGroup[],
+  t: Dict,
+  query: string,
+): SettingsGroup[] {
+  const needle = fold(query.trim());
+  if (needle === '') return groups;
+  return groups
+    .map((group) => ({
+      ...group,
+      tabs: group.tabs.filter((tab) => fold(tab.label(t)).includes(needle)),
+    }))
+    .filter((group) => group.tabs.length > 0);
+}
+
 export function findTab(id: SettingsTabId): SettingsTab {
   for (const group of SETTINGS_GROUPS) {
     const tab = group.tabs.find((candidate) => candidate.id === id);

@@ -6,15 +6,24 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { interpolate } from '../../i18n';
 import { bouclerTab, deplacerFocusVertical } from '../../lib/focus';
 import { useUi, useT } from '../../stores/ui';
 import { CloseIcon } from '../ContextMenu';
-import { DEFAULT_TAB, findTab, SETTINGS_GROUPS, type SettingsTabId } from './tabs';
+import {
+  DEFAULT_TAB,
+  filterSettingsGroups,
+  findTab,
+  SETTINGS_GROUPS,
+  type SettingsTabId,
+} from './tabs';
 
 export function SettingsModal() {
   const t = useT();
   const closeModal = useUi((s) => s.closeModal);
   const [tabId, setTabId] = useState<SettingsTabId>(DEFAULT_TAB.id);
+  const [query, setQuery] = useState('');
+  const groups = filterSettingsGroups(SETTINGS_GROUPS, t, query);
   const navRef = useRef<HTMLElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -59,7 +68,15 @@ export function SettingsModal() {
           className="accord-settings-nav flex w-[30%] min-w-[180px] shrink-0 justify-end overflow-y-auto border-r border-rail/60 bg-sidebar pb-8 pl-3 pr-2 pt-12 max-sm:w-[132px] max-sm:min-w-[132px] max-sm:pl-2 max-sm:pt-14"
         >
           <div className="w-[212px] max-sm:w-full">
-            {SETTINGS_GROUPS.map((group, index) => (
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label={t.settings.searchPlaceholder}
+              placeholder={t.settings.searchPlaceholder}
+              className="mb-2 min-h-9 w-full rounded-md border border-transparent bg-input px-2.5 py-1.5 text-sm text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
+            />
+            {groups.map((group, index) => (
               <div key={group.id}>
                 {index > 0 && (
                   <div className="mx-2.5 my-2 h-px bg-input/60" role="separator" />
@@ -84,6 +101,11 @@ export function SettingsModal() {
                 ))}
               </div>
             ))}
+            {groups.length === 0 && (
+              <p className="px-2.5 py-6 text-center text-sm text-muted">
+                {interpolate(t.settings.searchNoResults, { query: query.trim() })}
+              </p>
+            )}
           </div>
         </nav>
 

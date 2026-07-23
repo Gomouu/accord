@@ -737,6 +737,8 @@ export const en: Dict = {
   settings: {
     title: 'Settings',
     escKey: 'ESC',
+    searchPlaceholder: 'Search settings',
+    searchNoResults: 'No settings match “{query}”',
     userSection: 'User settings',
     appSection: 'App settings',
     account: 'My account',

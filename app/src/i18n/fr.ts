@@ -746,6 +746,8 @@ export const fr = {
   settings: {
     title: 'Paramètres',
     escKey: 'Échap',
+    searchPlaceholder: 'Rechercher un réglage',
+    searchNoResults: 'Aucun réglage ne correspond à « {query} »',
     userSection: 'Paramètres utilisateur',
     appSection: 'Paramètres de l’application',
     account: 'Mon compte',

@@ -123,8 +123,9 @@ describe('SettingsModal — structure', () => {
   it('piège Tab dans la modale (bouclage au dernier focusable)', () => {
     render(<SettingsModal />);
 
-    // Maj+Tab depuis le premier focusable boucle vers le dernier.
-    const premier = screen.getByRole('button', { name: 'Mon compte' });
+    // Maj+Tab depuis le premier focusable (le champ de recherche) boucle vers
+    // le dernier.
+    const premier = screen.getByRole('searchbox', { name: 'Rechercher un réglage' });
     premier.focus();
     fireEvent.keyDown(screen.getByRole('dialog', { name: 'Paramètres' }), {
       key: 'Tab',
@@ -296,6 +297,26 @@ describe('SettingsModal — avancé', () => {
     expect(screen.getByText(self.friend_code)).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Copier mon code ami' }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe('SettingsModal — recherche', () => {
+  it('filtre les catégories par libellé (accents ignorés) et gère l’absence de résultat', () => {
+    render(<SettingsModal />);
+    const search = screen.getByRole('searchbox', { name: 'Rechercher un réglage' });
+
+    fireEvent.change(search, { target: { value: 'voix' } });
+    expect(screen.getByRole('button', { name: 'Voix' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Mon compte' })).not.toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: 'accessibilite' } });
+    expect(screen.getByRole('button', { name: 'Accessibilité' })).toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: 'zzzq' } });
+    expect(screen.queryByRole('button', { name: 'Voix' })).not.toBeInTheDocument();
+    expect(
+      screen.getByText('Aucun réglage ne correspond à « zzzq »'),
     ).toBeInTheDocument();
   });
 });

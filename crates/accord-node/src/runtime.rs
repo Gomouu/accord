@@ -1237,7 +1237,25 @@ impl Runtime {
     }
 
     async fn event_loop(self: Arc<Self>, mut events: mpsc::UnboundedReceiver<TransportEvent>) {
-        while let Some(event) = events.recv().await {
+        // Honore le signal d'arrêt (Lot G) : `events.recv()` ne rend jamais
+        // `None` — le sender vit dans le cycle d'`Arc` que cette tâche retient
+        // (tâche → Runtime → Endpoint → sender). Sans arrêt explicite, la tâche
+        // ne sort jamais et le runtime entier (avec son socket UDP) fuit à
+        // chaque verrouillage. Le `select` casse le cycle.
+        let mut stop = self.stop_signal();
+        loop {
+            let event = tokio::select! {
+                maybe = events.recv() => match maybe {
+                    Some(ev) => ev,
+                    None => break,
+                },
+                res = stop.changed() => {
+                    if res.is_err() || *stop.borrow() {
+                        break;
+                    }
+                    continue;
+                }
+            };
             match event {
                 TransportEvent::Connected {
                     addr, static_pub, ..
@@ -1406,7 +1424,22 @@ impl Runtime {
     }
 
     async fn outbound_loop(self: Arc<Self>, mut outbound: mpsc::Receiver<Outbound>) {
-        while let Some(action) = outbound.recv().await {
+        // Même cycle d'`Arc` que `event_loop` (Lot G) : honore l'arrêt pour que
+        // la tâche relâche son `Arc<Runtime>` au shutdown.
+        let mut stop = self.stop_signal();
+        loop {
+            let action = tokio::select! {
+                maybe = outbound.recv() => match maybe {
+                    Some(a) => a,
+                    None => break,
+                },
+                res = stop.changed() => {
+                    if res.is_err() || *stop.borrow() {
+                        break;
+                    }
+                    continue;
+                }
+            };
             match action {
                 Outbound::Core { to, msg } => self.deliver_core(&to, *msg).await,
                 Outbound::GroupOp { op } => {

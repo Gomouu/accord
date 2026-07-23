@@ -94,6 +94,26 @@ export function BookmarkMenuIcon({ filled = false }: { filled?: boolean }) {
   );
 }
 
+/** Clock icon of the "remind me" menu item (14 px). */
+export function ReminderMenuIcon() {
+  return (
+    <svg
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  );
+}
+
 /** Icône « retirer l'ami » du jeu de menu (14 px) — personne barrée d'un moins. */
 export function RemoveFriendMenuIcon() {
   return (
@@ -283,6 +303,28 @@ export function buildMessageItems(
           },
           Date.now(),
         ),
+    });
+  }
+  // Local reminder (F2): needs no permission, only the origin view for scope.
+  if (saveTarget !== undefined && !message.deleted) {
+    items.push({
+      label: t.planning.remindMe,
+      icon: <ReminderMenuIcon />,
+      onClick: () => {
+        if (saveTarget.kind === 'dm') {
+          useUi.getState().openReminder({
+            scope: 'dm',
+            scopeId: saveTarget.peer,
+            msgRef: message.msg_id,
+          });
+        } else if (saveTarget.kind === 'group') {
+          useUi.getState().openReminder({
+            scope: 'group',
+            scopeId: saveTarget.groupId,
+            msgRef: message.msg_id,
+          });
+        }
+      },
     });
   }
   if (actions !== undefined && !message.deleted) {

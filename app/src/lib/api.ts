@@ -660,6 +660,50 @@ export interface PrivacyReport {
   };
 }
 
+/** A locally scheduled message (F1), as returned by `schedule.list`. */
+export interface ScheduledMessageInfo {
+  id: string;
+  /** `'dm'` or `'group'`. */
+  scope: string;
+  /** Peer public key (DM) or group id (group), hex. */
+  scope_id: string;
+  /** Group channel id (hex), or null for a DM. */
+  channel_id: string | null;
+  /** Wall-clock firing time (ms). */
+  fire_at: number;
+  created_at: number;
+  /** Truncated body preview. */
+  preview: string;
+}
+
+/** A local reminder (F2), as returned by `reminders.list`. */
+export interface ReminderInfo {
+  id: string;
+  /** `'dm'` or `'group'`. */
+  scope: string;
+  /** Peer public key (DM) or group id (group), hex. */
+  scope_id: string;
+  /** Referenced message id (hex), or null. */
+  msg_ref: string | null;
+  note: string;
+  /** Wall-clock firing time (ms). */
+  fire_at: number;
+  /** True once the reminder has fired. */
+  fired: boolean;
+  created_at: number;
+}
+
+/** Scheduled-backup status (F3), as returned by `backup.status`. */
+export interface BackupStatus {
+  /** `'off'`, `'weekly'` or `'monthly'`. */
+  cadence: string;
+  /** Chosen destination folder, or null (reminder-only mode). */
+  dir: string | null;
+  last_backup_at: number | null;
+  next_due_at: number | null;
+  due: boolean;
+}
+
 /** Phase de l'appel 1-à-1 courant (`calls.status`, voir VOICE_CALLS.md §1.3). */
 export type CallState = 'idle' | 'outgoing_ringing' | 'incoming_ringing' | 'active';
 
@@ -697,6 +741,18 @@ export type AccordEvent =
   | { method: 'event.friend_request'; params: { peer: string } }
   | { method: 'event.friend_response'; params: { peer: string; accepted: boolean } }
   | { method: 'event.friend_verified'; params: { peer: string; verified: boolean } }
+  | {
+      method: 'event.reminder';
+      params: {
+        id: string;
+        scope: string;
+        scope_id: string;
+        msg_ref: string | null;
+        note: string;
+        fire_at: number;
+      };
+    }
+  | { method: 'event.backup_due'; params: { auto: boolean; dir: string | null } }
   | { method: 'event.group_op'; params: { group_id: string } }
   | { method: 'event.group_state'; params: { group_id: string } }
   | {
@@ -2254,5 +2310,90 @@ export class Api {
    */
   privacyReport(): Promise<PrivacyReport> {
     return this.rpc.call('privacy.report');
+  }
+
+  // ---- Scheduled messages (F1) ----
+
+  /** Schedules a DM for local delivery at `fireAt` (wall-clock ms). */
+  dmSchedule(pubkey: string, body: string, fireAt: number): Promise<{ id: string }> {
+    return this.rpc.call('dm.schedule', { pubkey, body, fire_at: fireAt });
+  }
+
+  /** Schedules a group-channel message for local delivery at `fireAt` (ms). */
+  groupsSchedule(
+    groupId: string,
+    channelId: string,
+    body: string,
+    fireAt: number,
+  ): Promise<{ id: string }> {
+    return this.rpc.call('groups.schedule', {
+      group_id: groupId,
+      channel_id: channelId,
+      body,
+      fire_at: fireAt,
+    });
+  }
+
+  /** Every scheduled message, soonest first. */
+  scheduleList(): Promise<{ scheduled: ScheduledMessageInfo[] }> {
+    return this.rpc.call('schedule.list');
+  }
+
+  scheduleCancel(id: string): Promise<{ ok: true }> {
+    return this.rpc.call('schedule.cancel', { id });
+  }
+
+  scheduleReschedule(id: string, fireAt: number): Promise<{ ok: true }> {
+    return this.rpc.call('schedule.reschedule', { id, fire_at: fireAt });
+  }
+
+  // ---- Reminders (F2) ----
+
+  /** Pins a local reminder on a message (or free-standing when `msgRef` null). */
+  remindersAdd(
+    scope: string,
+    scopeId: string,
+    note: string,
+    fireAt: number,
+    msgRef: string | null,
+  ): Promise<{ id: string }> {
+    return this.rpc.call('reminders.add', {
+      scope,
+      scope_id: scopeId,
+      note,
+      fire_at: fireAt,
+      msg_ref: msgRef,
+    });
+  }
+
+  /** Every reminder (pending and fired), soonest first. */
+  remindersList(): Promise<{ reminders: ReminderInfo[] }> {
+    return this.rpc.call('reminders.list');
+  }
+
+  remindersDismiss(id: string): Promise<{ ok: true }> {
+    return this.rpc.call('reminders.dismiss', { id });
+  }
+
+  // ---- Scheduled backup (F3) ----
+
+  /** Current backup schedule and computed due state. */
+  backupStatus(): Promise<BackupStatus> {
+    return this.rpc.call('backup.status');
+  }
+
+  /** Sets the backup cadence and optional destination folder. */
+  backupSchedule(cadence: string, dir: string | null): Promise<{ ok: true }> {
+    return this.rpc.call('backup.schedule', { cadence, dir });
+  }
+
+  /** Records that a backup just succeeded (advances `last_backup_at`). */
+  backupRecordDone(at?: number): Promise<{ ok: true }> {
+    return this.rpc.call('backup.record_done', at === undefined ? {} : { at });
+  }
+
+  /** Re-emits `event.backup_due` immediately (the UI runs the export path). */
+  backupRunNow(): Promise<{ ok: true }> {
+    return this.rpc.call('backup.run_now');
   }
 }

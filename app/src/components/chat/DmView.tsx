@@ -23,6 +23,7 @@ import { EphemeralPicker } from '../EphemeralPicker';
 import { MessageInput } from '../MessageInput';
 import { MessageList, type DisplayMessage } from '../MessageList';
 import { MessageListSkeleton } from '../Skeleton';
+import { ScheduleMessageDialog } from '../ScheduleMessageDialog';
 import { deliveryOf } from '../messageModel';
 import { TypingIndicator } from '../TypingIndicator';
 import {
@@ -71,6 +72,7 @@ export function DmView({ peer }: { peer: string }) {
   const [chargement, setChargement] = useState(true);
   /** Volet des messages épinglés (fermé par défaut). */
   const [pinsOpen, setPinsOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   /** Message auquel la prochaine saisie répondra (null : envoi simple). */
   const [replyTo, setReplyTo] = useState<DisplayMessage | null>(null);
   /**
@@ -219,6 +221,26 @@ export function DmView({ peer }: { peer: string }) {
         </button>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <EphemeralPicker scope={{ kind: 'dm', peer }} variant="header" />
+          <HeaderIconButton
+            label={t.planning.scheduleOpen}
+            active={scheduleOpen}
+            onClick={() => setScheduleOpen(true)}
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 7v5l3 2" />
+            </svg>
+          </HeaderIconButton>
           {isFriend && (
             <HeaderIconButton
               label={callOngoing ? t.calls.callAlreadyOngoing : t.calls.startCall}
@@ -288,6 +310,9 @@ export function DmView({ peer }: { peer: string }) {
           onClose={() => setPinsOpen(false)}
           nameOf={nameOf}
         />
+      )}
+      {scheduleOpen && (
+        <ScheduleMessageDialog peer={peer} onClose={() => setScheduleOpen(false)} />
       )}
       {peerOffline && hasPendingLocal && (
         <div className="px-4 pt-2">

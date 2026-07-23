@@ -42,6 +42,7 @@ import { ContextMenu } from './ContextMenu';
 import { ErrorBoundary } from './ErrorBoundary';
 import { FriendsView } from './FriendsView';
 import { FriendVerifyModal } from './FriendVerifyModal';
+import { ReminderDialog } from './ReminderDialog';
 import { IncomingCall } from './IncomingCall';
 import { Modals } from './Modals';
 import { ProfilePopover } from './ProfilePopover';
@@ -628,6 +629,7 @@ export function AppShell() {
       <Modals />
       <ProfilePopover />
       <FriendVerifyModal />
+      <ReminderDialog />
       <ContextMenu />
       <IncomingCall />
       <QuickSwitcher />

@@ -528,6 +528,8 @@ interface UiState {
   profile: CibleProfil | null;
   /** Identity-verification modal target (safety numbers, E1), or `null`. */
   verifyTarget: string | null;
+  /** Reminder-dialog target (F2): conversation scope + referenced message. */
+  reminderTarget: { scope: string; scopeId: string; msgRef: string } | null;
   /**
    * Mention à insérer dans le composeur actif (menu contextuel « Mentionner »
    * sur un message ou un membre) ; `nonce` rejoue l'insertion même pour un
@@ -629,6 +631,8 @@ interface UiState {
   /** Opens the identity-verification modal for a contact (safety numbers). */
   openVerify: (pubkey: string) => void;
   closeVerify: () => void;
+  openReminder: (target: { scope: string; scopeId: string; msgRef: string }) => void;
+  closeReminder: () => void;
   /** Demande l'insertion de `@name` dans le composeur actif (voir `mentionInsert`). */
   requestMentionInsert: (name: string) => void;
   /** Consomme la demande courante (traitée par `MessageInput`). */
@@ -721,6 +725,7 @@ export const useUi = create<UiState>((set, get) => {
     jump: null,
     profile: null,
     verifyTarget: null,
+    reminderTarget: null,
     mentionInsert: null,
     toasts: [],
     lang: initialLang(),
@@ -786,6 +791,8 @@ export const useUi = create<UiState>((set, get) => {
     closeProfile: () => set({ profile: null }),
     openVerify: (pubkey) => set({ verifyTarget: pubkey, profile: null }),
     closeVerify: () => set({ verifyTarget: null }),
+    openReminder: (target) => set({ reminderTarget: target }),
+    closeReminder: () => set({ reminderTarget: null }),
     requestMentionInsert: (name) =>
       set((s) => ({ mentionInsert: { name, nonce: (s.mentionInsert?.nonce ?? 0) + 1 } })),
     clearMentionInsert: () => set({ mentionInsert: null }),

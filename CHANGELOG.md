@@ -2,7 +2,16 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
-## [Unreleased]
+## [4.4.0] — 2026-07-21
+
+### Changed
+
+- **Redesigned server menu.** The server header dropdown is reorganized
+  Discord-style — grouped into Invite, management, preferences, Leave and Copy
+  ID sections, with permission-gated management actions. Create Channel and
+  Create Category now open focused dialogs instead of dropping you into Server
+  Settings, and Leave Server uses an in-app confirmation instead of a native
+  popup.
 
 ### Added
 

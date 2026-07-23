@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "accord-api"
-version = "4.3.0"
+version = "4.4.0"
 dependencies = [
  "futures-util",
  "rand 0.8.6",
@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "accord-app"
-version = "4.3.0"
+version = "4.4.0"
 dependencies = [
  "accord-macos",
  "accord-node",
@@ -42,7 +42,7 @@ dependencies = [
 
 [[package]]
 name = "accord-core"
-version = "4.3.0"
+version = "4.4.0"
 dependencies = [
  "accord-crypto",
  "accord-proto",
@@ -62,7 +62,7 @@ dependencies = [
 
 [[package]]
 name = "accord-crypto"
-version = "4.3.0"
+version = "4.4.0"
 dependencies = [
  "accord-proto",
  "argon2",
@@ -84,7 +84,7 @@ dependencies = [
 
 [[package]]
 name = "accord-dht"
-version = "4.3.0"
+version = "4.4.0"
 dependencies = [
  "accord-crypto",
  "accord-proto",
@@ -100,7 +100,7 @@ dependencies = [
 
 [[package]]
 name = "accord-macos"
-version = "4.3.0"
+version = "4.4.0"
 dependencies = [
  "block2",
  "objc2",
@@ -109,7 +109,7 @@ dependencies = [
 
 [[package]]
 name = "accord-node"
-version = "4.3.0"
+version = "4.4.0"
 dependencies = [
  "accord-api",
  "accord-core",
@@ -139,7 +139,7 @@ dependencies = [
 
 [[package]]
 name = "accord-proto"
-version = "4.3.0"
+version = "4.4.0"
 dependencies = [
  "criterion",
  "proptest",
@@ -149,7 +149,7 @@ dependencies = [
 
 [[package]]
 name = "accord-transport"
-version = "4.3.0"
+version = "4.4.0"
 dependencies = [
  "accord-crypto",
  "accord-proto",
@@ -164,7 +164,7 @@ dependencies = [
 
 [[package]]
 name = "accord-voice"
-version = "4.3.0"
+version = "4.4.0"
 dependencies = [
  "accord-proto",
  "cpal",

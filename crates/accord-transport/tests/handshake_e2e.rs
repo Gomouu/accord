@@ -513,13 +513,13 @@ async fn croisement_de_handshakes_ne_perd_aucune_direction() {
 }
 
 /// Un pair qui s'éteint BRUTALEMENT (UDP : aucun adieu) puis redémarre à une
-/// nouvelle adresse laisse chez son ami DEUX sessions directes pour la même
-/// identité jusqu'à l'expiration d'inactivité (2 min) : la morte et la
-/// fraîche. La résolution identité → session doit préférer la fraîche (dernier
-/// trafic ENTRANT le plus récent) — un choix arbitraire (ordre de HashMap,
-/// stable pour tout le processus) enverrait chaque annonce de profil dans la
-/// session cadavre, sans erreur ni relance avant la ré-annonce périodique
-/// (30 min) : le bug « bannière posée hors-ligne jamais rattrapée ».
+/// nouvelle adresse : à l'établissement de la session fraîche, l'ami ÉVINCE la
+/// session cadavre de la même identité (Lot G, cause 4). Il ne reste donc
+/// qu'UNE session directe par identité, et la résolution identité → session
+/// vise l'adresse vivante — sans l'éviction, un choix arbitraire (ordre de
+/// HashMap) enverrait chaque annonce de profil dans la session morte, sans
+/// erreur ni relance avant la ré-annonce périodique (« bannière posée
+/// hors-ligne jamais rattrapée »).
 #[tokio::test]
 async fn redemarrage_silencieux_prefere_la_session_fraiche() {
     let clock = ManualClock::new(1_000_000);
@@ -557,20 +557,31 @@ async fn redemarrage_silencieux_prefere_la_session_fraiche() {
     bob2.ep.send(alice.addr, &ping).await.unwrap();
     tokio::time::timeout(Duration::from_secs(2), async {
         loop {
-            if alice.ep.session_count() == 2 && bob2.ep.session_count() == 1 {
+            // Cause 4 : l'installation de la session fraîche évince le cadavre —
+            // une seule session directe subsiste chez Alice pour l'identité Bob.
+            if alice.ep.direct_session_addr(&bob_pub) == Some(bob2.addr)
+                && alice.ep.session_count() == 1
+                && bob2.ep.session_count() == 1
+            {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
     .await
-    .expect("session de la nouvelle incarnation établie");
+    .expect("session de la nouvelle incarnation établie, cadavre évincé");
 
-    // Les deux sessions coexistent : la résolution doit viser la VIVANTE.
+    // Le cadavre est évincé : la résolution vise la session vivante, seule
+    // restante (livraison déterministe).
     assert_eq!(
         alice.ep.direct_session_addr(&bob_pub),
         Some(bob2.addr),
-        "la résolution identité → session vise la session cadavre"
+        "la résolution identité → session doit viser la session fraîche"
+    );
+    assert_eq!(
+        alice.ep.session_count(),
+        1,
+        "la session cadavre n'a pas été évincée"
     );
 }
 

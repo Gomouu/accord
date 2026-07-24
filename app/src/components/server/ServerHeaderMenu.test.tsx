@@ -161,3 +161,31 @@ describe('ServerHeaderMenu', () => {
     expect(labels.at(-1)).toBe('Copier l’ID du serveur');
   });
 });
+
+describe('ServerHeaderMenu — marquer comme lu', () => {
+  it('n’affiche pas l’entrée quand rien n’est non lu', () => {
+    // Une action sans effet dans un menu use la confiance qu'on lui accorde.
+    renderMenu();
+    expect(
+      screen.queryByRole('menuitem', { name: 'Marquer comme lu' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('affiche l’entrée en tête dès qu’un salon a des non-lus', () => {
+    // Régression réelle : l'entrée existait dans l'ancien menu de la barre
+    // latérale et a disparu à la refonte du menu d'en-tête (4.5.0). Personne
+    // ne l'a vu parce que l'e2e qui la couvrait n'était pas dans le gate.
+    useGroups.setState({ unread: { g1: { general: 3 } } });
+    renderMenu();
+    const items = screen.getAllByRole('menuitem');
+    expect(items[0]).toHaveTextContent('Marquer comme lu');
+  });
+
+  it('affiche l’entrée quand seule une mention est non lue', () => {
+    useGroups.setState({ mentions: { g1: 1 } });
+    renderMenu();
+    expect(
+      screen.getByRole('menuitem', { name: 'Marquer comme lu' }),
+    ).toBeInTheDocument();
+  });
+});

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { copyToClipboard } from '../../lib/clipboard';
+import { marquerServeurLu } from '../../lib/markServerRead';
 import { useContextMenu, type ContextMenuItem } from '../../stores/contextMenu';
 import { hasPerm, PERMISSIONS, useGroups } from '../../stores/groups';
 import { serverLevel, useMute } from '../../stores/mute';
@@ -82,6 +83,8 @@ export function ServerHeaderMenu({
   const hideMutedChannels = useUi((state) => state.hideMutedChannels);
   const serverLevels = useMute((state) => state.serverLevels);
   const state = useGroups((groups) => groups.states[groupId]);
+  const unreadByChannel = useGroups((groups) => groups.unread[groupId]);
+  const mentionCount = useGroups((groups) => groups.mentions[groupId] ?? 0);
   const self = useSession((session) => session.self);
   const menuRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -131,6 +134,14 @@ export function ServerHeaderMenu({
     self !== null && state.founder === self.pubkey && state.members.length > 1;
   const items: ServerMenuItem[] = [];
 
+  /**
+   * « Marquer comme lu » n'apparaît que si le serveur a réellement des
+   * non-lus : proposer une action sans effet use la confiance dans le menu.
+   * Même règle que le menu contextuel du rail, qui partage cette boucle.
+   */
+  const serverHasUnread =
+    mentionCount > 0 || Object.values(unreadByChannel ?? {}).some((n) => n > 0);
+
   const addSection = (section: ServerMenuItem[]): void => {
     section.forEach((item, index) => {
       items.push({
@@ -139,6 +150,19 @@ export function ServerHeaderMenu({
       });
     });
   };
+
+  if (serverHasUnread) {
+    addSection([
+      {
+        id: 'mark-read',
+        label: t.contextMenu.markAsRead,
+        icon: <CheckMenuIcon />,
+        onClick: () => {
+          void marquerServeurLu(groupId);
+        },
+      },
+    ]);
+  }
 
   if (hasPerm(permissions, PERMISSIONS.INVITE)) {
     addSection([

@@ -401,7 +401,11 @@ describe('Sidebar — menu du nom de serveur', () => {
     });
   });
 
-  it('keeps quick actions ordered when the server has unread messages', () => {
+  it('met « Marquer comme lu » en tête quand le serveur a des non-lus', () => {
+    // Ce test affirmait l'inverse — que « Inviter des personnes » venait en
+    // premier même avec des non-lus. Il décrivait la régression de la refonte
+    // 4.5.0 au lieu de l'attraper. Réécrit, pas supprimé : l'ordre du menu
+    // reste quelque chose qu'on veut voir figé.
     useGroups.setState({
       ids: ['g1'],
       states: {
@@ -410,6 +414,25 @@ describe('Sidebar — menu du nom de serveur', () => {
         }),
       },
       unread: { g1: { c1: 3 } },
+    });
+
+    render(<Sidebar />);
+    fireEvent.click(screen.getByRole('button', { name: /Guilde/ }));
+
+    const items = screen.getAllByRole('menuitem');
+    expect(items[0]).toHaveAccessibleName('Marquer comme lu');
+    expect(items[1]).toHaveAccessibleName('Inviter des personnes');
+  });
+
+  it('n’affiche pas « Marquer comme lu » sans non-lus', () => {
+    useGroups.setState({
+      ids: ['g1'],
+      states: {
+        g1: groupState({
+          my_permissions: PERMISSIONS.VIEW | PERMISSIONS.SEND | PERMISSIONS.INVITE,
+        }),
+      },
+      unread: {},
     });
 
     render(<Sidebar />);

@@ -168,3 +168,15 @@ jobs:
       # Ce garde-fou rend la dérive visible au commit près.
       - name: Frontend initial-chunk budget
         run: node scripts/check-bundle-budget.mjs
+
+      # Les e2e d'interface vivaient hors du gate. Résultat : « Marquer comme
+      # lu » a disparu du menu serveur à la refonte 4.5.0 et la régression a
+      # été publiée, alors que le test qui la couvrait existait déjà et
+      # échouait dans son coin depuis des semaines.
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: ./app
+
+      - name: Frontend e2e (Playwright)
+        run: npx playwright test --reporter=line
+        working-directory: ./app

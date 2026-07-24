@@ -67,6 +67,12 @@ if [ -d app ] && [ -f app/package.json ]; then
 
   step "UI: budget du chunk initial"
   node scripts/check-bundle-budget.mjs
+
+  # Les e2e d'interface étaient hors du gate : « Marquer comme lu » a disparu
+  # du menu serveur à la refonte 4.5.0 et la régression a été publiée, alors
+  # que le test qui la couvrait existait déjà et échouait dans son coin.
+  step "UI: e2e Playwright (interface réelle)"
+  (cd app && npx playwright test --reporter=line)
 fi
 
 printf '\n\033[1;32mCI OK\033[0m\n'

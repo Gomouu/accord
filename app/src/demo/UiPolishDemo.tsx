@@ -440,6 +440,28 @@ function seedDemoStores(): void {
 
 seedDemoStores();
 
+/**
+ * Bascule d'aperçu de la grille vidéo. Elle pose directement l'état d'un appel
+ * actif avec deux émetteurs : sans backend, c'est le seul moyen de VOIR cette
+ * surface — et l'e2e a besoin de la voir, puisque c'est une mise en page qu'un
+ * test unitaire ne juge pas.
+ */
+function basculerApercuAppel(): void {
+  const actif = useCalls.getState().phase === 'active';
+  useCalls.setState(
+    actif
+      ? { phase: 'idle', peer: null, remoteVideo: {} }
+      : {
+          phase: 'active',
+          peer: 'noa',
+          remoteVideo: {
+            noa: { screen: false, camera: true },
+            mina: { screen: true, camera: true },
+          },
+        },
+  );
+}
+
 function DemoToolbar() {
   const t = useT();
   const theme = useUi((state) => state.theme);
@@ -493,6 +515,13 @@ function DemoToolbar() {
         className="min-h-8 rounded-full px-3 text-xs font-medium text-muted transition-colors duration-fast hover:bg-sidebar hover:text-header"
       >
         Réglages
+      </button>
+      <button
+        type="button"
+        onClick={basculerApercuAppel}
+        className="min-h-8 rounded-full px-3 text-xs font-medium text-muted transition-colors duration-fast hover:bg-sidebar hover:text-header"
+      >
+        Appel vidéo
       </button>
       <label className="ml-auto flex items-center gap-2 text-xs font-medium text-muted">
         Thème

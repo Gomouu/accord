@@ -6,6 +6,7 @@ import type { Contact } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
 import { buildFriendLink, parseFriendLink } from '../lib/friendLink';
 import { LinkQualityDot } from './LinkQuality';
+import { SecretText } from './SecretText';
 import { useContextMenu } from '../stores/contextMenu';
 import { presenceOf, useFriends } from '../stores/friends';
 import { useSession } from '../stores/session';
@@ -295,8 +296,8 @@ function AddFriend() {
               {t.friends.myCode}
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-3">
-              <div className="selectable min-w-0 flex-1 break-all font-mono text-lg text-header">
-                {self.friend_code}
+              <div className="min-w-0 flex-1 break-all font-mono text-lg text-header">
+                <SecretText value={self.friend_code} />
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <button

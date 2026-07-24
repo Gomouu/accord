@@ -187,6 +187,8 @@ const STORAGE_KEYS = {
   density: 'accord.density',
   fontScale: 'accord.fontScale',
   lang: 'accord.lang',
+  autoLockMinutes: 'accord.autoLockMinutes',
+  streamerMode: 'accord.streamerMode',
   pttEnabled: 'accord.pttEnabled',
   pttKey: 'accord.pttKey',
   notifyDms: 'accord.notifyDms',
@@ -302,6 +304,18 @@ function initialLang(): Lang {
 }
 
 /** Booléen persisté (`'true'`/`'false'`), avec repli en valeur par défaut. */
+/**
+ * Délais proposés, en minutes. `0` = désactivé. Liste fermée plutôt qu'un champ
+ * libre : un réglage de sécurité mal saisi (« 0,5 », « 600 ») vaut mieux
+ * impossible qu'accepté en silence.
+ */
+export const AUTO_LOCK_CHOICES: readonly number[] = [0, 1, 5, 15, 30, 60];
+
+function initialAutoLockMinutes(): number {
+  const stored = Number(readStored(STORAGE_KEYS.autoLockMinutes));
+  return AUTO_LOCK_CHOICES.includes(stored) ? stored : 0;
+}
+
 function initialBool(key: string, fallback: boolean): boolean {
   const stored = readStored(key);
   if (stored === 'true') return true;
@@ -560,6 +574,19 @@ interface UiState {
   density: Density;
   fontScale: FontScale;
   /** Appui-pour-parler : en vocal, micro coupé sauf pendant l'appui. */
+  /**
+   * Minutes d'inactivité avant reverrouillage automatique du coffre.
+   * 0 = désactivé (valeur par défaut : personne ne s'attend à être déconnecté
+   * sans l'avoir demandé).
+   */
+  autoLockMinutes: number;
+  /**
+   * Mode streamer : masque à l'écran ce qui ne doit pas passer en direct —
+   * code ami, et contenu des notifications natives. Ne change rien à ce qui
+   * est envoyé sur le réseau : c'est un réglage d'affichage, pas de
+   * confidentialité, et il est présenté comme tel.
+   */
+  streamerMode: boolean;
   pttEnabled: boolean;
   /** Touche d'appui-pour-parler (`KeyboardEvent.code`). */
   pttKey: string;
@@ -664,6 +691,8 @@ interface UiState {
   zoomIn: () => void;
   zoomOut: () => void;
   zoomReset: () => void;
+  setAutoLockMinutes: (minutes: number) => void;
+  setStreamerMode: (enabled: boolean) => void;
   setPttEnabled: (enabled: boolean) => void;
   setPttKey: (key: string) => void;
   setNotifyDms: (enabled: boolean) => void;
@@ -750,6 +779,8 @@ export const useUi = create<UiState>((set, get) => {
     customTheme,
     density,
     fontScale,
+    autoLockMinutes: initialAutoLockMinutes(),
+    streamerMode: initialBool(STORAGE_KEYS.streamerMode, false),
     pttEnabled: initialBool(STORAGE_KEYS.pttEnabled, false),
     pttKey: initialPttKey(),
     notifyDms: initialBool(STORAGE_KEYS.notifyDms, true),
@@ -871,6 +902,15 @@ export const useUi = create<UiState>((set, get) => {
     zoomIn: () => get().setFontScale(stepFontScale(get().fontScale, 1)),
     zoomOut: () => get().setFontScale(stepFontScale(get().fontScale, -1)),
     zoomReset: () => get().setFontScale(100),
+    setAutoLockMinutes: (minutes) => {
+      const borne = AUTO_LOCK_CHOICES.includes(minutes) ? minutes : 0;
+      writeStored(STORAGE_KEYS.autoLockMinutes, String(borne));
+      set({ autoLockMinutes: borne });
+    },
+    setStreamerMode: (enabled) => {
+      writeStored(STORAGE_KEYS.streamerMode, String(enabled));
+      set({ streamerMode: enabled });
+    },
     setPttEnabled: (enabled) => {
       writeStored(STORAGE_KEYS.pttEnabled, String(enabled));
       set({ pttEnabled: enabled });

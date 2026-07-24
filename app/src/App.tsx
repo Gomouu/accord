@@ -4,6 +4,7 @@
  */
 
 import { useEffect } from 'react';
+import { useAutoLock } from './hooks/useAutoLock';
 import { AppShell } from './components/AppShell';
 import { ThemeWorld } from './components/ThemeWorld';
 import { Toasts } from './components/Toasts';
@@ -88,6 +89,7 @@ export function App() {
   const askName = useSession((s) => s.askName);
   const init = useSession((s) => s.init);
   useUpdateChecks();
+  useAutoLock();
 
   useEffect(() => {
     void init();

@@ -1,5 +1,5 @@
 /**
- * Onglet Confidentialité : accusés de lecture (émission désactivable),
+ * Onglet Confidentialité : verrouillage automatique du coffre, accusés de lecture (émission désactivable),
  * indicateur de frappe (émission désactivable — réception intacte), statut
  * de présence forcé au démarrage, liste des utilisateurs bloqués (avec
  * déblocage) et rappel du fonctionnement anti-spam des demandes d'amis.
@@ -8,7 +8,8 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/client';
 import { useFriends } from '../../stores/friends';
-import { useUi, useT, type StartupPresence } from '../../stores/ui';
+import { interpolate } from '../../i18n';
+import { AUTO_LOCK_CHOICES, useUi, useT, type StartupPresence } from '../../stores/ui';
 import { Avatar } from '../Avatar';
 import { PrivacyDashboard } from '../PrivacyDashboard';
 import { OptionPill, SettingsSection, ToggleRow } from './controls';
@@ -21,6 +22,10 @@ export function PrivacyTab() {
   const unblock = useFriends((s) => s.unblock);
   const typingIndicatorEnabled = useUi((s) => s.typingIndicatorEnabled);
   const setTypingIndicatorEnabled = useUi((s) => s.setTypingIndicatorEnabled);
+  const streamerMode = useUi((s) => s.streamerMode);
+  const setStreamerMode = useUi((s) => s.setStreamerMode);
+  const autoLockMinutes = useUi((s) => s.autoLockMinutes);
+  const setAutoLockMinutes = useUi((s) => s.setAutoLockMinutes);
   const startupPresence = useUi((s) => s.startupPresence);
   const setStartupPresence = useUi((s) => s.setStartupPresence);
   /** Réglage nœud (`dm.get_read_receipts`) ; `null` tant qu'il n'est pas lu. */
@@ -61,8 +66,47 @@ export function PrivacyTab() {
 
   const blocked = contacts.filter((c) => c.state === 'blocked');
 
+  const autoLockLabel = (minutes: number): string => {
+    if (minutes === 0) return t.settings.autoLockOff;
+    if (minutes === 60) return t.settings.autoLockHour;
+    return interpolate(t.settings.autoLockMinutes, { n: String(minutes) });
+  };
+
   return (
     <div>
+      <SettingsSection title={t.settings.streamerTitle}>
+        <ToggleRow
+          label={t.settings.streamerLabel}
+          hint={t.settings.streamerHint}
+          checked={streamerMode}
+          onChange={setStreamerMode}
+        />
+      </SettingsSection>
+
+      <SettingsSection title={t.settings.autoLockTitle} hint={t.settings.autoLockHint}>
+        <div
+          role="group"
+          aria-label={t.settings.autoLockTitle}
+          className="flex flex-wrap gap-2"
+        >
+          {AUTO_LOCK_CHOICES.map((minutes) => (
+            <button
+              key={minutes}
+              type="button"
+              aria-pressed={autoLockMinutes === minutes}
+              onClick={() => setAutoLockMinutes(minutes)}
+              className={`min-h-9 rounded-full px-4 py-1.5 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple ${
+                autoLockMinutes === minutes
+                  ? 'bg-blurple text-white'
+                  : 'bg-input text-norm hover:bg-chat-hover'
+              }`}
+            >
+              {autoLockLabel(minutes)}
+            </button>
+          ))}
+        </div>
+      </SettingsSection>
+
       <SettingsSection title={t.settings.readReceiptsTitle}>
         <ToggleRow
           label={t.settings.readReceiptsLabel}

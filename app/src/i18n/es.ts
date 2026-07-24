@@ -1070,6 +1070,18 @@ export const es: Dict = {
       'Bloquea tu bóveda y vuelve a la pantalla de desbloqueo. No se elimina ningún dato.',
     logoutConfirmText: 'Hará falta tu frase de contraseña para volver a entrar.',
     logoutConfirm: 'Sí, cerrar sesión',
+    streamerTitle: 'Modo streamer',
+    streamerLabel: 'Ocultar la información sensible',
+    streamerHint:
+      'Oculta tu código de amistad en pantalla y quita el contenido de las notificaciones del sistema. Protege de una captura o de un directo, no del acceso a tu equipo.',
+    streamerReveal: 'Mostrar',
+    streamerHidden: 'Mensaje nuevo',
+    autoLockTitle: 'Bloqueo automático',
+    autoLockHint:
+      'Cierra la caja fuerte tras un tiempo sin actividad: se volverá a pedir tu frase de acceso. Una llamada en curso detiene la cuenta atrás.',
+    autoLockOff: 'Desactivado',
+    autoLockMinutes: '{n} min',
+    autoLockHour: '1 hora',
     privacyDashboardTitle: 'Panel de privacidad',
     privacyDashboardHint:
       '0 servidores centrales, 100 % local y cifrado: verificado en este dispositivo, no es un eslogan.',

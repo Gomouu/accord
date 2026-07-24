@@ -1072,6 +1072,18 @@ export const fr = {
       'Verrouille votre coffre et revient à l’écran de déverrouillage. Aucune donnée n’est supprimée.',
     logoutConfirmText: 'Votre phrase de passe sera nécessaire pour vous reconnecter.',
     logoutConfirm: 'Oui, me déconnecter',
+    streamerTitle: 'Mode streamer',
+    streamerLabel: 'Masquer les informations sensibles',
+    streamerHint:
+      'Masque ton code ami à l’écran et retire le contenu des notifications système. Protège d’une capture d’écran ou d’un direct — pas d’un accès à ta machine.',
+    streamerReveal: 'Afficher',
+    streamerHidden: 'Nouveau message',
+    autoLockTitle: 'Verrouillage automatique',
+    autoLockHint:
+      'Referme le coffre après un temps sans activité : la phrase de passe sera redemandée. Un appel en cours suspend le compte à rebours.',
+    autoLockOff: 'Désactivé',
+    autoLockMinutes: '{n} min',
+    autoLockHour: '1 heure',
     privacyDashboardTitle: 'Tableau de bord vie privée',
     privacyDashboardHint:
       '0 serveur central, 100 % local et chiffré — vérifié sur cet appareil, pas un slogan.',

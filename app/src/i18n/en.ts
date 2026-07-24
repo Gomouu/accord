@@ -1056,6 +1056,18 @@ export const en: Dict = {
     logoutHint: 'Locks your vault and returns to the unlock screen. No data is deleted.',
     logoutConfirmText: 'Your passphrase will be required to sign back in.',
     logoutConfirm: 'Yes, log me out',
+    streamerTitle: 'Streamer mode',
+    streamerLabel: 'Hide sensitive information',
+    streamerHint:
+      'Hides your friend code on screen and strips the content of system notifications. Protects against a screenshot or a live stream — not against access to your machine.',
+    streamerReveal: 'Show',
+    streamerHidden: 'New message',
+    autoLockTitle: 'Automatic lock',
+    autoLockHint:
+      'Closes the vault after a period without activity: your passphrase will be asked again. An ongoing call suspends the countdown.',
+    autoLockOff: 'Off',
+    autoLockMinutes: '{n} min',
+    autoLockHour: '1 hour',
     privacyDashboardTitle: 'Privacy dashboard',
     privacyDashboardHint:
       '0 central servers, 100% local and encrypted — verified on this device, not a slogan.',

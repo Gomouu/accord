@@ -6,6 +6,7 @@
  */
 
 import { isTauri } from './bridge';
+import { dictionary } from '../i18n';
 import { useUi } from '../stores/ui';
 
 export type NotifyKind = 'dm' | 'group';
@@ -155,12 +156,17 @@ export async function sendNativeNotification(
   title: string,
   body: string,
 ): Promise<boolean> {
-  if (!useUi.getState().notifyNative) return false;
+  const ui = useUi.getState();
+  if (!ui.notifyNative) return false;
   if (!isTauri()) return false;
   try {
     const plugin = await import('@tauri-apps/plugin-notification');
     if (!(await plugin.isPermissionGranted())) return false;
-    plugin.sendNotification({ title, body });
+    // Mode streamer : le titre (qui écrit) reste, le contenu du message part.
+    // Une bulle système apparaît par-dessus n'importe quelle fenêtre, y compris
+    // une capture en cours — c'est la fuite la plus probable de toutes.
+    const shown = ui.streamerMode ? dictionary(ui.lang).settings.streamerHidden : body;
+    plugin.sendNotification({ title, body: shown });
     return true;
   } catch {
     // Best effort : une notification manquée ne doit pas casser l'app.

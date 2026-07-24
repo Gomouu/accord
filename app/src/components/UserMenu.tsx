@@ -8,6 +8,7 @@ import { bouclerTab, focusables } from '../lib/focus';
 import { useFriends } from '../stores/friends';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT, type AncrePopover } from '../stores/ui';
+import { SecretText } from './SecretText';
 import { Avatar } from './Avatar';
 import { CheckMenuIcon, CloseIcon, CopyMenuIcon, LeaveMenuIcon } from './ContextMenu';
 import { PresenceDot } from './PresenceDot';
@@ -401,8 +402,8 @@ export function UserMenu({
                       )}
 
                       <div className="mt-1.5 flex items-center gap-1.5">
-                        <span className="selectable min-w-0 truncate font-mono text-xs text-faint">
-                          {self.friend_code}
+                        <span className="min-w-0 truncate font-mono text-xs text-faint">
+                          <SecretText value={self.friend_code} />
                         </span>
                         <button
                           type="button"

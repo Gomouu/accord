@@ -1381,6 +1381,14 @@ export const es: Dict = {
     reminderCustom: 'Hora personalizada',
     reminderAdd: 'Añadir recordatorio',
   },
+  callVideo: {
+    startCamera: 'Activar la cámara',
+    stopCamera: 'Apagar la cámara',
+    selfLabel: 'Tu cámara',
+    remoteCameraLabel: 'Cámara',
+    peerCamera: 'en video',
+    cameraUnsupported: 'Cámara no disponible en este dispositivo',
+  },
   screenShare: {
     start: 'Compartir pantalla',
     stop: 'Dejar de compartir',

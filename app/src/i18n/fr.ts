@@ -1387,4 +1387,12 @@ export const fr = {
     reminderCustom: 'Heure personnalisée',
     reminderAdd: 'Ajouter le rappel',
   },
+  screenShare: {
+    start: 'Partager l’écran',
+    stop: 'Arrêter le partage',
+    youSharing: 'Vous partagez votre écran',
+    peerSharing: 'partage son écran',
+    unsupported: 'Partage d’écran indisponible sur cet appareil',
+    viewerLabel: 'Écran partagé',
+  },
 } as const;

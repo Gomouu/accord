@@ -811,6 +811,11 @@ export type AccordEvent =
       params: { peer: string; call_id: string; reason: CallEndedReason };
     }
   | {
+      method: 'event.screen_frame';
+      params: { peer: string; keyframe: boolean; data: string };
+    }
+  | { method: 'event.screen_state'; params: { peer: string; sharing: boolean } }
+  | {
       method: 'event.profile';
       params: {
         pubkey: string;
@@ -2229,6 +2234,29 @@ export class Api {
   /** État de l'appel 1-à-1 courant, pour resynchronisation (connexion/reprise). */
   callsStatus(): Promise<CallStatus> {
     return this.rpc.call('calls.status');
+  }
+
+  /**
+   * Annonce au pair de l'appel actif le démarrage d'un partage d'écran (v5).
+   * Sans effet hors appel actif.
+   */
+  screenStart(): Promise<Record<string, never>> {
+    return this.rpc.call('screen.start');
+  }
+
+  /** Annonce l'arrêt du partage d'écran au pair de l'appel actif. */
+  screenStop(): Promise<Record<string, never>> {
+    return this.rpc.call('screen.stop');
+  }
+
+  /**
+   * Diffuse une trame vidéo de partage d'écran encodée au pair de l'appel
+   * actif : `dataHex` porte les octets encodés en hexadécimal, `keyframe`
+   * indique une image décodable indépendamment. L'attente de l'accusé sert
+   * de contre-pression naturelle sur la boucle de capture.
+   */
+  screenFrame(keyframe: boolean, dataHex: string): Promise<Record<string, never>> {
+    return this.rpc.call('screen.frame', { keyframe, data: dataHex });
   }
 
   /**

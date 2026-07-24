@@ -15,6 +15,7 @@
 
 import { create } from 'zustand';
 import { api } from '../lib/client';
+import { resetRemote, startLocalShare, stopLocalShare } from '../lib/screenController';
 import type { CallEndedReason, CallState } from '../lib/api';
 
 export type { CallEndedReason, CallState } from '../lib/api';
@@ -63,6 +64,21 @@ interface CallsState {
   markMissed: (peer: string) => void;
   /** Efface le badge d'appel manqué de `peer` (ouverture de la conversation). */
   clearMissed: (peer: string) => void;
+  /** Vrai si l'on partage son écran dans l'appel actif (v5). */
+  localSharing: boolean;
+  /** Vrai si le pair partage son écran. */
+  remoteSharing: boolean;
+  /**
+   * Démarre le partage de son écran (appel actif requis). Rejette si
+   * l'utilisateur refuse le partage ou si le runtime ne le supporte pas.
+   */
+  startScreenShare: () => Promise<void>;
+  /** Arrête le partage de son écran. */
+  stopScreenShare: () => Promise<void>;
+  /** Applique `event.screen_state` (le pair a démarré/arrêté son partage). */
+  applyScreenState: (params: { peer: string; sharing: boolean }) => void;
+  /** Marque le partage distant actif dès la première trame reçue (robustesse). */
+  noteRemoteFrame: () => void;
 }
 
 export const useCalls = create<CallsState>((set, get) => ({
@@ -71,6 +87,8 @@ export const useCalls = create<CallsState>((set, get) => ({
   callId: null,
   sincePhaseMs: null,
   missedPeers: new Set(),
+  localSharing: false,
+  remoteSharing: false,
 
   start: async (peer) => {
     const { call_id: callId } = await api.callsStart(peer);
@@ -96,24 +114,45 @@ export const useCalls = create<CallsState>((set, get) => ({
     const callId = get().callId;
     if (get().phase !== 'incoming_ringing' || callId === null) return;
     await api.callsDecline(callId);
-    set({ phase: 'idle', peer: null, callId: null, sincePhaseMs: null });
+    resetRemote();
+    set({
+      phase: 'idle',
+      peer: null,
+      callId: null,
+      sincePhaseMs: null,
+      localSharing: false,
+      remoteSharing: false,
+    });
   },
 
   hangup: async () => {
     if (get().phase === 'idle') return;
+    // Coupe un partage d'écran en cours avant de raccrocher.
+    if (get().localSharing) await stopLocalShare();
+    resetRemote();
     await api.callsHangup();
-    set({ phase: 'idle', peer: null, callId: null, sincePhaseMs: null });
+    set({
+      phase: 'idle',
+      peer: null,
+      callId: null,
+      sincePhaseMs: null,
+      localSharing: false,
+      remoteSharing: false,
+    });
   },
 
   sync: async () => {
     const status = await api.callsStatus();
+    const idle = status.state === 'idle';
+    if (idle) resetRemote();
     set({
       phase: status.state,
       peer: status.peer,
       callId: status.call_id,
       // Repère mural remis à zéro : `since_ms` (horloge du moteur) n'est pas
       // convertible en temps mural sans second point de repère (voir l'en-tête).
-      sincePhaseMs: status.state === 'idle' ? null : Date.now(),
+      sincePhaseMs: idle ? null : Date.now(),
+      ...(idle ? { localSharing: false, remoteSharing: false } : {}),
     });
   },
 
@@ -137,8 +176,39 @@ export const useCalls = create<CallsState>((set, get) => ({
 
   applyEnded: ({ call_id: callId }) => {
     if (get().callId !== callId) return false;
-    set({ phase: 'idle', peer: null, callId: null, sincePhaseMs: null });
+    // Fin d'appel : coupe tout partage d'écran (local et distant).
+    if (get().localSharing) void stopLocalShare();
+    resetRemote();
+    set({
+      phase: 'idle',
+      peer: null,
+      callId: null,
+      sincePhaseMs: null,
+      localSharing: false,
+      remoteSharing: false,
+    });
     return true;
+  },
+
+  startScreenShare: async () => {
+    if (get().phase !== 'active' || get().localSharing) return;
+    await startLocalShare(() => set({ localSharing: false }));
+    set({ localSharing: true });
+  },
+
+  stopScreenShare: async () => {
+    if (!get().localSharing) return;
+    await stopLocalShare();
+    set({ localSharing: false });
+  },
+
+  applyScreenState: ({ sharing }) => {
+    if (!sharing) resetRemote();
+    set({ remoteSharing: sharing });
+  },
+
+  noteRemoteFrame: () => {
+    if (!get().remoteSharing) set({ remoteSharing: true });
   },
 
   markMissed: (peer) =>

@@ -173,9 +173,49 @@ pub enum VoiceMsg {
         /// RTT estimé en millisecondes.
         rtt_ms: u16,
     },
+    /// Fragment d'une trame vidéo de partage d'écran (v5). La trame encodée
+    /// (WebCodecs, VP8/H.264) est découpée par l'émetteur en tranches
+    /// ≤ [`MAX_SCREEN_FRAGMENT`], chacune portée par un `ScreenFrame` dans un
+    /// unique datagramme UDP (jamais refragmenté par le transport). Le
+    /// récepteur réassemble par `frame_id` et ne garde QUE la trame la plus
+    /// récente — sémantique temps réel : une trame incomplète est abandonnée
+    /// dès qu'une plus récente arrive. Voie best-effort : un fragment perdu
+    /// jette la trame et l'on attend la keyframe suivante.
+    ScreenFrame {
+        /// Salon (== `call_id` de l'appel 1-à-1).
+        room: [u8; 16],
+        /// Identifiant de trame, croissant chez l'émetteur (clé de réassemblage).
+        frame_id: u32,
+        /// Nombre total de fragments de cette trame (≥ 1).
+        frag_count: u16,
+        /// Position 0-based de ce fragment (`< frag_count`).
+        frag_idx: u16,
+        /// Drapeaux : bit 0 = keyframe (image décodable indépendamment).
+        flags: u8,
+        /// Tranche encodée (≤ [`MAX_SCREEN_FRAGMENT`]).
+        payload: Vec<u8>,
+    },
+    /// Démarrage (`on == true`) ou arrêt (`on == false`) d'un partage d'écran
+    /// dans l'appel `room`. Éphémère (canal VOICE, best-effort) ; l'arrêt est
+    /// aussi déduit d'une absence prolongée de `ScreenFrame`.
+    ScreenControl {
+        /// Salon (== `call_id`).
+        room: [u8; 16],
+        /// Vrai = partage démarré, faux = arrêté.
+        on: bool,
+    },
 }
 
 const MAX_OPUS_FRAME: usize = 1024;
+
+/// Drapeau `ScreenFrame::flags` : la tranche appartient à une keyframe.
+pub const SCREEN_FLAG_KEYFRAME: u8 = 0x01;
+
+/// Taille maximale d'une tranche portée par un [`VoiceMsg::ScreenFrame`] :
+/// bornée pour tenir, une fois scellée, dans un unique datagramme UDP
+/// (`UDP_MTU`) — le fragmenteur écran (accord-node) ne dépasse jamais cette
+/// taille, la borne au décodage n'est qu'un garde-fou anti-DoS.
+const MAX_SCREEN_FRAGMENT: usize = 1200;
 
 impl WireEncode for VoiceMsg {
     fn encode(&self, w: &mut Writer) {
@@ -199,6 +239,27 @@ impl WireEncode for VoiceMsg {
                 w.put_u8(*loss_pct);
                 w.put_u16(*rtt_ms);
             }
+            VoiceMsg::ScreenFrame {
+                room,
+                frame_id,
+                frag_count,
+                frag_idx,
+                flags,
+                payload,
+            } => {
+                w.put_u8(0x03);
+                w.put_arr(room);
+                w.put_u32(*frame_id);
+                w.put_u16(*frag_count);
+                w.put_u16(*frag_idx);
+                w.put_u8(*flags);
+                w.put_vbytes(payload);
+            }
+            VoiceMsg::ScreenControl { room, on } => {
+                w.put_u8(0x04);
+                w.put_arr(room);
+                w.put_u8(u8::from(*on));
+            }
         }
     }
 }
@@ -216,6 +277,18 @@ impl WireDecode for VoiceMsg {
             0x02 => Ok(VoiceMsg::VoicePing {
                 loss_pct: r.u8()?,
                 rtt_ms: r.u16()?,
+            }),
+            0x03 => Ok(VoiceMsg::ScreenFrame {
+                room: r.arr()?,
+                frame_id: r.u32()?,
+                frag_count: r.u16()?,
+                frag_idx: r.u16()?,
+                flags: r.u8()?,
+                payload: r.vbytes(MAX_SCREEN_FRAGMENT, "voice.screen_payload")?,
+            }),
+            0x04 => Ok(VoiceMsg::ScreenControl {
+                room: r.arr()?,
+                on: r.u8()? != 0,
             }),
             _ => Err(DecodeError::InvalidValue("voice kind")),
         }
@@ -357,5 +430,78 @@ impl WireDecode for ChannelMsg {
             0x05 => Ok(ChannelMsg::Relay(RelayMsg::decode(r)?)),
             _ => Err(DecodeError::InvalidValue("channel")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn voice_roundtrip(msg: &VoiceMsg) -> VoiceMsg {
+        let mut w = Writer::new();
+        msg.encode(&mut w);
+        let bytes = w.into_bytes();
+        let mut r = Reader::new(&bytes);
+        let out = VoiceMsg::decode(&mut r).expect("decode");
+        r.finish().expect("no trailing bytes");
+        out
+    }
+
+    #[test]
+    fn screen_frame_roundtrips() {
+        let msg = VoiceMsg::ScreenFrame {
+            room: [0x5A; 16],
+            frame_id: 0xDEAD_BEEF,
+            frag_count: 7,
+            frag_idx: 3,
+            flags: SCREEN_FLAG_KEYFRAME,
+            payload: vec![1, 2, 3, 4, 5],
+        };
+        assert_eq!(voice_roundtrip(&msg), msg);
+    }
+
+    #[test]
+    fn screen_frame_travels_inside_channel_msg() {
+        let inner = VoiceMsg::ScreenFrame {
+            room: [9; 16],
+            frame_id: 42,
+            frag_count: 1,
+            frag_idx: 0,
+            flags: 0,
+            payload: vec![0xAB; 900],
+        };
+        let mut w = Writer::new();
+        ChannelMsg::Voice(inner.clone()).encode(&mut w);
+        let bytes = w.into_bytes();
+        let mut r = Reader::new(&bytes);
+        assert_eq!(
+            ChannelMsg::decode(&mut r).expect("decode"),
+            ChannelMsg::Voice(inner)
+        );
+    }
+
+    #[test]
+    fn screen_control_roundtrips_both_states() {
+        for on in [true, false] {
+            let msg = VoiceMsg::ScreenControl { room: [1; 16], on };
+            assert_eq!(voice_roundtrip(&msg), msg);
+        }
+    }
+
+    #[test]
+    fn oversized_screen_fragment_is_rejected_cleanly() {
+        // A fragment payload beyond the anti-DoS bound fails to decode without
+        // panicking.
+        let mut w = Writer::new();
+        w.put_u8(0x03);
+        w.put_arr(&[0u8; 16]);
+        w.put_u32(1);
+        w.put_u16(1);
+        w.put_u16(0);
+        w.put_u8(0);
+        w.put_vbytes(&vec![0u8; 2000]);
+        let bytes = w.into_bytes();
+        let mut r = Reader::new(&bytes);
+        assert!(VoiceMsg::decode(&mut r).is_err());
     }
 }

@@ -1362,4 +1362,12 @@ export const en: Dict = {
     reminderCustom: 'Custom time',
     reminderAdd: 'Add reminder',
   },
+  screenShare: {
+    start: 'Share screen',
+    stop: 'Stop sharing',
+    youSharing: 'You are sharing your screen',
+    peerSharing: 'is sharing their screen',
+    unsupported: 'Screen sharing is unavailable on this device',
+    viewerLabel: 'Shared screen',
+  },
 };

@@ -10,6 +10,7 @@
 pub(crate) mod calls;
 mod engine;
 mod roster;
+mod screen;
 
 #[cfg(feature = "hardware")]
 mod hw;
@@ -304,6 +305,19 @@ pub(crate) enum Cmd {
         /// 960 échantillons mono 48 kHz.
         pcm: Vec<i16>,
     },
+    /// Diffuse une trame vidéo de partage d'écran encodée (UI → pair d'appel).
+    ScreenSend {
+        /// Vrai si la trame est une keyframe (décodable indépendamment).
+        keyframe: bool,
+        /// Trame vidéo encodée (WebCodecs), fragmentée par le moteur.
+        encoded: Vec<u8>,
+    },
+    /// Annonce le démarrage (`on == true`) ou l'arrêt du partage d'écran au
+    /// pair de l'appel actif.
+    ScreenAnnounce {
+        /// Vrai = partage démarré, faux = arrêté.
+        on: bool,
+    },
     /// Arrêt du moteur (quitte proprement le salon actif).
     Stop,
 }
@@ -578,6 +592,19 @@ impl VoiceHandle {
     /// d'entrée du routeur réseau).
     pub fn peer_frame(&self, from: [u8; 32], msg: VoiceMsg) {
         let _ = self.tx.send(Cmd::PeerFrame { from, msg });
+    }
+
+    /// Diffuse une trame vidéo de partage d'écran encodée au pair de l'appel
+    /// actif (fragmentée sur le canal VOICE). Sans effet hors appel.
+    /// Fire-and-forget (haute fréquence), comme [`Self::inject_pcm`].
+    pub fn screen_send(&self, keyframe: bool, encoded: Vec<u8>) {
+        let _ = self.tx.send(Cmd::ScreenSend { keyframe, encoded });
+    }
+
+    /// Annonce au pair de l'appel actif le démarrage (`on == true`) ou l'arrêt
+    /// d'un partage d'écran. Sans effet hors appel.
+    pub fn screen_announce(&self, on: bool) {
+        let _ = self.tx.send(Cmd::ScreenAnnounce { on });
     }
 
     /// Arrête le moteur voix (idempotent).

@@ -84,7 +84,10 @@ impl Service for NodeService {
         if method == "friends.resolve" {
             return self.resolve_code(&params).await.map_err(node_error_to_rpc);
         }
-        if method.starts_with("voice.") || method.starts_with("calls.") {
+        if method.starts_with("voice.")
+            || method.starts_with("calls.")
+            || method.starts_with("screen.")
+        {
             return self
                 .call_voice(method, &params)
                 .await

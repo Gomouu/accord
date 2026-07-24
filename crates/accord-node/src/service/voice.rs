@@ -11,6 +11,21 @@ use crate::voice::{VoiceParticipant, VoiceRoomPresence, VoiceStatus};
 use super::helpers::{param_device, param_id16, param_pubkey};
 use super::NodeService;
 
+/// Décode une chaîne hexadécimale de longueur variable (trame de partage
+/// d'écran), bornée pour éviter une allocation démesurée depuis l'API locale —
+/// une trame vidéo encodée reste très en dessous de la borne.
+fn decode_hex_bounded(s: &str) -> Option<Vec<u8>> {
+    /// Longueur hexadécimale maximale acceptée (1 MiB décodé).
+    const MAX_HEX_LEN: usize = 2 * 1024 * 1024;
+    if s.len() > MAX_HEX_LEN || s.len() % 2 != 0 {
+        return None;
+    }
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(s.get(i..i + 2)?, 16).ok())
+        .collect()
+}
+
 impl NodeService {
     /// Méthodes `voice.*` et `calls.*` (moteur voix requis).
     pub(super) async fn call_voice(
@@ -162,6 +177,29 @@ impl NodeService {
                     .and_then(Value::as_bool)
                     .ok_or(NodeError::Invalid("enabled booléen requis"))?;
                 voice.mic_test(enabled).await?;
+                Ok(json!({}))
+            }
+            "screen.start" => {
+                voice.screen_announce(true);
+                Ok(json!({}))
+            }
+            "screen.stop" => {
+                voice.screen_announce(false);
+                Ok(json!({}))
+            }
+            "screen.frame" => {
+                let keyframe = params
+                    .get("keyframe")
+                    .and_then(Value::as_bool)
+                    .ok_or(NodeError::Invalid("keyframe booléen requis"))?;
+                let data = params
+                    .get("data")
+                    .and_then(Value::as_str)
+                    .ok_or(NodeError::Invalid("data hexadécimal requis"))?;
+                let encoded = decode_hex_bounded(data).ok_or(NodeError::Invalid(
+                    "data hexadécimal invalide ou trop grand",
+                ))?;
+                voice.screen_send(keyframe, encoded);
                 Ok(json!({}))
             }
             _ => Err(NodeError::Invalid("méthode inconnue")),

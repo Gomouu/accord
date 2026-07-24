@@ -3075,6 +3075,35 @@ async fn voice_methods_require_the_subsystem() {
 }
 
 #[tokio::test]
+async fn screen_share_methods_route_and_validate() {
+    let (s, _, _, _) = service_with_voice();
+    // Annonces de début/fin : acceptées (no-op hors appel actif).
+    assert_eq!(s.call("screen.start", json!({})).await.unwrap(), json!({}));
+    assert_eq!(s.call("screen.stop", json!({})).await.unwrap(), json!({}));
+    // Trame valide (octets encodés en hexadécimal).
+    assert_eq!(
+        s.call("screen.frame", json!({"keyframe": true, "data": "00ff10"}))
+            .await
+            .unwrap(),
+        json!({})
+    );
+    // `keyframe` manquant → erreur de paramètre.
+    assert!(s.call("screen.frame", json!({"data": "00"})).await.is_err());
+    // Hexadécimal impair → erreur.
+    assert!(s
+        .call("screen.frame", json!({"keyframe": false, "data": "0"}))
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn screen_methods_require_the_subsystem() {
+    let s = service();
+    let err = s.call("screen.start", json!({})).await.unwrap_err();
+    assert!(err.message.contains("voix"));
+}
+
+#[tokio::test]
 async fn voice_join_status_mute_leave_exact_shapes() {
     let (s, _, gid, me) = service_with_voice();
 

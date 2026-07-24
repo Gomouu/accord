@@ -2,7 +2,24 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
-## [Unreleased]
+## [4.5.0] — 2026-07-24
+
+### Added
+
+- **Command palette.** The quick switcher (Ctrl/⌘-K) is now a full command
+  palette. Alongside fuzzy jump-to for channels, direct messages and servers,
+  it runs actions: go to the next unread, mark a server or everything as read,
+  message a friend, create a channel, category or event, open server settings
+  or invites, copy a server ID, leave a server, set your status or a custom
+  status, switch theme, toggle mute/deafen and hidden muted channels, and jump
+  straight to a specific settings tab. Results are grouped into sections,
+  destructive actions are flagged, and the whole palette is keyboard-driven
+  with a focus trap, reduced-motion support and screen-reader announcements.
+  Management actions appear only when your permissions allow them.
+- **Searchable settings.** A search box at the top of Settings filters the
+  category list as you type — accent- and case-insensitive — with a clear
+  empty state when nothing matches, handy now that Settings spans thirteen
+  tabs.
 
 ### Fixed
 
@@ -16,6 +33,8 @@ All notable changes to Accord. This project follows [semantic versioning](https:
   own, and a stale session from the friend's previous run is dropped as soon
   as the fresh one is established. Locking and unlocking also frees the network
   port cleanly instead of leaking it.
+
+## [4.4.1] — 2026-07-23
 
 ### Fixed
 

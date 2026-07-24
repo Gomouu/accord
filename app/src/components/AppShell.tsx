@@ -1,7 +1,7 @@
 /** Coquille principale trois colonnes : rail, barre latérale, contenu. */
 
-import { useCallback, useEffect, useRef } from 'react';
-import { dictionaries, interpolate } from '../i18n';
+import { Suspense, lazy, useCallback, useEffect, useRef } from 'react';
+import { dictionary, interpolate } from '../i18n';
 import type { AccordEvent, CallEndedReason } from '../lib/api';
 import { callEndedToast } from '../lib/callToast';
 import { setAppBadge } from '../lib/bridge';
@@ -48,7 +48,6 @@ import { IncomingCall } from './IncomingCall';
 import { Modals } from './Modals';
 import { CallVideo } from './CallVideo';
 import { ProfilePopover } from './ProfilePopover';
-import { QuickSwitcher } from './QuickSwitcher';
 import { ResizeHandle } from './ResizeHandle';
 import { ServerRail } from './ServerRail';
 import { Sidebar } from './Sidebar';
@@ -84,7 +83,7 @@ function notifyNewMessage(
     muted: isConversationSilenced(ref, mentionsMe),
   });
   if (!eligible) return;
-  const dict = dictionaries[ui.lang];
+  const dict = dictionary(ui.lang);
   const name = displayNameOf(useFriends.getState().contacts, author);
   void sendNativeNotification(
     dict.app.name,
@@ -163,7 +162,7 @@ function maybePlayInviteSound(): void {
  */
 function notifyEventStarted(title: string): void {
   const ui = useUi.getState();
-  const dict = dictionaries[ui.lang];
+  const dict = dictionary(ui.lang);
   const toast = eventStartedToast(dict, title);
   ui.toast(toast.kind, toast.text);
   if (dndActif()) return;
@@ -186,7 +185,7 @@ function handleCallEnded(params: {
   const applied = useCalls.getState().applyEnded(params);
   if (!applied) return;
   if (params.reason === 'missed') useCalls.getState().markMissed(params.peer);
-  const dict = dictionaries[useUi.getState().lang];
+  const dict = dictionary(useUi.getState().lang);
   const name = displayNameOf(useFriends.getState().contacts, params.peer);
   const toast = callEndedToast(dict, params.reason, name);
   if (toast !== null) useUi.getState().toast(toast.kind, toast.text);
@@ -552,6 +551,11 @@ function useUnreadBadge(): void {
   }, [contacts, mentions]);
 }
 
+// Palette de commandes : ouverte au clavier, jamais au démarrage.
+const QuickSwitcher = lazy(async () => ({
+  default: (await import('./QuickSwitcher')).QuickSwitcher,
+}));
+
 export function AppShell() {
   const t = useT();
   const view = useUi((s) => s.view);
@@ -650,7 +654,9 @@ export function AppShell() {
       <ContextMenu />
       <IncomingCall />
       <CallVideo />
-      <QuickSwitcher />
+      <Suspense fallback={null}>
+        <QuickSwitcher />
+      </Suspense>
     </div>
   );
 }

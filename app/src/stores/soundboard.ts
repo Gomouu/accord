@@ -19,7 +19,7 @@
  * `../lib/client` sans `rpc.onEvent` ou `./voice` sans `subscribe`).
  */
 
-import { dictionaries } from '../i18n';
+import { dictionary } from '../i18n';
 import { playClip } from '../lib/audio';
 import { rpc } from '../lib/client';
 import { lireFichier } from '../lib/files';
@@ -41,7 +41,7 @@ export async function playSound(merkleRoot: string, hint?: string): Promise<bool
     return true;
   } catch {
     const ui = useUi.getState();
-    ui.toast('error', dictionaries[ui.lang].soundboard.playbackFailed);
+    ui.toast('error', dictionary(ui.lang).soundboard.playbackFailed);
     return false;
   }
 }

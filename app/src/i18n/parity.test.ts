@@ -8,7 +8,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { dictionaries, type Lang } from './index';
+import { type Lang } from './index';
+import { dictionaries } from './all';
 import { fr } from './fr';
 
 type Leaf = string;

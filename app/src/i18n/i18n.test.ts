@@ -1,7 +1,8 @@
 /** Tests i18n : interpolation et parité des clés fr/en/es. */
 
 import { describe, expect, it } from 'vitest';
-import { dictionaries, interpolate } from './index';
+import { interpolate } from './index';
+import { dictionaries } from './all';
 import { fr } from './fr';
 import { en } from './en';
 import { es } from './es';

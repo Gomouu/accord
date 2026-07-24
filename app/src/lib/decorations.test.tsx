@@ -9,6 +9,9 @@ import {
   effectById,
   frameById,
 } from './decorations';
+import { decorationLabel, type Lang } from '../i18n';
+import { dictionaries } from '../i18n/all';
+import { fr } from '../i18n/fr';
 
 describe('personalization registry', () => {
   it('preserves every persisted ID and rejects duplicates', () => {
@@ -95,19 +98,31 @@ describe('personalization registry', () => {
   });
 
   it('resolves known choices and ignores unknown identifiers', () => {
-    expect(decorationById('moon_moths')?.label.fr).toBe('Papillons lunaires');
-    expect(effectById('cosmic_portal')?.label.en).toBe('Cosmic Portal');
-    expect(frameById('lumen_bloom')?.label.fr).toBe('Jardin de lumière');
-    expect(decorationById('phoenix_plume')?.label.fr).toBe('Phénix');
-    expect(effectById('code_rain')?.label.en).toBe('Code Rain');
-    expect(frameById('wild_ivy')?.label.fr).toBe('Lierre sauvage');
-    expect(decorationById('camellia_wreath')?.label.fr).toBe('Camélias');
-    expect(effectById('manga_panels')?.label.en).toBe('Manga Page');
-    expect(frameById('shojo_lace')?.label.fr).toBe('Dentelle shōjo');
+    expect(decorationById('moon_moths')?.category).toBe('avatar');
+    expect(effectById('cosmic_portal')?.category).toBe('effect');
+    expect(frameById('lumen_bloom')?.category).toBe('frame');
     expect(effectById('lumen_bloom')).toBeUndefined();
     expect(decorationById('<style>')).toBeUndefined();
     expect(effectById('missing')).toBeUndefined();
     expect(frameById('missing')).toBeUndefined();
+  });
+
+  it('has a translated label for every registry item, in every language', () => {
+    // Les libellés vivent dans les dictionnaires : une décoration ajoutée sans
+    // sa traduction s'afficherait sous son identifiant technique.
+    for (const lang of Object.keys(dictionaries) as Lang[]) {
+      const dict = dictionaries[lang];
+      const manquants = DECORATION_REGISTRY.map((item) => item.id).filter(
+        (id) => decorationLabel(dict, id) === id,
+      );
+      expect(manquants, `libellés manquants en ${lang}`).toEqual([]);
+    }
+  });
+
+  it('has no label left over for a decoration that no longer exists', () => {
+    const connus = new Set(DECORATION_REGISTRY.map((item) => item.id));
+    const orphelins = Object.keys(fr.decorations.labels).filter((id) => !connus.has(id));
+    expect(orphelins).toEqual([]);
   });
 
   it('maps every registry item to exactly one lazy renderer', async () => {

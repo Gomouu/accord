@@ -7,7 +7,13 @@
  */
 
 import { create } from 'zustand';
-import { type Lang } from '../i18n';
+import {
+  dictionary,
+  dictionaryLoaded,
+  loadDictionary,
+  type Dict,
+  type Lang,
+} from '../i18n';
 import { type OwnPresenceStatus } from '../lib/api';
 import { type QuietHours } from '../lib/notifications';
 import { registerCloseInterception, traySetEnabled } from '../lib/bridge';
@@ -541,6 +547,13 @@ interface UiState {
   mentionInsert: { name: string; nonce: number } | null;
   toasts: Toast[];
   lang: Lang;
+  /**
+   * Nombre de dictionnaires résolus depuis le démarrage. Les langues autres
+   * que le français arrivent de façon asynchrone : ce compteur donne à `useT`
+   * de quoi se re-rendre à l'instant exact où la traduction est prête, sans
+   * dupliquer le dictionnaire dans le store.
+   */
+  dictReady: number;
   theme: Theme;
   /** Couleurs du thème personnalisé (actif quand `theme === 'custom'`). */
   customTheme: CouleursPerso;
@@ -732,6 +745,7 @@ export const useUi = create<UiState>((set, get) => {
     mentionInsert: null,
     toasts: [],
     lang: initialLang(),
+    dictReady: 0,
     theme,
     customTheme,
     density,
@@ -822,7 +836,17 @@ export const useUi = create<UiState>((set, get) => {
 
     setLang: (lang) => {
       writeStored(STORAGE_KEYS.lang, lang);
-      set({ lang });
+      // La langue bascule dès que son dictionnaire est là. Il est presque
+      // toujours déjà en cache (l'écran de langue précharge au survol) ; sinon
+      // l'interface reste dans la langue précédente le temps du chargement,
+      // plutôt que de clignoter en français.
+      if (dictionaryLoaded(lang)) {
+        set({ lang });
+        return;
+      }
+      void loadDictionary(lang).then(() => {
+        set((s) => ({ lang, dictReady: s.dictReady + 1 }));
+      });
     },
     setTheme: (nextTheme) => {
       applyTheme(nextTheme, get().customTheme);
@@ -978,9 +1002,10 @@ export const useUi = create<UiState>((set, get) => {
 });
 
 /** Dictionnaire actif (hook de commodité). */
-import { dictionaries, type Dict } from '../i18n';
-
 export function useT(): Dict {
   const lang = useUi((s) => s.lang);
-  return dictionaries[lang];
+  // Abonnement au compteur : sans lui, un composant déjà monté resterait sur
+  // le repli français lorsqu'un dictionnaire finit de charger.
+  useUi((s) => s.dictReady);
+  return dictionary(lang);
 }

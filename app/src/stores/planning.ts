@@ -7,7 +7,7 @@
 import { create } from 'zustand';
 import type { BackupStatus, ReminderInfo, ScheduledMessageInfo } from '../lib/api';
 import { api, rpc } from '../lib/client';
-import { dictionaries } from '../i18n';
+import { dictionary } from '../i18n';
 import { sendNativeNotification } from '../lib/notifications';
 import { useUi } from './ui';
 
@@ -45,7 +45,7 @@ export const usePlanning = create<PlanningState>((set) => ({
  * singleton, no teardown needed).
  */
 export function handlePlanningNodeEvent(method: string, params: unknown): void {
-  const dict = dictionaries[useUi.getState().lang];
+  const dict = dictionary(useUi.getState().lang);
   if (method === 'event.reminder') {
     const p = params as { note: string };
     const body = p.note.trim() !== '' ? p.note : dict.planning.reminderNotifBody;

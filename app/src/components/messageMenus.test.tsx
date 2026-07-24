@@ -5,7 +5,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { dictionaries, interpolate } from '../i18n';
+import { interpolate } from '../i18n';
+import { dictionaries } from '../i18n/all';
 import type { Contact } from '../lib/api';
 import { buildUserItems, type MessageMenuDeps } from './messageMenus';
 

@@ -5,7 +5,7 @@
  * `ui.modal = { kind: 'settings' }`.
  */
 
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { Dict } from '../i18n';
 import { interpolate } from '../i18n';
 import type { GroupChannelKind } from '../lib/api';
@@ -28,11 +28,8 @@ import { useUi, useT } from '../stores/ui';
 import { Avatar } from './Avatar';
 import { ChannelIcon } from './Sidebar';
 import { CloseIcon } from './ContextMenu';
-import { EventsModal } from './EventsModal';
 import { JoinServerForm } from './JoinServerForm';
 import { messageOf } from './server/controls';
-import { ServerSettingsModal } from './server/ServerSettingsModal';
-import { SettingsModal } from './settings/SettingsModal';
 
 /** Genres proposés dans le choix rapide (l'annonce reste réservée aux paramètres serveur). */
 type QuickChannelKind = Extract<GroupChannelKind, 'text' | 'voice' | 'forum'>;
@@ -1004,6 +1001,20 @@ function CreatePollModal({ groupId, channelId }: { groupId: string; channelId: s
   );
 }
 
+// Les trois plus grosses surfaces modales (13 onglets de réglages, 11 onglets
+// d'administration de serveur, calendrier d'événements) ne sont chargées qu'à
+// leur première ouverture : elles pèsent plus que tout le reste de l'interface
+// réunie et la plupart des sessions ne les ouvrent jamais.
+const SettingsModal = lazy(async () => ({
+  default: (await import('./settings/SettingsModal')).SettingsModal,
+}));
+const ServerSettingsModal = lazy(async () => ({
+  default: (await import('./server/ServerSettingsModal')).ServerSettingsModal,
+}));
+const EventsModal = lazy(async () => ({
+  default: (await import('./EventsModal')).EventsModal,
+}));
+
 export function Modals() {
   const modal = useUi((s) => s.modal);
   if (modal === null) return null;
@@ -1017,18 +1028,28 @@ export function Modals() {
     case 'invite':
       return <InviteModal groupId={modal.groupId} />;
     case 'settings':
-      return <SettingsModal />;
+      return (
+        <Suspense fallback={null}>
+          <SettingsModal />
+        </Suspense>
+      );
     case 'serverSettings':
       return (
-        <ServerSettingsModal
-          groupId={modal.groupId}
-          {...(modal.initialTab !== undefined ? { initialTab: modal.initialTab } : {})}
-        />
+        <Suspense fallback={null}>
+          <ServerSettingsModal
+            groupId={modal.groupId}
+            {...(modal.initialTab !== undefined ? { initialTab: modal.initialTab } : {})}
+          />
+        </Suspense>
       );
     case 'leaveServer':
       return <LeaveServerModal groupId={modal.groupId} />;
     case 'events':
-      return <EventsModal groupId={modal.groupId} />;
+      return (
+        <Suspense fallback={null}>
+          <EventsModal groupId={modal.groupId} />
+        </Suspense>
+      );
     case 'createPoll':
       return <CreatePollModal groupId={modal.groupId} channelId={modal.channelId} />;
   }

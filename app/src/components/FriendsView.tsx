@@ -12,7 +12,6 @@ import { useUi, useT } from '../stores/ui';
 import { Avatar } from './Avatar';
 import { buildContactMenu } from './contactMenu';
 import { EmptyState } from './EmptyState';
-import { NetworkPanel } from './NetworkPanel';
 import { PresenceDot } from './PresenceDot';
 
 // Le QR d'ami embarque la librairie `qrcode` : chargé à la demande (à
@@ -348,7 +347,9 @@ function AddFriend() {
             connexion) vit désormais ici : « se connecter à un ami » au même
             endroit que l'ajout par code. */}
         <div className="border-t border-rail pt-6">
-          <NetworkPanel />
+          <Suspense fallback={null}>
+            <NetworkPanel />
+          </Suspense>
         </div>
       </div>
     </div>
@@ -414,6 +415,11 @@ function EmptyFriends({
     />
   );
 }
+
+// Diagnostic réseau : replié dans un onglet secondaire, rarement ouvert.
+const NetworkPanel = lazy(async () => ({
+  default: (await import('./NetworkPanel')).NetworkPanel,
+}));
 
 export function FriendsView() {
   const t = useT();

@@ -64,6 +64,9 @@ if [ -d app ] && [ -f app/package.json ]; then
 
   step "UI: build de production"
   (cd app && npm run build --silent)
+
+  step "UI: budget du chunk initial"
+  node scripts/check-bundle-budget.mjs
 fi
 
 printf '\n\033[1;32mCI OK\033[0m\n'

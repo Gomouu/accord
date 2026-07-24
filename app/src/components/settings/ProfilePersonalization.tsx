@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import {
   AVATAR_DECORATIONS,
-  DECORATION_UI_TEXT,
   PROFILE_EFFECTS,
   PROFILE_FRAMES,
   decorationById,
   effectById,
   frameById,
 } from '../../lib/decorations';
+import { decorationLabel } from '../../i18n';
 import { useSession } from '../../stores/session';
 import { useT, useUi } from '../../stores/ui';
 import { Avatar } from '../Avatar';
@@ -26,13 +26,19 @@ function SelectedMark() {
 
 export function ProfilePersonalization() {
   const t = useT();
-  const lang = useUi((state) => state.lang);
   const toast = useUi((state) => state.toast);
   const self = useSession((state) => state.self);
   const setAvatarDecoration = useSession((state) => state.setAvatarDecoration);
   const setProfileEffect = useSession((state) => state.setProfileEffect);
   const setProfileFrame = useSession((state) => state.setProfileFrame);
   const [busy, setBusy] = useState<BusyKind>(null);
+
+  // Les libellés vivent dans les dictionnaires, indexés par l'identifiant du
+  // registre : ajouter une langue ne demande plus de passe manuelle ici, et le
+  // test de parité couvre automatiquement toute langue future.
+  const label = (id: string): string => decorationLabel(t, id);
+  const labelOf = (item: { id: string } | undefined): string | undefined =>
+    item === undefined ? undefined : label(item.id);
 
   if (self === null) return null;
 
@@ -41,9 +47,9 @@ export function ProfilePersonalization() {
   const selectedEffect = effectById(self.profile_effect);
   const selectedFrame = frameById(self.profile_frame);
   const previewMeta = [
-    selectedDecoration?.label[lang] ?? DECORATION_UI_TEXT.none[lang],
-    selectedEffect?.label[lang] ?? DECORATION_UI_TEXT.none[lang],
-    selectedFrame?.label[lang] ?? DECORATION_UI_TEXT.none[lang],
+    labelOf(selectedDecoration) ?? t.decorations.none,
+    labelOf(selectedEffect) ?? t.decorations.none,
+    labelOf(selectedFrame) ?? t.decorations.none,
   ].join(' · ');
 
   const apply = async (kind: Exclude<BusyKind, null>, action: () => Promise<void>) => {
@@ -51,7 +57,7 @@ export function ProfilePersonalization() {
     setBusy(kind);
     try {
       await action();
-      toast('success', DECORATION_UI_TEXT.saved[lang]);
+      toast('success', t.decorations.saved);
     } catch {
       toast('error', t.errors.actionFailed);
     } finally {
@@ -77,14 +83,14 @@ export function ProfilePersonalization() {
   return (
     <>
       <SettingsSection
-        title={DECORATION_UI_TEXT.decorationTitle[lang]}
-        hint={DECORATION_UI_TEXT.decorationHint[lang]}
+        title={t.decorations.decorationTitle}
+        hint={t.decorations.decorationHint}
       >
         <div className="mb-4">
           <ProfileCardPreview />
           <p className="mt-2 text-center text-xs text-faint">
             <span className="font-medium uppercase tracking-wide">
-              {DECORATION_UI_TEXT.preview[lang]}
+              {t.decorations.preview}
             </span>
             <span className="mx-1.5" aria-hidden>
               —
@@ -95,7 +101,7 @@ export function ProfilePersonalization() {
 
         <div
           role="group"
-          aria-label={DECORATION_UI_TEXT.decorationTitle[lang]}
+          aria-label={t.decorations.decorationTitle}
           aria-busy={busy === 'decoration'}
           className="personalization-grid"
         >
@@ -113,9 +119,7 @@ export function ProfilePersonalization() {
               avatarHash={self.avatar}
               hint={self.pubkey}
             />
-            <span className="personalization-choice__label">
-              {DECORATION_UI_TEXT.none[lang]}
-            </span>
+            <span className="personalization-choice__label">{t.decorations.none}</span>
             <SelectedMark />
           </button>
           {AVATAR_DECORATIONS.map((decoration) => (
@@ -137,7 +141,7 @@ export function ProfilePersonalization() {
                 decorationMotion="interaction"
               />
               <span className="personalization-choice__label">
-                {decoration.label[lang]}
+                {label(decoration.id)}
               </span>
               <SelectedMark />
             </button>
@@ -145,13 +149,10 @@ export function ProfilePersonalization() {
         </div>
       </SettingsSection>
 
-      <SettingsSection
-        title={DECORATION_UI_TEXT.effectTitle[lang]}
-        hint={DECORATION_UI_TEXT.effectHint[lang]}
-      >
+      <SettingsSection title={t.decorations.effectTitle} hint={t.decorations.effectHint}>
         <div
           role="group"
-          aria-label={DECORATION_UI_TEXT.effectTitle[lang]}
+          aria-label={t.decorations.effectTitle}
           aria-busy={busy === 'effect'}
           className="personalization-grid"
         >
@@ -163,9 +164,7 @@ export function ProfilePersonalization() {
             className="personalization-choice"
           >
             <span className="personalization-choice__effect bg-rail" aria-hidden />
-            <span className="personalization-choice__label">
-              {DECORATION_UI_TEXT.none[lang]}
-            </span>
+            <span className="personalization-choice__label">{t.decorations.none}</span>
             <SelectedMark />
           </button>
           {PROFILE_EFFECTS.map((effect) => (
@@ -178,20 +177,17 @@ export function ProfilePersonalization() {
               className="personalization-choice"
             >
               <span className="personalization-choice__effect">{effect.render()}</span>
-              <span className="personalization-choice__label">{effect.label[lang]}</span>
+              <span className="personalization-choice__label">{label(effect.id)}</span>
               <SelectedMark />
             </button>
           ))}
         </div>
       </SettingsSection>
 
-      <SettingsSection
-        title={DECORATION_UI_TEXT.frameTitle[lang]}
-        hint={DECORATION_UI_TEXT.frameHint[lang]}
-      >
+      <SettingsSection title={t.decorations.frameTitle} hint={t.decorations.frameHint}>
         <div
           role="group"
-          aria-label={DECORATION_UI_TEXT.frameTitle[lang]}
+          aria-label={t.decorations.frameTitle}
           aria-busy={busy === 'frame'}
           className="personalization-grid"
         >
@@ -203,9 +199,7 @@ export function ProfilePersonalization() {
             className="personalization-choice"
           >
             <span className="personalization-choice__frame bg-rail" aria-hidden />
-            <span className="personalization-choice__label">
-              {DECORATION_UI_TEXT.none[lang]}
-            </span>
+            <span className="personalization-choice__label">{t.decorations.none}</span>
             <SelectedMark />
           </button>
           {PROFILE_FRAMES.map((frame) => (
@@ -218,7 +212,7 @@ export function ProfilePersonalization() {
               className="personalization-choice"
             >
               <span className="personalization-choice__frame">{frame.render()}</span>
-              <span className="personalization-choice__label">{frame.label[lang]}</span>
+              <span className="personalization-choice__label">{label(frame.id)}</span>
               <SelectedMark />
             </button>
           ))}

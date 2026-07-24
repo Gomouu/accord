@@ -4,3 +4,13 @@
  */
 
 import '@testing-library/jest-dom/vitest';
+
+// Toutes les langues sont montées d'emblée dans les tests : en production
+// elles arrivent par chunks asynchrones, mais un test qui bascule `lang` doit
+// voir la traduction immédiatement, sans await.
+import { registerDictionary, type Lang } from '../i18n';
+import { dictionaries } from '../i18n/all';
+
+for (const [lang, dict] of Object.entries(dictionaries)) {
+  registerDictionary(lang as Lang, dict);
+}

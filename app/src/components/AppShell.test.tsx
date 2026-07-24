@@ -148,13 +148,14 @@ describe('AppShell — raccourcis globaux', () => {
     expect(container.querySelector('.accord-stage .theme-atmosphere')).toBeNull();
   });
 
-  it('Ctrl+K bascule le sélecteur rapide', () => {
+  it('Ctrl+K bascule le sélecteur rapide', async () => {
     render(<AppShell />);
     expect(screen.queryByRole('dialog')).toBeNull();
 
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
     expect(useUi.getState().quickSwitcherOpen).toBe(true);
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    // La palette est un chunk paresseux : elle apparaît au tick suivant.
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
     expect(useUi.getState().quickSwitcherOpen).toBe(false);

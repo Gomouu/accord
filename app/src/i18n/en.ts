@@ -880,6 +880,7 @@ export const en: Dict = {
     french: 'Français',
     english: 'English',
     spanish: 'Español',
+    portuguese: 'Português',
     blockedUsers: 'Blocked users',
     antiSpamTitle: 'Anti-spam',
     antiSpamHint:

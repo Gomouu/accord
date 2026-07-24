@@ -14,6 +14,8 @@ All notable changes to Accord. This project follows [semantic versioning](https:
   screenshot or a live stream, not against access to your machine.
 - **Subtext with `-# `** — the quiet counterpart of a heading, for a caption or
   an aside under a message.
+- **Portuguese.** The full interface, 1300 strings. It loads as its own chunk,
+  so it costs nothing to anyone who does not read it.
 
 ### Internal
 

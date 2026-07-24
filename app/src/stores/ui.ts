@@ -11,6 +11,7 @@ import {
   dictionary,
   dictionaryLoaded,
   loadDictionary,
+  LANGS,
   type Dict,
   type Lang,
 } from '../i18n';
@@ -260,7 +261,7 @@ export function stepFontScale(current: FontScale, direction: 1 | -1): FontScale 
 }
 
 function isLang(value: string | null): value is Lang {
-  return value === 'fr' || value === 'en' || value === 'es';
+  return LANGS.includes(value as Lang);
 }
 
 /** Valeurs persistées, validées à la frontière (repli : défauts sûrs). */
@@ -292,6 +293,7 @@ export function pickLang(tag: string): Lang {
   const etiquette = tag.toLowerCase();
   if (etiquette.startsWith('fr')) return 'fr';
   if (etiquette.startsWith('es')) return 'es';
+  if (etiquette.startsWith('pt')) return 'pt';
   return 'en';
 }
 

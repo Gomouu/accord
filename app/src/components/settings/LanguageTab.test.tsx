@@ -27,4 +27,14 @@ describe('LanguageTab', () => {
     expect(screen.getByText('Idioma')).toBeInTheDocument();
     expect(screen.getByText('Formato de hora')).toBeInTheDocument();
   });
+
+  it('bascule l’interface en portugais et affiche les libellés traduits', () => {
+    render(<LanguageTab />);
+
+    fireEvent.click(screen.getByText('Português'));
+
+    expect(useUi.getState().lang).toBe('pt');
+    expect(screen.getByText('Idioma')).toBeInTheDocument();
+    expect(screen.getByText('Formato da hora')).toBeInTheDocument();
+  });
 });

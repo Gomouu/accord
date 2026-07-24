@@ -1,7 +1,7 @@
 /** Tests i18n : interpolation et parité des clés fr/en/es. */
 
 import { describe, expect, it } from 'vitest';
-import { interpolate } from './index';
+import { interpolate, LANGS } from './index';
 import { dictionaries } from './all';
 import { fr } from './fr';
 import { en } from './en';
@@ -39,8 +39,12 @@ describe('parité des dictionnaires', () => {
   const enPaths = keyPaths(en).sort();
   const esPaths = keyPaths(es).sort();
 
-  it('expose les trois langues déclarées', () => {
-    expect(Object.keys(dictionaries).sort()).toEqual(['en', 'es', 'fr']);
+  it('expose exactement les langues déclarées dans LANGS', () => {
+    // Le test nommait « les trois langues » en dur : chaque langue ajoutée le
+    // faisait échouer pour une raison sans intérêt. Il compare maintenant les
+    // deux sources qui doivent rester d'accord — la liste déclarée et les
+    // dictionnaires réellement fournis.
+    expect(Object.keys(dictionaries).sort()).toEqual([...LANGS].sort());
   });
 
   it('en.ts couvre exactement les clés de fr.ts (référence)', () => {

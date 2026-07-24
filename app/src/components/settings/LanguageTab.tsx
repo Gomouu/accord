@@ -19,6 +19,7 @@ export function LanguageTab() {
     { id: 'fr', label: t.settings.french },
     { id: 'en', label: t.settings.english },
     { id: 'es', label: t.settings.spanish },
+    { id: 'pt', label: t.settings.portuguese },
   ];
 
   const timeFormats: { id: TimeFormat; label: string }[] = [

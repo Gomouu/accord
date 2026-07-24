@@ -10,6 +10,7 @@
 import { fr } from './fr';
 import { en } from './en';
 import { es } from './es';
+import { pt } from './pt';
 import type { Dict, Lang } from './index';
 
-export const dictionaries: Record<Lang, Dict> = { fr, en, es };
+export const dictionaries: Record<Lang, Dict> = { fr, en, es, pt };

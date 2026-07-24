@@ -3,7 +3,12 @@
 import type { Lang } from '../i18n';
 
 /** Étiquette BCP-47 pilotant chaque appel `Intl` : une par langue supportée. */
-const LOCALES: Record<Lang, string> = { fr: 'fr-FR', en: 'en-US', es: 'es-ES' };
+const LOCALES: Record<Lang, string> = {
+  fr: 'fr-FR',
+  en: 'en-US',
+  es: 'es-ES',
+  pt: 'pt-PT',
+};
 
 /**
  * Préférence de format d'heure (Paramètres → Langue et heure) : `auto` suit
@@ -125,6 +130,7 @@ const UNITES_TAILLE: Record<Lang, readonly string[]> = {
   fr: ['o', 'Ko', 'Mo', 'Go'],
   en: ['B', 'KB', 'MB', 'GB'],
   es: ['B', 'KB', 'MB', 'GB'],
+  pt: ['B', 'KB', 'MB', 'GB'],
 };
 
 /** Taille de fichier lisible (base 1024, une décimale au plus). */

@@ -890,6 +890,7 @@ export const fr = {
     french: 'Français',
     english: 'English',
     spanish: 'Español',
+    portuguese: 'Português',
     blockedUsers: 'Utilisateurs bloqués',
     antiSpamTitle: 'Anti-spam',
     antiSpamHint:

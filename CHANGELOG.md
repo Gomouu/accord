@@ -2,6 +2,16 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [6.1.0] — 2026-07-24
+
+### Added
+
+- **Screen sharing and camera in server voice channels.** Video was limited to
+  one-to-one calls; it now works in a group voice channel too. Your screen or
+  camera reaches everyone in the room — the same direct, end-to-end-encrypted
+  full mesh the voice already uses, with no server in between. Video is only
+  accepted from people actually connected to the room.
+
 ## [6.0.0] — 2026-07-24
 
 ### Added

@@ -2,6 +2,23 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [5.0.0] — 2026-07-24
+
+### Added
+
+- **Screen sharing in calls.** During a one-to-one call you can now share your
+  screen. A "Share screen" button opens the system picker, and your friend sees
+  it live in a viewer inside the call. Like voice, the video travels only over
+  your existing end-to-end-encrypted peer-to-peer session — nothing passes
+  through any server. Each frame is captured and encoded in-app (WebCodecs,
+  VP8), split across the real-time channel and reassembled on the other side,
+  with a dedicated real-time reassembler that always keeps the newest frame; a
+  lost fragment simply drops that frame and the next keyframe recovers. Either
+  side can share, and stopping the call or the share tears everything down
+  cleanly. Screen sharing needs a recent system webview with screen-capture
+  support (WebCodecs + `getDisplayMedia`); where it is unavailable the button
+  says so instead of failing.
+
 ## [4.5.0] — 2026-07-24
 
 ### Added

@@ -351,11 +351,21 @@ describe('badge d’appel manqué', () => {
 });
 
 describe('useCalls — partage d’écran (v5)', () => {
-  it('startScreenShare est ignoré hors appel actif', async () => {
-    useCalls.setState({ phase: 'outgoing_ringing' });
+  it('startScreenShare marche hors appel (salon vocal de groupe, v6.1)', async () => {
+    // Depuis la 6.1 le partage vaut aussi en salon de groupe : le store ne
+    // filtre plus sur la phase d'appel, c'est le nœud qui ignore la demande
+    // s'il n'y a aucune session média active.
+    useCalls.setState({ phase: 'idle' });
+    startShareMock.mockResolvedValueOnce(undefined);
+    await useCalls.getState().startScreenShare();
+    expect(startShareMock).toHaveBeenCalledWith('screen', expect.any(Function));
+    expect(useCalls.getState().localSharing).toBe(true);
+  });
+
+  it('startScreenShare est idempotent quand on partage déjà', async () => {
+    useCalls.setState({ phase: 'active', localSharing: true });
     await useCalls.getState().startScreenShare();
     expect(startShareMock).not.toHaveBeenCalled();
-    expect(useCalls.getState().localSharing).toBe(false);
   });
 
   it('startScreenShare active le partage local pendant un appel actif', async () => {

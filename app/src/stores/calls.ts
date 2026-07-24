@@ -227,7 +227,9 @@ export const useCalls = create<CallsState>((set, get) => ({
   },
 
   startScreenShare: async () => {
-    if (get().phase !== 'active' || get().localSharing) return;
+    // Autorisé en appel 1-à-1 comme en salon vocal de groupe (v6.1) : le nœud
+    // ignore la demande s'il n'y a aucune session média active.
+    if (get().localSharing) return;
     await startLocalStream('screen', () => set({ localSharing: false }));
     set({ localSharing: true });
   },
@@ -239,7 +241,7 @@ export const useCalls = create<CallsState>((set, get) => ({
   },
 
   startCamera: async () => {
-    if (get().phase !== 'active' || get().localCamera) return;
+    if (get().localCamera) return;
     await startLocalStream('camera', () => set({ localCamera: false }));
     set({ localCamera: true });
   },

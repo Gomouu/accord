@@ -15,6 +15,7 @@ import {
 } from '../lib/mediaController';
 import { useCalls } from '../stores/calls';
 import { useT } from '../stores/ui';
+import { useVoice } from '../stores/voice';
 
 /** Icône « moniteur » (partage d'écran). */
 function ScreenIcon() {
@@ -139,10 +140,13 @@ export function CallVideo() {
   const startCamera = useCalls((s) => s.startCamera);
   const stopCamera = useCalls((s) => s.stopCamera);
 
+  // Le panneau vaut pour un appel 1-à-1 actif ET pour un salon vocal de
+  // groupe (v6.1) : dans les deux cas le nœud sait à qui diffuser.
+  const inVoiceRoom = useVoice((s) => s.active !== null && !s.active.isCall);
   const screenOk = useMemo(() => videoSourceSupported('screen'), []);
   const cameraOk = useMemo(() => videoSourceSupported('camera'), []);
 
-  if (phase !== 'active') return null;
+  if (phase !== 'active' && !inVoiceRoom) return null;
 
   const toggleScreen = (): void => {
     if (localSharing) {

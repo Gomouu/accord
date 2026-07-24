@@ -2,6 +2,23 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [6.0.0] — 2026-07-24
+
+### Added
+
+- **Video calls.** Turn on your camera during a one-to-one call and your friend
+  sees you live, with a mirrored preview of your own camera in the corner. Like
+  voice and screen sharing, the video travels only over your existing
+  end-to-end-encrypted peer-to-peer session — nothing passes through any
+  server. Camera and screen sharing are independent streams, so you can show
+  your face *and* your screen at the same time; each is reassembled on its own,
+  and losing frames on one never disturbs the other. The camera stream is tuned
+  for faces (smoother, smaller picture) while screen sharing stays tuned for
+  readable text. Video calls need a recent system webview with camera and
+  WebCodecs support; where it is unavailable the button says so instead of
+  failing. An Accord 5.x peer that receives camera frames simply ignores them
+  rather than misreading them as a screen share.
+
 ## [5.0.0] — 2026-07-24
 
 ### Added

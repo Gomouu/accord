@@ -5,6 +5,7 @@
  * mise en forme et mentions.
  *
  * Constructions gérées :
+ * - sous-texte `-# …` (pendant discret des titres) ;
  * - gras `**…**`, italique `*…*` ou `_…_`, souligné `__…__`, barré `~~…~~`,
  *   spoiler `||…||` ;
  * - code inline `` `…` `` et bloc de code ```` ```…``` ```` (contenu littéral,
@@ -45,6 +46,7 @@ export type MdNode =
       readonly items: MdNode[][];
     }
   | { readonly type: 'blockquote'; readonly children: MdNode[] }
+  | { readonly type: 'subtext'; readonly children: MdNode[] }
   | { readonly type: 'checkbox'; readonly checked: boolean }
   | {
       readonly type: 'table';
@@ -316,6 +318,15 @@ function analyserFragment(src: string, depth: number): MdNode[] {
 /** `# `, `## `, `### ` followed by non-empty content. */
 const HEADING_RE = /^(#{1,3}) +(.*)$/;
 
+/**
+ * `-# ` followed by non-empty content: subtext, the counterpart of a heading.
+ *
+ * Checked **before** the list matcher, which would otherwise read `-# note` as
+ * a bullet whose text is `# note` — and render it as a heading inside a list,
+ * the exact opposite of the intent.
+ */
+const SUBTEXT_RE = /^-# +(.*)$/;
+
 /** `- x`, `* x` or `1. x`; leading spaces nest one level. */
 const LIST_ITEM_RE = /^( *)(?:[-*]|(\d{1,9})\.) (.*)$/;
 
@@ -536,6 +547,17 @@ export function analyserMarkdown(texte: string): MdNode[] {
       flushPara();
       const level = hashes.length === 1 ? 1 : hashes.length === 2 ? 2 : 3;
       nodes.push({ type: 'heading', level, children: analyserFragment(title.trim(), 0) });
+      i = end < n ? end + 1 : n;
+      continue;
+    }
+
+    // Subtext `-# ` (line-start only, non-empty content). Must come before
+    // the list branch: `-# x` also matches the bullet pattern.
+    const subtext = SUBTEXT_RE.exec(line);
+    const petit = subtext?.[1];
+    if (petit !== undefined && petit.trim() !== '') {
+      flushPara();
+      nodes.push({ type: 'subtext', children: analyserFragment(petit.trim(), 0) });
       i = end < n ? end + 1 : n;
       continue;
     }

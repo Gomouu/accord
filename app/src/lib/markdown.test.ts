@@ -535,3 +535,37 @@ describe('analyserMarkdown — listes de tâches GFM', () => {
     expect(list.items[0]?.[0]).toEqual(text('simple'));
   });
 });
+
+describe('sous-texte `-# `', () => {
+  it('produit un nœud sous-texte avec son contenu inline', () => {
+    const node = analyserMarkdown('-# **note** de bas')[0] as Extract<
+      MdNode,
+      { type: 'subtext' }
+    >;
+    expect(node.type).toBe('subtext');
+    expect(node.children[0]).toEqual({ type: 'bold', children: [text('note')] });
+  });
+
+  it('n’est pas lu comme un élément de liste', () => {
+    // `-# x` correspond aussi au motif de puce : sans priorité explicite, la
+    // ligne deviendrait une liste dont le texte est `# x`, donc un TITRE —
+    // exactement l'inverse de l'intention.
+    const node = analyserMarkdown('-# discret')[0];
+    expect(node?.type).toBe('subtext');
+  });
+
+  it('laisse une puce ordinaire intacte', () => {
+    expect(analyserMarkdown('- élément')[0]?.type).toBe('list');
+    expect(analyserMarkdown('-#sans espace')[0]?.type).not.toBe('subtext');
+  });
+
+  it('ignore un marqueur sans contenu', () => {
+    // Une ligne « -#   » n'a rien à mettre en sous-texte : elle reste du texte.
+    expect(analyserMarkdown('-#   ')[0]?.type).not.toBe('subtext');
+  });
+
+  it('ne s’applique qu’en début de ligne', () => {
+    const nodes = analyserMarkdown('avant -# pas un sous-texte');
+    expect(nodes.every((n) => n.type !== 'subtext')).toBe(true);
+  });
+});

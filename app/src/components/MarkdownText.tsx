@@ -255,6 +255,15 @@ function renderNode(node: MdNode, ctx: Ctx): ReactNode {
           {renderNodes(node.children, ctx)}
         </blockquote>
       );
+    case 'subtext':
+      // Pendant discret du titre : plus petit et estompé, mais toujours du
+      // texte courant — pas un `<small>` sémantique, qui signifierait
+      // « mention légale » aux lecteurs d'écran.
+      return (
+        <span className="block text-[0.8125rem] leading-snug text-faint">
+          {renderNodes(node.children, ctx)}
+        </span>
+      );
     case 'table':
       return (
         <div className="my-1 max-w-full overflow-x-auto">

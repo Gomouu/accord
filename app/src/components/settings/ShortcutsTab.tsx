@@ -1,21 +1,23 @@
 /**
- * Onglet Raccourcis clavier : aide-mémoire des raccourcis globaux (sélecteur
- * rapide, navigation, vocal) et de composition (Entrée/Maj+Entrée, déjà
- * actifs dans `MessageInput`) — purement informatif, aucun réglage ici.
+ * Onglet Raccourcis clavier : aide-mémoire complet, rendu depuis le catalogue
+ * de `lib/shortcuts.ts` — purement informatif, aucun réglage ici. L'appui-pour-
+ * parler s'y ajoute avec la touche réellement configurée, puisqu'elle varie.
  * `⌘` s'affiche sur macOS (`navigator.platform`), `Ctrl` ailleurs.
  */
 
+import { formatKeyLabel } from '../../hooks/usePushToTalk';
 import { isMacPlatform } from '../../lib/quickSwitch';
-import { useT } from '../../stores/ui';
+import {
+  SHORTCUTS,
+  SHORTCUT_SECTIONS,
+  renderCombo,
+  type ShortcutSection,
+} from '../../lib/shortcuts';
+import { useT, useUi } from '../../stores/ui';
 import { SettingsSection } from './controls';
 
-/**
- * Une combinaison de touches, rendue en pastilles façon clavier. Sépare sur
- * `|` quand ce caractère est présent (pour une combo contenant un `+` littéral,
- * ex. le zoom `Ctrl|+`), sinon sur `+` (forme historique `Ctrl+K`).
- */
-function Kbd({ combo }: { combo: string }) {
-  const keys = combo.includes('|') ? combo.split('|') : combo.split('+');
+/** Une combinaison de touches, rendue en pastilles façon clavier. */
+function Kbd({ keys }: { keys: string[] }) {
   return (
     <span className="flex shrink-0 items-center gap-1">
       {keys.map((key, i) => (
@@ -30,40 +32,44 @@ function Kbd({ combo }: { combo: string }) {
   );
 }
 
-function ShortcutRow({ label, combo }: { label: string; combo: string }) {
+function ShortcutRow({ label, keys }: { label: string; keys: string[] }) {
   return (
     <div className="mb-1.5 flex items-center justify-between gap-4 rounded-lg bg-sidebar px-4 py-2.5">
       <span className="min-w-0 text-sm text-norm">{label}</span>
-      <Kbd combo={combo} />
+      <Kbd keys={keys} />
     </div>
   );
 }
 
 export function ShortcutsTab() {
   const t = useT();
+  const pttEnabled = useUi((s) => s.pttEnabled);
+  const pttKey = useUi((s) => s.pttKey);
   const mod = isMacPlatform() ? '⌘' : 'Ctrl';
+  const opts = { mod, enter: t.shortcuts.keyEnter, esc: t.settings.escKey };
+
+  const rowsOf = (section: ShortcutSection) =>
+    SHORTCUTS.filter((s) => s.section === section).map((s) => (
+      <ShortcutRow
+        key={s.key}
+        label={t.shortcuts[s.key]}
+        keys={renderCombo(s.combo, opts)}
+      />
+    ));
 
   return (
     <div>
-      <SettingsSection title={t.shortcuts.navigationSection}>
-        <ShortcutRow label={t.shortcuts.quickSwitchLabel} combo={`${mod}+K`} />
-        <ShortcutRow label={t.shortcuts.prevChannelLabel} combo="Alt+↑" />
-        <ShortcutRow label={t.shortcuts.nextChannelLabel} combo="Alt+↓" />
-        <ShortcutRow label={t.shortcuts.closeLabel} combo={t.settings.escKey} />
-      </SettingsSection>
-      <SettingsSection title={t.shortcuts.interfaceSection}>
-        <ShortcutRow label={t.shortcuts.zoomInLabel} combo={`${mod}|+`} />
-        <ShortcutRow label={t.shortcuts.zoomOutLabel} combo={`${mod}|-`} />
-        <ShortcutRow label={t.shortcuts.zoomResetLabel} combo={`${mod}|0`} />
-      </SettingsSection>
-      <SettingsSection title={t.shortcuts.messagingSection}>
-        <ShortcutRow label={t.shortcuts.toggleMuteLabel} combo={`${mod}+⇧+M`} />
-        <ShortcutRow label={t.shortcuts.sendMessageLabel} combo={t.shortcuts.keyEnter} />
-        <ShortcutRow
-          label={t.shortcuts.newLineLabel}
-          combo={`⇧+${t.shortcuts.keyEnter}`}
-        />
-      </SettingsSection>
+      {SHORTCUT_SECTIONS.map(({ id, titleKey }) => (
+        <SettingsSection key={id} title={t.shortcuts[titleKey]}>
+          {rowsOf(id)}
+          {id === 'voice' && (
+            <ShortcutRow
+              label={t.shortcuts.pushToTalkLabel}
+              keys={[pttEnabled ? formatKeyLabel(pttKey) : t.shortcuts.pushToTalkOff]}
+            />
+          )}
+        </SettingsSection>
+      ))}
     </div>
   );
 }

@@ -27,6 +27,7 @@ import { useDms } from '../stores/dms';
 import { useFriends, displayNameOf, totalDmUnread } from '../stores/friends';
 import { useGroups, channelKey } from '../stores/groups';
 import { isConversationSilenced } from '../stores/mute';
+import { PEER_LINKS_POLL_MS, usePeerLinks } from '../stores/peerLinks';
 import { useSession } from '../stores/session';
 import { useTyping, dmTypingKey, groupTypingKey } from '../stores/typing';
 import {
@@ -556,7 +557,30 @@ const QuickSwitcher = lazy(async () => ({
   default: (await import('./QuickSwitcher')).QuickSwitcher,
 }));
 
+/**
+ * Tient à jour la qualité de lien par ami : à l'ouverture, à chaque
+ * changement d'état réseau, puis par sondage lent (la latence évolue sans
+ * qu'aucun événement ne le signale).
+ */
+function usePeerLinkRefresh(): void {
+  useEffect(() => {
+    const refresh = (): void => {
+      void usePeerLinks.getState().refresh();
+    };
+    refresh();
+    const off = rpc.onEvent((method) => {
+      if (method === 'event.network') refresh();
+    });
+    const timer = setInterval(refresh, PEER_LINKS_POLL_MS);
+    return () => {
+      off();
+      clearInterval(timer);
+    };
+  }, []);
+}
+
 export function AppShell() {
+  usePeerLinkRefresh();
   const t = useT();
   const view = useUi((s) => s.view);
   const toast = useUi((s) => s.toast);

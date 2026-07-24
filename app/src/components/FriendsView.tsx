@@ -5,6 +5,7 @@ import { interpolate } from '../i18n';
 import type { Contact } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
 import { buildFriendLink, parseFriendLink } from '../lib/friendLink';
+import { LinkQualityDot } from './LinkQuality';
 import { useContextMenu } from '../stores/contextMenu';
 import { presenceOf, useFriends } from '../stores/friends';
 import { useSession } from '../stores/session';
@@ -71,8 +72,11 @@ function FriendRow({ contact }: { contact: Contact }) {
         )}
       </div>
       <div className="min-w-[8rem] flex-1">
-        <div className="truncate font-medium text-header">
-          {contact.display_name || contact.friend_code}
+        <div className="flex items-center gap-1.5">
+          <span className="truncate font-medium text-header">
+            {contact.display_name || contact.friend_code}
+          </span>
+          {isFriend && <LinkQualityDot pubkey={contact.pubkey} />}
         </div>
         <div className="truncate text-xs text-faint">
           {contact.state === 'pending_in'

@@ -1,6 +1,7 @@
 /** Vue conversation privée (MP), extraite de `ChatView` (D-056). */
 
 import { useEffect, useState } from 'react';
+import { LinkQualityDot } from '../LinkQuality';
 import { interpolate } from '../../i18n';
 import { useCalls } from '../../stores/calls';
 import { useContextMenu } from '../../stores/contextMenu';
@@ -213,6 +214,7 @@ export function DmView({ peer }: { peer: string }) {
           <span className="min-w-0 truncate font-semibold text-header" title={name}>
             {name}
           </span>
+          <LinkQualityDot pubkey={peer} />
           {inCallWithPeer && (
             <span className="rounded-full bg-green/15 px-2 py-0.5 text-xs font-medium text-green">
               {t.calls.inCall}

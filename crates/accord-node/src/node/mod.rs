@@ -15,6 +15,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
+use std::sync::Weak;
 
 use accord_api::NotificationHub;
 use accord_core::db::{ContactState, Db, LocalMembership};
@@ -194,7 +195,11 @@ pub struct Node {
     hub: Option<NotificationHub>,
     /// Contrôle réseau (pilotage des méthodes `network.*`), branché après la
     /// construction du runtime ; absent dans les tests sans réseau.
-    network: OnceLock<Arc<dyn network::NetworkControl>>,
+    // Weak, not Arc: the runtime holds `Arc<Node>`, so a strong ref here would
+    // form a Runtime↔Node cycle that never drops — leaking the endpoint (hence
+    // the bound UDP socket) across every lock/unlock (Lot G, cause 3). The
+    // upgrade fails once the runtime is torn down, breaking the cycle.
+    network: OnceLock<Weak<dyn network::NetworkControl>>,
     /// Amis présumés en ligne (dernier signal reçu). Best-effort, en mémoire :
     /// l'absence d'un pair ne prouve pas qu'il est hors ligne (§6, présence).
     online: Mutex<HashSet<[u8; 32]>>,

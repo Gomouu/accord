@@ -1244,6 +1244,13 @@ impl Runtime {
         // chaque verrouillage. Le `select` casse le cycle.
         let mut stop = self.stop_signal();
         loop {
+            // État courant AVANT le select : si l'arrêt a été signalé pendant le
+            // démarrage de la tâche (abonnement TARDIF), `changed()` ne se
+            // déclencherait jamais — la valeur est déjà à true à l'abonnement.
+            // Ce contrôle capte ce cas et rompt le cycle d'`Arc` (Lot G).
+            if *stop.borrow() {
+                break;
+            }
             let event = tokio::select! {
                 maybe = events.recv() => match maybe {
                     Some(ev) => ev,
@@ -1425,9 +1432,21 @@ impl Runtime {
 
     async fn outbound_loop(self: Arc<Self>, mut outbound: mpsc::Receiver<Outbound>) {
         // Même cycle d'`Arc` que `event_loop` (Lot G) : honore l'arrêt pour que
-        // la tâche relâche son `Arc<Runtime>` au shutdown.
+        // la tâche relâche son `Arc<Runtime>` au shutdown. Au signal d'arrêt on
+        // VIDE d'abord les actions déjà en file : l'adieu de présence
+        // (`broadcast_presence(false)`, mis en file juste avant `stop`) doit
+        // partir, sinon le pair conserve une session cadavre et notre prochain
+        // message hors-ligne est scellé vers une adresse morte au lieu d'être
+        // mis en file.
         let mut stop = self.stop_signal();
         loop {
+            // Abonnement tardif : cf. `event_loop` (Lot G).
+            if *stop.borrow() {
+                while let Ok(action) = outbound.try_recv() {
+                    self.dispatch_outbound(action).await;
+                }
+                break;
+            }
             let action = tokio::select! {
                 maybe = outbound.recv() => match maybe {
                     Some(a) => a,
@@ -1435,39 +1454,49 @@ impl Runtime {
                 },
                 res = stop.changed() => {
                     if res.is_err() || *stop.borrow() {
+                        while let Ok(action) = outbound.try_recv() {
+                            self.dispatch_outbound(action).await;
+                        }
                         break;
                     }
                     continue;
                 }
             };
-            match action {
-                Outbound::Core { to, msg } => self.deliver_core(&to, *msg).await,
-                Outbound::GroupOp { op } => {
-                    // Diffuse l'op à tous les membres connus joignables.
-                    let group_id = op.group_id;
-                    let msg = CoreMsg::GroupOpMsg { op: *op };
-                    if let Ok(state) = self.node.group_state(&group_id) {
-                        for member in state.members.keys() {
-                            if *member != self.node.public_key() {
-                                self.deliver_core(member, msg.clone()).await;
-                            }
+            self.dispatch_outbound(action).await;
+        }
+    }
+
+    /// Exécute une action sortante (livraison CORE, diffusion de groupe, dépôt
+    /// DHT). Extrait de [`Self::outbound_loop`] pour être rejoué au drainage
+    /// d'arrêt.
+    async fn dispatch_outbound(&self, action: Outbound) {
+        match action {
+            Outbound::Core { to, msg } => self.deliver_core(&to, *msg).await,
+            Outbound::GroupOp { op } => {
+                // Diffuse l'op à tous les membres connus joignables.
+                let group_id = op.group_id;
+                let msg = CoreMsg::GroupOpMsg { op: *op };
+                if let Ok(state) = self.node.group_state(&group_id) {
+                    for member in state.members.keys() {
+                        if *member != self.node.public_key() {
+                            self.deliver_core(member, msg.clone()).await;
                         }
                     }
                 }
-                Outbound::GroupCast { group_id, msg } => {
-                    // Diffuse un message CORE à tous les membres connus.
-                    if let Ok(state) = self.node.group_state(&group_id) {
-                        for member in state.members.keys() {
-                            if *member != self.node.public_key() {
-                                self.deliver_core(member, (*msg).clone()).await;
-                            }
+            }
+            Outbound::GroupCast { group_id, msg } => {
+                // Diffuse un message CORE à tous les membres connus.
+                if let Ok(state) = self.node.group_state(&group_id) {
+                    for member in state.members.keys() {
+                        if *member != self.node.public_key() {
+                            self.deliver_core(member, (*msg).clone()).await;
                         }
                     }
                 }
-                Outbound::DhtPublish { record } => {
-                    let now = crate::node::now_ms();
-                    self.dht.put(&*self.rpc, *record, now).await;
-                }
+            }
+            Outbound::DhtPublish { record } => {
+                let now = crate::node::now_ms();
+                self.dht.put(&*self.rpc, *record, now).await;
             }
         }
     }
@@ -1477,12 +1506,23 @@ impl Runtime {
     /// renvoi direct avec backoff puis dépôt en boîte aux lettres DHT).
     async fn deliver_core(&self, to_pubkey: &[u8; 32], msg: CoreMsg) {
         let channel_msg = ChannelMsg::Core(msg);
+        // Store-and-forward (Lot G) : les messages DURABLES portent un `msg_id`,
+        // sont accusés (`MsgAck`) et dédupliqués par le destinataire. On les
+        // persiste TOUJOURS dans l'outbox, même si l'envoi direct ci-dessous
+        // « réussit » — car le carnet peut pointer sur une session CADAVRE
+        // (pair redémarré, scellé vers un port mort) ou sur un ancien port. Le
+        // pair qui revient (éventuellement sur un NOUVEAU port) reçoit alors le
+        // message au vidage de l'outbox à sa reconnexion ; son `MsgAck` solde la
+        // ligne, un doublon est ignoré à l'ingestion. La livraison ne dépend
+        // plus de la réutilisation fortuite de l'ancien port éphémère.
+        let durable = matches!(
+            &channel_msg,
+            ChannelMsg::Core(CoreMsg::DirectMsg { .. } | CoreMsg::GroupMsg { .. })
+        );
+        let mut delivered = false;
         if let Some(addr) = self.addr_of(to_pubkey) {
-            // Livraison CORE liée à l'identité du destinataire : la session (ou
-            // le handshake) doit émaner de `to_pubkey`, sinon l'envoi échoue
-            // (liaison d'identité, SPEC §2.2 — déjoue un MITM on-path) et le
-            // message bascule sur le relais ou en file hors-ligne plutôt que
-            // d'être scellé sous une session usurpée.
+            // Livraison CORE liée à l'identité du destinataire (SPEC §2.2) :
+            // l'envoi échoue plutôt que d'être scellé sous une session usurpée.
             if self
                 .endpoint
                 .send_to(addr, Some(*to_pubkey), &channel_msg)
@@ -1490,37 +1530,39 @@ impl Runtime {
                 .is_ok()
             {
                 self.note_delivery(to_pubkey);
-                return;
+                delivered = true;
             }
         }
-        // Repli relais (SPEC §11.3) : un circuit vers ce pair existe (session
-        // A↔B tunnelée). L'envoi direct a échoué (ou le carnet pointe sur
-        // l'adresse du relais, d'où une liaison d'identité rejetée) : on ré-
-        // enveloppe le message dans le circuit. Le pair reste identifié par sa
-        // clé (liaison D-037 assurée par le handshake tunnelé).
-        if let Some(circuit) = self.endpoint.circuit_for_peer(node_id_of(to_pubkey)) {
-            if self
-                .endpoint
-                .send_via_relay(circuit, &channel_msg)
-                .await
-                .is_ok()
-            {
-                self.note_delivery(to_pubkey);
-                return;
+        // Repli relais (SPEC §11.3) si l'envoi direct n'a pas abouti.
+        if !delivered {
+            if let Some(circuit) = self.endpoint.circuit_for_peer(node_id_of(to_pubkey)) {
+                if self
+                    .endpoint
+                    .send_via_relay(circuit, &channel_msg)
+                    .await
+                    .is_ok()
+                {
+                    self.note_delivery(to_pubkey);
+                    delivered = true;
+                }
             }
         }
-        // Sans adresse ou échec d'envoi : file hors-ligne si la nature du
-        // message le justifie (les messages éphémères sont perdus sans effet).
         let ChannelMsg::Core(msg) = channel_msg else {
             return;
         };
+        // Non durable : comportement historique — file hors-ligne UNIQUEMENT si
+        // aucun chemin direct n'a abouti (les kinds éphémères sont perdus sans
+        // effet, filtrés par `is_queueable_offline`).
+        if delivered && !durable {
+            return;
+        }
         if !maintenance::is_queueable_offline(&msg) {
             return;
         }
         match self.node.outbox_enqueue(to_pubkey, &msg) {
             Ok(()) => {
                 self.counters.outbox_enqueued();
-                tracing::debug!("core : destinataire injoignable, mis en file hors-ligne");
+                tracing::debug!("core : mise en file hors-ligne (store-and-forward)");
             }
             Err(e) => tracing::warn!(erreur = %e, "core : mise en file hors-ligne impossible"),
         }
@@ -2168,6 +2210,10 @@ impl Runtime {
     async fn files_loop(self: Arc<Self>) {
         let mut stop = self.stop_signal();
         loop {
+            // Abonnement tardif : cf. `event_loop` (Lot G).
+            if *stop.borrow() {
+                return;
+            }
             tokio::select! {
                 _ = tokio::time::sleep(FILES_TICK) => {}
                 res = stop.changed() => {

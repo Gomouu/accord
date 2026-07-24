@@ -194,7 +194,12 @@ pub struct Node {
     hub: Option<NotificationHub>,
     /// Contrôle réseau (pilotage des méthodes `network.*`), branché après la
     /// construction du runtime ; absent dans les tests sans réseau.
-    network: OnceLock<Arc<dyn network::NetworkControl>>,
+    // Strong ref, but CLEARABLE: the runtime holds `Arc<Node>`, so keeping it
+    // here forms a Runtime↔Node cycle that never drops by refcount — leaking the
+    // endpoint (hence the bound UDP socket) across every lock/unlock (Lot G,
+    // cause 3). `RunningNode::shutdown` calls `clear_network_control` to break
+    // the cycle explicitly. `Option` (not `OnceLock`) so it can be cleared.
+    network: Mutex<Option<Arc<dyn network::NetworkControl>>>,
     /// Amis présumés en ligne (dernier signal reçu). Best-effort, en mémoire :
     /// l'absence d'un pair ne prouve pas qu'il est hors ligne (§6, présence).
     online: Mutex<HashSet<[u8; 32]>>,
@@ -234,7 +239,7 @@ impl Node {
             db: Mutex::new(db),
             outbound,
             hub,
-            network: OnceLock::new(),
+            network: Mutex::new(None),
             online: Mutex::new(HashSet::new()),
             peer_status: Mutex::new(HashMap::new()),
             typing_seen: Mutex::new(HashMap::new()),

@@ -75,6 +75,21 @@ const CLIENT_CIRCUIT_HANDSHAKE_TIMEOUT_MS: u64 = 30_000;
 /// `pending_relay_open`.
 const RELAY_OPEN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// Poll cap of the receive loop: it re-checks the shutdown flag at least this
+/// often even while no datagram arrives, so the task exits promptly on
+/// shutdown and releases its `Arc<Endpoint>` (hence the bound UDP socket).
+/// Without it, `recv_from` parks forever and the socket leaks across every
+/// lock/unlock cycle (Lot G, runtime-lifetime leak).
+const SHUTDOWN_POLL: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Fresh-handshake regenerations attempted for a single pending before it is
+/// abandoned. Once the identical retransmissions of one generation are spent, a
+/// new HELLO with a fresh nonce is started (recovering a lost WELCOME, which the
+/// responder's replay cache would otherwise eat) and the reconnection attempt
+/// persists — bounded here, never an unconditional periodic redial (Lot G,
+/// causes 1 and 2).
+const MAX_HANDSHAKE_GENERATIONS: u32 = 8;
+
 /// Événement remonté aux couches supérieures.
 #[derive(Debug)]
 pub enum TransportEvent {
@@ -320,6 +335,10 @@ struct Pending {
     queued: Vec<Vec<u8>>,
     attempts: u32,
     last_send_ms: u64,
+    /// Fresh-handshake generation of this pending (Lot G): incremented each time
+    /// the initiator is restarted with a new nonce after its retransmissions are
+    /// spent, and capped by [`MAX_HANDSHAKE_GENERATIONS`].
+    generation: u32,
 }
 
 struct State {
@@ -584,6 +603,7 @@ impl Endpoint {
                         queued: Vec::new(),
                         attempts: 0,
                         last_send_ms: 0,
+                        generation: 0,
                     }
                 });
                 // Renforce la liaison si un envoi lié rejoint un pending
@@ -732,6 +752,7 @@ impl Endpoint {
                         queued: Vec::new(),
                         attempts: 1,
                         last_send_ms: now,
+                        generation: 0,
                     },
                 );
                 Some(hello)
@@ -853,15 +874,21 @@ impl Endpoint {
 
     async fn recv_loop(self: Arc<Self>) {
         while !self.is_shutdown() {
-            let (buf, from) = match self.socket.recv_from().await {
-                Ok(v) => v,
-                Err(_) => {
-                    if self.is_shutdown() {
-                        break;
+            // Bounded wait so the loop re-checks `is_shutdown` even with no
+            // traffic: on shutdown the task exits within `SHUTDOWN_POLL` and
+            // drops its `Arc<Endpoint>`, releasing the UDP socket. `recv_from`
+            // is cancel-safe, so a timed-out wait loses no datagram.
+            let (buf, from) =
+                match tokio::time::timeout(SHUTDOWN_POLL, self.socket.recv_from()).await {
+                    Err(_) => continue,
+                    Ok(Ok(v)) => v,
+                    Ok(Err(_)) => {
+                        if self.is_shutdown() {
+                            break;
+                        }
+                        continue;
                     }
-                    continue;
-                }
-            };
+                };
             if let Err(e) = self.handle_datagram(&buf, from).await {
                 tracing::debug!(?from, error = %e, "datagramme rejeté");
             }
@@ -1092,10 +1119,42 @@ impl Endpoint {
                 return Ok(()); // WELCOME non sollicité
             };
             let expected_static = pending.expected_static;
+            let generation = pending.generation;
+            let queued = pending.queued;
             let established = match pending.initiator.finish(&welcome, now) {
                 Ok(e) => e,
                 Err(e) => {
-                    // Handshake invalide : on abandonne ce pending.
+                    // Un WELCOME périmé ou dupliqué (génération dépassée) échoue
+                    // le contrôle de transcript : on ne DÉTRUIT PAS le handshake
+                    // en cours. Sur lien direct, on réinstalle un pending FRAIS
+                    // (nonce neuf, borné) en reconduisant la file ; le HELLO part
+                    // au prochain tour de maintenance (`last_send_ms = 0` le
+                    // force), sans `await` sous verrou. Un WELCOME réellement
+                    // perdu se récupère ainsi, au lieu de voir le pending frais
+                    // anéanti par un traînard (Lot G, cause 2).
+                    if let PeerLink::Direct(addr) = link {
+                        if generation < MAX_HANDSHAKE_GENERATIONS {
+                            let initiator = Initiator::start(
+                                &self.identity,
+                                now,
+                                Vec::new(),
+                                self.config.pow_bits,
+                                expected_static,
+                            );
+                            st.pending.insert(
+                                addr,
+                                Pending {
+                                    initiator,
+                                    expected_static,
+                                    queued,
+                                    attempts: 1,
+                                    last_send_ms: 0,
+                                    generation: generation + 1,
+                                },
+                            );
+                        }
+                        return Ok(());
+                    }
                     return Err(e.into());
                 }
             };
@@ -1137,7 +1196,7 @@ impl Endpoint {
             };
             // Vider la file d'attente sous la nouvelle session (fragmentée au
             // besoin).
-            for plaintext in &pending.queued {
+            for plaintext in &queued {
                 if let Ok(frames) = Self::seal_frames(&mut session, plaintext, now) {
                     to_send.extend(frames);
                 }
@@ -1960,6 +2019,7 @@ impl Endpoint {
                     queued: Vec::new(),
                     attempts: 1,
                     last_send_ms: now,
+                    generation: 0,
                 },
             );
             (relay_addr, hello)
@@ -2076,6 +2136,7 @@ impl Endpoint {
             }
             None => {
                 let addr = session.peer_addr;
+                let peer_static = session.peer_static;
                 // Remplace une éventuelle session antérieure vers cette adresse.
                 if let Some(old_sid) = st.id_by_addr.insert(addr, sid) {
                     if old_sid != sid {
@@ -2083,6 +2144,30 @@ impl Endpoint {
                     }
                 }
                 st.sessions_by_id.insert(sid, session);
+                // Éviction du cadavre (Lot G, cause 4) : après le redémarrage
+                // SILENCIEUX d'un pair (extinction UDP sans adieu), une session
+                // DIRECTE périmée pour la MÊME identité subsiste à son ancienne
+                // adresse et fait diverger le choix de lien
+                // ([`Endpoint::direct_session_addr`], trou noir jusqu'à
+                // l'expiration d'inactivité). On la retire à l'établissement de
+                // la session fraîche : au plus une session directe par identité,
+                // livraison déterministe. Ne touche ni la session tout juste
+                // installée, ni une session relayée (repli légitime).
+                let stale: Vec<[u8; 8]> = st
+                    .sessions_by_id
+                    .iter()
+                    .filter(|(other, s)| {
+                        **other != sid
+                            && s.relay_circuit.is_none()
+                            && bool::from(s.peer_static.ct_eq(&peer_static))
+                    })
+                    .map(|(other, _)| *other)
+                    .collect();
+                for old in stale {
+                    if let Some(s) = st.sessions_by_id.remove(&old) {
+                        st.id_by_addr.remove(&s.peer_addr);
+                    }
+                }
                 st.pending
                     .remove(&addr)
                     .map(|p| p.queued)
@@ -2156,22 +2241,44 @@ impl Endpoint {
         {
             let mut st = self.state_lock();
 
-            // Retransmission des HELLO (timeout 2 s, 2 retransmissions).
+            // Retransmission des HELLO (timeout 2 s, 2 retransmissions par
+            // génération). Les retransmissions d'une génération sont IDENTIQUES
+            // (même nonce) ; une fois épuisées, on ne renonce pas : on repart
+            // sur un HELLO FRAIS (nouveau nonce) tant que la borne de
+            // générations n'est pas atteinte. Un WELCOME perdu devient ainsi
+            // récupérable — un nonce rejoué serait mangé par l'anti-rejeu du
+            // répondeur — et la tentative de reconnexion persiste sans jamais
+            // devenir un redial global (Lot G, causes 1 et 2).
             let mut abandon: Vec<SocketAddr> = Vec::new();
             for (addr, pending) in st.pending.iter_mut() {
                 if now.saturating_sub(pending.last_send_ms)
-                    >= accord_proto::limits::DHT_RPC_TIMEOUT_MS
+                    < accord_proto::limits::DHT_RPC_TIMEOUT_MS
                 {
-                    if pending.attempts > accord_proto::limits::DHT_RPC_RETRIES {
-                        abandon.push(*addr);
-                    } else {
-                        pending.attempts += 1;
-                        pending.last_send_ms = now;
-                        sends.push((
-                            Packet::Hello(pending.initiator.hello().clone()).to_bytes(),
-                            *addr,
-                        ));
-                    }
+                    continue;
+                }
+                if pending.attempts <= accord_proto::limits::DHT_RPC_RETRIES {
+                    pending.attempts += 1;
+                    pending.last_send_ms = now;
+                    sends.push((
+                        Packet::Hello(pending.initiator.hello().clone()).to_bytes(),
+                        *addr,
+                    ));
+                } else if pending.generation < MAX_HANDSHAKE_GENERATIONS {
+                    let initiator = Initiator::start(
+                        &self.identity,
+                        now,
+                        Vec::new(),
+                        self.config.pow_bits,
+                        pending.expected_static,
+                    );
+                    let hello = Packet::Hello(initiator.hello().clone()).to_bytes();
+                    pending.initiator = initiator;
+                    pending.attempts = 1;
+                    pending.generation += 1;
+                    pending.last_send_ms = now;
+                    sends.push((hello, *addr));
+                } else {
+                    abandon.push(*addr);
                 }
             }
             for addr in abandon {

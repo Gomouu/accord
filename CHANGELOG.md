@@ -2,7 +2,20 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
-## [4.4.1] — 2026-07-23
+## [Unreleased]
+
+### Fixed
+
+- **Reconnecting after a restart or lock is now reliable.** When a friend
+  restarted, quit, or came back on a new port, messages you sent while they
+  were away could silently fail to arrive and sessions could take minutes to
+  recover. Messages you send are now durably queued and delivered the moment
+  the friend reconnects — no longer dependent on the operating system reusing
+  the old port — the reconnection attempt keeps retrying (bounded) instead of
+  giving up after a few seconds, a lost handshake reply now recovers on its
+  own, and a stale session from the friend's previous run is dropped as soon
+  as the fresh one is established. Locking and unlocking also frees the network
+  port cleanly instead of leaking it.
 
 ### Fixed
 

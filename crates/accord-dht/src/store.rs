@@ -42,6 +42,11 @@ pub enum StoreError {
     /// Expiration hors bornes.
     #[error("expiration invalide")]
     BadExpiry,
+    /// Genre de record introduit par une version plus récente : le décodage
+    /// l'a laissé passer (pour ne pas condamner toute la réponse), mais ce
+    /// nœud ne sait pas le valider et refuse donc de l'héberger.
+    #[error("genre de record inconnu")]
+    UnknownKind,
     /// Horodatage trop loin dans le futur (dérive d'horloge dépassée).
     #[error("horodatage hors bornes")]
     FutureTimestamp,
@@ -129,6 +134,9 @@ impl RecordStore {
                 // La clé est libre (dérivée applicative) mais le record reste
                 // signé par son publieur, ce qui suffit à l'authentifier.
             }
+            // Stocker ce qu'on ne sait pas valider reviendrait à offrir un
+            // espace de stockage arbitraire, signé par n'importe qui.
+            RecordKind::Unknown(_) => return Err(StoreError::UnknownKind),
         }
         Ok(())
     }
@@ -401,5 +409,17 @@ mod tests {
         assert!(store.get(&key, 3_600_000 + 1).is_none());
         assert_eq!(store.expire(3_600_000 + 1), 1);
         assert!(store.is_empty());
+    }
+    #[test]
+    fn record_de_genre_inconnu_refuse_au_stockage() {
+        // Le décodage le laisse passer (voir `unknown_record_kind_survives_decoding`),
+        // mais l'héberger reviendrait à offrir un espace de stockage arbitraire
+        // à n'importe quel publieur signé.
+        let id = Identity::generate_with_pow_bits(1);
+        let record = signed_record(&id, RecordKind::Unknown(0x7f), [4; 32], vec![1, 2, 3]);
+        assert_eq!(RecordStore::validate(&record), Err(StoreError::UnknownKind));
+
+        let mut store = RecordStore::new(100);
+        assert_eq!(store.put(record, 0), Err(StoreError::UnknownKind));
     }
 }

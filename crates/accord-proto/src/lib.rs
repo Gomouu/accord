@@ -16,6 +16,7 @@
 #![warn(missing_docs)]
 
 pub mod core_msg;
+pub mod device;
 pub mod dht_msg;
 pub mod envelope;
 pub mod file_msg;
@@ -24,6 +25,7 @@ pub mod plaintext;
 pub mod types;
 pub mod wire;
 
+pub use device::{DeviceEntry, DeviceList, RevokedEntry};
 pub use envelope::{CookiePacket, DataPacket, Hello, Packet, Welcome};
 pub use limits::PROTOCOL_VERSION;
 pub use plaintext::{ChannelMsg, ControlMsg, RelayMsg, VoiceMsg};

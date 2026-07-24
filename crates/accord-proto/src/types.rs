@@ -144,28 +144,51 @@ impl WireDecode for NodeInfo {
 }
 
 /// Nature d'un record DHT (SPEC §4).
+///
+/// 🔒 **Un genre inconnu ne doit jamais faire échouer un décodage.** Les
+/// records voyagent par listes dans les réponses de lookup : si un seul genre
+/// non reconnu rejetait la structure, l'ajout d'un genre dans une version
+/// future ferait perdre **toute la réponse** aux nœuds plus anciens — pas
+/// seulement le record en trop. D'où la variante [`RecordKind::Unknown`] :
+/// le décodage préserve l'octet tel quel, et c'est la couche de stockage qui
+/// refuse d'accueillir ce qu'elle ne sait pas valider.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
 pub enum RecordKind {
     /// Code ami → identité complète signée.
-    Identity = 0x01,
+    Identity,
     /// Adresses courantes signées d'un nœud.
-    Presence = 0x02,
+    Presence,
     /// Fragment de boîte aux lettres chiffrée.
-    MailboxHint = 0x03,
+    MailboxHint,
     /// Annonce de disponibilité d'un fichier.
-    FileProvider = 0x04,
+    FileProvider,
+    /// Genre introduit par une version plus récente. Transporté intact —
+    /// la signature du record couvre cet octet — mais jamais stocké.
+    Unknown(u8),
 }
 
 impl RecordKind {
-    /// Décode le discriminant filaire.
-    pub fn from_u8(v: u8) -> Result<Self, DecodeError> {
+    /// Décode le discriminant filaire. Infaillible par construction : un
+    /// discriminant inconnu devient [`RecordKind::Unknown`].
+    pub fn from_u8(v: u8) -> Self {
         match v {
-            0x01 => Ok(Self::Identity),
-            0x02 => Ok(Self::Presence),
-            0x03 => Ok(Self::MailboxHint),
-            0x04 => Ok(Self::FileProvider),
-            _ => Err(DecodeError::InvalidValue("record kind")),
+            0x01 => Self::Identity,
+            0x02 => Self::Presence,
+            0x03 => Self::MailboxHint,
+            0x04 => Self::FileProvider,
+            other => Self::Unknown(other),
+        }
+    }
+
+    /// Discriminant filaire. Rend l'octet d'origine pour un genre inconnu,
+    /// sans quoi un record relayé verrait sa signature invalidée.
+    pub fn to_u8(self) -> u8 {
+        match self {
+            Self::Identity => 0x01,
+            Self::Presence => 0x02,
+            Self::MailboxHint => 0x03,
+            Self::FileProvider => 0x04,
+            Self::Unknown(v) => v,
         }
     }
 }
@@ -195,7 +218,7 @@ impl DhtRecord {
     pub fn signable_bytes(&self) -> Vec<u8> {
         let mut w = Writer::with_capacity(self.value.len() + 64);
         w.put_arr(&self.key);
-        w.put_u8(self.kind as u8);
+        w.put_u8(self.kind.to_u8());
         w.put_lbytes(&self.value);
         w.put_u64(self.timestamp_ms);
         w.put_u32(self.expiry_s);
@@ -206,7 +229,7 @@ impl DhtRecord {
 impl WireEncode for DhtRecord {
     fn encode(&self, w: &mut Writer) {
         w.put_arr(&self.key);
-        w.put_u8(self.kind as u8);
+        w.put_u8(self.kind.to_u8());
         w.put_lbytes(&self.value);
         w.put_arr(&self.publisher);
         w.put_u64(self.timestamp_ms);
@@ -218,7 +241,7 @@ impl WireEncode for DhtRecord {
 impl WireDecode for DhtRecord {
     fn decode(r: &mut Reader<'_>) -> Result<Self, DecodeError> {
         let key = r.arr()?;
-        let kind = RecordKind::from_u8(r.u8()?)?;
+        let kind = RecordKind::from_u8(r.u8()?);
         let value = r.lbytes(limits::MAX_DHT_VALUE, "record.value")?;
         let publisher = r.arr()?;
         let timestamp_ms = r.u64()?;

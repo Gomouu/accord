@@ -15,6 +15,20 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 - **Subtext with `-# `** — the quiet counterpart of a heading, for a caption or
   an aside under a message.
 
+### Internal
+
+- **Groundwork for multi-device** (`docs/MULTI_DEVICE.md`): account and device
+  identities as distinct types, the signed device-list wire structure with its
+  decode-time bounds, local storage, and a startup migration that gives this
+  machine its own device key while the existing seed becomes the account root.
+  Nothing changes on the wire yet — the device key is created and stored, not
+  used.
+- **Unknown DHT record kinds no longer break decoding.** Records travel in
+  lists inside lookup responses, and a single unrecognised kind used to reject
+  the whole structure — meaning a future record type would have made older
+  nodes lose entire responses, not just the extra record. Deployed now so that
+  it is already in place when it is needed.
+
 ### Fixed
 
 - **"Mark as read" is back in the server menu.** It was lost in the 4.5.0 menu

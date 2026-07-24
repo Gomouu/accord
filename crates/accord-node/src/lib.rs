@@ -6,6 +6,7 @@
 #![deny(missing_docs)]
 
 pub mod backup;
+pub mod device;
 pub mod error;
 pub mod hex;
 pub mod identity;
@@ -289,6 +290,13 @@ async fn run_node(
     socket_override: Option<Arc<dyn DatagramSocket>>,
 ) -> Result<RunningNode, NodeError> {
     let db = Db::open(&config.paths.db(), &unlocked.db_key)?;
+
+    // Migration vers le modèle compte/appareil (jalon 1, lot 1.B) : la graine
+    // actuelle devient la racine du compte, et cette machine reçoit une clé
+    // d'appareil DISTINCTE. Créée et persistée ici, pas encore utilisée — le
+    // transport bascule dessus au lot 1.C. Voir `docs/MULTI_DEVICE.md`.
+    device::ensure_local_device(&db)?;
+
     let identity = Arc::new(unlocked.identity);
     let injected = socket_override.is_some();
 

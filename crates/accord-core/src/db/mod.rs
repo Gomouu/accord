@@ -2,6 +2,7 @@
 //! horloge de Lamport persistante et métadonnées (SPEC §2.6).
 
 mod contacts;
+mod devices;
 mod ephemeral;
 mod files;
 mod groups;
@@ -15,6 +16,7 @@ mod search;
 mod stats;
 
 pub use contacts::{Contact, ContactState};
+pub use devices::{CachedDeviceList, LocalDevice};
 pub use files::{FetchIntent, FileEntry};
 pub use groups::{LocalMembership, StoredGroupKey};
 pub use invites::IncomingInvite;
@@ -36,7 +38,7 @@ use std::path::Path;
 /// la version suffit pour créer les nouvelles tables sur une base existante.
 /// Modifier des colonnes existantes exige en revanche une vraie migration —
 /// voir [`MIGRATIONS`].
-const SCHEMA_VERSION: i64 = 12;
+const SCHEMA_VERSION: i64 = 13;
 
 /// Version au-delà de laquelle les évolutions passent par [`MIGRATIONS`].
 ///
@@ -68,7 +70,36 @@ struct Migration {
 ///
 /// 🔒 Une étape publiée ne se modifie plus : des bases l'ont déjà appliquée.
 /// Une correction se fait par une étape suivante.
-const MIGRATIONS: &[Migration] = &[];
+const MIGRATIONS: &[Migration] = &[Migration {
+    to: 13,
+    label: "compte et appareils (multi-appareil)",
+    apply: |conn| {
+        // `local_device` : notre appareil sur cette machine. `id` est figé à 1
+        // et contraint : deux lignes signifieraient deux identités de
+        // transport sur la même machine, ce que le jalon existe pour empêcher.
+        //
+        // `IF NOT EXISTS` : une étape ré-exécutable sans dommage coûte trois
+        // mots et couvre le cas où la version enregistrée redescendrait —
+        // restauration d'une sauvegarde, base recopiée à la main. Une étape
+        // qui explose dans ce cas transforme une bizarrerie en application
+        // qui ne démarre plus.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS local_device (
+               id        INTEGER PRIMARY KEY CHECK (id = 1),
+               seed      BLOB    NOT NULL,
+               pow_nonce INTEGER NOT NULL,
+               name      TEXT    NOT NULL DEFAULT ''
+             );
+             CREATE TABLE IF NOT EXISTS device_lists (
+               account    BLOB PRIMARY KEY,
+               version    INTEGER NOT NULL,
+               encoded    BLOB    NOT NULL,
+               fetched_ms INTEGER NOT NULL
+             );",
+        )?;
+        Ok(())
+    },
+}];
 
 /// Copie la base avant une migration, et purge les copies les plus anciennes.
 ///
@@ -938,6 +969,28 @@ mod tests {
                 assert_eq!(supported, SCHEMA_VERSION);
             }
             autre => panic!("attendu un refus de rétrogradation, obtenu {autre:?}"),
+        }
+    }
+
+    #[test]
+    fn les_etapes_publiees_sont_reexecutables_sans_dommage() {
+        // Une version enregistrée peut redescendre (sauvegarde restaurée, base
+        // recopiée). Une étape qui explose dans ce cas transforme une
+        // bizarrerie en application qui ne démarre plus.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("core.db");
+        let db_key = key(11);
+        Db::open(&path, &db_key).unwrap();
+
+        for _ in 0..3 {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key(&db_key)))
+                .unwrap();
+            conn.execute_batch(&format!("PRAGMA user_version = {BASELINE_VERSION};"))
+                .unwrap();
+            drop(conn);
+            let db = Db::open(&path, &db_key).expect("réouverture après rembobinage");
+            assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
         }
     }
 

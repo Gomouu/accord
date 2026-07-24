@@ -20,6 +20,7 @@
 #![warn(missing_docs)]
 
 pub mod archive;
+pub mod device;
 pub mod error;
 pub mod friendcode;
 pub mod handshake;
@@ -30,6 +31,9 @@ pub mod sealed;
 pub mod session;
 pub mod vault;
 
+pub use device::{
+    verify_device_list, version_for, AccountIdentity, DeviceIdentity, DeviceListError,
+};
 pub use error::CryptoError;
 pub use friendcode::{FriendCode, FRIENDCODE_PAYLOAD_LEN};
 pub use handshake::{respond, CookieJar, Established, Initiator, NonceCache};

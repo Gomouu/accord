@@ -171,6 +171,11 @@ impl<'a> Reader<'a> {
         Ok(s)
     }
 
+    /// Lit exactement `n` octets bruts (préfixe de domaine, tampon figé).
+    pub fn take_exact(&mut self, n: usize) -> Result<&'a [u8], DecodeError> {
+        self.take(n)
+    }
+
     /// Lit un `u8`.
     pub fn u8(&mut self) -> Result<u8, DecodeError> {
         Ok(self.take(1)?[0])

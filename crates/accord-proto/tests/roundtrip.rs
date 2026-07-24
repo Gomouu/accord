@@ -1213,3 +1213,43 @@ fn invite_ticket_truncation_never_panics_and_is_rejected() {
     }
     assert_eq!(ChannelMsg::from_bytes(&bytes).unwrap(), m);
 }
+
+#[test]
+fn unknown_record_kind_survives_decoding() {
+    // 🔒 Un genre inconnu ne doit pas condamner le décodage : les records
+    // voyagent en listes, et rejeter la structure entière ferait perdre à un
+    // nœud ancien TOUTE une réponse de lookup à cause d'un seul record en
+    // trop. C'est la condition pour pouvoir ajouter un genre plus tard.
+    let record = DhtRecord {
+        key: [1; 32],
+        kind: RecordKind::Unknown(0x7f),
+        value: vec![9, 9, 9],
+        publisher: [2; 32],
+        timestamp_ms: 1_700_000_000_000,
+        expiry_s: 3600,
+        sig: [3; 64],
+    };
+    let back = DhtRecord::from_bytes(&record.to_bytes()).expect("décodage");
+    assert_eq!(back, record);
+}
+
+#[test]
+fn unknown_record_kind_keeps_its_wire_byte() {
+    // La signature du record couvre l'octet de genre : le réécrire ferait
+    // échouer la vérification chez le destinataire suivant.
+    for byte in [0x05, 0x42, 0xff] {
+        assert_eq!(RecordKind::from_u8(byte).to_u8(), byte);
+    }
+}
+
+#[test]
+fn known_record_kinds_roundtrip_their_discriminant() {
+    for kind in [
+        RecordKind::Identity,
+        RecordKind::Presence,
+        RecordKind::MailboxHint,
+        RecordKind::FileProvider,
+    ] {
+        assert_eq!(RecordKind::from_u8(kind.to_u8()), kind);
+    }
+}

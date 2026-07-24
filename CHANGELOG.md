@@ -2,6 +2,60 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [6.2.0] — 2026-07-25
+
+### Added
+
+- **See who you are actually connected to.** A small dot next to each friend —
+  in the friends list and in the conversation header — says whether the link is
+  direct, going through a relay, or absent, with the measured round-trip in the
+  tooltip. The diagnostic already existed; it just required opening a panel to
+  read it. The dot stays hidden until the node has actually reported, so it
+  never claims "offline" on the strength of an unloaded state.
+- **A real video grid in calls and voice rooms.** One tile per stream, laid out
+  by how many there are, each named after the person sending it. Click a tile to
+  pin it and see only that one; people present without a camera appear as
+  avatars instead of empty black rectangles. A single person can send their
+  camera and their screen at once, as two tiles.
+- **The keyboard shortcut screen now lists them all** — navigation, interface
+  zoom, the command palette, composing (edit your last message, @ and : 
+  completion) and voice, including push-to-talk with the key you configured.
+
+### Fixed
+
+- **Two people sharing video in the same voice room no longer collide.** The
+  app decoded incoming video per source rather than per sender, so two
+  simultaneous streams fed the same decoder and produced noise. Each sender now
+  has their own decoder. The node had always sent the information; only the app
+  was discarding it.
+
+### Changed
+
+- **The app starts noticeably faster.** The initial download went from 207 kB to
+  138 kB compressed. Languages other than French, the settings screens, server
+  administration, the command palette and the network panel now load on demand
+  instead of on every launch. A build that crosses the budget fails CI, so this
+  cannot quietly drift back.
+- **Your database is protected across versions.** Schema changes now apply as
+  numbered steps inside a single transaction — a failure leaves the database
+  exactly as it was, never half-migrated — after an automatic backup. Opening a
+  database written by a *newer* version of Accord is refused with a clear
+  message instead of risking corruption.
+- Profile decoration names moved into the translation files, so adding a
+  language now covers them automatically.
+
+### Internal
+
+- The handshake gains an authenticated capability field, deployed one version
+  ahead of its first use. This release reads and verifies it but does not
+  announce anything yet: a peer running an older build cannot decode a longer
+  handshake, and would lose the session entirely. Stripping the field or
+  lowering its bits in flight breaks signature verification, so it cannot be
+  used to force a downgrade. It is the groundwork for post-quantum key
+  agreement.
+- `scripts/clean-xattrs.sh` diagnoses the macOS extended-attribute problem that
+  can block local builds, and says plainly when the OS reapplies it.
+
 ## [6.1.0] — 2026-07-24
 
 ### Added

@@ -22,8 +22,15 @@ fn bench_handshake(c: &mut Criterion) {
             // Flux complet : HELLO → WELCOME → dérivation de clés des deux côtés.
             let init = Initiator::start(black_box(&alice), now, vec![], POW, None, None);
             let mut cache = NonceCache::new();
-            let (welcome, _est_b) =
-                respond(black_box(&bob), init.hello(), now + 20, &mut cache, POW, None).unwrap();
+            let (welcome, _est_b) = respond(
+                black_box(&bob),
+                init.hello(),
+                now + 20,
+                &mut cache,
+                POW,
+                None,
+            )
+            .unwrap();
             let est_a = init.finish(&welcome, now + 40).unwrap();
             black_box(est_a.session_id)
         })

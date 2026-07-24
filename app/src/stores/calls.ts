@@ -17,6 +17,7 @@ import { create } from 'zustand';
 import { api } from '../lib/client';
 import {
   resetAllRemote,
+  resetPeer,
   resetRemote,
   startLocalStream,
   stopAllLocal,
@@ -113,6 +114,12 @@ interface CallsState {
    * prouve que le flux existe.
    */
   noteRemoteFrame: (peer: string, source: VideoSource) => void;
+  /**
+   * Oublie tous les flux d'un participant qui s'en va. Un départ brutal ne
+   * s'accompagne d'aucune annonce d'arrêt : sans ce nettoyage, sa tuile
+   * resterait à l'écran, figée sur sa dernière image.
+   */
+  forgetPeerVideo: (peer: string) => void;
 }
 
 /**
@@ -297,6 +304,16 @@ export const useCalls = create<CallsState>((set, get) => ({
 
   noteRemoteFrame: (peer, source) => {
     set((s) => setRemote(s.remoteVideo, peer, source, true));
+  },
+
+  forgetPeerVideo: (peer) => {
+    if (get().remoteVideo[peer] === undefined) return;
+    resetPeer(peer);
+    set((s) => {
+      const remoteVideo = { ...s.remoteVideo };
+      delete remoteVideo[peer];
+      return { remoteVideo };
+    });
   },
 
   markMissed: (peer) =>

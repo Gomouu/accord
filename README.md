@@ -131,6 +131,7 @@ external audit yet** — treat it accordingly for high-stakes use.
 | [docs/SPEC.md](docs/SPEC.md) | Wire protocol |
 | [docs/API.md](docs/API.md) | UI ↔ node API |
 | [docs/DEV.md](docs/DEV.md) | Developer guide |
+| [docs/MULTI_DEVICE.md](docs/MULTI_DEVICE.md) | Multi-device design (account/device model) |
 
 ## Authenticity & disclaimer
 

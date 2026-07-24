@@ -26,9 +26,18 @@ if (root === null) {
 // Seul le français est dans le socle : la langue persistée est chargée avant
 // le premier rendu, sinon l'application s'afficherait un instant en français
 // puis basculerait. Une seule requête, et seulement pour les non-francophones.
+//
+// L'échec est rattrapé : un chunk introuvable (cache corrompu, fichier manquant
+// après une mise à jour partielle) ne doit pas empêcher l'application de
+// démarrer. L'interface s'affiche alors en français — dégradé, mais utilisable,
+// et l'utilisateur peut rechoisir sa langue.
 const lang = useUi.getState().lang;
 if (lang !== 'fr') {
-  await loadDictionary(lang);
+  try {
+    await loadDictionary(lang);
+  } catch {
+    useUi.setState({ lang: 'fr' });
+  }
 }
 
 ReactDOM.createRoot(root).render(

@@ -256,7 +256,7 @@ export const es: Dict = {
     noChannel: 'Aún no hay canales: crea uno para empezar.',
     founder: 'fundador',
     // Read-only composer.
-    timedOutNotice: 'Estás en tiempo fuera: podrás volver a publicar a las {time}.',
+    timedOutNotice: 'Estás en aislamiento: podrás volver a publicar a las {time}.',
     announcementReadOnly: 'Canal de anuncios: solo los gestores pueden publicar.',
     // Slow mode (composer countdown).
     slowmodeWait: 'Modo lento: podrás enviar un mensaje en {seconds} s.',
@@ -459,11 +459,11 @@ export const es: Dict = {
     kickConfirm: '¿Expulsar a {name}?',
     banConfirm: '¿Banear a {name}? No podrá volver a entrar.',
     // Temporary timeout.
-    timeout: 'Tiempo fuera',
-    timeoutApply: 'Aplicar tiempo fuera',
-    timeoutClear: 'Quitar el tiempo fuera',
-    timeoutDuration: 'Duración del tiempo fuera',
-    timedOutUntil: 'En tiempo fuera hasta las {time}',
+    timeout: 'Aislamiento',
+    timeoutApply: 'Aplicar aislamiento',
+    timeoutClear: 'Quitar el aislamiento',
+    timeoutDuration: 'Duración del aislamiento',
+    timedOutUntil: 'En aislamiento hasta las {time}',
     timeout5m: '5 minutos',
     timeout10m: '10 minutos',
     timeout1h: '1 hora',

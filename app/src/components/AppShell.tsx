@@ -453,6 +453,9 @@ function useNodeEvents() {
           break;
         case 'event.voice_left':
           useVoice.getState().applyLeft(event.params);
+          // Départ sans annonce d'arrêt de flux : sans ça, la tuile vidéo de
+          // la personne resterait affichée, figée sur sa dernière image.
+          useCalls.getState().forgetPeerVideo(event.params.pubkey);
           break;
         case 'event.voice_speaking':
           useVoice.getState().applySpeaking(event.params);

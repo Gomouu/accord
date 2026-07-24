@@ -298,11 +298,7 @@ impl Db {
 
     /// Cœur de [`Self::apply_migrations`], paramétré par le registre pour que
     /// les tests puissent éprouver le rollback sur des étapes fabriquées.
-    fn apply_migration_list(
-        &self,
-        from: i64,
-        migrations: &[Migration],
-    ) -> Result<(), CoreError> {
+    fn apply_migration_list(&self, from: i64, migrations: &[Migration]) -> Result<(), CoreError> {
         let pending: Vec<&Migration> = migrations.iter().filter(|m| m.to > from).collect();
         if pending.is_empty() {
             return Ok(());
@@ -1016,8 +1012,10 @@ mod tests {
                 .unwrap();
             conn.query_row("SELECT count(*) FROM sqlite_master", [], |_| Ok(()))
                 .unwrap();
-            conn.execute_batch("BEGIN; CREATE TABLE vieux (x INTEGER); PRAGMA user_version = 1; COMMIT;")
-                .unwrap();
+            conn.execute_batch(
+                "BEGIN; CREATE TABLE vieux (x INTEGER); PRAGMA user_version = 1; COMMIT;",
+            )
+            .unwrap();
         }
         let db = Db::open(&path, &db_key).unwrap();
         assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);

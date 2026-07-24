@@ -24,12 +24,14 @@ vi.mock('../lib/mediaController', () => ({
   stopLocalStream: vi.fn(),
   stopAllLocal: vi.fn(),
   resetRemote: vi.fn(),
+  resetPeer: vi.fn(),
   resetAllRemote: vi.fn(),
 }));
 
 import { api } from '../lib/client';
 import {
   resetAllRemote,
+  resetPeer,
   resetRemote,
   startLocalStream,
   stopAllLocal,
@@ -46,6 +48,7 @@ const startShareMock = startLocalStream as unknown as Mock;
 const stopShareMock = stopLocalStream as unknown as Mock;
 const stopAllMock = stopAllLocal as unknown as Mock;
 const resetRemoteMock = resetRemote as unknown as Mock;
+const resetPeerMock = resetPeer as unknown as Mock;
 const resetAllMock = resetAllRemote as unknown as Mock;
 
 beforeEach(() => {
@@ -68,6 +71,7 @@ beforeEach(() => {
   stopShareMock.mockReset();
   stopAllMock.mockReset();
   resetRemoteMock.mockReset();
+  resetPeerMock.mockReset();
   resetAllMock.mockReset();
 });
 
@@ -422,6 +426,23 @@ describe('useCalls — partage d’écran (v5)', () => {
   it('noteRemoteFrame marque le flux actif quand l’annonce s’est perdue', () => {
     useCalls.getState().noteRemoteFrame('p', 'screen');
     expect(useCalls.getState().remoteVideo.p?.screen).toBe(true);
+  });
+
+  it('forgetPeerVideo retire les tuiles d’un participant parti sans annonce', () => {
+    // Un départ brutal (fermeture de l'app, perte de réseau) n'envoie aucune
+    // annonce d'arrêt : la tuile resterait figée sur la dernière image.
+    useCalls.getState().applyCameraState({ peer: 'alice', on: true });
+    useCalls.getState().applyScreenState({ peer: 'bob', sharing: true });
+    useCalls.getState().forgetPeerVideo('alice');
+    expect(useCalls.getState().remoteVideo.alice).toBeUndefined();
+    expect(resetPeerMock).toHaveBeenCalledWith('alice');
+    // Les autres participants ne sont pas touchés.
+    expect(useCalls.getState().remoteVideo.bob?.screen).toBe(true);
+  });
+
+  it('forgetPeerVideo ne fait rien pour un pair sans flux', () => {
+    useCalls.getState().forgetPeerVideo('inconnu');
+    expect(resetPeerMock).not.toHaveBeenCalled();
   });
 
   it('noteRemoteFrame ne recrée pas l’état à chaque trame', () => {

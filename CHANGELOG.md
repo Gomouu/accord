@@ -2,6 +2,25 @@
 
 All notable changes to Accord. This project follows [semantic versioning](https://semver.org).
 
+## [Unreleased]
+
+### Added
+
+- **Automatic lock.** The vault can close itself after a chosen period without
+  activity and ask for your passphrase again. Off by default. An ongoing call
+  suspends the countdown, and the full delay restarts when it ends.
+- **Streamer mode.** Hides your friend code on screen behind a click-to-reveal
+  mask, and strips the content of system notifications. It protects against a
+  screenshot or a live stream, not against access to your machine.
+- **Subtext with `-# `** — the quiet counterpart of a heading, for a caption or
+  an aside under a message.
+
+### Fixed
+
+- **"Mark as read" is back in the server menu.** It was lost in the 4.5.0 menu
+  redesign and shipped missing. The end-to-end test covering it had been failing
+  ever since, but that suite was not part of the gate — it now is.
+
 ## [6.2.0] — 2026-07-25
 
 ### Added

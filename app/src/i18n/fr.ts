@@ -889,6 +889,7 @@ export const fr = {
     languageHint: 'La langue de l’interface change immédiatement.',
     french: 'Français',
     english: 'English',
+    spanish: 'Español',
     blockedUsers: 'Utilisateurs bloqués',
     antiSpamTitle: 'Anti-spam',
     antiSpamHint:

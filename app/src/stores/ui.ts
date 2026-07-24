@@ -252,7 +252,7 @@ export function stepFontScale(current: FontScale, direction: 1 | -1): FontScale 
 }
 
 function isLang(value: string | null): value is Lang {
-  return value === 'fr' || value === 'en';
+  return value === 'fr' || value === 'en' || value === 'es';
 }
 
 /** Valeurs persistées, validées à la frontière (repli : défauts sûrs). */
@@ -277,11 +277,14 @@ function initialFontScale(): FontScale {
  */
 /**
  * Langue déduite d'une étiquette BCP-47 (`navigator.language`) parmi celles
- * supportées : français si l'étiquette commence par `fr`, anglais sinon
- * (défaut sûr). Pure et testable ; étendre ici à l'ajout d'une langue.
+ * supportées : français si l'étiquette commence par `fr`, espagnol si elle
+ * commence par `es`, anglais sinon (défaut sûr). Pure et testable ; étendre ici à l'ajout d'une langue.
  */
 export function pickLang(tag: string): Lang {
-  return tag.toLowerCase().startsWith('fr') ? 'fr' : 'en';
+  const etiquette = tag.toLowerCase();
+  if (etiquette.startsWith('fr')) return 'fr';
+  if (etiquette.startsWith('es')) return 'es';
+  return 'en';
 }
 
 function initialLang(): Lang {

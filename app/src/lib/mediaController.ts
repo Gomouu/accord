@@ -1,9 +1,14 @@
 /**
- * Coordination des flux vidéo d'un appel (partage d'écran v5, caméra v6) :
- * relie les captures locales aux API `screen.*`/`camera.*` du nœud, et les
- * trames distantes reçues au rendu sur canevas. Détient les instances uniques
- * de capture et de visionneuse ; le store `stores/calls.ts` n'expose que des
- * booléens d'état.
+ * Coordination des flux vidéo (partage d'écran v5, caméra v6) : relie les
+ * captures locales aux API `screen.*`/`camera.*` du nœud, et les trames
+ * distantes reçues au rendu sur canevas.
+ *
+ * Les visionneuses sont indexées **par pair et par source**. En appel 1-à-1 il
+ * n'y en a qu'une de chaque ; en salon vocal de groupe, plusieurs personnes
+ * peuvent diffuser en même temps, et une visionneuse unique par source ferait
+ * s'écraser leurs images l'une l'autre — le décodeur recevrait des trames de
+ * deux flux entrelacées et ne produirait que du bruit. Le nœud, lui, sait
+ * depuis toujours qui envoie quoi (`event.*_frame` porte `peer`).
  */
 
 import { api } from './client';
@@ -21,14 +26,28 @@ const captures: Record<VideoSource, VideoCapture> = {
   camera: new VideoCapture(),
 };
 
-/** Visionneuses des flux distants (le composant leur lie son canevas). */
-export const remotePlayback: Record<VideoSource, VideoPlayback> = {
-  screen: new VideoPlayback(),
-  camera: new VideoPlayback(),
-};
+/** Visionneuses distantes, indexées `pair:source`. */
+const playbacks = new Map<string, VideoPlayback>();
+
+const keyOf = (peer: string, source: VideoSource): string => `${peer}:${source}`;
 
 export { videoSourceSupported };
 export type { VideoSource };
+
+/**
+ * Visionneuse d'un flux distant, créée à la demande. Le composant lui lie son
+ * canevas ; la visionneuse survit au démontage du canevas (changement de mise
+ * en page, épinglage) sans perdre son décodeur.
+ */
+export function playbackFor(peer: string, source: VideoSource): VideoPlayback {
+  const key = keyOf(peer, source);
+  let playback = playbacks.get(key);
+  if (playback === undefined) {
+    playback = new VideoPlayback();
+    playbacks.set(key, playback);
+  }
+  return playback;
+}
 
 /** Annonce le démarrage d'un flux au pair (best-effort). */
 function announceStart(source: VideoSource): Promise<unknown> {
@@ -101,25 +120,36 @@ export function localPreviewStream(source: VideoSource): MediaStream | null {
   return captures[source].stream;
 }
 
-/** Trame distante reçue : décodée et peinte sur la visionneuse du flux. */
+/** Trame distante reçue : décodée et peinte sur la visionneuse de ce pair. */
 export function pushRemoteFrame(
+  peer: string,
   source: VideoSource,
   keyframe: boolean,
   dataHex: string,
 ): void {
   const bytes = hexToBytes(dataHex);
-  if (bytes !== null) remotePlayback[source].push(keyframe, bytes);
+  if (bytes !== null) playbackFor(peer, source).push(keyframe, bytes);
 }
 
-/** Fin d'un flux distant : réinitialise le décodeur concerné. */
-export function resetRemote(source: VideoSource): void {
-  remotePlayback[source].reset();
+/** Fin d'un flux distant : ferme et oublie la visionneuse concernée. */
+export function resetRemote(peer: string, source: VideoSource): void {
+  const key = keyOf(peer, source);
+  const playback = playbacks.get(key);
+  if (playback === undefined) return;
+  playback.close();
+  playbacks.delete(key);
 }
 
-/** Fin d'appel : réinitialise les deux visionneuses. */
+/** Départ d'un participant : ferme toutes ses visionneuses. */
+export function resetPeer(peer: string): void {
+  resetRemote(peer, 'screen');
+  resetRemote(peer, 'camera');
+}
+
+/** Fin d'appel : ferme toutes les visionneuses distantes. */
 export function resetAllRemote(): void {
-  remotePlayback.screen.reset();
-  remotePlayback.camera.reset();
+  for (const playback of playbacks.values()) playback.close();
+  playbacks.clear();
 }
 
 /** Fin d'appel : coupe toute capture locale encore active. */

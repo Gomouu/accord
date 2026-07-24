@@ -1,19 +1,22 @@
 /**
- * Vidéo d'appel (v5 écran, v6 caméra) : panneau visible seulement en appel
- * actif, boutons désactivés proprement quand le runtime ne supporte pas la
- * source, vues distantes liées aux décodeurs.
+ * Grille vidéo d'appel : visible en appel actif ou en salon vocal, une tuile
+ * par flux reçu, épinglage, repli en avatars, boutons désactivés proprement
+ * quand le runtime ne supporte pas la source.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { useCalls } from '../stores/calls';
+import { useFriends } from '../stores/friends';
 import { useUi } from '../stores/ui';
+import { useVoice } from '../stores/voice';
 import { CallVideo } from './CallVideo';
 
 vi.mock('../lib/mediaController', () => ({
   videoSourceSupported: vi.fn(() => true),
-  remotePlayback: { screen: { attach: vi.fn() }, camera: { attach: vi.fn() } },
+  playbackFor: vi.fn(() => ({ attach: vi.fn() })),
   localPreviewStream: vi.fn(() => null),
   startLocalStream: vi.fn(),
   stopLocalStream: vi.fn(),
@@ -23,11 +26,43 @@ vi.mock('../lib/mediaController', () => ({
   pushRemoteFrame: vi.fn(),
 }));
 
-import { remotePlayback, videoSourceSupported } from '../lib/mediaController';
+import { playbackFor, videoSourceSupported } from '../lib/mediaController';
 
 const supportedMock = videoSourceSupported as unknown as Mock;
-const attachScreen = remotePlayback.screen.attach as unknown as Mock;
-const attachCamera = remotePlayback.camera.attach as unknown as Mock;
+const playbackForMock = playbackFor as unknown as Mock;
+
+/** Contact minimal : la grille lit le nom et l'avatar depuis le carnet. */
+function contact(pubkey: string, name: string) {
+  return {
+    pubkey,
+    node_id: pubkey,
+    friend_code: pubkey,
+    display_name: name,
+    state: 'friend' as const,
+    added_ms: 0,
+    last_seen_ms: 0,
+    online: true,
+    avatar: null,
+    banner: null,
+    bio: null,
+    status_text: null,
+    avatar_decoration: null,
+    unread: 0,
+  };
+}
+
+/** Participant silencieux : la grille ne lit que la présence, pas l'audio. */
+function participant() {
+  return {
+    speaking: false,
+    muted: false,
+    deafened: false,
+    volume: 100,
+    serverMuted: false,
+    serverDeafened: false,
+    prioritySpeaker: false,
+  };
+}
 
 beforeEach(() => {
   useUi.setState({ lang: 'fr' });
@@ -37,17 +72,20 @@ beforeEach(() => {
     callId: null,
     sincePhaseMs: null,
     localSharing: false,
-    remoteSharing: false,
     localCamera: false,
-    remoteCamera: false,
+    remoteVideo: {},
+  });
+  useVoice.setState({ active: null, participants: new Map() });
+  useFriends.setState({
+    contacts: [contact('alice', 'Alice'), contact('bob', 'Bob')],
   });
   supportedMock.mockReturnValue(true);
-  attachScreen.mockReset();
-  attachCamera.mockReset();
+  playbackForMock.mockClear();
+  playbackForMock.mockImplementation(() => ({ attach: vi.fn() }));
 });
 
 describe('CallVideo', () => {
-  it('ne rend rien hors appel actif', () => {
+  it('ne rend rien hors appel actif et hors salon vocal', () => {
     const { container } = render(<CallVideo />);
     expect(container).toBeEmptyDOMElement();
   });
@@ -83,26 +121,109 @@ describe('CallVideo', () => {
       'aria-pressed',
       'true',
     );
-    // Aperçu local de sa propre caméra.
     expect(screen.getByLabelText('Votre caméra')).toBeInTheDocument();
   });
 
-  it('montre la vue écran distante et la lie à son décodeur', () => {
-    useCalls.setState({ phase: 'active', remoteSharing: true });
+  it('nomme chaque tuile d’après son émetteur', () => {
+    useCalls.setState({
+      phase: 'active',
+      remoteVideo: { alice: { screen: true, camera: false } },
+    });
     render(<CallVideo />);
 
-    expect(screen.getByLabelText('Écran partagé')).toBeInTheDocument();
-    expect(attachScreen).toHaveBeenCalledTimes(1);
-    expect(attachCamera).not.toHaveBeenCalled();
+    // Le nom, pas un libellé générique : à plusieurs émetteurs, « Écran
+    // partagé » ne dirait pas de qui.
+    expect(screen.getByLabelText(/^Alice — /)).toBeInTheDocument();
+    expect(playbackForMock).toHaveBeenCalledWith('alice', 'screen');
   });
 
-  it('affiche les deux vues distantes simultanément (caméra + écran)', () => {
-    useCalls.setState({ phase: 'active', remoteSharing: true, remoteCamera: true });
+  it('affiche une tuile par flux, y compris deux flux d’une même personne', () => {
+    useCalls.setState({
+      phase: 'active',
+      remoteVideo: { alice: { screen: true, camera: true } },
+    });
     render(<CallVideo />);
 
-    expect(screen.getByLabelText('Caméra')).toBeInTheDocument();
-    expect(screen.getByLabelText('Écran partagé')).toBeInTheDocument();
-    expect(attachCamera).toHaveBeenCalledTimes(1);
-    expect(attachScreen).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText('Alice')).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Alice — /)).toBeInTheDocument();
+    expect(playbackForMock).toHaveBeenCalledWith('alice', 'camera');
+    expect(playbackForMock).toHaveBeenCalledWith('alice', 'screen');
+  });
+
+  it('sépare les flux de deux émetteurs simultanés', () => {
+    // Le cas que l'ancienne mise en page ne savait pas rendre : une visionneuse
+    // unique par source aurait entrelacé les deux flux.
+    useCalls.setState({
+      phase: 'active',
+      remoteVideo: {
+        alice: { screen: false, camera: true },
+        bob: { screen: false, camera: true },
+      },
+    });
+    render(<CallVideo />);
+
+    expect(screen.getByLabelText('Alice')).toBeInTheDocument();
+    expect(screen.getByLabelText('Bob')).toBeInTheDocument();
+    expect(playbackForMock).toHaveBeenCalledWith('alice', 'camera');
+    expect(playbackForMock).toHaveBeenCalledWith('bob', 'camera');
+  });
+
+  it('épingle un flux et n’affiche plus que lui, puis revient à la grille', async () => {
+    const user = userEvent.setup();
+    useCalls.setState({
+      phase: 'active',
+      remoteVideo: {
+        alice: { screen: false, camera: true },
+        bob: { screen: false, camera: true },
+      },
+    });
+    render(<CallVideo />);
+
+    const [epingler] = screen.getAllByRole('button', { name: 'Épingler' });
+    await user.click(epingler!);
+
+    expect(screen.queryByLabelText('Bob')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Alice')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Retirer l’épingle' }));
+    expect(screen.getByLabelText('Bob')).toBeInTheDocument();
+  });
+
+  it('libère l’épingle quand le flux épinglé s’arrête', async () => {
+    const user = userEvent.setup();
+    useCalls.setState({
+      phase: 'active',
+      remoteVideo: {
+        alice: { screen: false, camera: true },
+        bob: { screen: false, camera: true },
+      },
+    });
+    const { rerender } = render(<CallVideo />);
+    await user.click(screen.getAllByRole('button', { name: 'Épingler' })[0]!);
+
+    // Alice coupe sa caméra : figer une tuile morte serait pire que rien.
+    useCalls.setState({ remoteVideo: { bob: { screen: false, camera: true } } });
+    rerender(<CallVideo />);
+
+    expect(screen.getByLabelText('Bob')).toBeInTheDocument();
+  });
+
+  it('se replie sur les avatars en salon vocal quand personne ne diffuse', () => {
+    useVoice.setState({
+      active: { groupId: 'g', channelId: 'c', muted: false, isCall: false },
+      participants: new Map([
+        ['alice', participant()],
+        ['bob', participant()],
+      ]),
+    });
+    render(<CallVideo />);
+
+    // Pas de canevas noirs vides : les personnes présentes restent visibles.
+    expect(
+      screen.getByRole('group', { name: 'Participants en vidéo' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Alice')).toBeInTheDocument();
+    expect(screen.getByText('Bob')).toBeInTheDocument();
+    expect(playbackForMock).not.toHaveBeenCalled();
   });
 });

@@ -56,9 +56,8 @@ beforeEach(() => {
     sincePhaseMs: null,
     missedPeers: new Set(),
     localSharing: false,
-    remoteSharing: false,
     localCamera: false,
-    remoteCamera: false,
+    remoteVideo: {},
   });
   startMock.mockReset();
   acceptMock.mockReset();
@@ -384,19 +383,54 @@ describe('useCalls — partage d’écran (v5)', () => {
     expect(useCalls.getState().localSharing).toBe(false);
   });
 
-  it('applyScreenState bascule le partage distant et réinitialise à l’arrêt', () => {
+  it('applyScreenState bascule le partage d’un pair et réinitialise à l’arrêt', () => {
     useCalls.getState().applyScreenState({ peer: 'p', sharing: true });
-    expect(useCalls.getState().remoteSharing).toBe(true);
+    expect(useCalls.getState().remoteVideo.p?.screen).toBe(true);
     expect(resetRemoteMock).not.toHaveBeenCalled();
 
     useCalls.getState().applyScreenState({ peer: 'p', sharing: false });
-    expect(useCalls.getState().remoteSharing).toBe(false);
-    expect(resetRemoteMock).toHaveBeenCalledWith('screen');
+    // Plus aucun flux : le pair sort de la table plutôt que d'y laisser une
+    // entrée qui afficherait une tuile vide.
+    expect(useCalls.getState().remoteVideo.p).toBeUndefined();
+    expect(resetRemoteMock).toHaveBeenCalledWith('p', 'screen');
   });
 
-  it('noteRemoteFrame marque le partage distant actif (annonce perdue)', () => {
-    useCalls.getState().noteRemoteFrame();
-    expect(useCalls.getState().remoteSharing).toBe(true);
+  it('suit plusieurs émetteurs simultanés sans les confondre', () => {
+    // Le cas du salon de groupe : deux personnes diffusent en même temps.
+    useCalls.getState().applyScreenState({ peer: 'alice', sharing: true });
+    useCalls.getState().applyCameraState({ peer: 'bob', on: true });
+    expect(useCalls.getState().remoteVideo).toEqual({
+      alice: { screen: true, camera: false },
+      bob: { screen: false, camera: true },
+    });
+
+    // L'arrêt de l'une ne touche pas l'autre.
+    useCalls.getState().applyScreenState({ peer: 'alice', sharing: false });
+    expect(useCalls.getState().remoteVideo.alice).toBeUndefined();
+    expect(useCalls.getState().remoteVideo.bob?.camera).toBe(true);
+  });
+
+  it('une même personne peut diffuser sa caméra ET son écran', () => {
+    useCalls.getState().applyCameraState({ peer: 'p', on: true });
+    useCalls.getState().applyScreenState({ peer: 'p', sharing: true });
+    expect(useCalls.getState().remoteVideo.p).toEqual({ screen: true, camera: true });
+    // Couper l'écran laisse la caméra en place.
+    useCalls.getState().applyScreenState({ peer: 'p', sharing: false });
+    expect(useCalls.getState().remoteVideo.p).toEqual({ screen: false, camera: true });
+  });
+
+  it('noteRemoteFrame marque le flux actif quand l’annonce s’est perdue', () => {
+    useCalls.getState().noteRemoteFrame('p', 'screen');
+    expect(useCalls.getState().remoteVideo.p?.screen).toBe(true);
+  });
+
+  it('noteRemoteFrame ne recrée pas l’état à chaque trame', () => {
+    // 12 à 24 trames par seconde : recréer la table à chaque fois ferait
+    // re-rendre toute la grille en continu.
+    useCalls.getState().noteRemoteFrame('p', 'camera');
+    const premier = useCalls.getState().remoteVideo;
+    useCalls.getState().noteRemoteFrame('p', 'camera');
+    expect(useCalls.getState().remoteVideo).toBe(premier);
   });
 
   it('applyEnded coupe local et distant et réinitialise la visionneuse', () => {
@@ -405,7 +439,7 @@ describe('useCalls — partage d’écran (v5)', () => {
       peer: 'p',
       callId: 'c1',
       localSharing: true,
-      remoteSharing: true,
+      remoteVideo: { p: { screen: true, camera: false } },
     });
     const reset = useCalls.getState().applyEnded({
       peer: 'p',
@@ -416,7 +450,7 @@ describe('useCalls — partage d’écran (v5)', () => {
     expect(stopAllMock).toHaveBeenCalledTimes(1);
     expect(resetAllMock).toHaveBeenCalled();
     expect(useCalls.getState().localSharing).toBe(false);
-    expect(useCalls.getState().remoteSharing).toBe(false);
+    expect(useCalls.getState().remoteVideo).toEqual({});
   });
 
   it('hangup coupe un partage en cours avant de raccrocher', async () => {

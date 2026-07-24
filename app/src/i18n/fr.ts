@@ -1402,6 +1402,9 @@ export const fr = {
     reminderAdd: 'Ajouter le rappel',
   },
   callVideo: {
+    gridLabel: 'Participants en vidéo',
+    pin: 'Épingler',
+    unpin: 'Retirer l’épingle',
     startCamera: 'Activer la caméra',
     stopCamera: 'Couper la caméra',
     selfLabel: 'Votre caméra',

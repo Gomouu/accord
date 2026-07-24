@@ -486,15 +486,25 @@ function useNodeEvents() {
           break;
         case 'event.screen_frame':
           // Une trame implique un partage actif même si l'annonce a été perdue.
-          useCalls.getState().noteRemoteFrame();
-          pushRemoteFrame('screen', event.params.keyframe, event.params.data);
+          useCalls.getState().noteRemoteFrame(event.params.peer, 'screen');
+          pushRemoteFrame(
+            event.params.peer,
+            'screen',
+            event.params.keyframe,
+            event.params.data,
+          );
           break;
         case 'event.screen_state':
           useCalls.getState().applyScreenState(event.params);
           break;
         case 'event.camera_frame':
-          useCalls.getState().noteRemoteCameraFrame();
-          pushRemoteFrame('camera', event.params.keyframe, event.params.data);
+          useCalls.getState().noteRemoteFrame(event.params.peer, 'camera');
+          pushRemoteFrame(
+            event.params.peer,
+            'camera',
+            event.params.keyframe,
+            event.params.data,
+          );
           break;
         case 'event.camera_state':
           useCalls.getState().applyCameraState(event.params);

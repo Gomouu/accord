@@ -1377,6 +1377,9 @@ export const en: Dict = {
     reminderAdd: 'Add reminder',
   },
   callVideo: {
+    gridLabel: 'Participants on video',
+    pin: 'Pin',
+    unpin: 'Unpin',
     startCamera: 'Turn on camera',
     stopCamera: 'Turn off camera',
     selfLabel: 'Your camera',

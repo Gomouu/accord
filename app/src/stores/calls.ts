@@ -21,10 +21,19 @@ import {
   startLocalStream,
   stopAllLocal,
   stopLocalStream,
+  type VideoSource,
 } from '../lib/mediaController';
 import type { CallEndedReason, CallState } from '../lib/api';
 
 export type { CallEndedReason, CallState } from '../lib/api';
+
+/** Flux vidéo reçus d'un participant. */
+export interface RemoteVideo {
+  /** Ce participant partage son écran. */
+  screen: boolean;
+  /** Ce participant a sa caméra allumée. */
+  camera: boolean;
+}
 
 interface CallsState {
   phase: CallState;
@@ -70,14 +79,16 @@ interface CallsState {
   markMissed: (peer: string) => void;
   /** Efface le badge d'appel manqué de `peer` (ouverture de la conversation). */
   clearMissed: (peer: string) => void;
-  /** Vrai si l'on partage son écran dans l'appel actif (v5). */
+  /** Vrai si l'on partage son écran (v5). */
   localSharing: boolean;
-  /** Vrai si le pair partage son écran. */
-  remoteSharing: boolean;
-  /** Vrai si notre caméra est allumée dans l'appel actif (v6). */
+  /** Vrai si notre caméra est allumée (v6). */
   localCamera: boolean;
-  /** Vrai si le pair a sa caméra allumée. */
-  remoteCamera: boolean;
+  /**
+   * Flux vidéo reçus, par clé publique de l'émetteur. Un salon de groupe peut
+   * en compter plusieurs simultanés : un booléen unique par source ne saurait
+   * pas dire QUI diffuse, et la grille ne pourrait pas s'afficher.
+   */
+  remoteVideo: Record<string, RemoteVideo>;
   /**
    * Démarre le partage de son écran (appel actif requis). Rejette si
    * l'utilisateur refuse le partage ou si le runtime ne le supporte pas.
@@ -92,14 +103,41 @@ interface CallsState {
   startCamera: () => Promise<void>;
   /** Éteint sa caméra. */
   stopCamera: () => Promise<void>;
-  /** Applique `event.screen_state` (le pair a démarré/arrêté son partage). */
+  /** Applique `event.screen_state` (un pair a démarré/arrêté son partage). */
   applyScreenState: (params: { peer: string; sharing: boolean }) => void;
-  /** Applique `event.camera_state` (le pair a allumé/éteint sa caméra). */
+  /** Applique `event.camera_state` (un pair a allumé/éteint sa caméra). */
   applyCameraState: (params: { peer: string; on: boolean }) => void;
-  /** Marque le partage distant actif dès la première trame reçue (robustesse). */
-  noteRemoteFrame: () => void;
-  /** Marque la caméra distante active dès la première trame reçue. */
-  noteRemoteCameraFrame: () => void;
+  /**
+   * Marque un flux distant actif dès la première trame reçue. L'annonce
+   * d'état peut se perdre (elle ne voyage pas en fiable) ; une trame, elle,
+   * prouve que le flux existe.
+   */
+  noteRemoteFrame: (peer: string, source: VideoSource) => void;
+}
+
+/**
+ * Met à jour un flux d'un participant sans muter la table. Rend `{}` — soit
+ * aucun changement — quand l'état est déjà celui demandé : les trames arrivent
+ * à 12–24 par seconde, et re-créer la table à chaque trame ferait re-rendre
+ * toute la grille en continu.
+ */
+function setRemote(
+  table: Record<string, RemoteVideo>,
+  peer: string,
+  source: VideoSource,
+  on: boolean,
+): Partial<CallsState> {
+  const current = table[peer] ?? { screen: false, camera: false };
+  if (current[source] === on) return {};
+  const next = { ...current, [source]: on };
+  // Un participant sans aucun flux quitte la table : la grille n'affiche que
+  // ce qui existe, et une entrée fantôme y laisserait une tuile vide.
+  if (!next.screen && !next.camera) {
+    const reste = { ...table };
+    delete reste[peer];
+    return { remoteVideo: reste };
+  }
+  return { remoteVideo: { ...table, [peer]: next } };
 }
 
 export const useCalls = create<CallsState>((set, get) => ({
@@ -109,9 +147,8 @@ export const useCalls = create<CallsState>((set, get) => ({
   sincePhaseMs: null,
   missedPeers: new Set(),
   localSharing: false,
-  remoteSharing: false,
   localCamera: false,
-  remoteCamera: false,
+  remoteVideo: {},
 
   start: async (peer) => {
     const { call_id: callId } = await api.callsStart(peer);
@@ -144,9 +181,8 @@ export const useCalls = create<CallsState>((set, get) => ({
       callId: null,
       sincePhaseMs: null,
       localSharing: false,
-      remoteSharing: false,
       localCamera: false,
-      remoteCamera: false,
+      remoteVideo: {},
     });
   },
 
@@ -162,9 +198,8 @@ export const useCalls = create<CallsState>((set, get) => ({
       callId: null,
       sincePhaseMs: null,
       localSharing: false,
-      remoteSharing: false,
       localCamera: false,
-      remoteCamera: false,
+      remoteVideo: {},
     });
   },
 
@@ -182,9 +217,8 @@ export const useCalls = create<CallsState>((set, get) => ({
       ...(idle
         ? {
             localSharing: false,
-            remoteSharing: false,
             localCamera: false,
-            remoteCamera: false,
+            remoteVideo: {},
           }
         : {}),
     });
@@ -219,9 +253,8 @@ export const useCalls = create<CallsState>((set, get) => ({
       callId: null,
       sincePhaseMs: null,
       localSharing: false,
-      remoteSharing: false,
       localCamera: false,
-      remoteCamera: false,
+      remoteVideo: {},
     });
     return true;
   },
@@ -252,22 +285,18 @@ export const useCalls = create<CallsState>((set, get) => ({
     set({ localCamera: false });
   },
 
-  applyScreenState: ({ sharing }) => {
-    if (!sharing) resetRemote('screen');
-    set({ remoteSharing: sharing });
+  applyScreenState: ({ peer, sharing }) => {
+    if (!sharing) resetRemote(peer, 'screen');
+    set((s) => setRemote(s.remoteVideo, peer, 'screen', sharing));
   },
 
-  applyCameraState: ({ on }) => {
-    if (!on) resetRemote('camera');
-    set({ remoteCamera: on });
+  applyCameraState: ({ peer, on }) => {
+    if (!on) resetRemote(peer, 'camera');
+    set((s) => setRemote(s.remoteVideo, peer, 'camera', on));
   },
 
-  noteRemoteFrame: () => {
-    if (!get().remoteSharing) set({ remoteSharing: true });
-  },
-
-  noteRemoteCameraFrame: () => {
-    if (!get().remoteCamera) set({ remoteCamera: true });
+  noteRemoteFrame: (peer, source) => {
+    set((s) => setRemote(s.remoteVideo, peer, source, true));
   },
 
   markMissed: (peer) =>

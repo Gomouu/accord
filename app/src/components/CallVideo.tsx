@@ -1,21 +1,27 @@
 /**
- * Vidéo d'appel (v5 partage d'écran, v6 caméra) : panneau flottant affiché
- * pendant un appel 1-à-1 actif. Deux boutons (caméra, écran), la vue du flux
- * distant sur canevas (alimentée par les décodeurs WebCodecs), et l'aperçu
- * local de sa propre caméra en incrustation. Chaque bouton se désactive
- * proprement quand le runtime ne supporte pas la source correspondante.
+ * Surface vidéo d'un appel ou d'un salon vocal.
+ *
+ * L'ancienne version empilait les vues verticalement : cela tenait pour un
+ * appel à deux avec un écran partagé, pas pour un salon où plusieurs personnes
+ * diffusent. La grille s'adapte au nombre de flux, met en avant celui qu'on
+ * épingle, et se replie proprement — avatars — quand personne n'a de caméra.
+ *
+ * Une tuile = un flux (une personne peut en avoir deux : sa caméra ET son
+ * écran, comme sur les autres plateformes).
  */
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  playbackFor,
   localPreviewStream,
-  remotePlayback,
   videoSourceSupported,
-  type VideoSource,
 } from '../lib/mediaController';
+import type { VideoSource } from '../lib/mediaController';
 import { useCalls } from '../stores/calls';
+import { displayNameOf, useFriends } from '../stores/friends';
 import { useT } from '../stores/ui';
 import { useVoice } from '../stores/voice';
+import { Avatar } from './Avatar';
 
 /** Icône « moniteur » (partage d'écran). */
 function ScreenIcon() {
@@ -63,37 +69,112 @@ function CameraIcon() {
   );
 }
 
-/** Canevas d'un flux distant, lié à sa visionneuse tant qu'il est actif. */
-function RemoteView({
-  source,
-  label,
-  badge,
-}: {
+/** Icône « épingle ». */
+function PinIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M9 3h6l-1 6 4 3v2H6v-2l4-3-1-6Z M12 14v7"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** Un flux affichable : qui l'envoie, et de quelle source. */
+interface Tile {
+  peer: string;
   source: VideoSource;
+}
+
+const tileKey = (tile: Tile): string => `${tile.peer}:${tile.source}`;
+
+/**
+ * Classes de grille pour `n` tuiles. Une seule tuile occupe toute la largeur ;
+ * au-delà, deux colonnes puis trois — au-delà de neuf flux simultanés la
+ * lisibilité est perdue de toute façon, et la limite de participants d'un
+ * salon (10) borne naturellement le cas.
+ */
+function gridClass(n: number): string {
+  if (n <= 1) return 'grid-cols-1';
+  if (n <= 4) return 'grid-cols-2';
+  return 'grid-cols-3';
+}
+
+/** Canevas d'un flux distant, lié à la visionneuse de son émetteur. */
+function RemoteTile({
+  tile,
+  name,
+  avatarHash,
+  label,
+  pinned,
+  onTogglePin,
+  pinLabel,
+}: {
+  tile: Tile;
+  name: string;
+  avatarHash: string | null;
   label: string;
-  badge: string;
+  pinned: boolean;
+  onTogglePin: () => void;
+  pinLabel: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (canvas !== null) remotePlayback[source].attach(canvas);
-  }, [source]);
+    if (canvas !== null) playbackFor(tile.peer, tile.source).attach(canvas);
+  }, [tile.peer, tile.source]);
 
   return (
-    <div className="pointer-events-auto overflow-hidden rounded-xl border border-rail/60 bg-black shadow-3">
-      <div className="flex items-center justify-between gap-4 bg-modal px-3 py-1.5 text-xs font-medium text-muted">
-        <span>{label}</span>
-        <span className="flex items-center gap-1.5 text-red">
-          <span className="h-2 w-2 rounded-full bg-red" aria-hidden="true" />
-          {badge}
-        </span>
-      </div>
+    <div className="group relative overflow-hidden rounded-xl border border-rail/60 bg-black shadow-2">
       <canvas
         ref={canvasRef}
         aria-label={label}
-        className="block h-auto max-h-[42vh] w-[min(640px,80vw)] bg-black"
+        className="block h-full w-full bg-black object-contain"
       />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black/70 to-transparent px-2.5 py-1.5">
+        <Avatar
+          id={tile.peer}
+          name={name}
+          size={18}
+          avatarHash={avatarHash}
+          hint={tile.peer}
+        />
+        <span className="min-w-0 truncate text-xs font-medium text-white">{label}</span>
+      </div>
+      <button
+        type="button"
+        onClick={onTogglePin}
+        aria-pressed={pinned}
+        title={pinLabel}
+        aria-label={pinLabel}
+        className="absolute right-1.5 top-1.5 rounded-md bg-black/50 p-1.5 text-white opacity-0 transition-opacity duration-fast focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple group-hover:opacity-100 aria-pressed:opacity-100"
+      >
+        <PinIcon />
+      </button>
+    </div>
+  );
+}
+
+/** Tuile de repli : la personne est là, sans vidéo. */
+function AvatarTile({
+  peer,
+  name,
+  avatarHash,
+}: {
+  peer: string;
+  name: string;
+  avatarHash: string | null;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-rail/60 bg-sidebar py-6 shadow-1">
+      <Avatar id={peer} name={name} size={48} avatarHash={avatarHash} hint={peer} />
+      <span className="max-w-full truncate px-2 text-xs font-medium text-muted">
+        {name}
+      </span>
     </div>
   );
 }
@@ -131,22 +212,56 @@ function SelfView({ label }: { label: string }) {
 export function CallVideo() {
   const t = useT();
   const phase = useCalls((s) => s.phase);
+  const callPeer = useCalls((s) => s.peer);
+  const remoteVideo = useCalls((s) => s.remoteVideo);
   const localSharing = useCalls((s) => s.localSharing);
-  const remoteSharing = useCalls((s) => s.remoteSharing);
   const localCamera = useCalls((s) => s.localCamera);
-  const remoteCamera = useCalls((s) => s.remoteCamera);
   const startScreenShare = useCalls((s) => s.startScreenShare);
   const stopScreenShare = useCalls((s) => s.stopScreenShare);
   const startCamera = useCalls((s) => s.startCamera);
   const stopCamera = useCalls((s) => s.stopCamera);
+  const contacts = useFriends((s) => s.contacts);
 
-  // Le panneau vaut pour un appel 1-à-1 actif ET pour un salon vocal de
-  // groupe (v6.1) : dans les deux cas le nœud sait à qui diffuser.
-  const inVoiceRoom = useVoice((s) => s.active !== null && !s.active.isCall);
+  const active = useVoice((s) => s.active);
+  const participants = useVoice((s) => s.participants);
+  const inVoiceRoom = active !== null && !active.isCall;
+
+  const [pinned, setPinned] = useState<string | null>(null);
   const screenOk = useMemo(() => videoSourceSupported('screen'), []);
   const cameraOk = useMemo(() => videoSourceSupported('camera'), []);
 
+  const tiles = useMemo<Tile[]>(() => {
+    const out: Tile[] = [];
+    for (const [peer, streams] of Object.entries(remoteVideo)) {
+      if (streams.camera) out.push({ peer, source: 'camera' });
+      if (streams.screen) out.push({ peer, source: 'screen' });
+    }
+    // Ordre stable : sans tri, la grille se réorganiserait au gré de l'ordre
+    // d'arrivée des annonces, ce qui déplace les visages sous le curseur.
+    return out.sort((a, b) => tileKey(a).localeCompare(tileKey(b)));
+  }, [remoteVideo]);
+
+  // Un épinglage sur un flux qui s'est arrêté ne doit pas figer une tuile
+  // morte : on retombe sur la grille complète.
+  const pinnedTile = tiles.find((tile) => tileKey(tile) === pinned) ?? null;
+  const shown = pinnedTile === null ? tiles : [pinnedTile];
+
+  /** Participants présents sans aucun flux vidéo (repli en avatars). */
+  const silent = useMemo(() => {
+    if (!inVoiceRoom) return [] as string[];
+    return [...participants.keys()].filter((pubkey) => remoteVideo[pubkey] === undefined);
+  }, [inVoiceRoom, participants, remoteVideo]);
+
   if (phase !== 'active' && !inVoiceRoom) return null;
+
+  const nameOf = (pubkey: string): string => displayNameOf(contacts, pubkey);
+  const avatarOf = (pubkey: string): string | null =>
+    contacts.find((c) => c.pubkey === pubkey)?.avatar ?? null;
+
+  const labelOf = (tile: Tile): string =>
+    tile.source === 'screen'
+      ? `${nameOf(tile.peer)} — ${t.screenShare.peerSharing}`
+      : nameOf(tile.peer);
 
   const toggleScreen = (): void => {
     if (localSharing) {
@@ -172,23 +287,54 @@ export function CallVideo() {
         : 'bg-blurple text-white hover:bg-blurple/90'
     }`;
 
+  // Un appel 1-à-1 sans vidéo n'a personne à représenter en avatar : la
+  // surface se réduit alors aux deux boutons.
+  const avatarFallback = shown.length === 0 && silent.length > 0;
+
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-24 z-30 flex flex-col items-center gap-3">
-      {remoteCamera && (
-        <RemoteView
-          source="camera"
-          label={t.callVideo.remoteCameraLabel}
-          badge={t.callVideo.peerCamera}
-        />
+      {shown.length > 0 && (
+        <div
+          role="group"
+          aria-label={t.callVideo.gridLabel}
+          className={`pointer-events-auto grid w-[min(960px,92vw)] gap-2 ${gridClass(shown.length)}`}
+        >
+          {shown.map((tile) => (
+            <RemoteTile
+              key={tileKey(tile)}
+              tile={tile}
+              name={nameOf(tile.peer)}
+              avatarHash={avatarOf(tile.peer)}
+              label={labelOf(tile)}
+              pinned={pinned === tileKey(tile)}
+              pinLabel={pinned === tileKey(tile) ? t.callVideo.unpin : t.callVideo.pin}
+              onTogglePin={() =>
+                setPinned((current) => (current === tileKey(tile) ? null : tileKey(tile)))
+              }
+            />
+          ))}
+        </div>
       )}
-      {remoteSharing && (
-        <RemoteView
-          source="screen"
-          label={t.screenShare.viewerLabel}
-          badge={t.screenShare.peerSharing}
-        />
+
+      {avatarFallback && (
+        <div
+          role="group"
+          aria-label={t.callVideo.gridLabel}
+          className={`pointer-events-auto grid w-[min(640px,88vw)] gap-2 ${gridClass(silent.length)}`}
+        >
+          {silent.map((pubkey) => (
+            <AvatarTile
+              key={pubkey}
+              peer={pubkey}
+              name={nameOf(pubkey)}
+              avatarHash={avatarOf(pubkey)}
+            />
+          ))}
+        </div>
       )}
+
       {localCamera && <SelfView label={t.callVideo.selfLabel} />}
+
       <div className="flex items-center gap-2">
         <button
           type="button"
@@ -213,6 +359,11 @@ export function CallVideo() {
           {localSharing ? t.screenShare.stop : t.screenShare.start}
         </button>
       </div>
+
+      {/* En appel 1-à-1, le pair reste identifiable même sans vidéo. */}
+      {callPeer !== null && !inVoiceRoom && shown.length === 0 && (
+        <span className="sr-only">{nameOf(callPeer)}</span>
+      )}
     </div>
   );
 }

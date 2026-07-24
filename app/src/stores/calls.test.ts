@@ -19,14 +19,22 @@ vi.mock('../lib/client', () => ({
 }));
 
 // Isole le store de la capture/du DOM WebCodecs (v5).
-vi.mock('../lib/screenController', () => ({
-  startLocalShare: vi.fn(),
-  stopLocalShare: vi.fn(),
+vi.mock('../lib/mediaController', () => ({
+  startLocalStream: vi.fn(),
+  stopLocalStream: vi.fn(),
+  stopAllLocal: vi.fn(),
   resetRemote: vi.fn(),
+  resetAllRemote: vi.fn(),
 }));
 
 import { api } from '../lib/client';
-import { resetRemote, startLocalShare, stopLocalShare } from '../lib/screenController';
+import {
+  resetAllRemote,
+  resetRemote,
+  startLocalStream,
+  stopAllLocal,
+  stopLocalStream,
+} from '../lib/mediaController';
 import { useCalls } from './calls';
 
 const startMock = api.callsStart as unknown as Mock;
@@ -34,9 +42,11 @@ const acceptMock = api.callsAccept as unknown as Mock;
 const declineMock = api.callsDecline as unknown as Mock;
 const hangupMock = api.callsHangup as unknown as Mock;
 const statusMock = api.callsStatus as unknown as Mock;
-const startShareMock = startLocalShare as unknown as Mock;
-const stopShareMock = stopLocalShare as unknown as Mock;
+const startShareMock = startLocalStream as unknown as Mock;
+const stopShareMock = stopLocalStream as unknown as Mock;
+const stopAllMock = stopAllLocal as unknown as Mock;
 const resetRemoteMock = resetRemote as unknown as Mock;
+const resetAllMock = resetAllRemote as unknown as Mock;
 
 beforeEach(() => {
   useCalls.setState({
@@ -47,6 +57,8 @@ beforeEach(() => {
     missedPeers: new Set(),
     localSharing: false,
     remoteSharing: false,
+    localCamera: false,
+    remoteCamera: false,
   });
   startMock.mockReset();
   acceptMock.mockReset();
@@ -55,7 +67,9 @@ beforeEach(() => {
   statusMock.mockReset();
   startShareMock.mockReset();
   stopShareMock.mockReset();
+  stopAllMock.mockReset();
   resetRemoteMock.mockReset();
+  resetAllMock.mockReset();
 });
 
 describe('useCalls.start', () => {
@@ -348,7 +362,7 @@ describe('useCalls — partage d’écran (v5)', () => {
     useCalls.setState({ phase: 'active' });
     startShareMock.mockResolvedValueOnce(undefined);
     await useCalls.getState().startScreenShare();
-    expect(startShareMock).toHaveBeenCalledTimes(1);
+    expect(startShareMock).toHaveBeenCalledWith('screen', expect.any(Function));
     expect(useCalls.getState().localSharing).toBe(true);
   });
 
@@ -356,7 +370,7 @@ describe('useCalls — partage d’écran (v5)', () => {
     useCalls.setState({ phase: 'active', localSharing: true });
     stopShareMock.mockResolvedValueOnce(undefined);
     await useCalls.getState().stopScreenShare();
-    expect(stopShareMock).toHaveBeenCalledTimes(1);
+    expect(stopShareMock).toHaveBeenCalledWith('screen');
     expect(useCalls.getState().localSharing).toBe(false);
   });
 
@@ -367,7 +381,7 @@ describe('useCalls — partage d’écran (v5)', () => {
 
     useCalls.getState().applyScreenState({ peer: 'p', sharing: false });
     expect(useCalls.getState().remoteSharing).toBe(false);
-    expect(resetRemoteMock).toHaveBeenCalledTimes(1);
+    expect(resetRemoteMock).toHaveBeenCalledWith('screen');
   });
 
   it('noteRemoteFrame marque le partage distant actif (annonce perdue)', () => {
@@ -389,8 +403,8 @@ describe('useCalls — partage d’écran (v5)', () => {
       reason: 'hangup',
     });
     expect(reset).toBe(true);
-    expect(stopShareMock).toHaveBeenCalledTimes(1);
-    expect(resetRemoteMock).toHaveBeenCalled();
+    expect(stopAllMock).toHaveBeenCalledTimes(1);
+    expect(resetAllMock).toHaveBeenCalled();
     expect(useCalls.getState().localSharing).toBe(false);
     expect(useCalls.getState().remoteSharing).toBe(false);
   });
@@ -398,9 +412,9 @@ describe('useCalls — partage d’écran (v5)', () => {
   it('hangup coupe un partage en cours avant de raccrocher', async () => {
     useCalls.setState({ phase: 'active', peer: 'p', callId: 'c1', localSharing: true });
     hangupMock.mockResolvedValueOnce({ ok: true });
-    stopShareMock.mockResolvedValueOnce(undefined);
+    stopAllMock.mockResolvedValueOnce(undefined);
     await useCalls.getState().hangup();
-    expect(stopShareMock).toHaveBeenCalledTimes(1);
+    expect(stopAllMock).toHaveBeenCalledTimes(1);
     expect(hangupMock).toHaveBeenCalledTimes(1);
     expect(useCalls.getState().localSharing).toBe(false);
   });

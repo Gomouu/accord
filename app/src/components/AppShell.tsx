@@ -7,7 +7,7 @@ import { callEndedToast } from '../lib/callToast';
 import { setAppBadge } from '../lib/bridge';
 import { rpc } from '../lib/client';
 import { eventStartedToast } from '../lib/eventToast';
-import { pushRemoteFrame } from '../lib/screenController';
+import { pushRemoteFrame } from '../lib/mediaController';
 import {
   isNotificationEligible,
   isSoundEligible,
@@ -46,7 +46,7 @@ import { FriendVerifyModal } from './FriendVerifyModal';
 import { ReminderDialog } from './ReminderDialog';
 import { IncomingCall } from './IncomingCall';
 import { Modals } from './Modals';
-import { ScreenShare } from './ScreenShare';
+import { CallVideo } from './CallVideo';
 import { ProfilePopover } from './ProfilePopover';
 import { QuickSwitcher } from './QuickSwitcher';
 import { ResizeHandle } from './ResizeHandle';
@@ -487,10 +487,17 @@ function useNodeEvents() {
         case 'event.screen_frame':
           // Une trame implique un partage actif même si l'annonce a été perdue.
           useCalls.getState().noteRemoteFrame();
-          pushRemoteFrame(event.params.keyframe, event.params.data);
+          pushRemoteFrame('screen', event.params.keyframe, event.params.data);
           break;
         case 'event.screen_state':
           useCalls.getState().applyScreenState(event.params);
+          break;
+        case 'event.camera_frame':
+          useCalls.getState().noteRemoteCameraFrame();
+          pushRemoteFrame('camera', event.params.keyframe, event.params.data);
+          break;
+        case 'event.camera_state':
+          useCalls.getState().applyCameraState(event.params);
           break;
         case 'event.desynchronise': {
           void useFriends.getState().load();
@@ -642,7 +649,7 @@ export function AppShell() {
       <ReminderDialog />
       <ContextMenu />
       <IncomingCall />
-      <ScreenShare />
+      <CallVideo />
       <QuickSwitcher />
     </div>
   );

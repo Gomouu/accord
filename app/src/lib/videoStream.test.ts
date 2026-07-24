@@ -1,13 +1,13 @@
 /**
- * Partage d'écran — helpers purs : encodage hexadécimal (transport JSON de
+ * Flux vidéo d'appel — helpers purs : encodage hexadécimal (transport JSON de
  * l'API locale) et détection de support (WebCodecs + getDisplayMedia, absents
  * de jsdom).
  */
 
 import { describe, expect, it } from 'vitest';
-import { bytesToHex, hexToBytes, screenShareSupported } from './screenShare';
+import { bytesToHex, hexToBytes, videoSourceSupported } from './videoStream';
 
-describe('screenShare — helpers hexadécimaux', () => {
+describe('videoStream — helpers hexadécimaux', () => {
   it('fait un aller-retour octets ↔ hexadécimal', () => {
     const bytes = new Uint8Array([0, 1, 15, 16, 255, 128]);
     const hex = bytesToHex(bytes);
@@ -33,8 +33,9 @@ describe('screenShare — helpers hexadécimaux', () => {
   });
 });
 
-describe('screenShare — détection de support', () => {
-  it('rend faux sans WebCodecs ni getDisplayMedia (jsdom)', () => {
-    expect(screenShareSupported()).toBe(false);
+describe('videoStream — détection de support', () => {
+  it('rend faux pour les deux sources sans WebCodecs (jsdom)', () => {
+    expect(videoSourceSupported('screen')).toBe(false);
+    expect(videoSourceSupported('camera')).toBe(false);
   });
 });

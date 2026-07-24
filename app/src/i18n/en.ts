@@ -1362,6 +1362,14 @@ export const en: Dict = {
     reminderCustom: 'Custom time',
     reminderAdd: 'Add reminder',
   },
+  callVideo: {
+    startCamera: 'Turn on camera',
+    stopCamera: 'Turn off camera',
+    selfLabel: 'Your camera',
+    remoteCameraLabel: 'Camera',
+    peerCamera: 'on video',
+    cameraUnsupported: 'Camera unavailable on this device',
+  },
   screenShare: {
     start: 'Share screen',
     stop: 'Stop sharing',

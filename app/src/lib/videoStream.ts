@@ -1,54 +1,71 @@
 /**
- * Partage d'écran (v5) : capture via `getDisplayMedia`, encodage/décodage
- * WebCodecs (VP8), transport par l'API `screen.*` du nœud (session P2P
- * chiffrée, sans serveur). Tout est feature-détecté — sur un runtime sans
- * `getDisplayMedia`/WebCodecs le partage se signale indisponible plutôt que
- * d'échouer.
+ * Flux vidéo d'un appel : partage d'écran (v5) et caméra (v6). Capture via
+ * `getDisplayMedia`/`getUserMedia`, encodage/décodage WebCodecs (VP8),
+ * transport par les API `screen.*`/`camera.*` du nœud (session P2P chiffrée,
+ * sans serveur). Tout est feature-détecté — sur un runtime sans les API
+ * nécessaires, la source se signale indisponible plutôt que d'échouer.
  *
  * Capture : le flux alimente une balise `<video>` hors-DOM ; chaque image est
  * peinte sur un canevas puis encodée (`VideoFrame` → `VideoEncoder`). La boucle
  * suit `requestVideoFrameCallback` quand il existe (cadence réelle de la
- * source), sinon `requestAnimationFrame`. Le débit et la cadence sont modérés
- * pour tenir la fragmentation UDP côté nœud.
+ * source), sinon `requestAnimationFrame`. Débit et cadence sont réglés par
+ * source (l'écran privilégie la netteté du texte, la caméra la fluidité) et
+ * restent modérés pour tenir la fragmentation UDP côté nœud.
  *
- * Rendu : les trames encodées reçues (`event.screen_frame`) alimentent un
- * `VideoDecoder` dont la sortie est peinte sur le canevas de la visionneuse.
- * Le décodage ne démarre qu'à la première keyframe.
+ * Rendu : les trames encodées reçues alimentent un `VideoDecoder` dont la
+ * sortie est peinte sur le canevas de la visionneuse. Le décodage ne démarre
+ * qu'à la première keyframe.
  */
+
+/** Source d'un flux vidéo d'appel. */
+export type VideoSource = 'screen' | 'camera';
 
 /** Codec temps réel (largement supporté, pas de description requise). */
 const CODEC = 'vp8';
-/** Cadence cible de capture (images/s). */
-const FPS = 12;
-/** Débit cible de l'encodeur (bits/s) — modéré pour la voie UDP fragmentée. */
-const BITRATE = 1_500_000;
-/** Intervalle de keyframe (en images) ; borne aussi la latence de reprise. */
-const KEYFRAME_EVERY = 60;
+
+/** Réglages d'encodage propres à chaque source. */
+const PROFILES: Record<
+  VideoSource,
+  { fps: number; bitrate: number; keyframeEvery: number; width: number; height: number }
+> = {
+  // Écran : cadence modérée, débit plus généreux (le texte doit rester net).
+  screen: { fps: 12, bitrate: 1_500_000, keyframeEvery: 60, width: 1280, height: 720 },
+  // Caméra : plus fluide, plus petite définition — un visage tolère mal les
+  // saccades mais se contente largement du VGA.
+  camera: { fps: 24, bitrate: 700_000, keyframeEvery: 48, width: 640, height: 480 },
+};
+
 /** Profondeur de file d'encodage tolérée avant de sauter une image (latence). */
 const MAX_ENCODE_QUEUE = 2;
 
 /** Trame vidéo encodée, prête à transporter. */
-export interface ScreenChunk {
+export interface VideoChunk {
   /** Image décodable indépendamment (keyframe). */
   keyframe: boolean;
   /** Octets encodés. */
   bytes: Uint8Array;
 }
 
-/**
- * Vrai si le runtime sait capturer ET encoder/décoder un écran (WebCodecs +
- * `getDisplayMedia`). Le bouton de partage se désactive proprement sinon.
- */
-export function screenShareSupported(): boolean {
+/** Vrai si le runtime sait encoder ET décoder de la vidéo (WebCodecs). */
+function codecsSupported(): boolean {
   return (
     typeof window !== 'undefined' &&
     typeof window.VideoEncoder === 'function' &&
     typeof window.VideoDecoder === 'function' &&
-    typeof window.VideoFrame === 'function' &&
-    typeof navigator !== 'undefined' &&
-    navigator.mediaDevices != null &&
-    typeof navigator.mediaDevices.getDisplayMedia === 'function'
+    typeof window.VideoFrame === 'function'
   );
+}
+
+/**
+ * Vrai si le runtime sait capturer `source` et l'encoder/décoder. Le bouton
+ * correspondant se désactive proprement sinon.
+ */
+export function videoSourceSupported(source: VideoSource): boolean {
+  if (!codecsSupported()) return false;
+  if (typeof navigator === 'undefined' || navigator.mediaDevices == null) return false;
+  return source === 'screen'
+    ? typeof navigator.mediaDevices.getDisplayMedia === 'function'
+    : typeof navigator.mediaDevices.getUserMedia === 'function';
 }
 
 /** Octets → chaîne hexadécimale (transport JSON de l'API locale). */
@@ -77,20 +94,21 @@ function even(value: number): number {
 }
 
 /**
- * Capture et encodage de l'écran local. `start` ouvre le sélecteur système,
- * puis émet chaque trame encodée via `onChunk` ; `onEnded` est appelé quand
- * l'utilisateur arrête le partage depuis l'UI du système ou en cas d'erreur
- * d'encodage.
+ * Capture et encodage d'une source vidéo locale. `start` ouvre le sélecteur
+ * système (écran) ou la caméra, puis émet chaque trame encodée via `onChunk` ;
+ * `onEnded` est appelé quand la capture s'arrête d'elle-même (arrêt depuis
+ * l'UI du système, débranchement, erreur d'encodage).
  */
-export class ScreenCapture {
-  private stream: MediaStream | null = null;
+export class VideoCapture {
+  private mediaStream: MediaStream | null = null;
   private encoder: VideoEncoder | null = null;
   private video: HTMLVideoElement | null = null;
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
   private running = false;
   private frameCount = 0;
-  private onChunk: ((chunk: ScreenChunk) => void) | null = null;
+  private keyframeEvery = 60;
+  private onChunk: ((chunk: VideoChunk) => void) | null = null;
 
   /** Vrai tant qu'une capture est active. */
   get active(): boolean {
@@ -98,19 +116,45 @@ export class ScreenCapture {
   }
 
   /**
-   * Démarre la capture. Rejette si le runtime ne supporte pas le partage, si
-   * l'utilisateur refuse le partage, ou si l'encodeur ne peut s'initialiser.
+   * Flux capturé, pour un aperçu local (self-view de la caméra). `null` hors
+   * capture.
    */
-  async start(onChunk: (chunk: ScreenChunk) => void, onEnded: () => void): Promise<void> {
-    if (!screenShareSupported()) {
-      throw new Error('partage d’écran non supporté par ce runtime');
+  get stream(): MediaStream | null {
+    return this.mediaStream;
+  }
+
+  /**
+   * Démarre la capture de `source`. Rejette si le runtime ne la supporte pas,
+   * si l'utilisateur refuse l'accès, ou si l'encodeur ne peut s'initialiser.
+   */
+  async start(
+    source: VideoSource,
+    onChunk: (chunk: VideoChunk) => void,
+    onEnded: () => void,
+  ): Promise<void> {
+    if (!videoSourceSupported(source)) {
+      throw new Error('source vidéo non supportée par ce runtime');
     }
+    const profile = PROFILES[source];
+    this.keyframeEvery = profile.keyframeEvery;
     this.onChunk = onChunk;
-    const stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: FPS },
-      audio: false,
-    });
-    this.stream = stream;
+
+    const stream =
+      source === 'screen'
+        ? await navigator.mediaDevices.getDisplayMedia({
+            video: { frameRate: profile.fps },
+            audio: false,
+          })
+        : await navigator.mediaDevices.getUserMedia({
+            video: {
+              frameRate: profile.fps,
+              width: { ideal: profile.width },
+              height: { ideal: profile.height },
+            },
+            audio: false,
+          });
+    this.mediaStream = stream;
+
     const track = stream.getVideoTracks()[0];
     if (track === undefined) {
       this.stop();
@@ -125,14 +169,14 @@ export class ScreenCapture {
     this.encoder = encoder;
 
     const settings = track.getSettings();
-    const width = even(settings.width ?? 1280);
-    const height = even(settings.height ?? 720);
+    const width = even(settings.width ?? profile.width);
+    const height = even(settings.height ?? profile.height);
     encoder.configure({
       codec: CODEC,
       width,
       height,
-      bitrate: BITRATE,
-      framerate: FPS,
+      bitrate: profile.bitrate,
+      framerate: profile.fps,
       latencyMode: 'realtime',
     });
 
@@ -166,16 +210,17 @@ export class ScreenCapture {
       this.encoder.close();
     }
     this.encoder = null;
-    if (this.stream !== null) {
-      for (const track of this.stream.getTracks()) track.stop();
+    if (this.mediaStream !== null) {
+      for (const track of this.mediaStream.getTracks()) track.stop();
     }
-    this.stream = null;
+    this.mediaStream = null;
     if (this.video !== null) {
       this.video.srcObject = null;
     }
     this.video = null;
     this.canvas = null;
     this.ctx = null;
+    this.frameCount = 0;
   }
 
   /** Convertit une trame encodée en octets et la remonte. */
@@ -216,7 +261,7 @@ export class ScreenCapture {
         const frame = new VideoFrame(canvas, {
           timestamp: Math.round(performance.now() * 1000),
         });
-        encoder.encode(frame, { keyFrame: this.frameCount % KEYFRAME_EVERY === 0 });
+        encoder.encode(frame, { keyFrame: this.frameCount % this.keyframeEvery === 0 });
         frame.close();
         this.frameCount += 1;
       }
@@ -226,11 +271,11 @@ export class ScreenCapture {
 }
 
 /**
- * Décodage et rendu du partage d'écran distant sur un canevas. Alimenté par
- * `push` (une trame encodée reçue par trame), il ne démarre qu'à la première
+ * Décodage et rendu d'un flux vidéo distant sur un canevas. Alimenté par
+ * `push` (une trame encodée à la fois), il ne démarre qu'à la première
  * keyframe et se réinitialise proprement sur erreur de décodage.
  */
-export class ScreenPlayback {
+export class VideoPlayback {
   private decoder: VideoDecoder | null = null;
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
@@ -273,7 +318,7 @@ export class ScreenPlayback {
     this.configured = false;
   }
 
-  /** Détache et libère tout (fin d'appel / fin de partage distant). */
+  /** Détache et libère tout (fin d'appel / fin de flux distant). */
   close(): void {
     this.reset();
     this.canvas = null;

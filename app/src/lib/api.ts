@@ -816,6 +816,11 @@ export type AccordEvent =
     }
   | { method: 'event.screen_state'; params: { peer: string; sharing: boolean } }
   | {
+      method: 'event.camera_frame';
+      params: { peer: string; keyframe: boolean; data: string };
+    }
+  | { method: 'event.camera_state'; params: { peer: string; on: boolean } }
+  | {
       method: 'event.profile';
       params: {
         pubkey: string;
@@ -2257,6 +2262,24 @@ export class Api {
    */
   screenFrame(keyframe: boolean, dataHex: string): Promise<Record<string, never>> {
     return this.rpc.call('screen.frame', { keyframe, data: dataHex });
+  }
+
+  /**
+   * Annonce au pair de l'appel actif l'allumage de la caméra (v6). Flux
+   * indépendant du partage d'écran : les deux peuvent coexister.
+   */
+  cameraStart(): Promise<Record<string, never>> {
+    return this.rpc.call('camera.start');
+  }
+
+  /** Annonce l'extinction de la caméra au pair de l'appel actif. */
+  cameraStop(): Promise<Record<string, never>> {
+    return this.rpc.call('camera.stop');
+  }
+
+  /** Diffuse une trame vidéo de caméra encodée (mêmes conventions que l'écran). */
+  cameraFrame(keyframe: boolean, dataHex: string): Promise<Record<string, never>> {
+    return this.rpc.call('camera.frame', { keyframe, data: dataHex });
   }
 
   /**

@@ -15,7 +15,7 @@ use accord_api::NotificationHub;
 use accord_core::group::GroupState;
 use accord_proto::core_msg::CoreMsg;
 use accord_proto::limits::VOICE_MAX_PARTICIPANTS;
-use accord_proto::plaintext::{VoiceMsg, SCREEN_FLAG_KEYFRAME};
+use accord_proto::plaintext::{VoiceMsg, VIDEO_FLAG_KEYFRAME};
 use accord_voice::gain;
 use accord_voice::params::{FRAME_MS, FRAME_SAMPLES};
 use accord_voice::room::CodecFactory;
@@ -25,6 +25,7 @@ use serde_json::json;
 use tokio::sync::mpsc;
 
 use super::calls::{CallAction, CallMachine, CallPhase};
+use super::media::VideoStream;
 use super::roster::{Roster, RosterEvent, ACTIVE_TIMEOUT_MS, PASSIVE_TTL_MS};
 use super::{
     Cmd, FrameSender, VoiceBackend, VoiceDeps, VoiceDevices, VoiceParticipant, VoiceRoomPresence,
@@ -206,11 +207,11 @@ pub(crate) struct Engine {
     mic_test: Option<MicTest>,
     epoch: Instant,
     tick_count: u64,
-    /// Réassembleurs des trames de partage d'écran reçues, par pair émetteur
-    /// (v5) ; vidés à la fin de l'appel.
-    screen_rx: HashMap<[u8; 32], super::screen::Reassembler>,
-    /// Compteur de trame écran sortante (clé de réassemblage côté récepteur).
-    screen_next_frame_id: u32,
+    /// Réassembleurs des trames vidéo reçues, par (pair émetteur, flux) : les
+    /// deux flux d'un même pair sont indépendants. Vidés à la fin de l'appel.
+    video_rx: HashMap<([u8; 32], VideoStream), super::media::Reassembler>,
+    /// Compteur de trame sortante par flux (clé de réassemblage côté récepteur).
+    video_next_frame_id: HashMap<VideoStream, u32>,
 }
 
 /// Test micro actif : capture dédiée, VAD et crête de niveau (D-029).
@@ -287,8 +288,8 @@ impl Engine {
             mic_test: None,
             epoch: Instant::now(),
             tick_count: 0,
-            screen_rx: HashMap::new(),
-            screen_next_frame_id: 0,
+            video_rx: HashMap::new(),
+            video_next_frame_id: HashMap::new(),
         }
     }
 
@@ -425,10 +426,12 @@ impl Engine {
                     self.injected.push_back(pcm);
                 }
             }
-            Cmd::ScreenSend { keyframe, encoded } => {
-                self.handle_screen_send(keyframe, encoded).await
-            }
-            Cmd::ScreenAnnounce { on } => self.handle_screen_announce(on).await,
+            Cmd::VideoSend {
+                stream,
+                keyframe,
+                encoded,
+            } => self.handle_video_send(stream, keyframe, encoded).await,
+            Cmd::VideoAnnounce { stream, on } => self.handle_video_announce(stream, on).await,
             Cmd::Stop => unreachable!("Stop traité par la boucle"),
         }
     }
@@ -598,9 +601,9 @@ impl Engine {
     /// salon. La présence d'un salon d'appel est retirée entièrement (aucune
     /// notion de présence passive pour un appel terminé).
     fn leave_active(&mut self) {
-        // Le partage d'écran est lié à la session : on abandonne tout
+        // Les flux vidéo sont liés à la session : on abandonne tout
         // réassemblage en cours à la fin de l'appel.
-        self.screen_rx.clear();
+        self.video_rx.clear();
         let Some(active) = self.active.take() else {
             return;
         };
@@ -1047,9 +1050,12 @@ impl Engine {
         // UI), sans toucher au moteur audio.
         if matches!(
             msg,
-            VoiceMsg::ScreenFrame { .. } | VoiceMsg::ScreenControl { .. }
+            VoiceMsg::ScreenFrame { .. }
+                | VoiceMsg::ScreenControl { .. }
+                | VoiceMsg::CameraFrame { .. }
+                | VoiceMsg::CameraControl { .. }
         ) {
-            self.handle_screen_peer_frame(from, msg);
+            self.handle_video_peer_frame(from, msg);
             return;
         }
         let now = self.now_ms();
@@ -1085,18 +1091,22 @@ impl Engine {
                     roster.touch(&from, now);
                 }
             }
-            // Routées en amont par `handle_screen_peer_frame` : inatteignable.
-            VoiceMsg::ScreenFrame { .. } | VoiceMsg::ScreenControl { .. } => {}
+            // Routées en amont par `handle_video_peer_frame` : inatteignable.
+            VoiceMsg::ScreenFrame { .. }
+            | VoiceMsg::ScreenControl { .. }
+            | VoiceMsg::CameraFrame { .. }
+            | VoiceMsg::CameraControl { .. } => {}
         }
         if let Some(event) = event {
             self.emit_room(key, &event);
         }
     }
 
-    /// Partage d'écran reçu d'un pair (v5) : réassemblage des trames et
-    /// signalisation vers l'UI. N'accepte que dans un appel 1-à-1 actif, sur le
-    /// salon de l'appel courant.
-    fn handle_screen_peer_frame(&mut self, from: [u8; 32], msg: VoiceMsg) {
+    /// Flux vidéo reçu d'un pair : réassemblage des trames et signalisation
+    /// vers l'UI. N'accepte que dans un appel 1-à-1 actif, sur le salon de
+    /// l'appel courant. Les deux flux (écran, caméra) sont réassemblés
+    /// séparément et remontés sur des événements distincts.
+    fn handle_video_peer_frame(&mut self, from: [u8; 32], msg: VoiceMsg) {
         let (is_call, room) = match self.active.as_ref() {
             Some(active) => (active.is_call, active.channel_id),
             None => return,
@@ -1104,16 +1114,10 @@ impl Engine {
         if !is_call {
             return;
         }
-        match msg {
-            VoiceMsg::ScreenControl { room: r, on } => {
-                if r != room {
-                    return;
-                }
-                if !on {
-                    self.screen_rx.remove(&from);
-                }
-                self.emit_screen_state(&from, on);
-            }
+        // Décomposition commune aux deux flux.
+        let (stream, frame) = match msg {
+            VoiceMsg::ScreenControl { room: r, on } => (VideoStream::Screen, Err((r, on))),
+            VoiceMsg::CameraControl { room: r, on } => (VideoStream::Camera, Err((r, on))),
             VoiceMsg::ScreenFrame {
                 room: r,
                 frame_id,
@@ -1121,54 +1125,83 @@ impl Engine {
                 frag_idx,
                 flags,
                 payload,
-            } => {
+            } => (
+                VideoStream::Screen,
+                Ok((r, frame_id, frag_count, frag_idx, flags, payload)),
+            ),
+            VoiceMsg::CameraFrame {
+                room: r,
+                frame_id,
+                frag_count,
+                frag_idx,
+                flags,
+                payload,
+            } => (
+                VideoStream::Camera,
+                Ok((r, frame_id, frag_count, frag_idx, flags, payload)),
+            ),
+            _ => return,
+        };
+
+        match frame {
+            Err((r, on)) => {
                 if r != room {
                     return;
                 }
-                let keyframe = flags & SCREEN_FLAG_KEYFRAME != 0;
+                if !on {
+                    self.video_rx.remove(&(from, stream));
+                }
+                self.emit_video_state(stream, &from, on);
+            }
+            Ok((r, frame_id, frag_count, frag_idx, flags, payload)) => {
+                if r != room {
+                    return;
+                }
+                let keyframe = flags & VIDEO_FLAG_KEYFRAME != 0;
                 let done = self
-                    .screen_rx
-                    .entry(from)
+                    .video_rx
+                    .entry((from, stream))
                     .or_default()
                     .push(frame_id, frag_count, frag_idx, keyframe, payload);
                 if let Some((encoded, keyframe)) = done {
-                    self.emit_screen_frame(&from, keyframe, &encoded);
+                    self.emit_video_frame(stream, &from, keyframe, &encoded);
                 }
             }
-            _ => {}
         }
     }
 
-    /// Diffuse une trame vidéo de partage d'écran encodée au pair de l'appel
-    /// actif : fragmentée en `ScreenFrame`s ≤ MTU sur le canal VOICE. Sans
-    /// effet hors appel actif.
-    async fn handle_screen_send(&mut self, keyframe: bool, encoded: Vec<u8>) {
+    /// Diffuse une trame vidéo encodée au pair de l'appel actif sur le flux
+    /// `stream` : fragmentée en trames ≤ MTU sur le canal VOICE. Sans effet
+    /// hors appel actif.
+    async fn handle_video_send(&mut self, stream: VideoStream, keyframe: bool, encoded: Vec<u8>) {
         let Some((peer, call_id)) = self.active_call_target() else {
             return;
         };
-        let frame_id = self.screen_next_frame_id;
-        self.screen_next_frame_id = self.screen_next_frame_id.wrapping_add(1);
-        for msg in super::screen::fragment(call_id, frame_id, keyframe, &encoded) {
+        let counter = self.video_next_frame_id.entry(stream).or_insert(0);
+        let frame_id = *counter;
+        *counter = counter.wrapping_add(1);
+        for msg in super::media::fragment(stream, call_id, frame_id, keyframe, &encoded) {
             if !self.sender.send_voice(&peer, msg).await {
-                tracing::trace!("écran : pair injoignable, fragment perdu");
+                tracing::trace!("vidéo : pair injoignable, fragment perdu");
             }
         }
     }
 
-    /// Annonce le démarrage/arrêt d'un partage d'écran au pair de l'appel
-    /// actif (`ScreenControl` sur le canal VOICE). Sans effet hors appel actif.
-    async fn handle_screen_announce(&mut self, on: bool) {
+    /// Annonce le démarrage/arrêt d'un flux vidéo au pair de l'appel actif.
+    /// Sans effet hors appel actif.
+    async fn handle_video_announce(&mut self, stream: VideoStream, on: bool) {
         let Some((peer, call_id)) = self.active_call_target() else {
             return;
         };
-        let _ = self
-            .sender
-            .send_voice(&peer, VoiceMsg::ScreenControl { room: call_id, on })
-            .await;
+        let msg = match stream {
+            VideoStream::Screen => VoiceMsg::ScreenControl { room: call_id, on },
+            VideoStream::Camera => VoiceMsg::CameraControl { room: call_id, on },
+        };
+        let _ = self.sender.send_voice(&peer, msg).await;
     }
 
     /// Pair et `call_id` de l'appel 1-à-1 actif, ou `None` hors appel actif —
-    /// cible des trames de partage d'écran sortantes.
+    /// cible des trames vidéo sortantes.
     fn active_call_target(&self) -> Option<([u8; 32], [u8; 16])> {
         let snap = self.calls.snapshot();
         match (snap.phase, snap.peer, snap.call_id) {
@@ -1177,14 +1210,24 @@ impl Engine {
         }
     }
 
-    /// Émet `event.screen_frame` (trame vidéo réassemblée) vers l'UI. Les
-    /// octets encodés voyagent en hexadécimal dans le JSON de l'événement.
-    fn emit_screen_frame(&self, peer: &[u8; 32], keyframe: bool, encoded: &[u8]) {
+    /// Émet la trame vidéo réassemblée vers l'UI (`event.screen_frame` ou
+    /// `event.camera_frame`). Les octets encodés voyagent en hexadécimal.
+    fn emit_video_frame(
+        &self,
+        stream: VideoStream,
+        peer: &[u8; 32],
+        keyframe: bool,
+        encoded: &[u8],
+    ) {
         let Some(hub) = &self.hub else {
             return;
         };
+        let event = match stream {
+            VideoStream::Screen => "event.screen_frame",
+            VideoStream::Camera => "event.camera_frame",
+        };
         hub.notify(
-            "event.screen_frame",
+            event,
             json!({
                 "peer": hex::encode(peer),
                 "keyframe": keyframe,
@@ -1193,16 +1236,21 @@ impl Engine {
         );
     }
 
-    /// Émet `event.screen_state` (le pair a démarré/arrêté un partage) vers l'UI.
-    fn emit_screen_state(&self, peer: &[u8; 32], sharing: bool) {
+    /// Émet le changement d'état d'un flux vidéo du pair vers l'UI
+    /// (`event.screen_state` ou `event.camera_state`).
+    fn emit_video_state(&self, stream: VideoStream, peer: &[u8; 32], on: bool) {
         let Some(hub) = &self.hub else {
             return;
         };
+        let (event, key) = match stream {
+            VideoStream::Screen => ("event.screen_state", "sharing"),
+            VideoStream::Camera => ("event.camera_state", "on"),
+        };
         hub.notify(
-            "event.screen_state",
+            event,
             json!({
                 "peer": hex::encode(peer),
-                "sharing": sharing,
+                key: on,
             }),
         );
     }

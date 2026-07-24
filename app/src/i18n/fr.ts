@@ -1387,6 +1387,14 @@ export const fr = {
     reminderCustom: 'Heure personnalisée',
     reminderAdd: 'Ajouter le rappel',
   },
+  callVideo: {
+    startCamera: 'Activer la caméra',
+    stopCamera: 'Couper la caméra',
+    selfLabel: 'Votre caméra',
+    remoteCameraLabel: 'Caméra',
+    peerCamera: 'en vidéo',
+    cameraUnsupported: 'Caméra indisponible sur cet appareil',
+  },
   screenShare: {
     start: 'Partager l’écran',
     stop: 'Arrêter le partage',

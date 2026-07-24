@@ -26,6 +26,23 @@ fn decode_hex_bounded(s: &str) -> Option<Vec<u8>> {
         .collect()
 }
 
+/// Paramètres communs d'une trame vidéo (`screen.frame`, `camera.frame`) :
+/// drapeau keyframe et octets encodés en hexadécimal.
+fn video_frame_params(params: &Value) -> Result<(bool, Vec<u8>), NodeError> {
+    let keyframe = params
+        .get("keyframe")
+        .and_then(Value::as_bool)
+        .ok_or(NodeError::Invalid("keyframe booléen requis"))?;
+    let data = params
+        .get("data")
+        .and_then(Value::as_str)
+        .ok_or(NodeError::Invalid("data hexadécimal requis"))?;
+    let encoded = decode_hex_bounded(data).ok_or(NodeError::Invalid(
+        "data hexadécimal invalide ou trop grand",
+    ))?;
+    Ok((keyframe, encoded))
+}
+
 impl NodeService {
     /// Méthodes `voice.*` et `calls.*` (moteur voix requis).
     pub(super) async fn call_voice(
@@ -188,18 +205,21 @@ impl NodeService {
                 Ok(json!({}))
             }
             "screen.frame" => {
-                let keyframe = params
-                    .get("keyframe")
-                    .and_then(Value::as_bool)
-                    .ok_or(NodeError::Invalid("keyframe booléen requis"))?;
-                let data = params
-                    .get("data")
-                    .and_then(Value::as_str)
-                    .ok_or(NodeError::Invalid("data hexadécimal requis"))?;
-                let encoded = decode_hex_bounded(data).ok_or(NodeError::Invalid(
-                    "data hexadécimal invalide ou trop grand",
-                ))?;
+                let (keyframe, encoded) = video_frame_params(params)?;
                 voice.screen_send(keyframe, encoded);
+                Ok(json!({}))
+            }
+            "camera.start" => {
+                voice.camera_announce(true);
+                Ok(json!({}))
+            }
+            "camera.stop" => {
+                voice.camera_announce(false);
+                Ok(json!({}))
+            }
+            "camera.frame" => {
+                let (keyframe, encoded) = video_frame_params(params)?;
+                voice.camera_send(keyframe, encoded);
                 Ok(json!({}))
             }
             _ => Err(NodeError::Invalid("méthode inconnue")),

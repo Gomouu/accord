@@ -3097,6 +3097,27 @@ async fn screen_share_methods_route_and_validate() {
 }
 
 #[tokio::test]
+async fn camera_share_methods_route_and_validate() {
+    let (s, _, _, _) = service_with_voice();
+    // Allumage/extinction : acceptés (no-op hors appel actif).
+    assert_eq!(s.call("camera.start", json!({})).await.unwrap(), json!({}));
+    assert_eq!(s.call("camera.stop", json!({})).await.unwrap(), json!({}));
+    // Trame valide.
+    assert_eq!(
+        s.call("camera.frame", json!({"keyframe": true, "data": "0a0b"}))
+            .await
+            .unwrap(),
+        json!({})
+    );
+    // Mêmes validations que l'écran.
+    assert!(s.call("camera.frame", json!({"data": "00"})).await.is_err());
+    assert!(s
+        .call("camera.frame", json!({"keyframe": false, "data": "0"}))
+        .await
+        .is_err());
+}
+
+#[tokio::test]
 async fn screen_methods_require_the_subsystem() {
     let s = service();
     let err = s.call("screen.start", json!({})).await.unwrap_err();

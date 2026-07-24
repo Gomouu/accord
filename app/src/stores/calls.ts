@@ -15,7 +15,13 @@
 
 import { create } from 'zustand';
 import { api } from '../lib/client';
-import { resetRemote, startLocalShare, stopLocalShare } from '../lib/screenController';
+import {
+  resetAllRemote,
+  resetRemote,
+  startLocalStream,
+  stopAllLocal,
+  stopLocalStream,
+} from '../lib/mediaController';
 import type { CallEndedReason, CallState } from '../lib/api';
 
 export type { CallEndedReason, CallState } from '../lib/api';
@@ -68,6 +74,10 @@ interface CallsState {
   localSharing: boolean;
   /** Vrai si le pair partage son écran. */
   remoteSharing: boolean;
+  /** Vrai si notre caméra est allumée dans l'appel actif (v6). */
+  localCamera: boolean;
+  /** Vrai si le pair a sa caméra allumée. */
+  remoteCamera: boolean;
   /**
    * Démarre le partage de son écran (appel actif requis). Rejette si
    * l'utilisateur refuse le partage ou si le runtime ne le supporte pas.
@@ -75,10 +85,21 @@ interface CallsState {
   startScreenShare: () => Promise<void>;
   /** Arrête le partage de son écran. */
   stopScreenShare: () => Promise<void>;
+  /**
+   * Allume sa caméra (appel actif requis). Rejette si l'utilisateur refuse
+   * l'accès ou si le runtime ne le supporte pas.
+   */
+  startCamera: () => Promise<void>;
+  /** Éteint sa caméra. */
+  stopCamera: () => Promise<void>;
   /** Applique `event.screen_state` (le pair a démarré/arrêté son partage). */
   applyScreenState: (params: { peer: string; sharing: boolean }) => void;
+  /** Applique `event.camera_state` (le pair a allumé/éteint sa caméra). */
+  applyCameraState: (params: { peer: string; on: boolean }) => void;
   /** Marque le partage distant actif dès la première trame reçue (robustesse). */
   noteRemoteFrame: () => void;
+  /** Marque la caméra distante active dès la première trame reçue. */
+  noteRemoteCameraFrame: () => void;
 }
 
 export const useCalls = create<CallsState>((set, get) => ({
@@ -89,6 +110,8 @@ export const useCalls = create<CallsState>((set, get) => ({
   missedPeers: new Set(),
   localSharing: false,
   remoteSharing: false,
+  localCamera: false,
+  remoteCamera: false,
 
   start: async (peer) => {
     const { call_id: callId } = await api.callsStart(peer);
@@ -114,7 +137,7 @@ export const useCalls = create<CallsState>((set, get) => ({
     const callId = get().callId;
     if (get().phase !== 'incoming_ringing' || callId === null) return;
     await api.callsDecline(callId);
-    resetRemote();
+    resetAllRemote();
     set({
       phase: 'idle',
       peer: null,
@@ -122,14 +145,16 @@ export const useCalls = create<CallsState>((set, get) => ({
       sincePhaseMs: null,
       localSharing: false,
       remoteSharing: false,
+      localCamera: false,
+      remoteCamera: false,
     });
   },
 
   hangup: async () => {
     if (get().phase === 'idle') return;
-    // Coupe un partage d'écran en cours avant de raccrocher.
-    if (get().localSharing) await stopLocalShare();
-    resetRemote();
+    // Coupe tout flux vidéo en cours avant de raccrocher.
+    await stopAllLocal();
+    resetAllRemote();
     await api.callsHangup();
     set({
       phase: 'idle',
@@ -138,13 +163,15 @@ export const useCalls = create<CallsState>((set, get) => ({
       sincePhaseMs: null,
       localSharing: false,
       remoteSharing: false,
+      localCamera: false,
+      remoteCamera: false,
     });
   },
 
   sync: async () => {
     const status = await api.callsStatus();
     const idle = status.state === 'idle';
-    if (idle) resetRemote();
+    if (idle) resetAllRemote();
     set({
       phase: status.state,
       peer: status.peer,
@@ -152,7 +179,14 @@ export const useCalls = create<CallsState>((set, get) => ({
       // Repère mural remis à zéro : `since_ms` (horloge du moteur) n'est pas
       // convertible en temps mural sans second point de repère (voir l'en-tête).
       sincePhaseMs: idle ? null : Date.now(),
-      ...(idle ? { localSharing: false, remoteSharing: false } : {}),
+      ...(idle
+        ? {
+            localSharing: false,
+            remoteSharing: false,
+            localCamera: false,
+            remoteCamera: false,
+          }
+        : {}),
     });
   },
 
@@ -176,9 +210,9 @@ export const useCalls = create<CallsState>((set, get) => ({
 
   applyEnded: ({ call_id: callId }) => {
     if (get().callId !== callId) return false;
-    // Fin d'appel : coupe tout partage d'écran (local et distant).
-    if (get().localSharing) void stopLocalShare();
-    resetRemote();
+    // Fin d'appel : coupe tous les flux vidéo (locaux et distants).
+    void stopAllLocal();
+    resetAllRemote();
     set({
       phase: 'idle',
       peer: null,
@@ -186,29 +220,52 @@ export const useCalls = create<CallsState>((set, get) => ({
       sincePhaseMs: null,
       localSharing: false,
       remoteSharing: false,
+      localCamera: false,
+      remoteCamera: false,
     });
     return true;
   },
 
   startScreenShare: async () => {
     if (get().phase !== 'active' || get().localSharing) return;
-    await startLocalShare(() => set({ localSharing: false }));
+    await startLocalStream('screen', () => set({ localSharing: false }));
     set({ localSharing: true });
   },
 
   stopScreenShare: async () => {
     if (!get().localSharing) return;
-    await stopLocalShare();
+    await stopLocalStream('screen');
     set({ localSharing: false });
   },
 
+  startCamera: async () => {
+    if (get().phase !== 'active' || get().localCamera) return;
+    await startLocalStream('camera', () => set({ localCamera: false }));
+    set({ localCamera: true });
+  },
+
+  stopCamera: async () => {
+    if (!get().localCamera) return;
+    await stopLocalStream('camera');
+    set({ localCamera: false });
+  },
+
   applyScreenState: ({ sharing }) => {
-    if (!sharing) resetRemote();
+    if (!sharing) resetRemote('screen');
     set({ remoteSharing: sharing });
+  },
+
+  applyCameraState: ({ on }) => {
+    if (!on) resetRemote('camera');
+    set({ remoteCamera: on });
   },
 
   noteRemoteFrame: () => {
     if (!get().remoteSharing) set({ remoteSharing: true });
+  },
+
+  noteRemoteCameraFrame: () => {
+    if (!get().remoteCamera) set({ remoteCamera: true });
   },
 
   markMissed: (peer) =>

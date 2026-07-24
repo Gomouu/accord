@@ -204,18 +204,47 @@ pub enum VoiceMsg {
         /// Vrai = partage démarré, faux = arrêté.
         on: bool,
     },
+    /// Fragment d'une trame vidéo de CAMÉRA (v6). Forme et sémantique
+    /// identiques à [`VoiceMsg::ScreenFrame`] — c'est le flux qui diffère, pour
+    /// que les deux coexistent dans le même appel (on peut se montrer ET
+    /// partager son écran) et se réassemblent séparément. Variante NEUVE plutôt
+    /// qu'un drapeau sur `ScreenFrame` : un client v5 rejette proprement un
+    /// genre inconnu au lieu d'afficher une caméra dans sa visionneuse d'écran.
+    CameraFrame {
+        /// Salon (== `call_id` de l'appel 1-à-1).
+        room: [u8; 16],
+        /// Identifiant de trame, croissant chez l'émetteur (clé de réassemblage).
+        frame_id: u32,
+        /// Nombre total de fragments de cette trame (≥ 1).
+        frag_count: u16,
+        /// Position 0-based de ce fragment (`< frag_count`).
+        frag_idx: u16,
+        /// Drapeaux : bit 0 = keyframe ([`VIDEO_FLAG_KEYFRAME`]).
+        flags: u8,
+        /// Tranche encodée (≤ [`MAX_VIDEO_FRAGMENT`]).
+        payload: Vec<u8>,
+    },
+    /// Allumage (`on == true`) ou extinction de la caméra dans l'appel `room`.
+    /// Mêmes règles que [`VoiceMsg::ScreenControl`].
+    CameraControl {
+        /// Salon (== `call_id`).
+        room: [u8; 16],
+        /// Vrai = caméra allumée, faux = éteinte.
+        on: bool,
+    },
 }
 
 const MAX_OPUS_FRAME: usize = 1024;
 
-/// Drapeau `ScreenFrame::flags` : la tranche appartient à une keyframe.
-pub const SCREEN_FLAG_KEYFRAME: u8 = 0x01;
+/// Drapeau `flags` des trames vidéo ([`VoiceMsg::ScreenFrame`] et
+/// [`VoiceMsg::CameraFrame`]) : la tranche appartient à une keyframe.
+pub const VIDEO_FLAG_KEYFRAME: u8 = 0x01;
 
-/// Taille maximale d'une tranche portée par un [`VoiceMsg::ScreenFrame`] :
+/// Taille maximale d'une tranche portée par une trame vidéo (écran ou caméra) :
 /// bornée pour tenir, une fois scellée, dans un unique datagramme UDP
-/// (`UDP_MTU`) — le fragmenteur écran (accord-node) ne dépasse jamais cette
+/// (`UDP_MTU`) — le fragmenteur vidéo (accord-node) ne dépasse jamais cette
 /// taille, la borne au décodage n'est qu'un garde-fou anti-DoS.
-const MAX_SCREEN_FRAGMENT: usize = 1200;
+const MAX_VIDEO_FRAGMENT: usize = 1200;
 
 impl WireEncode for VoiceMsg {
     fn encode(&self, w: &mut Writer) {
@@ -260,6 +289,27 @@ impl WireEncode for VoiceMsg {
                 w.put_arr(room);
                 w.put_u8(u8::from(*on));
             }
+            VoiceMsg::CameraFrame {
+                room,
+                frame_id,
+                frag_count,
+                frag_idx,
+                flags,
+                payload,
+            } => {
+                w.put_u8(0x05);
+                w.put_arr(room);
+                w.put_u32(*frame_id);
+                w.put_u16(*frag_count);
+                w.put_u16(*frag_idx);
+                w.put_u8(*flags);
+                w.put_vbytes(payload);
+            }
+            VoiceMsg::CameraControl { room, on } => {
+                w.put_u8(0x06);
+                w.put_arr(room);
+                w.put_u8(u8::from(*on));
+            }
         }
     }
 }
@@ -284,9 +334,21 @@ impl WireDecode for VoiceMsg {
                 frag_count: r.u16()?,
                 frag_idx: r.u16()?,
                 flags: r.u8()?,
-                payload: r.vbytes(MAX_SCREEN_FRAGMENT, "voice.screen_payload")?,
+                payload: r.vbytes(MAX_VIDEO_FRAGMENT, "voice.screen_payload")?,
             }),
             0x04 => Ok(VoiceMsg::ScreenControl {
+                room: r.arr()?,
+                on: r.u8()? != 0,
+            }),
+            0x05 => Ok(VoiceMsg::CameraFrame {
+                room: r.arr()?,
+                frame_id: r.u32()?,
+                frag_count: r.u16()?,
+                frag_idx: r.u16()?,
+                flags: r.u8()?,
+                payload: r.vbytes(MAX_VIDEO_FRAGMENT, "voice.camera_payload")?,
+            }),
+            0x06 => Ok(VoiceMsg::CameraControl {
                 room: r.arr()?,
                 on: r.u8()? != 0,
             }),
@@ -454,10 +516,75 @@ mod tests {
             frame_id: 0xDEAD_BEEF,
             frag_count: 7,
             frag_idx: 3,
-            flags: SCREEN_FLAG_KEYFRAME,
+            flags: VIDEO_FLAG_KEYFRAME,
             payload: vec![1, 2, 3, 4, 5],
         };
         assert_eq!(voice_roundtrip(&msg), msg);
+    }
+
+    #[test]
+    fn camera_frame_roundtrips() {
+        let msg = VoiceMsg::CameraFrame {
+            room: [0xC1; 16],
+            frame_id: 1234,
+            frag_count: 3,
+            frag_idx: 2,
+            flags: VIDEO_FLAG_KEYFRAME,
+            payload: vec![9, 8, 7],
+        };
+        assert_eq!(voice_roundtrip(&msg), msg);
+    }
+
+    #[test]
+    fn camera_control_roundtrips_both_states() {
+        for on in [true, false] {
+            let msg = VoiceMsg::CameraControl { room: [4; 16], on };
+            assert_eq!(voice_roundtrip(&msg), msg);
+        }
+    }
+
+    #[test]
+    fn camera_and_screen_frames_are_distinct_on_the_wire() {
+        // Même contenu, flux différent : les deux ne doivent jamais se
+        // confondre au décodage (un client ne peut pas prendre une caméra pour
+        // un partage d'écran).
+        let screen = VoiceMsg::ScreenFrame {
+            room: [7; 16],
+            frame_id: 1,
+            frag_count: 1,
+            frag_idx: 0,
+            flags: 0,
+            payload: vec![42],
+        };
+        let camera = VoiceMsg::CameraFrame {
+            room: [7; 16],
+            frame_id: 1,
+            frag_count: 1,
+            frag_idx: 0,
+            flags: 0,
+            payload: vec![42],
+        };
+        let bytes = |m: &VoiceMsg| {
+            let mut w = Writer::new();
+            m.encode(&mut w);
+            w.into_bytes()
+        };
+        assert_ne!(bytes(&screen), bytes(&camera));
+        assert_eq!(voice_roundtrip(&screen), screen);
+        assert_eq!(voice_roundtrip(&camera), camera);
+    }
+
+    #[test]
+    fn unknown_voice_kind_is_rejected_without_panicking() {
+        // Compatibilité descendante : un client plus ancien qui reçoit un genre
+        // qu'il ne connaît pas rejette le datagramme proprement (le routeur le
+        // jette), au lieu de mal l'interpréter.
+        let mut w = Writer::new();
+        w.put_u8(0x7F);
+        w.put_arr(&[0u8; 16]);
+        let bytes = w.into_bytes();
+        let mut r = Reader::new(&bytes);
+        assert!(VoiceMsg::decode(&mut r).is_err());
     }
 
     #[test]

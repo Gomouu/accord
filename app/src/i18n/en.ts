@@ -879,6 +879,7 @@ export const en: Dict = {
     languageHint: 'The interface language changes immediately.',
     french: 'Français',
     english: 'English',
+    spanish: 'Español',
     blockedUsers: 'Blocked users',
     antiSpamTitle: 'Anti-spam',
     antiSpamHint:

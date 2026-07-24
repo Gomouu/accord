@@ -1,9 +1,10 @@
-/** Tests i18n : interpolation et parité des clés fr/en. */
+/** Tests i18n : interpolation et parité des clés fr/en/es. */
 
 import { describe, expect, it } from 'vitest';
 import { dictionaries, interpolate } from './index';
 import { fr } from './fr';
 import { en } from './en';
+import { es } from './es';
 
 describe('interpolate', () => {
   it('remplace les variables {nom} par leur valeur', () => {
@@ -35,9 +36,10 @@ function keyPaths(node: Record<string, unknown>, prefix = ''): string[] {
 describe('parité des dictionnaires', () => {
   const frPaths = keyPaths(fr).sort();
   const enPaths = keyPaths(en).sort();
+  const esPaths = keyPaths(es).sort();
 
-  it('expose les deux langues déclarées', () => {
-    expect(Object.keys(dictionaries).sort()).toEqual(['en', 'fr']);
+  it('expose les trois langues déclarées', () => {
+    expect(Object.keys(dictionaries).sort()).toEqual(['en', 'es', 'fr']);
   });
 
   it('en.ts couvre exactement les clés de fr.ts (référence)', () => {
@@ -45,8 +47,12 @@ describe('parité des dictionnaires', () => {
     expect(enPaths).toEqual(frPaths);
   });
 
+  it('es.ts couvre exactement les clés de fr.ts (référence)', () => {
+    expect(esPaths).toEqual(frPaths);
+  });
+
   it('aucune traduction n’est vide', () => {
-    for (const dict of [fr, en]) {
+    for (const dict of [fr, en, es]) {
       for (const path of keyPaths(dict)) {
         const leaf = path
           .split('.')

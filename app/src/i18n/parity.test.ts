@@ -1,14 +1,15 @@
 /**
- * Garde-fou d'internationalisation : les dictionnaires FR et EN doivent avoir
- * exactement les mêmes clés, et chaque chaîne traduite doit porter les mêmes
- * marqueurs d'interpolation `{...}`. Le typage (`en: Dict`) attrape déjà une
- * clé manquante, mais pas un placeholder oublié — `{count}` présent en FR et
- * absent en EN casse silencieusement l'interpolation à l'exécution.
+ * Garde-fou d'internationalisation : chaque dictionnaire traduit doit avoir
+ * exactement les mêmes clés que la référence française, et chaque chaîne doit
+ * porter les mêmes marqueurs d'interpolation `{...}`. Le typage (`en: Dict`)
+ * attrape déjà une clé manquante, mais pas un placeholder oublié — `{count}`
+ * présent en FR et absent ailleurs casse silencieusement l'interpolation à
+ * l'exécution.
  */
 
 import { describe, expect, it } from 'vitest';
+import { dictionaries, type Lang } from './index';
 import { fr } from './fr';
-import { en } from './en';
 
 type Leaf = string;
 type Tree = { [key: string]: Leaf | Tree };
@@ -30,33 +31,34 @@ function placeholders(text: string): string[] {
 }
 
 const flatFr = flatten(fr as Tree);
-const flatEn = flatten(en as Tree);
+/** Toutes les langues sauf la référence : ce sont elles qu'on confronte au FR. */
+const traductions = (Object.keys(dictionaries) as Lang[]).filter((lang) => lang !== 'fr');
 
-describe('parité i18n FR/EN', () => {
+describe.each(traductions)('parité i18n FR/%s', (lang) => {
+  const flatTrad = flatten(dictionaries[lang] as unknown as Tree);
+
   it('a exactement le même ensemble de clés', () => {
-    const keysFr = Object.keys(flatFr).sort();
-    const keysEn = Object.keys(flatEn).sort();
-    expect(keysEn).toEqual(keysFr);
+    expect(Object.keys(flatTrad).sort()).toEqual(Object.keys(flatFr).sort());
   });
 
   it('n’a aucune valeur vide dans l’une ou l’autre langue', () => {
     const vides: string[] = [];
     for (const [key, value] of Object.entries(flatFr))
       if (value.trim() === '') vides.push(`fr.${key}`);
-    for (const [key, value] of Object.entries(flatEn))
-      if (value.trim() === '') vides.push(`en.${key}`);
+    for (const [key, value] of Object.entries(flatTrad))
+      if (value.trim() === '') vides.push(`${lang}.${key}`);
     expect(vides).toEqual([]);
   });
 
   it('a les mêmes marqueurs d’interpolation pour chaque clé', () => {
     const divergences: string[] = [];
     for (const [key, textFr] of Object.entries(flatFr)) {
-      const textEn = flatEn[key];
-      if (textEn === undefined) continue;
+      const traduit = flatTrad[key];
+      if (traduit === undefined) continue;
       const a = placeholders(textFr);
-      const b = placeholders(textEn);
+      const b = placeholders(traduit);
       if (a.join(',') !== b.join(',')) {
-        divergences.push(`${key} : fr={${a.join(',')}} en={${b.join(',')}}`);
+        divergences.push(`${key} : fr={${a.join(',')}} ${lang}={${b.join(',')}}`);
       }
     }
     expect(divergences).toEqual([]);

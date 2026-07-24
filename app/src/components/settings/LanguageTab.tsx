@@ -1,5 +1,5 @@
 /**
- * Onglet Langue et heure : sélecteur FR/EN (application immédiate,
+ * Onglet Langue et heure : sélecteur FR/EN/ES (application immédiate,
  * persistée) et format des heures affichées (horodatages de messages —
  * `lib/format.ts`).
  */
@@ -18,6 +18,7 @@ export function LanguageTab() {
   const langs: { id: Lang; label: string }[] = [
     { id: 'fr', label: t.settings.french },
     { id: 'en', label: t.settings.english },
+    { id: 'es', label: t.settings.spanish },
   ];
 
   const timeFormats: { id: TimeFormat; label: string }[] = [

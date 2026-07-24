@@ -170,6 +170,12 @@ describe('pickLang', () => {
     expect(pickLang('FR-ca')).toBe('fr');
   });
 
+  it('choisit l’espagnol pour une étiquette hispanophone', () => {
+    expect(pickLang('es')).toBe('es');
+    expect(pickLang('es-MX')).toBe('es');
+    expect(pickLang('ES-419')).toBe('es');
+  });
+
   it('retombe sur l’anglais pour toute autre étiquette', () => {
     expect(pickLang('en-US')).toBe('en');
     expect(pickLang('de')).toBe('en');

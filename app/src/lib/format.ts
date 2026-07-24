@@ -2,6 +2,9 @@
 
 import type { Lang } from '../i18n';
 
+/** Étiquette BCP-47 pilotant chaque appel `Intl` : une par langue supportée. */
+const LOCALES: Record<Lang, string> = { fr: 'fr-FR', en: 'en-US', es: 'es-ES' };
+
 /**
  * Préférence de format d'heure (Paramètres → Langue et heure) : `auto` suit
  * la convention de la locale (fr-FR → 24 h, en-US → 12 h par défaut), les
@@ -16,7 +19,7 @@ export function formatTimestamp(
   now = Date.now(),
   hourFormat: HourFormat = 'auto',
 ): string {
-  const locale = lang === 'fr' ? 'fr-FR' : 'en-US';
+  const locale = LOCALES[lang];
   const date = new Date(ms);
   const today = new Date(now);
   const sameDay =
@@ -46,7 +49,7 @@ export function formatEventDateTime(
   lang: Lang,
   hourFormat: HourFormat = 'auto',
 ): string {
-  const locale = lang === 'fr' ? 'fr-FR' : 'en-US';
+  const locale = LOCALES[lang];
   const options: Intl.DateTimeFormatOptions = {
     day: '2-digit',
     month: 'short',
@@ -68,7 +71,7 @@ export function formatTimeOnly(
   lang: Lang,
   hourFormat: HourFormat = 'auto',
 ): string {
-  const locale = lang === 'fr' ? 'fr-FR' : 'en-US';
+  const locale = LOCALES[lang];
   const options: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
   if (hourFormat !== 'auto') options.hour12 = hourFormat === '12h';
   return new Date(ms).toLocaleTimeString(locale, options);
@@ -76,7 +79,7 @@ export function formatTimeOnly(
 
 /** Séparateur de jour dans un fil de messages. */
 export function formatDay(ms: number, lang: Lang): string {
-  const locale = lang === 'fr' ? 'fr-FR' : 'en-US';
+  const locale = LOCALES[lang];
   return new Date(ms).toLocaleDateString(locale, {
     weekday: 'long',
     day: 'numeric',
@@ -121,6 +124,7 @@ export function shortId(hex: string): string {
 const UNITES_TAILLE: Record<Lang, readonly string[]> = {
   fr: ['o', 'Ko', 'Mo', 'Go'],
   en: ['B', 'KB', 'MB', 'GB'],
+  es: ['B', 'KB', 'MB', 'GB'],
 };
 
 /** Taille de fichier lisible (base 1024, une décimale au plus). */
@@ -133,7 +137,8 @@ export function tailleLisible(octets: number, lang: Lang): string {
     rang += 1;
   }
   const arrondi = rang === 0 ? String(valeur) : String(Math.round(valeur * 10) / 10);
-  const texte = lang === 'fr' ? arrondi.replace('.', ',') : arrondi;
+  // Virgule décimale partout sauf en anglais.
+  const texte = lang === 'en' ? arrondi : arrondi.replace('.', ',');
   return `${texte} ${unites[rang] ?? ''}`;
 }
 

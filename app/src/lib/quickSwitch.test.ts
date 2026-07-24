@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { Contact, GroupStateJson } from './api';
+import type { CommandSwitchItem, QuickSwitchItem } from './quickSwitch';
 import {
   buildQuickSwitchItems,
   serverItemId,
@@ -15,7 +16,9 @@ import {
   dmItemId,
   isMacPlatform,
   matchScore,
+  nextUnreadItem,
   rankQuickSwitchItems,
+  sectionQuickSwitchItems,
   visibleNavigableChannels,
 } from './quickSwitch';
 
@@ -89,6 +92,10 @@ describe('matchScore', () => {
   it('ignore la casse', () => {
     expect(matchScore('GENERAL', 'gen')).toBe(matchScore('general', 'GEN'));
   });
+
+  it('matches text without requiring accents in the query', () => {
+    expect(matchScore('Général', 'general')).toBe(matchScore('General', 'general'));
+  });
 });
 
 describe('rankQuickSwitchItems', () => {
@@ -119,6 +126,78 @@ describe('rankQuickSwitchItems', () => {
 
   it('retourne une liste vide sans correspondance', () => {
     expect(rankQuickSwitchItems([{ label: 'Général' }], 'xyz')).toEqual([]);
+  });
+
+  it('matches command subtitles and fuzzy keywords', () => {
+    const commands: CommandSwitchItem[] = [
+      {
+        id: 'command:create-channel',
+        kind: 'command',
+        label: 'Create channel',
+        subtitle: 'Server tools',
+        keywords: ['room'],
+        run: () => undefined,
+      },
+      {
+        id: 'command:privacy',
+        kind: 'command',
+        label: 'Open privacy settings',
+        subtitle: 'Personal settings',
+        keywords: ['safety'],
+        run: () => undefined,
+      },
+    ];
+
+    expect(rankQuickSwitchItems(commands, 'server tools')).toEqual([commands[0]]);
+    expect(rankQuickSwitchItems(commands, 'sfty')).toEqual([commands[1]]);
+  });
+});
+
+describe('sectionQuickSwitchItems', () => {
+  it('groups ranked items into the fixed palette section order', () => {
+    const items: QuickSwitchItem[] = [
+      {
+        id: 'command:settings',
+        kind: 'command',
+        label: 'Open settings',
+        subtitle: 'Command',
+        run: () => undefined,
+      },
+      { id: 'server:g1', kind: 'server', label: 'Guild', groupId: 'g1' },
+      { id: 'friends', kind: 'friends', label: 'Friends', view: { kind: 'friends' } },
+      {
+        id: 'dm:alice',
+        kind: 'dm',
+        label: 'Alice',
+        pubkey: 'alice',
+        avatarHash: null,
+        avatarDecoration: null,
+        view: { kind: 'dm', peer: 'alice' },
+      },
+      {
+        id: 'channel:g1/c1',
+        kind: 'channel',
+        label: 'general',
+        subtitle: 'Guild',
+        channelKind: 'text',
+        groupId: 'g1',
+        channelId: 'c1',
+        view: { kind: 'group', groupId: 'g1', channelId: 'c1' },
+      },
+    ];
+
+    expect(
+      sectionQuickSwitchItems(items).map((section) => ({
+        id: section.id,
+        items: section.items.map((item) => item.id),
+      })),
+    ).toEqual([
+      { id: 'channels', items: ['channel:g1/c1'] },
+      { id: 'dms', items: ['friends', 'dm:alice'] },
+      { id: 'servers', items: ['server:g1'] },
+      { id: 'commands', items: ['command:settings'] },
+    ]);
+    expect(sectionQuickSwitchItems(items.slice(2), true)[0]?.id).toBe('recent');
   });
 });
 
@@ -350,6 +429,26 @@ describe('buildRecentItems', () => {
       selfPubkey: null,
     });
     expect(buildRecentItems(items, [], {}, null)).toEqual([]);
+  });
+});
+
+describe('nextUnreadItem', () => {
+  it('finds the next unread item and wraps to the beginning', () => {
+    const items = [
+      { id: 'first', unread: true },
+      { id: 'middle', unread: false },
+      { id: 'last', unread: true },
+    ];
+    const isUnread = (item: (typeof items)[number]): boolean => item.unread;
+
+    expect(nextUnreadItem(items, 'first', isUnread)?.id).toBe('last');
+    expect(nextUnreadItem(items, 'last', isUnread)?.id).toBe('first');
+  });
+
+  it('returns null when no item is unread', () => {
+    expect(
+      nextUnreadItem([{ id: 'read', unread: false }], 'read', (item) => item.unread),
+    ).toBeNull();
   });
 });
 

@@ -5,10 +5,10 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { Contact, GroupStateJson, SelfProfile } from '../lib/api';
 import { useFriends } from '../stores/friends';
-import { useGroups } from '../stores/groups';
+import { PERMISSIONS, useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
 import { useUi } from '../stores/ui';
 import { QuickSwitcher } from './QuickSwitcher';
@@ -66,6 +66,8 @@ beforeEach(() => {
     view: { kind: 'friends' },
     lastDmPeer: null,
     lastChannelByServer: {},
+    modal: null,
+    lang: 'fr',
   });
   useSession.setState({ self: SELF, phase: 'ready' });
   useFriends.setState({
@@ -74,6 +76,7 @@ beforeEach(() => {
   });
   useGroups.setState({
     ids: ['g1'],
+    unread: {},
     states: {
       g1: groupState({
         channels: [
@@ -229,6 +232,73 @@ describe('QuickSwitcher', () => {
     expect(useUi.getState().quickSwitcherOpen).toBe(false);
   });
 
+  it('hides creation commands without Manage Channels', () => {
+    useUi.setState({
+      quickSwitcherOpen: true,
+      view: { kind: 'group', groupId: 'g1', channelId: 'c1' },
+    });
+    render(<QuickSwitcher />);
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Créer' } });
+
+    expect(screen.queryByText('Créer un salon')).toBeNull();
+    expect(screen.queryByText('Créer une catégorie')).toBeNull();
+    expect(screen.queryByText('Créer un événement')).toBeNull();
+  });
+
+  it('runs a permission-gated creation command through the UI store', () => {
+    useGroups.setState((state) => ({
+      states: {
+        ...state.states,
+        g1: groupState({
+          channels: state.states.g1?.channels ?? [],
+          my_permissions: PERMISSIONS.VIEW | PERMISSIONS.MANAGE_CHANNELS,
+        }),
+      },
+    }));
+    useUi.setState({
+      quickSwitcherOpen: true,
+      view: { kind: 'group', groupId: 'g1', channelId: 'c1' },
+    });
+    render(<QuickSwitcher />);
+
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: 'catégorie' },
+    });
+    fireEvent.click(screen.getByText('Créer une catégorie'));
+
+    expect(useUi.getState().modal).toEqual({
+      kind: 'createCategory',
+      groupId: 'g1',
+    });
+  });
+
+  it('fuzzy-searches navigation and commands across accents and omitted letters', () => {
+    useUi.setState({ quickSwitcherOpen: true, lang: 'en' });
+    render(<QuickSwitcher />);
+    const input = screen.getByRole('combobox');
+
+    fireEvent.change(input, { target: { value: 'gnrl' } });
+    expect(screen.getByText('général')).toBeInTheDocument();
+    expect(screen.queryByText('Bobby')).toBeNull();
+
+    fireEvent.change(input, { target: { value: 'opnsttngs' } });
+    expect(screen.getByText('Open settings')).toBeInTheDocument();
+    expect(screen.queryByText('général')).toBeNull();
+  });
+
+  it('hides server actions outside a server view', () => {
+    useUi.setState({ quickSwitcherOpen: true, lang: 'en', view: { kind: 'friends' } });
+    render(<QuickSwitcher />);
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'server' } });
+
+    expect(screen.queryByText('Open server settings')).toBeNull();
+    expect(screen.queryByText('Invite people')).toBeNull();
+    expect(screen.queryByText('Copy server ID')).toBeNull();
+    expect(screen.queryByText('Leave server')).toBeNull();
+  });
+
   it('exécute une commande de statut de présence puis referme', () => {
     const setOwnStatus = vi.fn(async () => {});
     useFriends.setState({ setOwnStatus });
@@ -242,7 +312,27 @@ describe('QuickSwitcher', () => {
     expect(useUi.getState().quickSwitcherOpen).toBe(false);
   });
 
-  it('rend le focus au déclencheur à la fermeture par Échap', () => {
+  it('traps focus and handles Escape throughout custom status mode', () => {
+    useUi.setState({ quickSwitcherOpen: true, lang: 'en' });
+    render(<QuickSwitcher />);
+
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: 'custom status' },
+    });
+    fireEvent.click(screen.getByText('Set a custom status'));
+
+    const editor = screen.getByRole('textbox', { name: 'What is happening?' });
+    const submit = screen.getByRole('button', { name: /Set a custom status/ });
+    submit.focus();
+    fireEvent.keyDown(submit, { key: 'Tab' });
+    expect(editor).toHaveFocus();
+
+    submit.focus();
+    fireEvent.keyDown(submit, { key: 'Escape' });
+    expect(screen.getByRole('combobox')).toHaveFocus();
+  });
+
+  it('rend le focus au déclencheur à la fermeture par Échap', async () => {
     render(
       <>
         <button>déclencheur</button>
@@ -256,6 +346,6 @@ describe('QuickSwitcher', () => {
     expect(screen.getByRole('combobox')).toHaveFocus();
 
     fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Escape' });
-    expect(trigger).toHaveFocus();
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 });

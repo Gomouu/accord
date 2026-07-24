@@ -47,6 +47,15 @@ vi.mock('./ContextMenu', () => ({
   ContextMenu: () => null,
   SearchIcon: () => null,
   CloseIcon: () => null,
+  BellOffMenuIcon: () => null,
+  CheckMenuIcon: () => null,
+  CopyMenuIcon: () => null,
+  EnvelopeMenuIcon: () => null,
+  GearMenuIcon: () => null,
+  LeaveMenuIcon: () => null,
+  PlusMenuIcon: () => null,
+  VoiceDeafenMenuIcon: () => null,
+  VoiceMuteMenuIcon: () => null,
 }));
 vi.mock('./IncomingCall', () => ({ IncomingCall: () => null }));
 

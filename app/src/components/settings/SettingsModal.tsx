@@ -7,6 +7,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { bouclerTab, deplacerFocusVertical } from '../../lib/focus';
+import {
+  clearSettingsTab,
+  peekSettingsTab,
+  subscribeSettingsTab,
+} from '../../lib/settingsNavigation';
 import { useUi, useT } from '../../stores/ui';
 import { CloseIcon } from '../ContextMenu';
 import { DEFAULT_TAB, findTab, SETTINGS_GROUPS, type SettingsTabId } from './tabs';
@@ -14,9 +19,15 @@ import { DEFAULT_TAB, findTab, SETTINGS_GROUPS, type SettingsTabId } from './tab
 export function SettingsModal() {
   const t = useT();
   const closeModal = useUi((s) => s.closeModal);
-  const [tabId, setTabId] = useState<SettingsTabId>(DEFAULT_TAB.id);
+  const requestedTab = peekSettingsTab();
+  const [tabId, setTabId] = useState<SettingsTabId>(requestedTab ?? DEFAULT_TAB.id);
   const navRef = useRef<HTMLElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (requestedTab !== null) clearSettingsTab(requestedTab);
+    return subscribeSettingsTab(setTabId);
+  }, [requestedTab]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {

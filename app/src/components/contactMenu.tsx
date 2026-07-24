@@ -10,9 +10,9 @@
 import type { Dict } from '../i18n';
 import type { Contact, OwnPresenceStatus, SelfProfile } from '../lib/api';
 import { copyToClipboard } from '../lib/clipboard';
+import { markDmRead } from '../lib/markRead';
 import { useCalls } from '../stores/calls';
 import type { ContextMenuItem } from '../stores/contextMenu';
-import { useDms } from '../stores/dms';
 import { useFriends } from '../stores/friends';
 import { usePinnedDms } from '../stores/pinnedDms';
 import { useUi, type AncrePopover } from '../stores/ui';
@@ -32,30 +32,6 @@ import { BlockUserMenuIcon, RemoveFriendMenuIcon } from './messageMenus';
 function ancreDe(target: HTMLElement): AncrePopover {
   const r = target.getBoundingClientRect();
   return { top: r.top, left: r.left, bottom: r.bottom, right: r.right };
-}
-
-/**
- * Marque une conversation privée comme lue jusqu'à son dernier message. Le
- * lamport de tête n'est pas porté par le contact : on lit celui de la
- * conversation déjà chargée, sinon on la rafraîchit d'abord (best effort).
- */
-function marquerLu(peer: string, onError: () => void): void {
-  const derniereLamport = (): number | undefined =>
-    useDms.getState().conversations[peer]?.at(-1)?.lamport;
-  const local = derniereLamport();
-  if (local !== undefined) {
-    useFriends.getState().markRead(peer, local).catch(onError);
-    return;
-  }
-  useDms
-    .getState()
-    .refresh(peer)
-    .then(() => {
-      const lamport = derniereLamport();
-      if (lamport !== undefined)
-        useFriends.getState().markRead(peer, lamport).catch(onError);
-    })
-    .catch(onError);
 }
 
 /** Items du menu contextuel d'un contact (`target` = la ligne cliquée). */
@@ -100,7 +76,7 @@ export function buildContactMenu(
       items.push({
         label: t.contextMenu.markAsRead,
         icon: <CheckMenuIcon />,
-        onClick: () => marquerLu(contact.pubkey, onError),
+        onClick: () => void markDmRead(contact.pubkey).catch(onError),
       });
     }
     const pinned = usePinnedDms.getState().isPinned(contact.pubkey);

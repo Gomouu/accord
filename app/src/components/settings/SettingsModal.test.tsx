@@ -4,6 +4,7 @@
  * avec déblocage, langue et fermeture par Échap.
  */
 
+import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { Contact, SelfProfile } from '../../lib/api';
@@ -11,6 +12,7 @@ import { APP_VERSION } from '../../lib/meta';
 import { useFriends } from '../../stores/friends';
 import { useSession } from '../../stores/session';
 import { THEME_IDS, useUi } from '../../stores/ui';
+import { openSettingsTab } from '../../lib/settingsNavigation';
 import { SettingsModal } from './SettingsModal';
 
 const self: SelfProfile = {
@@ -66,6 +68,20 @@ function openTab(label: string): void {
 }
 
 describe('SettingsModal — structure', () => {
+  it('opens the requested initial tab', () => {
+    openSettingsTab('appearance');
+    render(
+      <StrictMode>
+        <SettingsModal />
+      </StrictMode>,
+    );
+
+    expect(screen.getByRole('button', { name: 'Apparence' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
   it('présente les catégories et ouvre Mon compte par défaut', () => {
     render(<SettingsModal />);
 

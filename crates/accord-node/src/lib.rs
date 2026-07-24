@@ -235,6 +235,9 @@ impl RunningNode {
         self.runtime.stop();
         self.endpoint.shutdown();
         self.api.shutdown();
+        // Casse le cycle d'`Arc` Runtime↔Node (Lot G, cause 3) : sans quoi le
+        // runtime — et son socket UDP — fuit à chaque verrouillage.
+        self.node.clear_network_control();
     }
 }
 

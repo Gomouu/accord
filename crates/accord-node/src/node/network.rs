@@ -12,7 +12,6 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::sync::Weak;
 
 use serde::Serialize;
 use serde_json::json;
@@ -231,16 +230,23 @@ impl Node {
     /// Branche le contrôle réseau (une seule fois, après construction du
     /// runtime).
     pub(crate) fn set_network_control(&self, ctrl: Arc<dyn NetworkControl>) {
-        // Référence FAIBLE : évite le cycle Runtime↔Node (Lot G, cause 3). Le
-        // runtime, ses boucles et le `RunningNode` gardent le strong-count vivant
-        // tant que le nœud tourne ; l'upgrade échoue après l'arrêt.
-        let _ = self.network.set(Arc::downgrade(&ctrl));
+        *self.network.lock().unwrap_or_else(|e| e.into_inner()) = Some(ctrl);
     }
 
-    /// Contrôle réseau branché et encore vivant, s'il l'est (absent dans les
-    /// tests sans réseau, ou après l'arrêt du runtime).
+    /// Rompt le lien Node→runtime : casse le cycle d'`Arc` Runtime↔Node à
+    /// l'arrêt (Lot G, cause 3), pour que le runtime et son socket UDP soient
+    /// libérés. Appelé par [`crate::RunningNode::shutdown`].
+    pub(crate) fn clear_network_control(&self) {
+        *self.network.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
+    /// Contrôle réseau branché, s'il l'est (absent dans les tests sans réseau,
+    /// ou après l'arrêt).
     pub(crate) fn network_control(&self) -> Option<Arc<dyn NetworkControl>> {
-        self.network.get().and_then(Weak::upgrade)
+        self.network
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Émet `event.network` vers l'UI avec le statut réseau complet (compteurs

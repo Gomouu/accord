@@ -27,6 +27,7 @@ fn sample_hello() -> Hello {
         nonce: [3; 16],
         cookie: vec![],
         sig: [4; 64],
+        capabilities: None,
     }
 }
 
@@ -68,6 +69,7 @@ fn packet_welcome_and_cookie_roundtrip() {
         nonce: [9; 16],
         session_id: [10; 8],
         sig: [11; 64],
+        capabilities: None,
     }));
     roundtrip_packet(&Packet::Cookie(CookiePacket {
         cookie: vec![1, 2, 3],
@@ -116,10 +118,29 @@ fn trailing_bytes_rejected() {
         nonce: [9; 16],
         session_id: [10; 8],
         sig: [11; 64],
+        capabilities: None,
     })
     .to_bytes();
-    bytes.push(0);
+    // HELLO/WELCOME réservent 4 octets de fin au champ additif `capabilities` :
+    // un excédent le franchit d'abord, et seul ce qui dépasse est un reliquat.
+    bytes.extend_from_slice(&[0, 0, 0, 0, 0]);
     assert_eq!(Packet::from_bytes(&bytes), Err(DecodeError::TrailingBytes));
+}
+
+#[test]
+fn partial_capability_field_rejected() {
+    // Un reliquat de 1 à 3 octets n'est pas un champ de capacités valide : la
+    // structure est malformée, pas étendue.
+    let base = Packet::Hello(sample_hello()).to_bytes();
+    for excess in 1..4 {
+        let mut bytes = base.clone();
+        bytes.extend(std::iter::repeat_n(0u8, excess));
+        assert_eq!(
+            Packet::from_bytes(&bytes),
+            Err(DecodeError::UnexpectedEof),
+            "excess={excess}"
+        );
+    }
 }
 
 #[test]

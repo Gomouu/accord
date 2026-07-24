@@ -20,6 +20,7 @@ fn config() -> EndpointConfig {
         idle_timeout_ms: 120_000,
         cookie_pressure_per_s: 64,
         relay_serving: false,
+        capabilities: None,
     }
 }
 
@@ -33,6 +34,57 @@ struct Node {
 fn spawn_node(net: &SimNet, clock: &ManualClock, addr: &str) -> Node {
     let id = Arc::new(Identity::generate_with_pow_bits(POW));
     spawn_node_avec_identite(net, clock, addr, id)
+}
+
+/// Nœud annonçant un jeu de capacités dans son handshake. `None` reproduit un
+/// pair antérieur au champ de capacités.
+fn spawn_node_avec_capacites(
+    net: &SimNet,
+    clock: &ManualClock,
+    addr: &str,
+    capabilities: Option<u32>,
+) -> Node {
+    let addr: SocketAddr = addr.parse().unwrap();
+    let socket = Arc::new(net.bind(addr));
+    let id = Arc::new(Identity::generate_with_pow_bits(POW));
+    let static_pub = id.public_key();
+    let (ep, events) = Endpoint::new(
+        socket,
+        id,
+        Arc::new(clock.clone()) as Arc<dyn accord_transport::Clock>,
+        EndpointConfig {
+            capabilities,
+            ..config()
+        },
+    );
+    ep.spawn();
+    Node {
+        ep,
+        events,
+        addr,
+        static_pub,
+    }
+}
+
+async fn attendre_sessions(a: &Node, b: &Node) {
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if a.ep.session_count() == 1 && b.ep.session_count() == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("sessions établies");
+}
+
+fn capacites_vues(node: &Node) -> u32 {
+    node.ep
+        .session_views()
+        .first()
+        .expect("une session")
+        .peer_capabilities
 }
 
 /// Variante à identité imposée : indispensable pour simuler le REDÉMARRAGE
@@ -685,4 +737,63 @@ async fn keepalive_mesure_la_latence_et_session_views_l_expose() {
     .expect("latence mesurée sur le PONG keep-alive");
     // Horloge manuelle figée entre PING et PONG : aller-retour nul, mesuré.
     assert_eq!(alice.ep.session_views()[0].last_rtt_ms, Some(0));
+}
+
+/// T0.1 — Un nœud qui annonce des capacités et un nœud qui n'en annonce
+/// aucune doivent s'interconnecter **dans les deux sens**. C'est le critère de
+/// fin de la tâche : le champ additif ne coupe personne.
+#[tokio::test]
+async fn nouveau_et_ancien_noeud_sinterconnectent() {
+    const CAPS: u32 = accord_proto::limits::CAP_PQ_HYBRID;
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(4242, NetConditions::default());
+
+    // Sens 1 : le nœud qui annonce initie vers un nœud qui n'annonce rien.
+    let neuf = spawn_node_avec_capacites(&net, &clock, "10.0.5.1:4000", Some(CAPS));
+    let ancien = spawn_node_avec_capacites(&net, &clock, "10.0.5.2:4000", None);
+    neuf.ep
+        .send(
+            ancien.addr,
+            &ChannelMsg::Control(ControlMsg::Ping { token: 1 }),
+        )
+        .await
+        .unwrap();
+    attendre_sessions(&neuf, &ancien).await;
+    // L'ancien voit les capacités annoncées ; le neuf n'en voit aucune, et
+    // surtout n'a pas envoyé de WELCOME plus long que l'ancien sait décoder.
+    assert_eq!(capacites_vues(&ancien), CAPS);
+    assert_eq!(capacites_vues(&neuf), 0);
+
+    // Sens 2 : c'est le nœud sans capacités qui initie.
+    let neuf2 = spawn_node_avec_capacites(&net, &clock, "10.0.5.3:4000", Some(CAPS));
+    let ancien2 = spawn_node_avec_capacites(&net, &clock, "10.0.5.4:4000", None);
+    ancien2
+        .ep
+        .send(
+            neuf2.addr,
+            &ChannelMsg::Control(ControlMsg::Ping { token: 2 }),
+        )
+        .await
+        .unwrap();
+    attendre_sessions(&ancien2, &neuf2).await;
+    // Le répondeur ne renvoie rien à un initiateur muet : les deux côtés
+    // voient 0, et la session est bien établie.
+    assert_eq!(capacites_vues(&neuf2), 0);
+    assert_eq!(capacites_vues(&ancien2), 0);
+}
+
+/// Deux nœuds qui annoncent tous les deux échangent bien leurs capacités,
+/// dans les deux sens, à travers le transport complet.
+#[tokio::test]
+async fn deux_noeuds_capables_echangent_leurs_capacites() {
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(4243, NetConditions::default());
+    let a = spawn_node_avec_capacites(&net, &clock, "10.0.6.1:4000", Some(0b101));
+    let b = spawn_node_avec_capacites(&net, &clock, "10.0.6.2:4000", Some(0b010));
+    a.ep.send(b.addr, &ChannelMsg::Control(ControlMsg::Ping { token: 3 }))
+        .await
+        .unwrap();
+    attendre_sessions(&a, &b).await;
+    assert_eq!(capacites_vues(&b), 0b101);
+    assert_eq!(capacites_vues(&a), 0b010);
 }

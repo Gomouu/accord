@@ -219,7 +219,7 @@ fn relay_close(circuit: u32) -> ChannelMsg {
 
 /// Sérialise un `Packet::Hello` frais pour l'identité `id` (blob à tunneler).
 fn hello_blob(id: &Identity, now: u64) -> Vec<u8> {
-    let init = Initiator::start(id, now, Vec::new(), POW, None);
+    let init = Initiator::start(id, now, Vec::new(), POW, None, None);
     Packet::Hello(init.hello().clone()).to_bytes()
 }
 
@@ -797,7 +797,7 @@ async fn faille_d_close_relais_exige_la_provenance_du_pair() {
 /// `pow_nonce` qui ÉCHOUE la preuve de travail (de façon déterministe) et on
 /// corrompt la signature.
 fn hello_blob_invalide(id: &Identity, now: u64) -> Vec<u8> {
-    let init = Initiator::start(id, now, Vec::new(), POW, None);
+    let init = Initiator::start(id, now, Vec::new(), POW, None, None);
     let mut hello = init.hello().clone();
     // `pow_nonce` déterministe qui ÉCHOUE la preuve de travail : la réservation
     // d'un slot exige désormais un PoW valide, que ce HELLO n'a pas.

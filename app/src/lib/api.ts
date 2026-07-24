@@ -603,6 +603,9 @@ export interface PeerLink {
   rtt_ms?: number | null;
   /** Horodatage (ms) de la dernière remise réussie vers ce pair, ou `null`. */
   last_delivery_ms?: number | null;
+  /** Capacités annoncées par le pair dans le handshake (bitmask authentifié).
+   * 0 sans session ou pour un pair qui n'en annonce aucune. Champ additif. */
+  capabilities?: number;
 }
 
 /** Compteurs de diagnostic locaux depuis le démarrage (voir `diagnostics.counters`). */

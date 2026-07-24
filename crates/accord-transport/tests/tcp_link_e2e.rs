@@ -46,6 +46,7 @@ async fn spawn_mux_node() -> Node {
             idle_timeout_ms: 120_000,
             cookie_pressure_per_s: 64,
             relay_serving: false,
+            capabilities: None,
         },
     );
     ep.spawn();

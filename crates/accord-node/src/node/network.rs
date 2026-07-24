@@ -99,6 +99,10 @@ pub struct PeerLink {
     /// pair (tout canal confondu), ou `null` si aucune depuis le démarrage.
     /// Champ additif.
     pub last_delivery_ms: Option<u64>,
+    /// Capacités annoncées par le pair dans le handshake et authentifiées par
+    /// son transcript (bitmask, voir `accord_proto::limits::CAP_KNOWN`). 0 sans
+    /// session, ou pour un pair qui n'en annonce aucune. Champ additif.
+    pub capabilities: u32,
 }
 
 /// Contrôle du réseau depuis l'API : implémenté par le runtime, branché sur le

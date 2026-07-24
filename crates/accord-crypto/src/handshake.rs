@@ -30,6 +30,9 @@ pub struct Established {
     pub peer_static: [u8; 32],
     /// Nonce PoW du pair (déjà vérifié).
     pub peer_pow_nonce: u64,
+    /// Capacités annoncées par le pair, authentifiées par le transcript. Vaut
+    /// 0 pour un pair qui n'annonce rien (version antérieure au champ).
+    pub peer_capabilities: u32,
     /// Vrai côté initiateur.
     pub is_initiator: bool,
 }
@@ -44,6 +47,22 @@ impl std::fmt::Debug for Established {
     }
 }
 
+/// Absorbe le champ additif `capabilities` dans un transcript.
+///
+/// 🔒 **Anti-repli.** Absent, le champ n'ajoute **rien** — le transcript reste
+/// bit pour bit celui des versions antérieures, sans quoi aucun pair ancien ne
+/// pourrait plus s'authentifier. Présent, il ajoute un marqueur puis la valeur.
+/// Un attaquant qui retire les 4 octets de capacités en vol change donc le
+/// transcript calculé par le destinataire, et la signature ne vérifie plus : le
+/// repli forcé est impossible. Ajouter le champ à un handshake qui n'en avait
+/// pas échoue symétriquement.
+fn absorb_capabilities(d: &mut Sha256, capabilities: Option<u32>) {
+    if let Some(caps) = capabilities {
+        d.update([0x01]);
+        d.update(caps.to_be_bytes());
+    }
+}
+
 fn transcript_1(h: &Hello) -> [u8; 32] {
     let mut d = Sha256::new();
     d.update(HS_DOMAIN);
@@ -53,6 +72,7 @@ fn transcript_1(h: &Hello) -> [u8; 32] {
     d.update(h.pow_nonce.to_be_bytes());
     d.update(h.timestamp_ms.to_be_bytes());
     d.update(h.nonce);
+    absorb_capabilities(&mut d, h.capabilities);
     d.finalize().into()
 }
 
@@ -66,6 +86,7 @@ fn transcript_2(t1: &[u8; 32], w: &Welcome) -> [u8; 32] {
     d.update(w.timestamp_ms.to_be_bytes());
     d.update(w.nonce);
     d.update(w.session_id);
+    absorb_capabilities(&mut d, w.capabilities);
     d.finalize().into()
 }
 
@@ -128,12 +149,17 @@ impl Initiator {
     /// Construit le HELLO et l'état d'attente. `cookie` vient d'un éventuel
     /// défi anti-DoS précédent (vide sinon). `expected_static` lie la future
     /// session à l'identité visée : le WELCOME devra en émaner (voir `finish`).
+    ///
+    /// 🔒 `capabilities` n'est émis que si l'appelant sait le pair capable de
+    /// le décoder : un HELLO plus long qu'attendu est indécodable pour une
+    /// version antérieure au champ. La décision appartient au transport.
     pub fn start(
         identity: &Identity,
         now_ms: u64,
         cookie: Vec<u8>,
         pow_bits: u32,
         expected_static: Option<[u8; 32]>,
+        capabilities: Option<u32>,
     ) -> Self {
         let eph_secret = x25519_dalek::StaticSecret::random_from_rng(OsRng);
         let eph_pub = x25519_dalek::PublicKey::from(&eph_secret).to_bytes();
@@ -147,6 +173,7 @@ impl Initiator {
             nonce,
             cookie,
             sig: [0; 64],
+            capabilities,
         };
         let t1 = transcript_1(&hello);
         hello.sig = identity.sign(&t1);
@@ -192,6 +219,7 @@ impl Initiator {
             session_id: w.session_id,
             peer_static: w.static_pub,
             peer_pow_nonce: w.pow_nonce,
+            peer_capabilities: w.capabilities.unwrap_or(0),
             is_initiator: true,
         })
     }
@@ -200,12 +228,17 @@ impl Initiator {
 /// Traite un HELLO côté répondeur : valide, répond WELCOME et établit la session.
 ///
 /// `nonce_cache` est partagé entre tous les handshakes entrants du nœud.
+///
+/// 🔒 `capabilities` n'est repris dans le WELCOME que si le HELLO en portait
+/// lui-même : un initiateur trop ancien pour émettre le champ l'est aussi pour
+/// le décoder, et un WELCOME plus long lui serait indécodable.
 pub fn respond(
     identity: &Identity,
     hello: &Hello,
     now_ms: u64,
     nonce_cache: &mut NonceCache,
     pow_bits: u32,
+    capabilities: Option<u32>,
 ) -> Result<(Welcome, Established), CryptoError> {
     check_freshness(hello.timestamp_ms, now_ms)?;
     if !verify_pow(&hello.static_pub, hello.pow_nonce, pow_bits) {
@@ -230,6 +263,7 @@ pub fn respond(
         nonce,
         session_id,
         sig: [0; 64],
+        capabilities: capabilities.filter(|_| hello.capabilities.is_some()),
     };
     let t2 = transcript_2(&t1, &welcome);
     welcome.sig = identity.sign(&t2);
@@ -247,6 +281,7 @@ pub fn respond(
             session_id,
             peer_static: hello.static_pub,
             peer_pow_nonce: hello.pow_nonce,
+            peer_capabilities: hello.capabilities.unwrap_or(0),
             is_initiator: false,
         },
     ))
@@ -325,9 +360,10 @@ mod tests {
     fn full_handshake_derives_same_keys() {
         let (alice, bob) = pair();
         let now = 1_000_000;
-        let init = Initiator::start(&alice, now, vec![], POW, None);
+        let init = Initiator::start(&alice, now, vec![], POW, None, None);
         let mut cache = NonceCache::new();
-        let (welcome, est_b) = respond(&bob, init.hello(), now + 20, &mut cache, POW).unwrap();
+        let (welcome, est_b) =
+            respond(&bob, init.hello(), now + 20, &mut cache, POW, None).unwrap();
         let est_a = init.finish(&welcome, now + 40).unwrap();
         assert_eq!(est_a.session_id, est_b.session_id);
         assert_eq!(est_a.peer_static, bob.public_key());
@@ -341,9 +377,10 @@ mod tests {
         // Cas nominal : Alice vise Bob et c'est bien Bob qui répond.
         let (alice, bob) = pair();
         let now = 1_000_000;
-        let init = Initiator::start(&alice, now, vec![], POW, Some(bob.public_key()));
+        let init = Initiator::start(&alice, now, vec![], POW, Some(bob.public_key()), None);
         let mut cache = NonceCache::new();
-        let (welcome, est_b) = respond(&bob, init.hello(), now + 20, &mut cache, POW).unwrap();
+        let (welcome, est_b) =
+            respond(&bob, init.hello(), now + 20, &mut cache, POW, None).unwrap();
         let est_a = init.finish(&welcome, now + 40).unwrap();
         assert_eq!(est_a.peer_static, bob.public_key());
         assert!(est_a.keys.same_keys(&est_b.keys));
@@ -357,9 +394,10 @@ mod tests {
         let (alice, bob) = pair();
         let mallory = Identity::generate_with_pow_bits(POW);
         let now = 1_000_000;
-        let init = Initiator::start(&alice, now, vec![], POW, Some(bob.public_key()));
+        let init = Initiator::start(&alice, now, vec![], POW, Some(bob.public_key()), None);
         let mut cache = NonceCache::new();
-        let (welcome, _) = respond(&mallory, init.hello(), now + 20, &mut cache, POW).unwrap();
+        let (welcome, _) =
+            respond(&mallory, init.hello(), now + 20, &mut cache, POW, None).unwrap();
         assert_ne!(mallory.public_key(), bob.public_key());
         assert_eq!(
             init.finish(&welcome, now + 40).unwrap_err(),
@@ -371,11 +409,11 @@ mod tests {
     fn replayed_hello_rejected() {
         let (alice, bob) = pair();
         let now = 1_000_000;
-        let init = Initiator::start(&alice, now, vec![], POW, None);
+        let init = Initiator::start(&alice, now, vec![], POW, None, None);
         let mut cache = NonceCache::new();
-        respond(&bob, init.hello(), now, &mut cache, POW).unwrap();
+        respond(&bob, init.hello(), now, &mut cache, POW, None).unwrap();
         assert_eq!(
-            respond(&bob, init.hello(), now + 10, &mut cache, POW).unwrap_err(),
+            respond(&bob, init.hello(), now + 10, &mut cache, POW, None).unwrap_err(),
             CryptoError::HandshakeReplay
         );
     }
@@ -383,10 +421,18 @@ mod tests {
     #[test]
     fn stale_timestamp_rejected() {
         let (alice, bob) = pair();
-        let init = Initiator::start(&alice, 1_000_000, vec![], POW, None);
+        let init = Initiator::start(&alice, 1_000_000, vec![], POW, None, None);
         let mut cache = NonceCache::new();
         assert_eq!(
-            respond(&bob, init.hello(), 1_000_000 + 91_000, &mut cache, POW).unwrap_err(),
+            respond(
+                &bob,
+                init.hello(),
+                1_000_000 + 91_000,
+                &mut cache,
+                POW,
+                None
+            )
+            .unwrap_err(),
             CryptoError::ClockSkew
         );
     }
@@ -395,12 +441,12 @@ mod tests {
     fn tampered_hello_rejected() {
         let (alice, bob) = pair();
         let now = 1_000_000;
-        let init = Initiator::start(&alice, now, vec![], POW, None);
+        let init = Initiator::start(&alice, now, vec![], POW, None, None);
         let mut hello = init.hello().clone();
         hello.eph_pub[0] ^= 1; // MITM remplace la clé éphémère
         let mut cache = NonceCache::new();
         assert_eq!(
-            respond(&bob, &hello, now, &mut cache, POW).unwrap_err(),
+            respond(&bob, &hello, now, &mut cache, POW, None).unwrap_err(),
             CryptoError::InvalidSignature
         );
     }
@@ -409,9 +455,9 @@ mod tests {
     fn tampered_welcome_rejected() {
         let (alice, bob) = pair();
         let now = 1_000_000;
-        let init = Initiator::start(&alice, now, vec![], POW, None);
+        let init = Initiator::start(&alice, now, vec![], POW, None, None);
         let mut cache = NonceCache::new();
-        let (mut welcome, _) = respond(&bob, init.hello(), now, &mut cache, POW).unwrap();
+        let (mut welcome, _) = respond(&bob, init.hello(), now, &mut cache, POW, None).unwrap();
         welcome.eph_pub[0] ^= 1;
         assert_eq!(
             init.finish(&welcome, now).unwrap_err(),
@@ -423,13 +469,117 @@ mod tests {
     fn insufficient_pow_rejected() {
         let (alice, bob) = pair();
         let now = 1_000_000;
-        let init = Initiator::start(&alice, now, vec![], POW, None);
+        let init = Initiator::start(&alice, now, vec![], POW, None, None);
         let mut cache = NonceCache::new();
         // Le répondeur exige 30 bits : l'identité 4 bits d'alice échoue
         // (probabilité de passage accidentel ~ 2^-26).
         assert_eq!(
-            respond(&bob, init.hello(), now, &mut cache, 30).unwrap_err(),
+            respond(&bob, init.hello(), now, &mut cache, 30, None).unwrap_err(),
             CryptoError::InvalidPow
+        );
+    }
+
+    #[test]
+    fn peer_without_capabilities_still_handshakes() {
+        // Compatibilité descendante : un pair antérieur au champ n'émet rien et
+        // doit continuer à s'authentifier normalement, capacités vues à 0.
+        let (alice, bob) = pair();
+        let now = 1_000_000;
+        let init = Initiator::start(&alice, now, vec![], POW, None, None);
+        assert_eq!(init.hello().capabilities, None);
+        let mut cache = NonceCache::new();
+        let (welcome, est_b) =
+            respond(&bob, init.hello(), now, &mut cache, POW, Some(0xff)).unwrap();
+        // Le répondeur n'annonce rien à un initiateur qui n'a rien annoncé.
+        assert_eq!(welcome.capabilities, None);
+        let est_a = init.finish(&welcome, now).unwrap();
+        assert_eq!(est_a.peer_capabilities, 0);
+        assert_eq!(est_b.peer_capabilities, 0);
+        assert!(est_a.keys.same_keys(&est_b.keys));
+    }
+
+    #[test]
+    fn capabilities_are_exchanged_in_both_directions() {
+        let (alice, bob) = pair();
+        let now = 1_000_000;
+        let init = Initiator::start(&alice, now, vec![], POW, None, Some(0b101));
+        let mut cache = NonceCache::new();
+        let (welcome, est_b) =
+            respond(&bob, init.hello(), now, &mut cache, POW, Some(0b011)).unwrap();
+        assert_eq!(welcome.capabilities, Some(0b011));
+        let est_a = init.finish(&welcome, now).unwrap();
+        assert_eq!(est_b.peer_capabilities, 0b101);
+        assert_eq!(est_a.peer_capabilities, 0b011);
+        assert!(est_a.keys.same_keys(&est_b.keys));
+    }
+
+    #[test]
+    fn unknown_capability_bits_are_carried_not_rejected() {
+        let (alice, bob) = pair();
+        let now = 1_000_000;
+        let exotic = 0x8000_0000 | accord_proto::limits::CAP_PQ_HYBRID;
+        let init = Initiator::start(&alice, now, vec![], POW, None, Some(exotic));
+        let mut cache = NonceCache::new();
+        let (_, est_b) = respond(&bob, init.hello(), now, &mut cache, POW, None).unwrap();
+        assert_eq!(est_b.peer_capabilities, exotic);
+    }
+
+    #[test]
+    fn stripping_hello_capabilities_breaks_the_handshake() {
+        // 🔒 Anti-repli : un attaquant qui retire les capacités annoncées pour
+        // forcer un mode dégradé doit faire échouer la vérification.
+        let (alice, bob) = pair();
+        let now = 1_000_000;
+        let init = Initiator::start(&alice, now, vec![], POW, None, Some(0b111));
+        let mut hello = init.hello().clone();
+        hello.capabilities = None;
+        let mut cache = NonceCache::new();
+        assert_eq!(
+            respond(&bob, &hello, now, &mut cache, POW, None).unwrap_err(),
+            CryptoError::InvalidSignature
+        );
+    }
+
+    #[test]
+    fn downgrading_hello_capability_bits_breaks_the_handshake() {
+        let (alice, bob) = pair();
+        let now = 1_000_000;
+        let init = Initiator::start(&alice, now, vec![], POW, None, Some(0b111));
+        let mut hello = init.hello().clone();
+        hello.capabilities = Some(0b000);
+        let mut cache = NonceCache::new();
+        assert_eq!(
+            respond(&bob, &hello, now, &mut cache, POW, None).unwrap_err(),
+            CryptoError::InvalidSignature
+        );
+    }
+
+    #[test]
+    fn injecting_capabilities_into_a_bare_hello_breaks_the_handshake() {
+        let (alice, bob) = pair();
+        let now = 1_000_000;
+        let init = Initiator::start(&alice, now, vec![], POW, None, None);
+        let mut hello = init.hello().clone();
+        hello.capabilities = Some(accord_proto::limits::CAP_PQ_HYBRID);
+        let mut cache = NonceCache::new();
+        assert_eq!(
+            respond(&bob, &hello, now, &mut cache, POW, None).unwrap_err(),
+            CryptoError::InvalidSignature
+        );
+    }
+
+    #[test]
+    fn stripping_welcome_capabilities_breaks_the_handshake() {
+        let (alice, bob) = pair();
+        let now = 1_000_000;
+        let init = Initiator::start(&alice, now, vec![], POW, None, Some(0b001));
+        let mut cache = NonceCache::new();
+        let (mut welcome, _) =
+            respond(&bob, init.hello(), now, &mut cache, POW, Some(0b110)).unwrap();
+        welcome.capabilities = None;
+        assert_eq!(
+            init.finish(&welcome, now).unwrap_err(),
+            CryptoError::InvalidSignature
         );
     }
 

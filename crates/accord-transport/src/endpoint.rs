@@ -192,6 +192,8 @@ struct Session {
     peer_addr: SocketAddr,
     peer_static: [u8; 32],
     peer_node: NodeId,
+    /// Capacités authentifiées annoncées par le pair (0 s'il n'annonce rien).
+    peer_capabilities: u32,
     last_recv_ms: u64,
     last_send_ms: u64,
     /// Identifiant du prochain message fragmenté émis dans cette session.
@@ -250,6 +252,9 @@ pub struct SessionView {
     pub last_recv_ms: u64,
     /// Dernier aller-retour keep-alive mesuré (ms), si un cycle a abouti.
     pub last_rtt_ms: Option<u64>,
+    /// Capacités authentifiées du pair, telles que liées au transcript du
+    /// handshake. 0 si le pair n'en annonce aucune.
+    pub peer_capabilities: u32,
 }
 
 /// Préfixe hexadécimal court (4 octets) d'une clé publique, pour les logs.
@@ -389,6 +394,18 @@ pub struct EndpointConfig {
     /// défaut : un nœud n'est jamais relais à son insu (limitation de la surface
     /// d'abus).
     pub relay_serving: bool,
+    /// Capacités annoncées dans le handshake, ou `None` pour n'en annoncer
+    /// aucune.
+    ///
+    /// 🔒 **Reste à `None` tant que le parc n'est pas prêt.** Le champ occupe
+    /// 4 octets après la signature du HELLO ; un pair dont la version est
+    /// antérieure à son introduction rejette tout octet excédentaire et ne
+    /// peut alors plus établir la moindre session. La lecture, elle, est
+    /// active dès maintenant : un nœud accepte et authentifie les capacités
+    /// d'un pair qui en annonce, et les renvoie dans son WELCOME. C'est ce
+    /// déploiement en deux temps — savoir lire d'abord, écrire ensuite — qui
+    /// permettra d'allumer l'émission sans rupture.
+    pub capabilities: Option<u32>,
 }
 
 impl Default for EndpointConfig {
@@ -399,6 +416,7 @@ impl Default for EndpointConfig {
             idle_timeout_ms: 120_000,
             cookie_pressure_per_s: 64,
             relay_serving: false,
+            capabilities: None,
         }
     }
 }
@@ -596,6 +614,7 @@ impl Endpoint {
                         Vec::new(),
                         self.config.pow_bits,
                         expected,
+                        self.config.capabilities,
                     );
                     Pending {
                         initiator,
@@ -742,6 +761,7 @@ impl Endpoint {
                     Vec::new(),
                     self.config.pow_bits,
                     Some(expected_static),
+                    self.config.capabilities,
                 );
                 let hello = Packet::Hello(initiator.hello().clone()).to_bytes();
                 st.pending.insert(
@@ -834,6 +854,7 @@ impl Endpoint {
                 relay_circuit: s.relay_circuit,
                 last_recv_ms: s.last_recv_ms,
                 last_rtt_ms: s.last_rtt_ms,
+                peer_capabilities: s.peer_capabilities,
             })
             .collect()
     }
@@ -1040,6 +1061,7 @@ impl Endpoint {
                 now,
                 &mut st.nonce_cache,
                 self.config.pow_bits,
+                self.config.capabilities,
             )?;
             welcome_bytes = Packet::Welcome(welcome).to_bytes();
             let peer_node = node_id_of(&established.peer_static);
@@ -1052,6 +1074,7 @@ impl Endpoint {
                     peer_addr,
                     peer_static: established.peer_static,
                     peer_node,
+                    peer_capabilities: established.peer_capabilities,
                     last_recv_ms: now,
                     last_send_ms: now,
                     next_frag_id: 0,
@@ -1140,6 +1163,7 @@ impl Endpoint {
                                 Vec::new(),
                                 self.config.pow_bits,
                                 expected_static,
+                                self.config.capabilities,
                             );
                             st.pending.insert(
                                 addr,
@@ -1182,6 +1206,7 @@ impl Endpoint {
                 peer_addr,
                 peer_static: established.peer_static,
                 peer_node,
+                peer_capabilities: established.peer_capabilities,
                 last_recv_ms: now,
                 last_send_ms: now,
                 next_frag_id: 0,
@@ -1255,6 +1280,7 @@ impl Endpoint {
                     cookie.cookie.clone(),
                     self.config.pow_bits,
                     pending.expected_static,
+                    self.config.capabilities,
                 );
                 pending.initiator = initiator;
                 pending.attempts += 1;
@@ -2009,6 +2035,7 @@ impl Endpoint {
                 Vec::new(),
                 self.config.pow_bits,
                 Some(peer_static),
+                self.config.capabilities,
             );
             let hello = Packet::Hello(initiator.hello().clone()).to_bytes();
             st.relay_pending.insert(
@@ -2270,6 +2297,7 @@ impl Endpoint {
                         Vec::new(),
                         self.config.pow_bits,
                         pending.expected_static,
+                        self.config.capabilities,
                     );
                     let hello = Packet::Hello(initiator.hello().clone()).to_bytes();
                     pending.initiator = initiator;

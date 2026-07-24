@@ -30,6 +30,7 @@ fn config() -> EndpointConfig {
         idle_timeout_ms: 120_000,
         cookie_pressure_per_s: 64,
         relay_serving: false,
+        capabilities: None,
     }
 }
 

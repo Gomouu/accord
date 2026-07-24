@@ -36,6 +36,20 @@ pub const VOICE_MAX_PARTICIPANTS: usize = 10;
 /// Fenêtre anti-rejeu du handshake (millisecondes).
 pub const HANDSHAKE_MAX_SKEW_MS: u64 = 90_000;
 
+/// Capacité : le pair comprend les identités d'appareil (multi-appareil).
+pub const CAP_DEVICE_KEYS: u32 = 1 << 0;
+
+/// Capacité : le pair sait mener un handshake hybride post-quantique.
+pub const CAP_PQ_HYBRID: u32 = 1 << 1;
+
+/// Capacité : le pair sait recevoir de la vidéo de plusieurs émetteurs.
+pub const CAP_GROUP_VIDEO_N: u32 = 1 << 2;
+
+/// Bits de capacité connus de cette version. Tout bit hors de ce masque est
+/// **ignoré** au lieu d'être une erreur : c'est ce qui permet d'ajouter des
+/// capacités sans casser les pairs plus anciens.
+pub const CAP_KNOWN: u32 = CAP_DEVICE_KEYS | CAP_PQ_HYBRID | CAP_GROUP_VIDEO_N;
+
 /// Nombre de trames avant re-keying obligatoire d'une session.
 pub const REKEY_FRAME_LIMIT: u64 = 1_000_000;
 

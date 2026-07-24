@@ -34,8 +34,95 @@ use std::path::Path;
 ///
 /// Le lot de création est entièrement idempotent (`IF NOT EXISTS`) : monter
 /// la version suffit pour créer les nouvelles tables sur une base existante.
-/// Modifier des colonnes existantes exigera en revanche une vraie migration.
+/// Modifier des colonnes existantes exige en revanche une vraie migration —
+/// voir [`MIGRATIONS`].
 const SCHEMA_VERSION: i64 = 12;
+
+/// Version au-delà de laquelle les évolutions passent par [`MIGRATIONS`].
+///
+/// Tout ce qui précède est reconstitué par le lot idempotent de `bootstrap` :
+/// ce socle correspond à un historique de versions dont il n'existe plus de
+/// base réelle isolable, et le réécrire en étapes numérotées serait un risque
+/// sans contrepartie. À partir d'ici, chaque évolution est une étape
+/// explicite, appliquée en séquence et dans une transaction unique.
+const BASELINE_VERSION: i64 = 12;
+
+/// Nombre de sauvegardes pré-migration conservées par base.
+const KEPT_BACKUPS: usize = 3;
+
+/// Suffixe des sauvegardes automatiques prises avant une migration.
+const BACKUP_SUFFIX: &str = ".premigration.bak";
+
+/// Une étape de migration : fait passer le schéma à `to` depuis `to - 1`.
+struct Migration {
+    /// Version atteinte une fois l'étape appliquée.
+    to: i64,
+    /// Description courte, journalisée (jamais de contenu utilisateur).
+    label: &'static str,
+    /// Application de l'étape. Exécutée dans la transaction commune ; toute
+    /// erreur annule l'ensemble des étapes en attente.
+    apply: fn(&Connection) -> Result<(), CoreError>,
+}
+
+/// Étapes de migration au-delà de [`BASELINE_VERSION`], dans l'ordre.
+///
+/// 🔒 Une étape publiée ne se modifie plus : des bases l'ont déjà appliquée.
+/// Une correction se fait par une étape suivante.
+const MIGRATIONS: &[Migration] = &[];
+
+/// Copie la base avant une migration, et purge les copies les plus anciennes.
+///
+/// Le WAL est d'abord replié dans le fichier principal (`TRUNCATE`), sans quoi
+/// la copie manquerait les derniers commits. La copie est faite AVANT toute
+/// écriture de schéma ; si elle échoue, la migration n'a pas lieu — mieux vaut
+/// un démarrage en erreur qu'une migration sans filet.
+///
+/// La purge, elle, est au mieux : ne pas réussir à effacer une vieille copie
+/// n'est pas une raison d'empêcher l'utilisateur d'ouvrir son application.
+fn backup_before_migration(conn: &Connection, path: &Path) -> Result<(), CoreError> {
+    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis());
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".{stamp}{BACKUP_SUFFIX}"));
+    let target = path.with_file_name(&name);
+    std::fs::copy(path, &target)?;
+    tracing::info!("sauvegarde de la base avant migration du schéma");
+    purge_old_backups(path);
+    Ok(())
+}
+
+/// Ne conserve que les [`KEPT_BACKUPS`] sauvegardes les plus récentes de cette
+/// base. Silencieuse : toute erreur d'E/S est ignorée.
+fn purge_old_backups(path: &Path) {
+    let Some(dir) = path.parent() else { return };
+    let Some(stem) = path.file_name().and_then(|n| n.to_str()) else {
+        return;
+    };
+    let prefix = format!("{stem}.");
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut backups: Vec<std::path::PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with(&prefix) && n.ends_with(BACKUP_SUFFIX))
+        })
+        .collect();
+    if backups.len() <= KEPT_BACKUPS {
+        return;
+    }
+    // L'horodatage millisecondes est de largeur fixe sur toute période
+    // plausible : l'ordre lexicographique des noms est l'ordre chronologique.
+    backups.sort();
+    for stale in &backups[..backups.len() - KEPT_BACKUPS] {
+        let _ = std::fs::remove_file(stale);
+    }
+}
 
 /// Convertit un blob SQL en tableau de taille fixe.
 pub(crate) fn blob<const N: usize>(v: Vec<u8>) -> Result<[u8; N], CoreError> {
@@ -96,16 +183,16 @@ impl Db {
     /// Échoue si la clé ne correspond pas à une base existante.
     pub fn open(path: &Path, db_key: &[u8; 32]) -> Result<Self, CoreError> {
         let conn = Connection::open(path)?;
-        Self::init(conn, db_key)
+        Self::init(conn, db_key, Some(path))
     }
 
     /// Base en mémoire (tests). La clé est appliquée mais sans effet durable.
     pub fn open_in_memory(db_key: &[u8; 32]) -> Result<Self, CoreError> {
         let conn = Connection::open_in_memory()?;
-        Self::init(conn, db_key)
+        Self::init(conn, db_key, None)
     }
 
-    fn init(conn: Connection, db_key: &[u8; 32]) -> Result<Self, CoreError> {
+    fn init(conn: Connection, db_key: &[u8; 32], path: Option<&Path>) -> Result<Self, CoreError> {
         // Clé brute SQLCipher (pas de KDF interne : db_key sort déjà de HKDF).
         conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key(db_key)))?;
         // Vérifie que la clé ouvre bien la base (première lecture réelle).
@@ -131,8 +218,26 @@ impl Db {
             conn,
             group_cache: std::sync::Mutex::new(HashMap::new()),
         };
-        db.migrate()?;
+        db.migrate(path)?;
         Ok(db)
+    }
+
+    /// Version de schéma enregistrée dans la base (0 pour une base neuve).
+    fn schema_version(&self) -> Result<i64, CoreError> {
+        Ok(self
+            .conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))?)
+    }
+
+    /// Vrai si la table existe dans le schéma courant.
+    #[cfg(test)]
+    fn has_table(&self, table: &str) -> Result<bool, CoreError> {
+        let n: i64 = self.conn.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            [table],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
     }
 
     /// Vrai si `table` existe et porte la colonne `column` (PRAGMA
@@ -149,13 +254,84 @@ impl Db {
         Ok(false)
     }
 
-    fn migrate(&self) -> Result<(), CoreError> {
-        let version: i64 = self
-            .conn
-            .query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version >= SCHEMA_VERSION {
+    /// Amène le schéma à [`SCHEMA_VERSION`].
+    ///
+    /// Trois garanties, dans cet ordre :
+    ///
+    /// 1. **Refus de rétrograder.** Une base écrite par une version plus
+    ///    récente n'est pas ouverte : le binaire courant ne sait pas ce que
+    ///    contiennent ses tables, et écrire dedans détruirait des données.
+    /// 2. **Sauvegarde avant écriture.** Une base existante qui doit bouger
+    ///    est copiée d'abord ; l'échec de la copie annule la migration plutôt
+    ///    que de la faire sans filet.
+    /// 3. **Tout ou rien.** Les étapes numérotées s'appliquent dans une
+    ///    transaction unique : une erreur au milieu laisse le schéma tel qu'il
+    ///    était, jamais à moitié migré.
+    fn migrate(&self, path: Option<&Path>) -> Result<(), CoreError> {
+        let version = self.schema_version()?;
+        if version > SCHEMA_VERSION {
+            return Err(CoreError::SchemaTooNew {
+                found: version,
+                supported: SCHEMA_VERSION,
+            });
+        }
+        if version == SCHEMA_VERSION {
             return Ok(());
         }
+        // Une base neuve (version 0) n'a rien à sauvegarder.
+        if version > 0 {
+            if let Some(path) = path {
+                backup_before_migration(&self.conn, path)?;
+            }
+        }
+        if version < BASELINE_VERSION {
+            self.bootstrap()?;
+        }
+        self.apply_migrations(version.max(BASELINE_VERSION))
+    }
+
+    /// Applique les étapes numérotées postérieures à `from`, dans l'ordre et
+    /// dans une transaction unique.
+    fn apply_migrations(&self, from: i64) -> Result<(), CoreError> {
+        self.apply_migration_list(from, MIGRATIONS)
+    }
+
+    /// Cœur de [`Self::apply_migrations`], paramétré par le registre pour que
+    /// les tests puissent éprouver le rollback sur des étapes fabriquées.
+    fn apply_migration_list(
+        &self,
+        from: i64,
+        migrations: &[Migration],
+    ) -> Result<(), CoreError> {
+        let pending: Vec<&Migration> = migrations.iter().filter(|m| m.to > from).collect();
+        if pending.is_empty() {
+            return Ok(());
+        }
+        self.conn.execute_batch("BEGIN;")?;
+        for migration in pending {
+            tracing::info!(
+                vers = migration.to,
+                etape = migration.label,
+                "migration du schéma local"
+            );
+            let step = (migration.apply)(&self.conn).and_then(|()| {
+                self.conn
+                    .execute_batch(&format!("PRAGMA user_version = {};", migration.to))
+                    .map_err(CoreError::from)
+            });
+            if let Err(e) = step {
+                // Le rollback ramène le schéma ET la version enregistrée à
+                // leur état d'origine : rien n'est appliqué à moitié.
+                let _ = self.conn.execute_batch("ROLLBACK;");
+                return Err(e);
+            }
+        }
+        self.conn.execute_batch("COMMIT;")?;
+        Ok(())
+    }
+
+    /// Socle idempotent : reconstitue le schéma jusqu'à [`BASELINE_VERSION`].
+    fn bootstrap(&self) -> Result<(), CoreError> {
         // Migration v7 : backoff de ré-adoption des intentions de
         // téléchargement. Une base antérieure porte déjà `file_fetches` sans
         // ces colonnes ; on les ajoute AVANT le lot idempotent (qui, lui, les
@@ -429,10 +605,14 @@ impl Db {
                created_at INTEGER NOT NULL
              );
              CREATE INDEX IF NOT EXISTS reminders_by_fire
-               ON reminders(fire_at);
-             PRAGMA user_version = 12;
-             COMMIT;",
+               ON reminders(fire_at);",
         )?;
+        // Même transaction : la version n'est marquée que si tout le lot a
+        // été appliqué.
+        self.conn.execute_batch(&format!(
+            "PRAGMA user_version = {BASELINE_VERSION};
+             COMMIT;"
+        ))?;
         Ok(())
     }
 
@@ -725,5 +905,149 @@ mod tests {
         let raw = std::fs::read(&path).unwrap();
         assert!(!raw.windows(14).any(|w| w == b"contenu-secret"));
         assert!(!raw.windows(13).any(|w| w == b"SQLite format"));
+    }
+
+    #[test]
+    fn le_registre_de_migrations_est_coherent() {
+        // Numéros strictement croissants, démarrant juste après le socle, et
+        // la dernière étape définit la version courante. Un registre
+        // incohérent laisserait des bases bloquées à mi-chemin.
+        let mut attendu = BASELINE_VERSION;
+        for m in MIGRATIONS {
+            attendu += 1;
+            assert_eq!(m.to, attendu, "étape « {} » mal numérotée", m.label);
+            assert!(!m.label.is_empty());
+        }
+        assert_eq!(SCHEMA_VERSION, attendu);
+    }
+
+    #[test]
+    fn une_base_dune_version_plus_recente_est_refusee() {
+        // Rétrogradation : l'utilisateur a réinstallé une version antérieure.
+        // Écrire dans un schéma qu'on ne connaît pas détruirait ses données.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("core.db");
+        let db_key = key(3);
+        Db::open(&path, &db_key).unwrap();
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key(&db_key)))
+                .unwrap();
+            conn.execute_batch(&format!("PRAGMA user_version = {};", SCHEMA_VERSION + 5))
+                .unwrap();
+        }
+        match Db::open(&path, &db_key).err() {
+            Some(CoreError::SchemaTooNew { found, supported }) => {
+                assert_eq!(found, SCHEMA_VERSION + 5);
+                assert_eq!(supported, SCHEMA_VERSION);
+            }
+            autre => panic!("attendu un refus de rétrogradation, obtenu {autre:?}"),
+        }
+    }
+
+    #[test]
+    fn une_migration_qui_echoue_ne_laisse_rien_a_moitie() {
+        let db = Db::open_in_memory(&key(4)).unwrap();
+        let avant = db.schema_version().unwrap();
+        let etapes = &[
+            Migration {
+                to: avant + 1,
+                label: "table temoin",
+                apply: |c| {
+                    c.execute_batch("CREATE TABLE temoin_migration (x INTEGER);")?;
+                    Ok(())
+                },
+            },
+            Migration {
+                to: avant + 2,
+                label: "etape qui echoue",
+                apply: |_| Err(CoreError::Invalid("échec simulé")),
+            },
+        ];
+        let err = db.apply_migration_list(avant, etapes).unwrap_err();
+        assert!(matches!(err, CoreError::Invalid("échec simulé")));
+        // Ni la table de la première étape, ni la version, ne subsistent.
+        assert_eq!(db.schema_version().unwrap(), avant);
+        assert!(!db.has_table("temoin_migration").unwrap());
+        // La base reste utilisable après l'échec.
+        assert!(db.contacts().is_ok());
+    }
+
+    #[test]
+    fn les_migrations_sappliquent_en_sequence() {
+        let db = Db::open_in_memory(&key(5)).unwrap();
+        let avant = db.schema_version().unwrap();
+        let etapes = &[
+            Migration {
+                to: avant + 1,
+                label: "premiere",
+                apply: |c| {
+                    c.execute_batch("CREATE TABLE etape_un (x INTEGER);")?;
+                    Ok(())
+                },
+            },
+            Migration {
+                to: avant + 2,
+                label: "seconde",
+                apply: |c| {
+                    // Dépend de la précédente : prouve l'ordre d'application.
+                    c.execute_batch("ALTER TABLE etape_un ADD COLUMN y INTEGER;")?;
+                    Ok(())
+                },
+            },
+        ];
+        db.apply_migration_list(avant, etapes).unwrap();
+        assert_eq!(db.schema_version().unwrap(), avant + 2);
+        assert!(db.has_column("etape_un", "y").unwrap());
+        // Ré-appliquer depuis la version atteinte ne fait plus rien.
+        db.apply_migration_list(avant + 2, etapes).unwrap();
+        assert_eq!(db.schema_version().unwrap(), avant + 2);
+    }
+
+    #[test]
+    fn une_migration_sauvegarde_la_base_et_purge_les_anciennes_copies() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("core.db");
+        let db_key = key(6);
+        // Base « ancienne » : schéma minimal, version antérieure au socle.
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key(&db_key)))
+                .unwrap();
+            conn.query_row("SELECT count(*) FROM sqlite_master", [], |_| Ok(()))
+                .unwrap();
+            conn.execute_batch("BEGIN; CREATE TABLE vieux (x INTEGER); PRAGMA user_version = 1; COMMIT;")
+                .unwrap();
+        }
+        let db = Db::open(&path, &db_key).unwrap();
+        assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
+        drop(db);
+        assert_eq!(compte_sauvegardes(dir.path()), 1);
+
+        // Plusieurs migrations successives : au plus KEPT_BACKUPS copies.
+        for _ in 0..KEPT_BACKUPS + 2 {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key(&db_key)))
+                .unwrap();
+            conn.execute_batch("PRAGMA user_version = 1;").unwrap();
+            drop(conn);
+            // L'horodatage est en millisecondes : sans attente, deux
+            // sauvegardes d'affilée porteraient le même nom.
+            std::thread::sleep(std::time::Duration::from_millis(2));
+            Db::open(&path, &db_key).unwrap();
+        }
+        assert_eq!(compte_sauvegardes(dir.path()), KEPT_BACKUPS);
+    }
+
+    fn compte_sauvegardes(dir: &std::path::Path) -> usize {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_str()
+                    .is_some_and(|n| n.ends_with(BACKUP_SUFFIX))
+            })
+            .count()
     }
 }

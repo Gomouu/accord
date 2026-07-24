@@ -116,6 +116,27 @@ a daemon's session into
 `localStorage['accord.dev.session'] = '{"port":…,"token":"…"}'`
 (see `app/src/lib/bridge.ts`).
 
+### macOS: "Operation not permitted" while copying a source file
+
+A build can fail on macOS with `Operation not permitted` at the moment
+`tauri-build` **copies** a file it has just read without trouble. The cause is
+`com.apple.macl`, an extended attribute the kernel attaches to files opened
+through certain sandboxed paths. It survives `chmod`, and `xattr -c` cannot
+remove it — macOS reapplies it immediately.
+
+It is neither a repository problem nor a code problem: the same sources build
+in CI. Run the diagnostic, which clears every attribute it can and tells you
+plainly when the blocking one survives:
+
+```sh
+scripts/clean-xattrs.sh
+```
+
+If it reports `com.apple.macl` still present, **restart the machine** — that
+clears it in practice. Granting the terminal Full Disk Access also works.
+Meanwhile the GitHub workflow mirrors `./ci.sh` exactly and remains a valid
+gate: no step of the CI depends on a local capability.
+
 ## 3. Cargo features
 
 | Feature | Where | Effect |
@@ -180,3 +201,28 @@ tests: waits are bounded (~20 s max, D-024).
   with performance or simplicity, security wins (see
   `SECURITY.md`).
 - Before pushing: `./ci.sh` must pass in full.
+
+### Branch naming
+
+| Prefix | For | Example |
+|---|---|---|
+| `feat/` | a new user-visible capability | `feat/group-video` |
+| `fix/` | a bug fix on existing behaviour | `fix/composer-position` |
+| `perf/` | optimisation with no behaviour change | `perf/oplog-fold` |
+| `chore/` | tooling, dependencies, housekeeping | `chore/bump-tauri` |
+| `docs/` | documentation only | `docs/threat-model` |
+| `integrate/` | merging several streams before a release | `integrate/v6-es` |
+
+Housekeeping rules:
+
+- A branch merged into `main` is deleted, locally **and** on the remote. The
+  history stays in `main`; a stale branch only creates doubt about what it
+  still holds.
+- **A parallel stream gets its own `git worktree`**, never a shared checkout.
+  Two sessions writing into the same working tree overwrite each other's files
+  silently — this has already cost a full re-do of an i18n batch.
+- 🔒 Never delete a worktree or a branch holding uncommitted work without
+  surfacing it first. `git worktree list` then `git -C <path> status --short`
+  takes ten seconds; losing work does not have a fix.
+- `dist/` keeps at most the two most recent local builds. Every published
+  release is downloadable from GitHub.

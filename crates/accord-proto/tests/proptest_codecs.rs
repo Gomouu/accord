@@ -23,16 +23,20 @@ fn hello_strategy() -> impl Strategy<Value = Hello> {
         any::<[u8; 16]>(),
         prop::collection::vec(any::<u8>(), 0..40),
         any::<[u8; 64]>(),
+        prop::option::of(any::<u32>()),
     )
         .prop_map(
-            |(eph_pub, static_pub, pow_nonce, timestamp_ms, nonce, cookie, sig)| Hello {
-                eph_pub,
-                static_pub,
-                pow_nonce,
-                timestamp_ms,
-                nonce,
-                cookie,
-                sig,
+            |(eph_pub, static_pub, pow_nonce, timestamp_ms, nonce, cookie, sig, capabilities)| {
+                Hello {
+                    eph_pub,
+                    static_pub,
+                    pow_nonce,
+                    timestamp_ms,
+                    nonce,
+                    cookie,
+                    sig,
+                    capabilities,
+                }
             },
         )
 }
@@ -139,12 +143,26 @@ proptest! {
         prop_assert_eq!(back, op);
     }
 
-    /// Un octet excédentaire fait échouer le décodage strict (SPEC §0).
+    /// Un octet excédentaire fait échouer le décodage strict (SPEC §0). Sur un
+    /// HELLO, 4 octets de fin appartiennent au champ additif `capabilities` :
+    /// on en ajoute 5 pour qu'il reste bien un reliquat dans tous les cas.
     #[test]
     fn octet_excedentaire_rejete(h in hello_strategy()) {
         let mut bytes = Packet::Hello(h).to_bytes();
-        bytes.push(0);
+        bytes.extend_from_slice(&[0, 0, 0, 0, 0]);
         prop_assert!(Packet::from_bytes(&bytes).is_err());
+    }
+
+    /// Le champ additif `capabilities` traverse le round-trip sans se
+    /// déformer, et « absent » ne se confond jamais avec « présent à 0 ».
+    #[test]
+    fn capacites_hello_roundtrip(h in hello_strategy()) {
+        let attendu = h.capabilities;
+        let bytes = Packet::Hello(h).to_bytes();
+        match Packet::from_bytes(&bytes).expect("décodage") {
+            Packet::Hello(back) => prop_assert_eq!(back.capabilities, attendu),
+            autre => prop_assert!(false, "attendu un HELLO, obtenu {:?}", autre),
+        }
     }
 
     /// Décoder des octets ARBITRAIRES ne panique jamais (Ok ou Err).

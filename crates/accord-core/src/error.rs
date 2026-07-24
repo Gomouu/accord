@@ -29,4 +29,17 @@ pub enum CoreError {
     /// Erreur de codage Reed-Solomon.
     #[error("reed-solomon : {0}")]
     Fec(String),
+    /// La base locale a été écrite par une version plus récente de
+    /// l'application. Démarrer dessus corromprait des données que ce binaire
+    /// ne sait pas interpréter : on refuse plutôt que d'essayer.
+    #[error(
+        "cette base a été créée par une version plus récente d'Accord \
+         (schéma {found}, ce binaire gère {supported}) : mettez l'application à jour"
+    )]
+    SchemaTooNew {
+        /// Version de schéma trouvée dans la base.
+        found: i64,
+        /// Version maximale que ce binaire sait lire.
+        supported: i64,
+    },
 }

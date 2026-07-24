@@ -2471,6 +2471,7 @@ impl NetworkControl for Runtime {
                     last_recv_age_ms: session.map(|s| now.saturating_sub(s.last_recv_ms)),
                     rtt_ms: session.and_then(|s| s.last_rtt_ms),
                     last_delivery_ms: delivered.get(&pk).copied(),
+                    capabilities: session.map_or(0, |s| s.peer_capabilities),
                 }
             })
             .collect()

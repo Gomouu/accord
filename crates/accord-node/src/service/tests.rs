@@ -3518,6 +3518,7 @@ impl crate::node::network::NetworkControl for FakeNetwork {
             last_recv_age_ms: Some(1_500),
             rtt_ms: Some(42),
             last_delivery_ms: Some(1_700_000_000_000),
+            capabilities: accord_proto::limits::CAP_PQ_HYBRID,
         }]
     }
     fn counters(&self) -> crate::node::diagnostics::CountersSnapshot {
@@ -3564,6 +3565,7 @@ async fn network_peers_expose_les_champs_additifs_du_lien() {
         sorted_keys(lien),
         [
             "addr",
+            "capabilities",
             "last_delivery_ms",
             "last_recv_age_ms",
             "live",
@@ -3578,6 +3580,7 @@ async fn network_peers_expose_les_champs_additifs_du_lien() {
     assert_eq!(lien["last_recv_age_ms"], 1_500);
     assert_eq!(lien["rtt_ms"], 42);
     assert_eq!(lien["live"], true);
+    assert_eq!(lien["capabilities"], accord_proto::limits::CAP_PQ_HYBRID);
 }
 
 #[tokio::test]

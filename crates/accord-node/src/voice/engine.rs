@@ -1107,11 +1107,17 @@ impl Engine {
     /// l'appel courant. Les deux flux (écran, caméra) sont réassemblés
     /// séparément et remontés sur des événements distincts.
     fn handle_video_peer_frame(&mut self, from: [u8; 32], msg: VoiceMsg) {
-        let (is_call, room) = match self.active.as_ref() {
-            Some(active) => (active.is_call, active.channel_id),
+        let (key, room) = match self.active.as_ref() {
+            Some(active) => (active.key(), active.channel_id),
             None => return,
         };
-        if !is_call {
+        // Défense en profondeur (comme l'audio) : on n'accepte de vidéo que d'un
+        // participant du salon actif — un pair hors salon ne peut rien afficher.
+        if !self
+            .rooms
+            .get(&key)
+            .is_some_and(|roster| roster.contains(&from))
+        {
             return;
         }
         // Décomposition commune aux deux flux.
@@ -1174,15 +1180,22 @@ impl Engine {
     /// `stream` : fragmentée en trames ≤ MTU sur le canal VOICE. Sans effet
     /// hors appel actif.
     async fn handle_video_send(&mut self, stream: VideoStream, keyframe: bool, encoded: Vec<u8>) {
-        let Some((peer, call_id)) = self.active_call_target() else {
+        let Some((peers, room)) = self.video_targets() else {
             return;
         };
+        if peers.is_empty() {
+            return;
+        }
         let counter = self.video_next_frame_id.entry(stream).or_insert(0);
         let frame_id = *counter;
         *counter = counter.wrapping_add(1);
-        for msg in super::media::fragment(stream, call_id, frame_id, keyframe, &encoded) {
-            if !self.sender.send_voice(&peer, msg).await {
-                tracing::trace!("vidéo : pair injoignable, fragment perdu");
+        // Une seule fragmentation, diffusée à tous (full mesh, comme l'audio).
+        let frames = super::media::fragment(stream, room, frame_id, keyframe, &encoded);
+        for peer in &peers {
+            for msg in &frames {
+                if !self.sender.send_voice(peer, msg.clone()).await {
+                    tracing::trace!("vidéo : pair injoignable, fragment perdu");
+                }
             }
         }
     }
@@ -1190,24 +1203,42 @@ impl Engine {
     /// Annonce le démarrage/arrêt d'un flux vidéo au pair de l'appel actif.
     /// Sans effet hors appel actif.
     async fn handle_video_announce(&mut self, stream: VideoStream, on: bool) {
-        let Some((peer, call_id)) = self.active_call_target() else {
+        let Some((peers, room)) = self.video_targets() else {
             return;
         };
         let msg = match stream {
-            VideoStream::Screen => VoiceMsg::ScreenControl { room: call_id, on },
-            VideoStream::Camera => VoiceMsg::CameraControl { room: call_id, on },
+            VideoStream::Screen => VoiceMsg::ScreenControl { room, on },
+            VideoStream::Camera => VoiceMsg::CameraControl { room, on },
         };
-        let _ = self.sender.send_voice(&peer, msg).await;
+        for peer in &peers {
+            let _ = self.sender.send_voice(peer, msg.clone()).await;
+        }
     }
 
-    /// Pair et `call_id` de l'appel 1-à-1 actif, ou `None` hors appel actif —
-    /// cible des trames vidéo sortantes.
-    fn active_call_target(&self) -> Option<([u8; 32], [u8; 16])> {
-        let snap = self.calls.snapshot();
-        match (snap.phase, snap.peer, snap.call_id) {
-            (CallPhase::Active, Some(peer), Some(call_id)) => Some((peer, call_id)),
-            _ => None,
+    /// Destinataires des trames vidéo sortantes et salon associé :
+    /// - appel 1-à-1 actif → le seul pair de l'appel, `room == call_id` ;
+    /// - salon vocal de groupe → TOUS les participants sauf soi (même diffusion
+    ///   full mesh que l'audio), `room == channel_id`.
+    ///
+    /// `None` hors session active. La liste peut être vide (salon où l'on est
+    /// seul) : l'émission est alors simplement sans destinataire.
+    fn video_targets(&self) -> Option<(Vec<[u8; 32]>, [u8; 16])> {
+        let active = self.active.as_ref()?;
+        if active.is_call {
+            let snap = self.calls.snapshot();
+            return match (snap.phase, snap.peer, snap.call_id) {
+                (CallPhase::Active, Some(peer), Some(call_id)) => Some((vec![peer], call_id)),
+                _ => None,
+            };
         }
+        let me = self.node.public_key();
+        let roster = self.rooms.get(&active.key())?;
+        let peers = roster
+            .pubkeys()
+            .into_iter()
+            .filter(|pk| *pk != me)
+            .collect();
+        Some((peers, active.channel_id))
     }
 
     /// Émet la trame vidéo réassemblée vers l'UI (`event.screen_frame` ou
@@ -2464,5 +2495,68 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         let status = handle.status().await.unwrap().unwrap();
         assert_eq!(status.participants.len(), 1, "le non-membre a été admis");
+    }
+
+    /// v6.1 : dans un salon vocal de GROUPE, une trame de partage d'écran part
+    /// vers TOUS les participants (full mesh, comme l'audio) — pas seulement
+    /// vers un pair d'appel.
+    #[tokio::test]
+    async fn screen_frames_reach_every_group_room_participant() {
+        let n = node();
+        let gid: [u8; 16] = hex::decode(&n.group_create("Guilde").unwrap()).unwrap();
+        let a = Identity::generate_with_pow_bits(1).public_key();
+        let b = Identity::generate_with_pow_bits(1).public_key();
+        n.test_force_add_member(&gid, &a).unwrap();
+        n.test_force_add_member(&gid, &b).unwrap();
+        let (handle, sender) = spawn_engine(Arc::clone(&n));
+        handle.join(gid, gid).await.unwrap();
+        handle.peer_signal(a, gid, gid, ACTION_JOIN, MEDIA_AUDIO, false);
+        handle.peer_signal(b, gid, gid, ACTION_JOIN, MEDIA_AUDIO, false);
+        tokio::time::sleep(Duration::from_millis(80)).await;
+
+        handle.screen_send(true, vec![7u8; 32]);
+        tokio::time::sleep(Duration::from_millis(120)).await;
+
+        let sent = sender.0.lock().unwrap_or_else(|e| e.into_inner());
+        let screen: Vec<[u8; 32]> = sent
+            .iter()
+            .filter(|(_, m)| matches!(m, VoiceMsg::ScreenFrame { .. }))
+            .map(|(to, _)| *to)
+            .collect();
+        assert!(screen.contains(&a), "le participant A n'a rien reçu");
+        assert!(screen.contains(&b), "le participant B n'a rien reçu");
+        // La trame porte le salon du groupe, pas un identifiant d'appel.
+        let room_ok = sent
+            .iter()
+            .any(|(_, m)| matches!(m, VoiceMsg::ScreenFrame { room, .. } if *room == gid));
+        assert!(room_ok, "la trame ne porte pas le salon du groupe");
+    }
+
+    /// Une trame vidéo d'un pair qui n'est PAS dans le salon actif est ignorée
+    /// (défense en profondeur, même règle que l'audio).
+    #[tokio::test]
+    async fn video_frames_from_non_participants_are_ignored() {
+        let n = node();
+        let gid: [u8; 16] = hex::decode(&n.group_create("Guilde").unwrap()).unwrap();
+        let (handle, _) = spawn_engine(Arc::clone(&n));
+        handle.join(gid, gid).await.unwrap();
+        let stranger = Identity::generate_with_pow_bits(1).public_key();
+
+        // Aucun hub branché : on vérifie surtout que le moteur ne panique pas
+        // et reste cohérent (le salon garde son unique participant).
+        handle.peer_frame(
+            stranger,
+            VoiceMsg::ScreenFrame {
+                room: gid,
+                frame_id: 1,
+                frag_count: 1,
+                frag_idx: 0,
+                flags: VIDEO_FLAG_KEYFRAME,
+                payload: vec![1, 2, 3],
+            },
+        );
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        let status = handle.status().await.unwrap().unwrap();
+        assert_eq!(status.participants.len(), 1);
     }
 }

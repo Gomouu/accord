@@ -182,6 +182,56 @@ drop every message to an account that is merely mid-rotation.
 The flag is inside `signable_bytes`, so it cannot be stripped in flight to
 redirect a conversation.
 
+#### 🔒 Every device signs the same list, so the merge rule cannot be last-writer-wins
+
+Found while building lot 1.E, and it invalidated an assumption this document
+carried without stating it. Every device of an account holds the root key, so
+every device signs and publishes *the account's* list, and `version` derives from
+a timestamp. Last-writer-wins across a set that several writers hold partial
+views of is the classic way to lose data, and it lost devices two ordinary ways:
+
+- a **freshly paired** device has no list in its database, builds one containing
+  only itself, and publishes it — erasing every other device of the account, at
+  every correspondent;
+- a device that was **switched off during an enrolment** republishes the view it
+  had before, with the same effect.
+
+Neither produced an error anywhere. The device simply stopped being reachable.
+
+The structure gives the right rule: `devices` and `revoked` only ever **grow**,
+so a **union** converges where a replacement does not. Merging in either order
+gives the same result, and a merged list is always a superset of both inputs, so
+a correspondent adopting it can never lose a device. Revocation keeps priority —
+what removes a device is its entry in `revoked`, not its absence from `devices` —
+so removal still works, and a merge cannot resurrect a revoked key.
+
+Republication therefore **adopts before it reissues**: fetch the copy that is
+online, merge, re-sign, publish. For our own account the monotonic-version rule
+is deliberately relaxed when reading that copy — it exists to stop a *third party*
+replaying an old list, and this record is signed by our own root. Requiring it
+would refuse exactly the case being repaired: a copy published at the version we
+already hold.
+
+#### The same rule is what keeps a list alive at all
+
+`issued_ms` was written once, at construction. `enroll_device`, `revoke_device`
+and the flag reconciliation all bumped `version` and left the date alone, so
+**a list expired 24 hours after the account first started** and no amount of
+republishing renewed it. Two consequences, both silent:
+
+- our own list stopped being fresh, `delivery_targets` fell back to the account
+  key, and everything lot 1.E addresses to one's own devices — read marks,
+  catch-up — had no sibling left to reach;
+- worse at a correspondent: once their cached copy expired they could never
+  refresh it, because the republished record carried the *same* version and
+  verification requires a strictly greater one. They were stuck on the fallback
+  permanently.
+
+So the merge sets `issued_ms` to now and takes `max(timestamp, higher of the two
++ 1)` as the version. Deriving from the clock alone would almost do, but a clock
+running behind would produce a version peers reject as stale, and the merge would
+be lost without a trace.
+
 ### 3.3 Revocation is eventually consistent, and that is not a bug
 
 A friend who is offline when you revoke a device keeps accepting that device

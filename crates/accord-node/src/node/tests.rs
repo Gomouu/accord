@@ -1618,6 +1618,86 @@ fn la_liste_dappareils_dun_ami_est_mise_en_cache() {
 }
 
 #[test]
+fn la_reemission_rend_la_liste_de_nouveau_fraiche_et_adoptable() {
+    // 🔒 Sans réémission, la liste du compte se périmait vingt-quatre heures
+    // après le tout premier démarrage : `delivery_targets` retombait sur la clé
+    // de compte, et marques de lecture comme rattrapage n'avaient plus aucun
+    // appareil frère à joindre. Chez les correspondants c'était pire — leur
+    // copie expirée ne pouvait plus jamais se rafraîchir, la republication
+    // portant la même version qu'ils refusaient comme périmée.
+    let n = node();
+    n.with_db(|db| {
+        crate::device::ensure_local_device(db)
+            .map(|_| ())
+            .map_err(|_| NodeError::Invalid("appareil local"))
+    })
+    .unwrap();
+
+    let avant = n.reissue_device_list(None).unwrap();
+    let apres = n.reissue_device_list(None).unwrap();
+
+    assert!(
+        apres.version > avant.version,
+        "un pair exige une version strictement supérieure pour adopter"
+    );
+    assert!(apres.issued_ms >= avant.issued_ms);
+    assert!(
+        apres.is_fresh(crate::node::now_ms()),
+        "et la fenêtre de fraîcheur doit repartir de zéro"
+    );
+    assert_eq!(
+        apres.devices.len(),
+        avant.devices.len(),
+        "réémettre ne doit rien ajouter ni retirer"
+    );
+}
+
+#[test]
+fn une_machine_a_la_vue_incomplete_nefface_pas_les_autres_appareils() {
+    // 🔒 Le scénario ordinaire que l'ancien « dernier écrivain gagne »
+    // cassait : cette machine vient d'être appairée, sa base ne contient encore
+    // aucune liste, et elle en construit une qui ne contient qu'elle. En
+    // republiant, elle effaçait tous les autres appareils du compte chez tous
+    // les correspondants — sans erreur nulle part.
+    let n = node();
+    n.with_db(|db| {
+        crate::device::ensure_local_device(db)
+            .map(|_| ())
+            .map_err(|_| NodeError::Invalid("appareil local"))
+    })
+    .unwrap();
+
+    // La liste en ligne, publiée par une autre machine du compte, connaît deux
+    // appareils que celle-ci ignore.
+    let en_ligne = {
+        let mut list = n.reissue_device_list(None).unwrap();
+        for pk in [[0xA1u8; 32], [0xA2u8; 32]] {
+            list.devices.push(accord_proto::device::DeviceEntry {
+                pubkey: pk,
+                pow_nonce: 0,
+                name: "Ailleurs".into(),
+                added_ms: crate::node::now_ms(),
+                flags: accord_proto::device::DEVICE_FLAG_TRANSPORT_KEY,
+            });
+        }
+        list
+    };
+
+    let fusionnee = n.reissue_device_list(Some(&en_ligne)).unwrap();
+
+    for pk in [[0xA1u8; 32], [0xA2u8; 32]] {
+        assert!(
+            fusionnee.authorises(&pk),
+            "un appareil connu de la vue en ligne ne doit pas disparaître"
+        );
+    }
+    assert!(
+        fusionnee.version > en_ligne.version,
+        "et la liste fusionnée doit pouvoir remplacer celle qu'elle absorbe"
+    );
+}
+
+#[test]
 fn apprendre_une_revocation_vide_ce_qui_attendait_lappareil() {
     // 🔒 Le trou que ce test ferme : la file hors-ligne est indexée par clé de
     // transport, et son vidage à la reconnexion d'un pair ne revérifie aucune

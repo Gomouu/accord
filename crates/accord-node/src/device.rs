@@ -108,6 +108,71 @@ pub fn build_device_list_with_root(
     list
 }
 
+/// Fusionne deux vues de la liste d'appareils d'un même compte, et la réémet.
+///
+/// 🔒 **Le dernier écrivain ne peut pas gagner ici.** Chaque appareil signe et
+/// publie la liste du compte, et la version dérive de l'horodatage : une machine
+/// à la vue incomplète écrase donc la vue complète, partout, et fait disparaître
+/// les autres appareils du compte. Deux façons d'y arriver, toutes deux
+/// ordinaires : un appareil fraîchement appairé, dont la base ne contient encore
+/// aucune liste, en construit une qui ne contient que lui ; un appareil qui
+/// était éteint pendant une inscription republie sa vue d'avant.
+///
+/// La bonne règle vient de la structure : `devices` et `revoked` ne font que
+/// **croître**, et une union est donc convergente là où un remplacement ne
+/// l'est pas. Deux appareils qui fusionnent dans n'importe quel ordre arrivent
+/// au même résultat, et une liste fusionnée est toujours un sur-ensemble des
+/// deux — un correspondant qui l'adopte ne peut jamais perdre un appareil.
+///
+/// La révocation garde la priorité (`DeviceList::authorises`), donc retirer
+/// reste possible : c'est l'entrée dans `revoked` qui retire, pas l'absence de
+/// l'entrée dans `devices`.
+///
+/// ⚠️ La réémission est le second rôle de cette fonction, et la raison pour
+/// laquelle elle fixe `issued_ms`. Sans elle, la date d'émission n'était écrite
+/// qu'à la construction : la liste se périmait vingt-quatre heures après le
+/// premier démarrage, et une republication à version égale était refusée par
+/// les pairs — qui restaient donc bloqués sur le repli, définitivement.
+///
+/// La version prend `max(horodatage, plus haute des deux + 1)` : dériver de
+/// l'heure seule suffirait presque, mais une horloge en retard produirait une
+/// version que les pairs refuseraient comme périmée, et la fusion serait perdue
+/// en silence.
+pub fn merge_device_lists(ours: &DeviceList, theirs: &DeviceList, now_ms: u64) -> DeviceList {
+    let mut devices = ours.devices.clone();
+    for entry in &theirs.devices {
+        if !devices.iter().any(|d| d.pubkey == entry.pubkey) {
+            devices.push(entry.clone());
+        }
+    }
+    let mut revoked = ours.revoked.clone();
+    for entry in &theirs.revoked {
+        if !revoked.iter().any(|r| r.pubkey == entry.pubkey) {
+            revoked.push(entry.clone());
+        }
+    }
+    // Un appareil révoqué n'a plus à figurer parmi les autorisés : le garder
+    // ferait grossir la liste sans rien autoriser, et `MAX_DEVICES` est bas.
+    devices.retain(|d| !revoked.iter().any(|r| r.pubkey == d.pubkey));
+    // Bornes du fil appliquées ici aussi : une fusion ne doit pas produire une
+    // liste que personne ne pourra plus décoder.
+    devices.truncate(accord_proto::device::MAX_DEVICES);
+    if revoked.len() > accord_proto::device::MAX_REVOKED {
+        let trop = revoked.len() - accord_proto::device::MAX_REVOKED;
+        revoked.drain(..trop);
+    }
+    let plancher = ours.version.max(theirs.version).saturating_add(1);
+    DeviceList {
+        account: ours.account,
+        version: version_for(now_ms).max(plancher),
+        issued_ms: now_ms,
+        valid_for_s: DEVICE_LIST_VALID_S,
+        devices,
+        revoked,
+        sig: [0u8; 64],
+    }
+}
+
 /// Drapeaux à porter par l'entrée de l'appareil local, d'après la clé que son
 /// transport présente réellement.
 ///
@@ -941,6 +1006,228 @@ mod tests {
 
         // Écrire à quelqu'un d'autre ne perd jamais de cible.
         assert_eq!(without_self(vec![autre], &moi), vec![autre]);
+    }
+
+    #[test]
+    fn une_liste_non_reemise_se_perime_malgre_les_republications() {
+        // 🔒 La raison d'être de la réémission, figée ici. `issued_ms` n'est
+        // écrit qu'à la construction et à la fusion : une liste seulement
+        // *republiée* — même version, même date — se périme donc au bout de
+        // `DEVICE_LIST_VALID_S`, `delivery_targets` retombe sur la clé de
+        // compte, et tout ce que le lot 1.E adresse à ses propres appareils
+        // n'a plus personne à joindre. C'est `merge_device_lists` qui rouvre
+        // la fenêtre, et `device_list_tick` qui l'appelle à chaque passe.
+        let now = 1_700_000_000_000;
+        let db = db();
+        let account = AccountIdentity::from_identity(Identity::generate_with_pow_bits(1));
+        let appareil = DeviceIdentity::generate_with_pow_bits(1);
+        let mut liste = build_device_list(&account, &appareil, "Portable", now, TRANSPORT);
+
+        // Une modification ultérieure : la version monte, la date d'émission
+        // reste celle du premier jour.
+        let plus_tard = now + 3_600_000;
+        liste.version = version_for(plus_tard);
+        account.sign_device_list(&mut liste);
+        assert_eq!(
+            liste.issued_ms, now,
+            "c'est la cause : rien ne réémet la date"
+        );
+
+        let record = device_list_record(&account, &liste, plus_tard);
+        let compte = en_cache(&db, &account, &record, plus_tard);
+        assert_eq!(
+            delivery_targets(&db, &compte, plus_tard),
+            vec![appareil.public_key()]
+        );
+
+        // Vingt-quatre heures après l'émission — pas après la republication.
+        let expire = now + u64::from(DEVICE_LIST_VALID_S) * 1000 + 1;
+        assert_eq!(
+            delivery_targets(&db, &compte, expire),
+            vec![compte],
+            "la liste se périme sur sa date d'émission, que republier ne bouge pas"
+        );
+    }
+
+    #[test]
+    fn une_republication_a_version_egale_est_refusee() {
+        // 🔒 L'autre raison, et la plus contraignante : un correspondant dont
+        // la copie a expiré ne peut la rafraîchir QUE si la version monte.
+        // Republier à version égale ne le sort pas du repli — c'est ce qui
+        // oblige la fusion à produire une version strictement supérieure aux
+        // deux qu'elle réunit, et pas seulement une date fraîche.
+        let now = 1_700_000_000_000;
+        let (account, _, record) = published(now);
+        let connue = version_for(now);
+
+        assert!(
+            verifier(&account.public_key(), &record, connue).is_err(),
+            "republier à version égale ne peut pas rafraîchir un cache expiré"
+        );
+    }
+
+    /// Entrée d'appareil arbitraire, pour les tests de fusion.
+    fn entree(n: u8, now: u64) -> accord_proto::device::DeviceEntry {
+        accord_proto::device::DeviceEntry {
+            pubkey: [n; 32],
+            pow_nonce: u64::from(n),
+            name: format!("Appareil {n}"),
+            added_ms: now,
+            flags: TRANSPORT,
+        }
+    }
+
+    #[test]
+    fn la_fusion_ne_perd_jamais_un_appareil() {
+        // 🔒 Le cœur du correctif. Un appareil fraîchement appairé n'a aucune
+        // liste en base et en construit une qui ne contient que lui ; un
+        // appareil éteint pendant une inscription republie sa vue d'avant.
+        // Dans les deux cas, le dernier écrivain effaçait les autres du compte
+        // chez TOUS les correspondants.
+        let now = 1_700_000_000_000;
+        let account = AccountIdentity::from_identity(Identity::generate_with_pow_bits(1));
+        let mut a = build_device_list(
+            &account,
+            &DeviceIdentity::generate_with_pow_bits(1),
+            "A",
+            now,
+            TRANSPORT,
+        );
+        a.devices.push(entree(2, now));
+        let seul = build_device_list(
+            &account,
+            &DeviceIdentity::generate_with_pow_bits(1),
+            "Neuf",
+            now + 1000,
+            TRANSPORT,
+        );
+
+        let fusion = merge_device_lists(&seul, &a, now + 2000);
+        for connu in a.devices.iter().chain(seul.devices.iter()) {
+            assert!(
+                fusion.devices.iter().any(|d| d.pubkey == connu.pubkey),
+                "la fusion doit être un sur-ensemble des deux vues"
+            );
+        }
+        // Et elle est adoptable : version strictement supérieure aux deux.
+        assert!(fusion.version > a.version && fusion.version > seul.version);
+    }
+
+    #[test]
+    fn la_fusion_donne_le_meme_resultat_dans_les_deux_sens() {
+        // Une union est convergente, un remplacement ne l'est pas : c'est toute
+        // la raison du changement de règle.
+        let now = 1_700_000_000_000;
+        let account = AccountIdentity::from_identity(Identity::generate_with_pow_bits(1));
+        let mut a = build_device_list(
+            &account,
+            &DeviceIdentity::generate_with_pow_bits(1),
+            "A",
+            now,
+            TRANSPORT,
+        );
+        a.devices.push(entree(2, now));
+        let mut b = build_device_list(
+            &account,
+            &DeviceIdentity::generate_with_pow_bits(1),
+            "B",
+            now,
+            TRANSPORT,
+        );
+        b.devices.push(entree(3, now));
+
+        let ab = merge_device_lists(&a, &b, now + 1000);
+        let ba = merge_device_lists(&b, &a, now + 1000);
+        let mut cles_ab: Vec<_> = ab.devices.iter().map(|d| d.pubkey).collect();
+        let mut cles_ba: Vec<_> = ba.devices.iter().map(|d| d.pubkey).collect();
+        cles_ab.sort_unstable();
+        cles_ba.sort_unstable();
+        assert_eq!(cles_ab, cles_ba);
+        assert_eq!(ab.version, ba.version);
+    }
+
+    #[test]
+    fn la_fusion_ne_ressuscite_pas_un_appareil_revoque() {
+        // 🔒 Une union naïve ferait revenir l'appareil révoqué par le simple
+        // fait qu'il figure encore dans la vue de l'autre machine. La
+        // révocation doit gagner, quel que soit le sens de la fusion.
+        let now = 1_700_000_000_000;
+        let account = AccountIdentity::from_identity(Identity::generate_with_pow_bits(1));
+        let mut avant = build_device_list(
+            &account,
+            &DeviceIdentity::generate_with_pow_bits(1),
+            "Garde",
+            now,
+            TRANSPORT,
+        );
+        avant.devices.push(entree(9, now));
+
+        let mut apres = avant.clone();
+        apres.devices.retain(|d| d.pubkey != [9u8; 32]);
+        apres.revoked.push(accord_proto::device::RevokedEntry {
+            pubkey: [9u8; 32],
+            revoked_ms: now + 500,
+        });
+
+        for fusion in [
+            merge_device_lists(&avant, &apres, now + 1000),
+            merge_device_lists(&apres, &avant, now + 1000),
+        ] {
+            assert!(!fusion.authorises(&[9u8; 32]), "la révocation doit gagner");
+            assert!(
+                !fusion.devices.iter().any(|d| d.pubkey == [9u8; 32]),
+                "et l'entrée ne doit pas encombrer la liste pour rien"
+            );
+        }
+    }
+
+    #[test]
+    fn la_fusion_reemet_la_date_et_rend_la_liste_de_nouveau_fraiche() {
+        // L'autre moitié du défaut : `issued_ms` n'était écrit qu'à la
+        // construction, donc la liste se périmait vingt-quatre heures après le
+        // premier démarrage sans qu'aucune republication n'y change rien.
+        let now = 1_700_000_000_000;
+        let account = AccountIdentity::from_identity(Identity::generate_with_pow_bits(1));
+        let vieille = build_device_list(
+            &account,
+            &DeviceIdentity::generate_with_pow_bits(1),
+            "A",
+            now,
+            TRANSPORT,
+        );
+        let bien_plus_tard = now + u64::from(DEVICE_LIST_VALID_S) * 1000 * 10;
+        assert!(!vieille.is_fresh(bien_plus_tard));
+
+        let reemise = merge_device_lists(&vieille, &vieille, bien_plus_tard);
+        assert!(reemise.is_fresh(bien_plus_tard));
+        assert!(
+            reemise.version > vieille.version,
+            "et adoptable par un pair, qui exige une version strictement supérieure"
+        );
+    }
+
+    #[test]
+    fn la_fusion_respecte_les_bornes_du_fil() {
+        // Une fusion ne doit pas produire une liste que plus personne ne peut
+        // décoder : les bornes s'appliquent ici comme au décodage.
+        let now = 1_700_000_000_000;
+        let account = AccountIdentity::from_identity(Identity::generate_with_pow_bits(1));
+        let mut a = build_device_list(
+            &account,
+            &DeviceIdentity::generate_with_pow_bits(1),
+            "A",
+            now,
+            TRANSPORT,
+        );
+        let mut b = a.clone();
+        for n in 0..accord_proto::device::MAX_DEVICES as u8 {
+            a.devices.push(entree(n, now));
+            b.devices.push(entree(100 + n, now));
+        }
+
+        let fusion = merge_device_lists(&a, &b, now + 1000);
+        assert!(fusion.devices.len() <= accord_proto::device::MAX_DEVICES);
+        assert!(fusion.revoked.len() <= accord_proto::device::MAX_REVOKED);
     }
 
     #[test]

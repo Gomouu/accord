@@ -985,6 +985,51 @@ impl Node {
         ))
     }
 
+    /// Décode et authentifie une liste d'appareils de NOTRE PROPRE compte,
+    /// relevée dans la DHT, en vue d'une fusion.
+    ///
+    /// 🔒 La contrainte de version monotone est délibérément relâchée ici, et
+    /// c'est sans danger : elle existe pour empêcher un TIERS de rejouer une
+    /// liste ancienne, or ce record est signé par notre propre racine, que nul
+    /// autre ne détient. Et fusionner une vue périmée ne peut rien perdre —
+    /// l'union ne retire jamais, et une révocation garde la priorité.
+    /// L'exiger reviendrait à refuser exactement le cas qu'on cherche à
+    /// rattraper : une copie publiée à la même version que la nôtre.
+    pub fn decode_own_device_list(
+        &self,
+        record: &accord_proto::types::DhtRecord,
+    ) -> Option<accord_proto::device::DeviceList> {
+        crate::device::verify_device_list_record(&self.public_key(), record, 0).ok()
+    }
+
+    /// Réémet la liste d'appareils du compte, fusionnée avec `autre`.
+    ///
+    /// 🔒 C'est ce qui remplace le « dernier écrivain gagne » par une union
+    /// (voir `device::merge_device_lists`). Sans elle, une machine à la vue
+    /// incomplète — fraîchement appairée, ou éteinte pendant une inscription —
+    /// effaçait les autres appareils du compte chez tous les correspondants.
+    ///
+    /// Réémet aussi la date : `issued_ms` n'était écrit qu'à la construction,
+    /// de sorte que la liste se périmait vingt-quatre heures après le premier
+    /// démarrage, et qu'une republication à version égale était refusée par les
+    /// pairs — qui restaient bloqués sur le repli, sans issue.
+    pub fn reissue_device_list(
+        &self,
+        autre: Option<&accord_proto::device::DeviceList>,
+    ) -> Result<accord_proto::device::DeviceList, NodeError> {
+        let ours = self.current_device_list()?;
+        let source = autre.unwrap_or(&ours);
+        let mut list = crate::device::merge_device_lists(&ours, source, now_ms());
+        accord_crypto::sign_device_list_with_root(&self.identity, &mut list);
+        self.store_device_list(&list)?;
+        Ok(list)
+    }
+
+    /// Annonce une liste fraîchement réémise aux amis connectés.
+    pub fn announce_device_list(&self, list: &accord_proto::device::DeviceList) {
+        self.publish_device_list(list);
+    }
+
     // ---- Présence des amis (D-034, best-effort) ----
 
     /// Vrai si `peer` est un ami confirmé.

@@ -508,12 +508,47 @@ async fn identity_tick(rt: &Runtime, _cfg: &MaintenanceConfig) {
 /// personne reste joignable par sa clé de compte, qui est encore ce que le
 /// transport présente.
 async fn device_list_tick(rt: &Runtime, _cfg: &MaintenanceConfig) {
+    let now = now_ms();
+    let compte = rt.node().public_key();
+
+    // 🔒 ADOPTER AVANT DE RÉÉMETTRE. Chaque appareil du compte signe et publie
+    // la même liste, et la version dérive de l'horodatage : republier notre vue
+    // sans regarder celle qui est en ligne, c'est écraser une vue plus complète
+    // que la nôtre. Deux façons banales d'en arriver là — une machine
+    // fraîchement appairée, dont la base ne contient encore aucune liste, et
+    // une machine qui était éteinte pendant une inscription. Dans les deux cas
+    // l'appareil manquant disparaissait du compte chez tous les
+    // correspondants, sans erreur nulle part.
+    let en_ligne = rt
+        .dht()
+        .get(rt.dht_rpc(), accord_crypto::device_list_key(&compte), now)
+        .await
+        .and_then(|record| rt.node().decode_own_device_list(&record));
+
+    // La réémission fixe `issued_ms` à maintenant : sans elle, la liste se
+    // périmait vingt-quatre heures après le tout premier démarrage, et une
+    // republication à version égale était refusée par les pairs — qui
+    // restaient donc bloqués sur le repli, définitivement.
+    let list = match rt.node().reissue_device_list(en_ligne.as_ref()) {
+        Ok(list) => list,
+        Err(e) => {
+            tracing::debug!(erreur = %e, "appareils : réémission impossible");
+            return;
+        }
+    };
+    let appareils = list.devices.len();
+    // La réémission a persisté la liste : le record se rebâtit donc dessus.
     let Some(record) = rt.node().device_list_record() else {
         return;
     };
-    let now = now_ms();
     let replicas = rt.dht().put(rt.dht_rpc(), record, now).await;
-    tracing::debug!(replicas, "appareils : liste republiée");
+    // Les amis connectés n'ont pas à attendre la prochaine résolution DHT.
+    rt.node().announce_device_list(&list);
+    tracing::debug!(
+        replicas,
+        appareils,
+        "appareils : liste réémise et republiée"
+    );
 }
 
 /// Republie vers leurs k plus proches les records DHT que ce nœud détient

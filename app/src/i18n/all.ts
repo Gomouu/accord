@@ -15,6 +15,7 @@ import { de } from './de';
 import { ru } from './ru';
 import { zh } from './zh';
 import { hi } from './hi';
+import { bn } from './bn';
 import type { Dict, Lang } from './index';
 
-export const dictionaries: Record<Lang, Dict> = { fr, en, es, pt, de, ru, zh, hi };
+export const dictionaries: Record<Lang, Dict> = { fr, en, es, pt, de, ru, zh, hi, bn };

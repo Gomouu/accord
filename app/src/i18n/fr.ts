@@ -901,6 +901,7 @@ export const fr = {
       ru: 'Русский',
       zh: '中文',
       hi: 'हिन्दी',
+      bn: 'বাংলা',
     },
     blockedUsers: 'Utilisateurs bloqués',
     antiSpamTitle: 'Anti-spam',

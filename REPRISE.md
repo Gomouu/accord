@@ -11,7 +11,7 @@ pour le détail du lot en cours.
 | 1.B — identités compte/appareil | ✅ y compris le choix du PAKE (§4.1) |
 | 1.C **phase 1** — savoir résoudre | ✅ publication DHT, résolution, cache, push direct, rattachement appareil → compte |
 | 1.C **phase 2** — présenter la clé d'appareil | ⏳ **bloqué** : attend que le parc ait la phase 1 |
-| 1.D — appairage | 🔨 cœur crypto fait, transport à écrire |
+| 1.D — appairage | 🔨 crypto + machine à états + `pair_start`/`pair_cancel` faits ; routage et écrans à écrire |
 | 1.E — livraison multi-appareils | ⬜ pas commencé |
 
 ## La prochaine tâche, précisément
@@ -20,17 +20,22 @@ pour le détail du lot en cours.
 dans `crates/accord-crypto/src/pairing.rs` (11 tests) : code de 8 caractères,
 canal SPAKE2 symétrique, empreinte à six chiffres.
 
+Fait : `crates/accord-crypto/src/pairing.rs` (11 tests), `CoreMsg::PairingHello`
+(0x18, borné à 256 o au décodage), `crates/accord-node/src/pairing.rs` —
+machine à états pure, 10 tests — et `devices.pair_start` / `devices.pair_cancel`.
+
 Reste à écrire :
 
-1. Une variante `CoreMsg` pour l'échange PAKE (deux messages, un par côté).
-   ⚠️ Vérifié en 1.C : un `CoreMsg` inconnu fait jeter le datagramme et la
-   session survit — ajouter une variante est donc sûr.
-2. L'état d'appairage côté nœud : code à usage **unique**, expiration à 5 min
-   (`CODE_TTL_MS`), cadence limitée sur les tentatives.
-3. La confirmation d'empreinte **des deux côtés** avant toute signature.
-4. L'ajout de l'appareil à la liste, signature en version *n+1*, publication.
-5. Les écrans : « Ajouter un appareil » (code + QR) côté autorisé, saisie côté
-   nouveau, confirmation d'empreinte des deux côtés.
+1. **Le routage** de `PairingHello` dans `runtime.rs` vers l'offre en cours, et
+   la réponse avec notre propre message PAKE.
+2. **La confirmation d'empreinte des deux côtés** : `devices.pair_confirm`,
+   qui appelle `PairingOffer::confirm`. L'empreinte du canal candidat doit
+   remonter jusqu'à l'écran (elle n'est pas encore exposée — volontairement,
+   voir le commit `8afc8e6`).
+3. **L'ajout de l'appareil à la liste**, signature en version *n+1*,
+   publication.
+4. **Les écrans** : « Ajouter un appareil » (code + QR) côté autorisé, saisie
+   côté nouveau, confirmation d'empreinte des deux côtés.
 
 Tests exigés par la feuille de route (§6.4, lot 1.D) : appairage nominal ; code
 expiré ; code réutilisé ; empreinte non confirmée ; **tentative d'appairage par
@@ -42,6 +47,13 @@ un tiers qui a intercepté le code** — doit échouer sans la confirmation.
 « le transport utilise la clé d'appareil » coupe toutes les amitiés du réseau :
 la clé statique de transport d'un pair **est** sa clé de compte aujourd'hui.
 Corrigé en deux phases — voir `docs/MULTI_DEVICE.md` §3.2.1.
+
+🔒 **En SPAKE2 symétrique, `finish()` qui réussit ne prouve rien.** Les deux
+côtés dérivent une clé même avec des codes différents ; elles diffèrent, voilà
+tout. Une erreur ne signale qu'un message mal formé. L'offre d'appairage ne
+doit donc **jamais** être consommée sur un échange abouti — seulement après la
+confirmation d'empreinte par un humain. Sinon n'importe qui la détruit à
+distance avec un datagramme bien formé.
 
 🔒 **`install_session` n'a rien à changer pour lever B1.** L'éviction porte
 déjà sur `peer_static`. Des clés par appareil la rendent « par appareil »

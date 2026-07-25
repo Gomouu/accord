@@ -62,6 +62,13 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             node.pairing_cancel();
             Ok(json!({}))
         }
+        "devices.pair_submit" => {
+            let code = param_str(params, "code")?;
+            let outgoing = node.pairing_submit(code)?;
+            // Le message PAKE remonte en hexadécimal : l'acheminer est le
+            // travail de l'appelant, ce module ne connaît pas le transport.
+            Ok(json!({ "hello": hex::encode(&outgoing) }))
+        }
         "devices.pair_status" => Ok(json!({
             // `null` tant qu'aucun échange n'a abouti : l'écran affiche alors
             // le code et attend, plutôt que d'inventer une empreinte.

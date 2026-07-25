@@ -18,7 +18,7 @@ use std::sync::OnceLock;
 
 use accord_api::NotificationHub;
 use accord_core::db::{ContactState, Db, LocalMembership};
-use accord_core::{friends, group, messaging, presence, profile, search};
+use accord_core::{friends, group, messaging, presence, profile};
 use accord_crypto::{derive_search_key, node_id_of, Identity};
 use accord_proto::core_msg::CoreMsg;
 use serde_json::json;
@@ -454,6 +454,57 @@ impl Node {
         };
         *self.pairing_offer.lock().unwrap_or_else(|e| e.into_inner()) = Some(offer);
         Ok(started)
+    }
+
+    /// Saisit un code d'appairage sur le **nouvel** appareil.
+    ///
+    /// Symétrique de [`Node::pairing_start`] : là où la machine autorisée
+    /// affiche un code, celle-ci le saisit. Les deux côtés se retrouvent
+    /// ensuite dans le même état — une offre en cours, en attente du message
+    /// PAKE d'en face — parce que SPAKE2 est symétrique et qu'aucun des deux
+    /// n'est « le serveur ».
+    ///
+    /// Rend le message à transmettre : ce module ne connaît pas le transport.
+    pub fn pairing_submit(&self, code: &str) -> Result<Vec<u8>, NodeError> {
+        let parsed = accord_crypto::pairing::PairingCode::parse(code)
+            .map_err(|_| NodeError::Invalid("code d'appairage invalide"))?;
+        let offer = crate::pairing::PairingOffer::open_with_code(parsed, now_ms());
+        let outgoing = offer.outgoing().to_vec();
+        // Une saisie remplace ce qui était en cours : l'utilisateur qui
+        // ressaisit veut repartir de zéro, pas cumuler deux appairages.
+        *self
+            .pairing_channel
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        *self
+            .pairing_pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        *self.pairing_offer.lock().unwrap_or_else(|e| e.into_inner()) = Some(offer);
+        Ok(outgoing)
+    }
+
+    /// Entrée d'appareil de cette machine, scellée sous la clé du canal.
+    ///
+    /// Ce que le nouvel appareil envoie une fois l'empreinte confirmée de son
+    /// côté. `None` s'il n'y a pas de canal ouvert ou pas d'appareil local.
+    pub fn pairing_sealed_self(&self) -> Option<Vec<u8>> {
+        let stored = self.with_db(|db| Ok(db.local_device()?)).ok().flatten()?;
+        let device = accord_crypto::DeviceIdentity::from_seed(stored.seed);
+        let entry = accord_proto::device::DeviceEntry {
+            pubkey: device.public_key(),
+            pow_nonce: device.pow_nonce(),
+            name: stored.name,
+            added_ms: now_ms(),
+            flags: 0,
+        };
+        let mut w = accord_proto::Writer::new();
+        accord_proto::WireEncode::encode(&entry, &mut w);
+        self.pairing_channel
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .and_then(|c| c.seal(&w.into_bytes()).ok())
     }
 
     /// Annule l'offre en cours, s'il y en a une.
@@ -1440,14 +1491,15 @@ impl Node {
 
     // ---- Recherche ----
 
-    /// Recherche locale par intersection de mots.
+    /// Recherche locale par intersection de mots, les plus récents d'abord.
+    /// Bornée comme [`Node::search_filtered`], dont elle est le cas sans filtre.
     pub fn search(&self, query: &str) -> Result<Vec<String>, NodeError> {
-        self.with_db(|db| {
-            Ok(search::search(db, &self.search_key, query)?
-                .iter()
-                .map(|id| hex::encode(id))
-                .collect())
-        })
+        Ok(self
+            .search_filtered(query)?
+            .iter()
+            .filter_map(|hit| hit.get("msg_id").and_then(serde_json::Value::as_str))
+            .map(str::to_string)
+            .collect())
     }
 
     /// Réactions stockées pour un message (DM ou groupe) : `(emoji, auteur)`.

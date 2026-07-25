@@ -1944,3 +1944,105 @@ fn reappairer_le_meme_appareil_ne_le_duplique_pas() {
         <accord_proto::device::DeviceList as accord_proto::WireDecode>::decode(&mut r).unwrap();
     assert_eq!(liste.devices.len(), 2, "toujours deux appareils, pas trois");
 }
+
+#[test]
+fn une_saisie_de_code_invalide_est_refusee() {
+    // 🔒 « 0 » et « O » se confondent à la lecture, donc l'alphabet exclut les
+    // deux. Corriger silencieusement l'un en l'autre serait le début d'un code
+    // qu'on croit avoir tapé alors qu'on en a tapé un autre.
+    let n = node();
+    for mauvais in ["", "ABCDEFG", "ABCDEFGHJ", "ABCDEFG0", "ABCDEFGO"] {
+        assert!(
+            n.pairing_submit(mauvais).is_err(),
+            "« {mauvais} » doit être refusé"
+        );
+    }
+}
+
+#[test]
+fn une_saisie_tolere_espaces_tirets_et_minuscules() {
+    // Le code se recopie d'un écran à l'autre : l'écran ne doit pas refuser
+    // en amont ce que le nœud accepte.
+    let n = node();
+    for saisie in ["ABCDEFGH", "abcdefgh", "ABCD-EFGH", " abcd efgh "] {
+        assert!(n.pairing_submit(saisie).is_ok(), "« {saisie} » doit passer");
+    }
+}
+
+#[test]
+fn les_deux_cotes_se_rejoignent_sur_la_meme_empreinte() {
+    // Le cœur du protocole : la machine autorisée affiche un code, la nouvelle
+    // le saisit, et les deux doivent voir le MÊME nombre. Sinon la
+    // comparaison humaine ne prouverait rien.
+    let autorise = node();
+    let nouveau = node();
+
+    let code = autorise.pairing_start().unwrap().code;
+    let vers_autorise = nouveau.pairing_submit(&code).expect("code accepté");
+
+    let reponses = autorise
+        .ingest_core(&[9u8; 32], CoreMsg::PairingHello { msg: vers_autorise })
+        .unwrap();
+    let [CoreMsg::PairingHello { msg: vers_nouveau }] = &reponses[..] else {
+        panic!("réponse d'appairage attendue");
+    };
+    nouveau
+        .ingest_core(
+            &[8u8; 32],
+            CoreMsg::PairingHello {
+                msg: vers_nouveau.clone(),
+            },
+        )
+        .unwrap();
+
+    let a = autorise
+        .pairing_fingerprint()
+        .expect("empreinte côté autorisé");
+    let b = nouveau
+        .pairing_fingerprint()
+        .expect("empreinte côté nouveau");
+    assert_eq!(a, b, "les deux écrans doivent afficher le même nombre");
+}
+
+#[test]
+fn un_code_mal_recopie_donne_des_empreintes_differentes() {
+    // 🔒 C'est ce qui donne son sens à la comparaison : si les deux nombres
+    // divergent, c'est que l'appareil d'en face n'est pas le bon.
+    let autorise = node();
+    let nouveau = node();
+
+    let code = autorise.pairing_start().unwrap().code;
+    // Une lettre changée, comme une faute de recopie.
+    let faute: String = code
+        .chars()
+        .enumerate()
+        .map(|(i, c)| if i == 0 && c != 'Z' { 'Z' } else { c })
+        .collect();
+    let vers_autorise = nouveau.pairing_submit(&faute).expect("code bien formé");
+
+    let reponses = autorise
+        .ingest_core(&[9u8; 32], CoreMsg::PairingHello { msg: vers_autorise })
+        .unwrap();
+    let [CoreMsg::PairingHello { msg: vers_nouveau }] = &reponses[..] else {
+        panic!("réponse d'appairage attendue");
+    };
+    nouveau
+        .ingest_core(
+            &[8u8; 32],
+            CoreMsg::PairingHello {
+                msg: vers_nouveau.clone(),
+            },
+        )
+        .unwrap();
+
+    // Les deux échanges aboutissent — SPAKE2 symétrique ne dit rien du code —
+    // mais les empreintes divergent, et c'est l'humain qui tranche.
+    // Un refus franc convient tout autant ; si les deux aboutissent, les
+    // empreintes doivent diverger.
+    if let (Some(a), Some(b)) = (
+        autorise.pairing_fingerprint(),
+        nouveau.pairing_fingerprint(),
+    ) {
+        assert_ne!(a, b, "un code fautif doit se voir");
+    }
+}

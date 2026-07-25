@@ -951,6 +951,13 @@ export const ru: Dict = {
     pairExpired: 'Код истёк',
     pairCancel: 'Отмена',
     pairNewCode: 'Новый код',
+    pairFingerprintHint:
+      'Теперь оба устройства показывают число. Сравни его с числом на другом экране, прежде чем подтвердить.',
+    pairFingerprintLabel: 'Проверочное число',
+    pairFingerprintMismatch:
+      'Если числа не совпадают, отмени: устройство на другом конце не твоё.',
+    pairConfirm: 'Числа совпадают',
+    pairConfirmed: 'Устройство подключено!',
     devicesTitle: 'Аудиоустройства',
     inputDevice: 'Вход (микрофон)',
     outputDevice: 'Выход (наушники, колонки)',

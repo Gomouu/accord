@@ -951,6 +951,13 @@ export const de: Dict = {
     pairExpired: 'Code abgelaufen',
     pairCancel: 'Abbrechen',
     pairNewCode: 'Neuer Code',
+    pairFingerprintHint:
+      'Beide Geräte zeigen jetzt eine Zahl an. Vergleiche sie mit der auf dem anderen Bildschirm, bevor du bestätigst.',
+    pairFingerprintLabel: 'Prüfnummer',
+    pairFingerprintMismatch:
+      'Wenn die beiden Zahlen sich unterscheiden, brich ab: Das Gerät auf der anderen Seite ist nicht deins.',
+    pairConfirm: 'Die Zahlen sind gleich',
+    pairConfirmed: 'Gerät gekoppelt!',
     devicesTitle: 'Audiogeräte',
     inputDevice: 'Eingang (Mikrofon)',
     outputDevice: 'Ausgang (Kopfhörer, Lautsprecher)',

@@ -970,6 +970,13 @@ export const en: Dict = {
     pairExpired: 'Code expired',
     pairCancel: 'Cancel',
     pairNewCode: 'New code',
+    pairFingerprintHint:
+      'Both devices now show a number. Compare it with the one on the other screen before confirming.',
+    pairFingerprintLabel: 'Verification fingerprint',
+    pairFingerprintMismatch:
+      'If the two numbers differ, cancel: the device at the other end is not yours.',
+    pairConfirm: 'The numbers match',
+    pairConfirmed: 'Device paired!',
     // Voice.
     devicesTitle: 'Audio devices',
     inputDevice: 'Input (microphone)',

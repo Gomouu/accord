@@ -945,6 +945,23 @@ export class Api {
     return this.rpc.call('devices.pair_start');
   }
 
+  /**
+   * État de l'offre d'appairage en cours.
+   *
+   * `fingerprint` reste `null` tant qu'aucun échange n'a abouti ; dès qu'une
+   * empreinte apparaît, c'est celle que les deux appareils doivent afficher à
+   * l'identique — la comparer est ce qui distingue l'appareil attendu d'un
+   * inconnu qui aurait intercepté le code.
+   */
+  devicesPairStatus(): Promise<{ fingerprint: string | null }> {
+    return this.rpc.call('devices.pair_status');
+  }
+
+  /** Valide l'empreinte affichée et achève l'appairage. */
+  devicesPairConfirm(): Promise<Record<string, never>> {
+    return this.rpc.call('devices.pair_confirm');
+  }
+
   /** Annule l'offre d'appairage en cours. */
   devicesPairCancel(): Promise<Record<string, never>> {
     return this.rpc.call('devices.pair_cancel');

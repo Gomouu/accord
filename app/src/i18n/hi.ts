@@ -939,6 +939,13 @@ export const hi: Dict = {
     pairExpired: 'कोड ख़त्म हो गया',
     pairCancel: 'रद्द करो',
     pairNewCode: 'नया कोड',
+    pairFingerprintHint:
+      'अब दोनों उपकरण एक संख्या दिखा रहे हैं। पक्का करने से पहले उसे दूसरी स्क्रीन की संख्या से मिलाओ।',
+    pairFingerprintLabel: 'जाँच की संख्या',
+    pairFingerprintMismatch:
+      'अगर दोनों संख्याएँ अलग हैं तो रद्द करो: सामने वाला उपकरण तुम्हारा नहीं है।',
+    pairConfirm: 'दोनों संख्याएँ एक जैसी हैं',
+    pairConfirmed: 'उपकरण जुड़ गया!',
     devicesTitle: 'ऑडियो उपकरण',
     inputDevice: 'इनपुट (माइक)',
     outputDevice: 'आउटपुट (हेडफ़ोन, स्पीकर)',

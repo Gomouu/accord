@@ -980,6 +980,13 @@ export const fr = {
     pairExpired: 'Code expiré',
     pairCancel: 'Annuler',
     pairNewCode: 'Nouveau code',
+    pairFingerprintHint:
+      'Les deux appareils affichent maintenant un nombre. Compare-le avec celui de l’autre écran avant de confirmer.',
+    pairFingerprintLabel: 'Empreinte de vérification',
+    pairFingerprintMismatch:
+      'Si les deux nombres diffèrent, annule : l’appareil en face n’est pas le tien.',
+    pairConfirm: 'Les nombres sont identiques',
+    pairConfirmed: 'Appareil appairé !',
     // Voix.
     devicesTitle: 'Périphériques audio',
     inputDevice: 'Entrée (micro)',

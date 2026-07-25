@@ -955,6 +955,13 @@ export const pt: Dict = {
     pairExpired: 'Código expirado',
     pairCancel: 'Cancelar',
     pairNewCode: 'Novo código',
+    pairFingerprintHint:
+      'Os dois dispositivos mostram agora um número. Compara-o com o do outro ecrã antes de confirmar.',
+    pairFingerprintLabel: 'Impressão de verificação',
+    pairFingerprintMismatch:
+      'Se os dois números forem diferentes, cancela: o dispositivo do outro lado não é o teu.',
+    pairConfirm: 'Os números são iguais',
+    pairConfirmed: 'Dispositivo emparelhado!',
     devicesTitle: 'Dispositivos áudio',
     inputDevice: 'Entrada (microfone)',
     outputDevice: 'Saída (auscultadores, colunas)',

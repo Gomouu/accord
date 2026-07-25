@@ -932,6 +932,12 @@ export const ar: Dict = {
     pairExpired: 'انتهت صلاحية الرمز',
     pairCancel: 'إلغاء',
     pairNewCode: 'رمز جديد',
+    pairFingerprintHint:
+      'يعرض الجهازان الآن رقمًا. قارنه بالرقم الظاهر على الشاشة الأخرى قبل التأكيد.',
+    pairFingerprintLabel: 'رقم التحقق',
+    pairFingerprintMismatch: 'إذا اختلف الرقمان فألغِ العملية: الجهاز المقابل ليس جهازك.',
+    pairConfirm: 'الرقمان متطابقان',
+    pairConfirmed: 'تم اقتران الجهاز!',
     devicesTitle: 'أجهزة الصوت',
     inputDevice: 'الدخل (الميكروفون)',
     outputDevice: 'الخرج (السماعات)',

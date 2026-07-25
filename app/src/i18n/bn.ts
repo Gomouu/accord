@@ -935,6 +935,13 @@ export const bn: Dict = {
     pairExpired: 'কোড ফুরিয়ে গেছে',
     pairCancel: 'বাতিল',
     pairNewCode: 'নতুন কোড',
+    pairFingerprintHint:
+      'দুটো যন্ত্রেই এখন একটা সংখ্যা দেখা যাচ্ছে। নিশ্চিত করার আগে অন্য পর্দার সংখ্যার সঙ্গে মিলিয়ে নাও।',
+    pairFingerprintLabel: 'যাচাইয়ের সংখ্যা',
+    pairFingerprintMismatch:
+      'সংখ্যা দুটো আলাদা হলে বাতিল করো: উল্টো দিকের যন্ত্রটা তোমার নয়।',
+    pairConfirm: 'সংখ্যা দুটো এক',
+    pairConfirmed: 'যন্ত্র জোড়া লেগেছে!',
     devicesTitle: 'অডিও যন্ত্র',
     inputDevice: 'ইনপুট (মাইক)',
     outputDevice: 'আউটপুট (হেডফোন, স্পিকার)',

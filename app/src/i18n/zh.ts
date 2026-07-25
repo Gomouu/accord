@@ -924,6 +924,12 @@ export const zh: Dict = {
     pairExpired: '代码已失效',
     pairCancel: '取消',
     pairNewCode: '新代码',
+    pairFingerprintHint:
+      '两台设备现在都显示一个数字。确认之前，先和另一块屏幕上的数字核对。',
+    pairFingerprintLabel: '校验数字',
+    pairFingerprintMismatch: '如果两个数字不一样，就取消：对面那台设备不是你的。',
+    pairConfirm: '两个数字一样',
+    pairConfirmed: '设备已配对！',
     devicesTitle: '音频设备',
     inputDevice: '输入（麦克风）',
     outputDevice: '输出（耳机、音箱）',

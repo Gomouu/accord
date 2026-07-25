@@ -979,6 +979,13 @@ export const es: Dict = {
     pairExpired: 'Código caducado',
     pairCancel: 'Cancelar',
     pairNewCode: 'Código nuevo',
+    pairFingerprintHint:
+      'Ahora los dos dispositivos muestran un número. Compáralo con el de la otra pantalla antes de confirmar.',
+    pairFingerprintLabel: 'Huella de verificación',
+    pairFingerprintMismatch:
+      'Si los dos números no coinciden, cancela: el dispositivo del otro lado no es el tuyo.',
+    pairConfirm: 'Los números coinciden',
+    pairConfirmed: '¡Dispositivo vinculado!',
     // Voice.
     devicesTitle: 'Dispositivos de audio',
     inputDevice: 'Entrada (micrófono)',

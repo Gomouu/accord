@@ -25,6 +25,7 @@ pub use messages::{DmRecord, GroupMsgRecord};
 pub use outbox::OutboxItem;
 pub use reminders::Reminder;
 pub use scheduled::ScheduledMessage;
+pub use search::{SearchCandidate, SearchScope};
 pub use stats::StorageStats;
 
 use crate::error::CoreError;
@@ -38,7 +39,7 @@ use std::path::Path;
 /// la version suffit pour créer les nouvelles tables sur une base existante.
 /// Modifier des colonnes existantes exige en revanche une vraie migration —
 /// voir [`MIGRATIONS`].
-const SCHEMA_VERSION: i64 = 13;
+const SCHEMA_VERSION: i64 = 14;
 
 /// Version au-delà de laquelle les évolutions passent par [`MIGRATIONS`].
 ///
@@ -70,21 +71,22 @@ struct Migration {
 ///
 /// 🔒 Une étape publiée ne se modifie plus : des bases l'ont déjà appliquée.
 /// Une correction se fait par une étape suivante.
-const MIGRATIONS: &[Migration] = &[Migration {
-    to: 13,
-    label: "compte et appareils (multi-appareil)",
-    apply: |conn| {
-        // `local_device` : notre appareil sur cette machine. `id` est figé à 1
-        // et contraint : deux lignes signifieraient deux identités de
-        // transport sur la même machine, ce que le jalon existe pour empêcher.
-        //
-        // `IF NOT EXISTS` : une étape ré-exécutable sans dommage coûte trois
-        // mots et couvre le cas où la version enregistrée redescendrait —
-        // restauration d'une sauvegarde, base recopiée à la main. Une étape
-        // qui explose dans ce cas transforme une bizarrerie en application
-        // qui ne démarre plus.
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS local_device (
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        to: 13,
+        label: "compte et appareils (multi-appareil)",
+        apply: |conn| {
+            // `local_device` : notre appareil sur cette machine. `id` est figé à 1
+            // et contraint : deux lignes signifieraient deux identités de
+            // transport sur la même machine, ce que le jalon existe pour empêcher.
+            //
+            // `IF NOT EXISTS` : une étape ré-exécutable sans dommage coûte trois
+            // mots et couvre le cas où la version enregistrée redescendrait —
+            // restauration d'une sauvegarde, base recopiée à la main. Une étape
+            // qui explose dans ce cas transforme une bizarrerie en application
+            // qui ne démarre plus.
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS local_device (
                id        INTEGER PRIMARY KEY CHECK (id = 1),
                seed      BLOB    NOT NULL,
                pow_nonce INTEGER NOT NULL,
@@ -96,10 +98,40 @@ const MIGRATIONS: &[Migration] = &[Migration {
                encoded    BLOB    NOT NULL,
                fetched_ms INTEGER NOT NULL
              );",
-        )?;
-        Ok(())
+            )?;
+            Ok(())
+        },
     },
-}];
+    Migration {
+        to: 14,
+        label: "index de récence et de non-lus (gros historiques)",
+        apply: |conn| {
+            // Mesuré sur 100 000 messages (voir `accord-node/benches/history.rs`) :
+            // la recherche et le compteur de non-lus étaient les deux seuls chemins
+            // dont le coût suivait la TAILLE de l'historique et non celle de la
+            // réponse. Chacun manquait l'index qui aurait borné son travail.
+            //
+            // `*_by_sent` : la recherche rend les résultats les plus récents
+            // d'abord. Sans index de récence, en trouver mille exigeait de lire et
+            // de trier l'historique entier.
+            //
+            // `dm_unread` : couvrant, dans l'ordre exact du prédicat de
+            // `count_dm_unread` (pair, auteur, tombstone, horloge). L'index
+            // `dm_by_peer` ne portant ni l'auteur ni le tombstone, chaque comptage
+            // devait relire une ligne de table par message non lu.
+            //
+            // Création d'index seulement : aucune table n'est réécrite, rien à
+            // remplir, et `IF NOT EXISTS` rend l'étape rejouable.
+            conn.execute_batch(
+                "CREATE INDEX IF NOT EXISTS dm_by_sent   ON dm_messages(sent_ms);
+                 CREATE INDEX IF NOT EXISTS gmsg_by_sent ON group_messages(sent_ms);
+                 CREATE INDEX IF NOT EXISTS dm_unread
+                   ON dm_messages(peer, author, deleted, lamport);",
+            )?;
+            Ok(())
+        },
+    },
+];
 
 /// Copie la base avant une migration, et purge les copies les plus anciennes.
 ///

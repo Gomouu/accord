@@ -6,7 +6,7 @@
 
 use std::collections::HashSet;
 
-use accord_core::db::{DmRecord, GroupMsgRecord};
+use accord_core::db::{SearchCandidate, SearchScope};
 use accord_core::search::{self, HasKind, ParsedQuery};
 use accord_crypto::FriendCode;
 use accord_proto::core_msg::{FileRef, MsgBody};
@@ -17,9 +17,16 @@ use crate::hex;
 
 use super::{now_ms, Node};
 
-/// Plafond de candidats hydratés d'une recherche filtrée sans mot-clé (l'index
-/// aveugle borne déjà le cas avec mots-clés). Au-delà, seuls les plus récents
-/// sont considérés.
+/// Plafond de candidats hydratés d'une recherche, mots-clés ou non : seuls les
+/// plus récents sont considérés au-delà.
+///
+/// ⚠️ Ce plafond rend la recherche **incomplète** sur un mot fréquent d'un gros
+/// historique : les correspondances plus anciennes que la fenêtre ne sont pas
+/// examinées, donc un filtre `has:` peut manquer une vieille pièce jointe. Sans
+/// lui, une recherche du mot « le » dans 100 000 messages tenait le verrou de la
+/// base plus d'une seconde — donc suspendait aussi la réception des messages.
+/// Cinq fois [`SEARCH_RESULT_CAP`] : de quoi laisser les filtres écarter les
+/// quatre cinquièmes des candidats sans rendre une page courte.
 const SEARCH_CANDIDATE_CAP: usize = 1_000;
 /// Nombre maximal de résultats rendus (les plus récents d'abord).
 const SEARCH_RESULT_CAP: usize = 200;
@@ -180,29 +187,49 @@ impl Node {
         Ok(scope)
     }
 
-    /// Construit les candidats hydratés : intersection de l'index aveugle si des
-    /// mots simples sont présents, sinon les messages les plus récents (bornés).
+    /// Construit les candidats hydratés : les plus récents portant tous les mots
+    /// simples de la requête, ou simplement les plus récents si elle n'en porte
+    /// aucun (requête de filtres seuls). Bornés à [`SEARCH_CANDIDATE_CAP`].
+    ///
+    /// Deux requêtes en tout, quel que soit le nombre de correspondances : les
+    /// candidats, puis leurs pièces jointes en un lot. La version précédente en
+    /// faisait deux PAR correspondance.
     fn gather_candidates(&self, parsed: &ParsedQuery) -> Result<Vec<SearchHit>, NodeError> {
         self.with_db(|db| {
-            let mut hits = Vec::new();
-            if parsed.text.is_empty() {
-                for rec in db.dm_recent(SEARCH_CANDIDATE_CAP)? {
-                    hits.push(dm_hit(db, rec)?);
-                }
-                for rec in db.group_recent(SEARCH_CANDIDATE_CAP)? {
-                    hits.push(group_hit(db, rec)?);
-                }
-            } else {
-                for id in search::search(db, &self.search_key, &parsed.text)? {
-                    if let Some(rec) = db.dm_message(&id)? {
-                        hits.push(dm_hit(db, rec)?);
-                    } else if let Some(rec) = db.group_msg(&id)? {
-                        hits.push(group_hit(db, rec)?);
-                    }
-                }
-            }
-            Ok(hits)
+            let candidates =
+                search::search_recent(db, &self.search_key, &parsed.text, SEARCH_CANDIDATE_CAP)?;
+            let ids: Vec<[u8; 16]> = candidates.iter().map(|c| c.msg_id).collect();
+            let mut attachments = db.msg_attachments_for(&ids)?;
+            Ok(candidates
+                .into_iter()
+                .map(|c| {
+                    let attachments = attachments.remove(&c.msg_id).unwrap_or_default();
+                    hit_of(c, attachments)
+                })
+                .collect())
         })
+    }
+}
+
+/// Convertit un candidat de la base en résultat filtrable.
+fn hit_of(c: SearchCandidate, attachments: Vec<FileRef>) -> SearchHit {
+    SearchHit {
+        conversation: match c.scope {
+            SearchScope::Dm { peer } => Conversation::Dm { peer },
+            SearchScope::Group {
+                group_id,
+                channel_id,
+            } => Conversation::Group {
+                group_id,
+                channel_id,
+            },
+        },
+        text: body_text(c.kind, &c.body),
+        msg_id: c.msg_id,
+        author: c.author,
+        lamport: c.lamport,
+        sent_ms: c.sent_ms,
+        attachments,
     }
 }
 
@@ -213,35 +240,6 @@ fn body_text(kind: u8, body: &[u8]) -> String {
         Ok(MsgBody::Text { text, .. }) => text,
         _ => String::new(),
     }
-}
-
-fn dm_hit(db: &accord_core::Db, rec: DmRecord) -> Result<SearchHit, NodeError> {
-    let attachments = db.msg_attachments(&rec.msg_id)?;
-    Ok(SearchHit {
-        conversation: Conversation::Dm { peer: rec.peer },
-        text: body_text(rec.kind, &rec.body),
-        msg_id: rec.msg_id,
-        author: rec.author,
-        lamport: rec.lamport,
-        sent_ms: rec.sent_ms,
-        attachments,
-    })
-}
-
-fn group_hit(db: &accord_core::Db, rec: GroupMsgRecord) -> Result<SearchHit, NodeError> {
-    let attachments = db.msg_attachments(&rec.msg_id)?;
-    Ok(SearchHit {
-        conversation: Conversation::Group {
-            group_id: rec.group_id,
-            channel_id: rec.channel_id,
-        },
-        text: body_text(rec.kind, &rec.body),
-        msg_id: rec.msg_id,
-        author: rec.author,
-        lamport: rec.lamport,
-        sent_ms: rec.sent_ms,
-        attachments,
-    })
 }
 
 /// Vrai si un résultat satisfait un filtre `has:`.

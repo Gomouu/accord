@@ -260,16 +260,6 @@ impl Db {
         Ok(Some(window))
     }
 
-    /// Messages directs les plus récents, toutes conversations confondues,
-    /// bornés à `cap` (candidats de recherche filtrée sans mot-clé).
-    pub fn dm_recent(&self, cap: usize) -> Result<Vec<DmRecord>, CoreError> {
-        let sql = format!(
-            "SELECT {DM_COLS} FROM dm_messages
-             ORDER BY lamport DESC, msg_id DESC LIMIT ?1"
-        );
-        self.dm_rows(&sql, &[&(cap as i64)])
-    }
-
     /// Marque un message direct comme acquitté.
     pub fn ack_dm(&self, msg_id: &[u8; 16]) -> Result<(), CoreError> {
         self.conn().execute(
@@ -785,16 +775,6 @@ impl Db {
         window.push(target);
         window.extend(older);
         Ok(Some(window))
-    }
-
-    /// Messages de groupe les plus récents, tous salons confondus, bornés à
-    /// `cap` (candidats de recherche filtrée sans mot-clé).
-    pub fn group_recent(&self, cap: usize) -> Result<Vec<GroupMsgRecord>, CoreError> {
-        let sql = format!(
-            "SELECT {GROUP_COLS} FROM group_messages
-             ORDER BY lamport DESC, msg_id DESC LIMIT ?1"
-        );
-        self.group_rows(&sql, &[&(cap as i64)])
     }
 
     /// Nombre de messages d'un salon strictement après `after_lamport`, écrits

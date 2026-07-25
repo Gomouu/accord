@@ -32,7 +32,52 @@ All notable changes to Accord. This project follows [semantic versioning](https:
   pairing will add others without the list changing shape, and it is pairing
   that will bring revocation.
 
+### Changed
+
+- **Search no longer stalls on a big history.** On a conversation of 100 000
+  messages, searching a word that appears in all of them took **1.26 second**;
+  it now takes **2.9 ms**. A filtered search with no keyword (`has:image`,
+  `from:` alone) went from 130 ms to 1.1 ms. The delay was never the search
+  index — it was that every single match got re-read one message at a time, then
+  the whole set was sorted in memory to keep the 200 most recent. The database
+  now picks and orders the candidates itself.
+
+  This also unblocked the rest of the application: the search held the database
+  for its entire duration, so a slow search suspended incoming messages too.
+
+  In exchange, a search now looks at the **1 000 most recent matches** rather
+  than all of them — five times what the screen can show. On a very common word
+  in a very long history, a `has:image` filter may therefore miss an older
+  attachment. The full reasoning and the numbers are in `docs/PERFORMANCE.md`.
+
+- **Coming back to a conversation with thousands of unread messages is no longer
+  slow.** Recounting the badge for a 50 000-message backlog took 46 ms every
+  time the friends list refreshed — on every conversation opening, and on every
+  incoming message. It now takes 1.6 ms. The database gained an index that
+  matches the count exactly instead of re-reading one row per unread message.
+
+  The three new indexes cost 6% of database size (9.8 MiB on a 162 MiB base at
+  100 000 messages). They are created by a schema migration that adds indexes
+  only — no table is rewritten, and nothing needs backfilling.
+
 ### Internal
+
+- **Opening a conversation with 100 000 messages: 0.91 ms, measured.** The
+  performance budget said "< 300 ms, to be instrumented", which meant nothing
+  held it. There is now a benchmark (`cargo bench -p accord-node --bench
+  history`) that fills an encrypted database on disk with that history and times
+  the JSON-RPC calls the interface actually makes when it opens a conversation,
+  JSON reply included. The budget is met with roughly 330× margin, and it was
+  met before this branch too — the cost follows the size of the page, not the
+  size of the history. So nothing on that path was touched.
+
+  The same bench measured what was *not* fine, which is where the two entries
+  above come from. Full table, machine, before/after and the assumed limits:
+  `docs/PERFORMANCE.md`.
+
+  Also measured and left as it is: the database weighs about 1.6 KiB per
+  message, two thirds of it the blind search index. A million messages would be
+  1.6 GiB, and there is no purge or archiving today.
 
 - **Adding a language no longer means editing a list in six places.** The
   BCP-47 detection, the language picker and their tests each enumerated the

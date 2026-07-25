@@ -18,7 +18,7 @@ use std::sync::OnceLock;
 
 use accord_api::NotificationHub;
 use accord_core::db::{ContactState, Db, LocalMembership};
-use accord_core::{friends, group, messaging, presence, profile, search};
+use accord_core::{friends, group, messaging, presence, profile};
 use accord_crypto::{derive_search_key, node_id_of, Identity};
 use accord_proto::core_msg::CoreMsg;
 use serde_json::json;
@@ -1295,14 +1295,15 @@ impl Node {
 
     // ---- Recherche ----
 
-    /// Recherche locale par intersection de mots.
+    /// Recherche locale par intersection de mots, les plus récents d'abord.
+    /// Bornée comme [`Node::search_filtered`], dont elle est le cas sans filtre.
     pub fn search(&self, query: &str) -> Result<Vec<String>, NodeError> {
-        self.with_db(|db| {
-            Ok(search::search(db, &self.search_key, query)?
-                .iter()
-                .map(|id| hex::encode(id))
-                .collect())
-        })
+        Ok(self
+            .search_filtered(query)?
+            .iter()
+            .filter_map(|hit| hit.get("msg_id").and_then(serde_json::Value::as_str))
+            .map(str::to_string)
+            .collect())
     }
 
     /// Réactions stockées pour un message (DM ou groupe) : `(emoji, auteur)`.

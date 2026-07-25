@@ -1760,6 +1760,21 @@ pub enum CoreMsg {
         /// Racine Merkle du son de serveur à jouer.
         sound: [u8; 32],
     },
+    /// Liste d'appareils de l'émetteur, poussée directement sur la session
+    /// (multi-appareil, jalon 1).
+    ///
+    /// Double emploi assumé avec la DHT : le cas courant — un ami déjà
+    /// connecté — n'a alors aucun lookup à attendre, et la DHT reste le
+    /// chemin de secours pour un compte hors ligne.
+    ///
+    /// 🔒 Sûr à ajouter : un pair antérieur échoue à décoder ce `ChannelMsg`,
+    /// le datagramme est **jeté** et la session continue. C'est ce qui
+    /// distingue ce cas de `RecordKind`, où le genre inconnu voyageait dans
+    /// une liste et emportait toute la réponse avec lui.
+    DeviceListAnnounce {
+        /// Liste signée par la clé racine du compte émetteur.
+        list: crate::device::DeviceList,
+    },
 }
 
 /// Raison d'un [`CoreMsg::CallDecline`] : refus explicite de l'utilisateur.
@@ -1994,6 +2009,10 @@ impl WireEncode for CoreMsg {
                 w.put_arr(channel_id);
                 w.put_arr(sound);
             }
+            CoreMsg::DeviceListAnnounce { list } => {
+                w.put_u8(0x17);
+                list.encode(w);
+            }
         }
     }
 }
@@ -2172,6 +2191,12 @@ impl WireDecode for CoreMsg {
                 group_id: r.arr()?,
                 channel_id: r.arr()?,
                 sound: r.arr()?,
+            }),
+            0x17 => Ok(CoreMsg::DeviceListAnnounce {
+                // Les bornes de la liste (8 appareils, 32 révocations, nom
+                // ≤ 32 o) sont appliquées par son propre décodage : elle
+                // arrive d'un pair, donc d'une source à ne pas croire.
+                list: crate::device::DeviceList::decode(r)?,
             }),
             _ => Err(DecodeError::InvalidValue("core kind")),
         }
@@ -3028,5 +3053,35 @@ mod tests {
         let mut over = body.encode_body();
         over.push(0xAB);
         assert!(MsgBody::decode_body(7, &over).is_err());
+    }
+
+    #[test]
+    fn device_list_announce_roundtrips() {
+        let list = crate::device::DeviceList {
+            account: [1; 32],
+            version: 42,
+            issued_ms: 1_700_000_000_000,
+            valid_for_s: 86_400,
+            devices: vec![crate::device::DeviceEntry {
+                pubkey: [2; 32],
+                pow_nonce: 7,
+                name: "Portable".into(),
+                added_ms: 1_700_000_000_000,
+                flags: 0,
+            }],
+            revoked: vec![],
+            sig: [3; 64],
+        };
+        let msg = CoreMsg::DeviceListAnnounce { list };
+        assert_eq!(CoreMsg::from_bytes(&msg.to_bytes()).unwrap(), msg);
+    }
+
+    #[test]
+    fn un_core_msg_de_genre_inconnu_est_refuse_proprement() {
+        // Le refus est ce qui rend l'ajout d'une variante SÛR : le pair
+        // antérieur échoue à décoder ce message précis, le datagramme est jeté
+        // et la session continue. Contrairement à `RecordKind`, rien ne voyage
+        // ici dans une liste qu'un genre inconnu emporterait avec lui.
+        assert!(CoreMsg::from_bytes(&[0xFE]).is_err());
     }
 }

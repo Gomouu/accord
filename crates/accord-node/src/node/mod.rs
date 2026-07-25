@@ -272,6 +272,61 @@ impl Node {
         friends::identity_record(&self.identity, now_ms())
     }
 
+    /// Ingère la liste d'appareils poussée par un pair sur sa session.
+    ///
+    /// 🔒 La liste doit concerner **l'émetteur lui-même**. Sans ce contrôle,
+    /// n'importe quel ami pourrait nous imposer la liste d'appareils d'un
+    /// tiers — donc y glisser sa propre clé et se faire passer pour lui.
+    /// Ignorée en silence si le pair n'est pas un ami : une liste n'est pas
+    /// une raison d'entrer en relation.
+    fn ingest_device_list(
+        &self,
+        peer_pubkey: &[u8; 32],
+        list: &accord_proto::device::DeviceList,
+    ) -> Result<(), NodeError> {
+        if !self.is_friend(peer_pubkey) || list.account != *peer_pubkey {
+            return Ok(());
+        }
+        let connue = self
+            .with_db(|db| Ok(db.device_list(peer_pubkey)?))
+            .ok()
+            .flatten()
+            .map(|c| c.version)
+            .unwrap_or(0);
+        if accord_crypto::verify_device_list(list, peer_pubkey, connue).is_err() {
+            return Ok(());
+        }
+        let mut w = accord_proto::Writer::new();
+        accord_proto::WireEncode::encode(list, &mut w);
+        self.with_db(|db| {
+            db.cache_device_list(&accord_core::db::CachedDeviceList {
+                account: *peer_pubkey,
+                version: list.version,
+                encoded: w.into_bytes(),
+                fetched_ms: now_ms(),
+            })?;
+            Ok(())
+        })?;
+        Ok(())
+    }
+
+    /// Liste d'appareils à annoncer à un pair sur sa session (lot 1.C).
+    ///
+    /// Double emploi assumé avec la DHT : un ami déjà connecté n'a alors aucun
+    /// lookup à attendre. Rend `None` tant qu'aucun appareil local n'existe.
+    pub fn own_device_list_msg(&self) -> Option<CoreMsg> {
+        let stored = self.with_db(|db| Ok(db.local_device()?)).ok().flatten()?;
+        let device = accord_crypto::DeviceIdentity::from_seed(stored.seed);
+        Some(CoreMsg::DeviceListAnnounce {
+            list: crate::device::build_device_list_with_root(
+                &self.identity,
+                &device,
+                &stored.name,
+                now_ms(),
+            ),
+        })
+    }
+
     /// Record de liste d'appareils à (re)publier dans la DHT (lot 1.C).
     ///
     /// `self.identity` **est** la racine du compte : c'est ce qu'établit la
@@ -671,6 +726,10 @@ impl Node {
                 if established {
                     return Ok(self.own_profile_msg()?.into_iter().collect());
                 }
+                Ok(vec![])
+            }
+            CoreMsg::DeviceListAnnounce { list } => {
+                self.ingest_device_list(peer_pubkey, &list)?;
                 Ok(vec![])
             }
             CoreMsg::Profile {

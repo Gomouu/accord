@@ -1581,3 +1581,73 @@ fn invitation_de_serveur_materialisee_en_carte_dans_le_mp_des_deux_cotes() {
     bob.migrate_incoming_invites_to_dm();
     assert_eq!(bob.dm_history(&alice_pub, u64::MAX, 10).unwrap().len(), 1);
 }
+
+/// Appareil à la difficulté RÉELLE (16 bits, quelques dizaines de ms) : le
+/// chemin d'ingestion vérifie la preuve de travail comme en production, et
+/// l'affaiblir ici ferait passer un test qui ne prouverait rien.
+fn appareil_reel() -> accord_crypto::DeviceIdentity {
+    accord_crypto::DeviceIdentity::generate()
+}
+
+/// Liste d'appareils signée par `root`, annonçant `device`.
+fn annonce(root: &Identity, device: &accord_crypto::DeviceIdentity) -> CoreMsg {
+    CoreMsg::DeviceListAnnounce {
+        list: crate::device::build_device_list_with_root(
+            root,
+            device,
+            "Portable",
+            crate::node::now_ms(),
+        ),
+    }
+}
+
+#[test]
+fn la_liste_dappareils_dun_ami_est_mise_en_cache() {
+    let (n, peer) = node_with_friend();
+    let device = appareil_reel();
+
+    n.ingest_core(&peer.public_key(), annonce(&peer, &device))
+        .unwrap();
+
+    let cached = n
+        .with_db(|db| Ok(db.device_list(&peer.public_key())?))
+        .unwrap()
+        .expect("liste mise en cache");
+    assert_eq!(cached.account, peer.public_key());
+}
+
+#[test]
+fn un_ami_ne_peut_pas_imposer_la_liste_dun_tiers() {
+    // 🔒 Le contrôle qui compte. Sans lui, n'importe quel ami pousserait la
+    // liste d'appareils de quelqu'un d'autre — avec sa propre clé dedans — et
+    // se ferait passer pour lui à la prochaine session.
+    let (n, peer) = node_with_friend();
+    let tiers = Identity::generate_with_pow_bits(1);
+    let device = appareil_reel();
+
+    // La liste est authentique et correctement signée : elle concerne
+    // simplement un compte qui n'est pas celui de l'émetteur.
+    n.ingest_core(&peer.public_key(), annonce(&tiers, &device))
+        .unwrap();
+
+    assert!(n
+        .with_db(|db| Ok(db.device_list(&tiers.public_key())?))
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn la_liste_dun_inconnu_est_ignoree() {
+    // Recevoir une liste n'est pas une raison d'entrer en relation.
+    let n = node();
+    let inconnu = Identity::generate_with_pow_bits(1);
+    let device = appareil_reel();
+
+    n.ingest_core(&inconnu.public_key(), annonce(&inconnu, &device))
+        .unwrap();
+
+    assert!(n
+        .with_db(|db| Ok(db.device_list(&inconnu.public_key())?))
+        .unwrap()
+        .is_none());
+}

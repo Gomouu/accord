@@ -1302,6 +1302,16 @@ impl Runtime {
                         .unwrap_or_else(|e| e.into_inner())
                         .remove(&static_pub);
                     if self.is_friend(&static_pub) {
+                        // Liste d'appareils poussée sur la session (lot 1.C) :
+                        // l'ami connecté n'attend aucun lookup DHT. Avant le
+                        // profil, qui est plus gros — si un seul des deux
+                        // passe, autant que ce soit celui qui dit par où
+                        // joindre le compte.
+                        if let Some(msg) = self.node.own_device_list_msg() {
+                            let _ = self
+                                .send_via_best_link(&static_pub, &ChannelMsg::Core(msg))
+                                .await;
+                        }
                         match self.node.own_profile_msg() {
                             Ok(Some(msg)) => {
                                 let banniere = matches!(

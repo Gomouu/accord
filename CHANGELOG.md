@@ -39,6 +39,12 @@ All notable changes to Accord. This project follows [semantic versioning](https:
   indefinitely — a stale list would keep a revoked device alive for exactly as
   long as it lived.
 
+  A connected friend gets the list pushed straight down the session, so the
+  common case never waits on a DHT lookup; the DHT stays the fallback for an
+  account that is offline. An announced list is only accepted when it is the
+  sender's own — otherwise any friend could hand us somebody else's list with
+  their own key inside it, and impersonate them on the next session.
+
   Nothing changes on the wire for anyone yet: the transport still presents the
   account key. This is deliberately the *reading* half. Presenting a device key
   before the fleet can resolve one would make the first to switch a stranger to

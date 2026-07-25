@@ -181,6 +181,36 @@ pub fn cached_devices_for(db: &Db, account: &[u8; 32], now_ms: u64) -> Vec<[u8; 
         .collect()
 }
 
+/// Compte auquel appartient la clé de transport `static_pub`, s'il en est un
+/// que l'on connaît.
+///
+/// Deux cas se confondent volontairement pour l'appelant :
+/// - la clé **est** celle d'un compte ami — c'est le cas de tout le parc
+///   actuel, où l'identité de transport est encore l'identité de compte ;
+/// - la clé est celle d'un **appareil** listé dans la liste fraîche d'un ami.
+///
+/// C'est la moitié « savoir lire » du basculement (voir `docs/MULTI_DEVICE.md`
+/// §3.2.1). Tant que le parc présente sa clé de compte, seul le premier cas se
+/// produit ; le second doit néanmoins être déployé **avant** que quiconque
+/// commence à présenter une clé d'appareil, sinon les premiers à basculer
+/// deviendraient des inconnus pour tous les autres.
+///
+/// Une liste périmée ne rattache rien : voir [`cached_devices_for`].
+pub fn account_for_static(
+    db: &Db,
+    friends: &[[u8; 32]],
+    static_pub: &[u8; 32],
+    now_ms: u64,
+) -> Option<[u8; 32]> {
+    if friends.contains(static_pub) {
+        return Some(*static_pub);
+    }
+    friends
+        .iter()
+        .find(|account| cached_devices_for(db, account, now_ms).contains(static_pub))
+        .copied()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -420,5 +450,85 @@ mod tests {
     fn le_cache_ne_rend_rien_pour_un_compte_inconnu() {
         let db = db();
         assert!(cached_devices_for(&db, &[3u8; 32], 1_700_000_000_000).is_empty());
+    }
+
+    /// Met en cache la liste publiée pour `account` et rend sa clé publique.
+    fn en_cache(db: &Db, account: &AccountIdentity, record: &DhtRecord, now: u64) -> [u8; 32] {
+        db.cache_device_list(&accord_core::db::CachedDeviceList {
+            account: account.public_key(),
+            version: version_for(now),
+            encoded: record.value.clone(),
+            fetched_ms: now,
+        })
+        .unwrap();
+        account.public_key()
+    }
+
+    #[test]
+    fn la_cle_dun_compte_ami_se_rattache_a_lui_meme() {
+        // Le cas de tout le parc actuel : l'identité de transport EST
+        // l'identité de compte. Il doit continuer de marcher sans liste.
+        let db = db();
+        let ami = Identity::generate_with_pow_bits(1).public_key();
+        assert_eq!(
+            account_for_static(&db, &[ami], &ami, 1_700_000_000_000),
+            Some(ami)
+        );
+    }
+
+    #[test]
+    fn la_cle_dun_appareil_liste_se_rattache_a_son_compte() {
+        let now = 1_700_000_000_000;
+        let db = db();
+        let (account, device, record) = published(now);
+        let ami = en_cache(&db, &account, &record, now);
+
+        assert_eq!(
+            account_for_static(&db, &[ami], &device.public_key(), now),
+            Some(ami)
+        );
+    }
+
+    #[test]
+    fn une_cle_inconnue_ne_se_rattache_a_rien() {
+        let now = 1_700_000_000_000;
+        let db = db();
+        let (account, _, record) = published(now);
+        let ami = en_cache(&db, &account, &record, now);
+        let inconnu = Identity::generate_with_pow_bits(1).public_key();
+
+        assert_eq!(account_for_static(&db, &[ami], &inconnu, now), None);
+    }
+
+    #[test]
+    fn un_appareil_dont_la_liste_a_expire_ne_se_rattache_plus() {
+        // 🔒 Sans cette expiration, un appareil révoqué resterait rattaché à
+        // son compte tant que le cache le porte — donc indéfiniment si le
+        // rafraîchissement échoue.
+        let now = 1_700_000_000_000;
+        let db = db();
+        let (account, device, record) = published(now);
+        let ami = en_cache(&db, &account, &record, now);
+
+        let expire = now + u64::from(DEVICE_LIST_VALID_S) * 1000 + 1;
+        assert_eq!(
+            account_for_static(&db, &[ami], &device.public_key(), expire),
+            None
+        );
+    }
+
+    #[test]
+    fn lappareil_dun_non_ami_ne_se_rattache_a_rien() {
+        // La liste est en cache et parfaitement valide, mais son compte ne
+        // figure pas parmi nos amis : elle ne doit autoriser personne.
+        let now = 1_700_000_000_000;
+        let db = db();
+        let (account, device, record) = published(now);
+        en_cache(&db, &account, &record, now);
+
+        assert_eq!(
+            account_for_static(&db, &[], &device.public_key(), now),
+            None
+        );
     }
 }

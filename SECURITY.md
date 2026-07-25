@@ -182,12 +182,13 @@ stops.
   carries an explicit 24 h lifetime past which a holder must refresh before
   trusting it — a stale list authorises nobody.
 
-**Denial of pairing.** The candidate channel is a single slot and the last
-completed exchange wins, so anyone who can reach the node while an offer is open
-can change the fingerprint shown on the authorised screen, and three well-formed
-messages burn the offer. They cannot pair — the two screens stop agreeing, which
-is precisely what the human comparison catches — but they can force the user to
-start over. Bounded by the 5-minute window.
+**Denial of pairing.** Anyone who can reach the node while an offer is open can
+send well-formed pairing messages, and three of them burn the offer. They cannot
+pair, and they cannot change the fingerprint once a device has proved it holds
+the code: the candidate channel is frozen as soon as a sealed payload opens, so
+a late message is dropped rather than swapping the number under the user's eyes.
+What remains is that a stranger can force the user to start over. Bounded by the
+5-minute window and by asking for a new code.
 
 ### 3.6 Local surface (UI ↔ node)
 

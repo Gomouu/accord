@@ -374,6 +374,20 @@ impl Node {
         let Some(offer) = slot.as_mut() else {
             return Vec::new();
         };
+        // 🔒 Une fois qu'un appareil a prouvé qu'il avait le code — en scellant
+        // sa clé sous celle du canal — plus aucun HELLO ne peut remplacer le
+        // canal candidat. Sans cette garde, un pair quelconque changerait
+        // l'empreinte affichée à l'écran juste avant que l'utilisateur ne la
+        // compare, et lui ferait confirmer un appairage qui n'est pas le sien.
+        if self
+            .pairing_pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
+        {
+            tracing::debug!("appairage : canal déjà établi, HELLO tardif ignoré");
+            return Vec::new();
+        }
         let reply = offer.outgoing().to_vec();
         match offer.accept(peer_msg, now_ms()) {
             Ok(channel) => {
@@ -452,6 +466,17 @@ impl Node {
             code: offer.code().display(),
             expires_ms: offer.expires_ms(),
         };
+        // Une offre neuve repart d'un état vierge : sans ça, le canal et
+        // l'appareil de l'appairage précédent survivraient, et le garde-fou
+        // qui fige le canal ferait ignorer le premier HELLO du suivant.
+        *self
+            .pairing_channel
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        *self
+            .pairing_pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
         *self.pairing_offer.lock().unwrap_or_else(|e| e.into_inner()) = Some(offer);
         Ok(started)
     }
@@ -558,7 +583,14 @@ impl Node {
                 .confirm(now_ms())
                 .map_err(|_| NodeError::Invalid("appairage expiré ou déjà scellé"))?;
         }
-        self.enroll_device(entry)
+        let issue = self.enroll_device(entry);
+        // Inscrit ou non, l'appareil proposé a joué son rôle : le garder
+        // ferait ignorer le premier HELLO de l'appairage suivant.
+        *self
+            .pairing_pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        issue
     }
 
     /// Inscrit un appareil dans la liste du compte et publie la version n+1.

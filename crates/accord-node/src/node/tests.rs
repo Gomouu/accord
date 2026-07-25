@@ -2154,3 +2154,37 @@ fn un_appareil_revoque_disparait_de_lecran() {
     assert_eq!(vus.len(), 1);
     assert!(vus[0].is_current);
 }
+
+#[test]
+fn un_hello_tardif_ne_remplace_pas_le_canal_deja_prouve() {
+    // 🔒 Sans cette garde, un pair quelconque changerait l'empreinte affichée
+    // juste avant que l'utilisateur ne la compare, et lui ferait confirmer un
+    // appairage qui n'est pas le sien. Sceller sa clé sous celle du canal est
+    // la seule preuve qu'on avait le code — après elle, le canal est figé.
+    let (n, appareil) = appairage_jusqua_lappareil_propose();
+    let empreinte = n.pairing_fingerprint().expect("empreinte établie");
+
+    // Un tiers rejoue un HELLO bien formé sur l'offre encore ouverte.
+    let (_, intrus) = moitie_nouvel_appareil("ABCDEFGH");
+    let reponses = n
+        .ingest_core(&[3u8; 32], CoreMsg::PairingHello { msg: intrus })
+        .unwrap();
+
+    assert!(
+        reponses.is_empty(),
+        "un HELLO tardif ne reçoit pas de réponse"
+    );
+    assert_eq!(
+        n.pairing_fingerprint().as_deref(),
+        Some(empreinte.as_str()),
+        "l'empreinte affichée ne doit pas changer sous les yeux de l'utilisateur"
+    );
+
+    // Et c'est bien l'appareil légitime qui est inscrit.
+    n.pairing_confirm().unwrap();
+    assert!(n
+        .account_devices()
+        .unwrap()
+        .iter()
+        .any(|d| d.pubkey == appareil.public_key()));
+}

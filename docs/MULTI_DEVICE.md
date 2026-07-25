@@ -309,13 +309,20 @@ Three consequences, all of them load-bearing in the code:
    success. What makes a 39-bit code acceptable is bounding the number of
    *interactions*; the PAKE only makes each interaction necessary.
 
-⚠️ **The candidate channel is a single slot, and the last completed exchange
-wins.** A stranger who can reach the node while an offer is open therefore
-changes the fingerprint shown on the authorised screen. They cannot pair — the
-two screens stop agreeing, and the human comparison is exactly what catches that
-— but they can make a legitimate attempt fail, and three of them burn the offer.
-This is a denial of pairing, not a way in, and it is bounded by the five-minute
-window and by the user simply asking for a new code.
+⚠️ **A stranger can still burn an offer.** Anyone who can reach the node while
+one is open may send well-formed `PairingHello` messages, and three of them
+exhaust the attempt counter. The counter has to count them — success proves
+nothing about the code (§4.2), so refusing to count would make brute force free.
+
+What they can no longer do is change the fingerprint under the user's eyes. The
+candidate channel is **frozen** once a sealed payload opens, because opening it
+is the one thing that proves knowledge of the code. A later `PairingHello` is
+dropped. Without that guard, a stranger could swap the displayed number in the
+instant before the user compares it, and have them confirm a pairing that is not
+theirs.
+
+So this is a denial of pairing, not a way in, and it is bounded by the
+five-minute window and by the user simply asking for a new code.
 
 **Revocation.** `Node::revoke_device` drops the entry from `devices`, records a
 `RevokedEntry`, signs version *n+1* and publishes. The record is kept rather

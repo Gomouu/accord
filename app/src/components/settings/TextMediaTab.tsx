@@ -8,11 +8,16 @@
  * effet aurait été une pastille décorative, exclue par les règles du projet.
  */
 
-import { useUi, useT, VIDEO_PREVIEW_MAX_CHOICES, type EmojiSize } from '../../stores/ui';
+import {
+  useUi,
+  useSettingsT,
+  VIDEO_PREVIEW_MAX_CHOICES,
+  type EmojiSize,
+} from '../../stores/ui';
 import { OptionPill, SettingsSection, ToggleRow } from './controls';
 
 export function TextMediaTab() {
-  const t = useT();
+  const ts = useSettingsT();
   const showMediaPreviews = useUi((s) => s.showMediaPreviews);
   const setShowMediaPreviews = useUi((s) => s.setShowMediaPreviews);
   const emojiSize = useUi((s) => s.emojiSize);
@@ -21,22 +26,25 @@ export function TextMediaTab() {
   const setVideoPreviewMaxMio = useUi((s) => s.setVideoPreviewMaxMio);
 
   const emojiOptions: { id: EmojiSize; label: string }[] = [
-    { id: 'normal', label: t.settings.emojiSizeNormal },
-    { id: 'large', label: t.settings.emojiSizeLarge },
+    { id: 'normal', label: ts.settings.emojiSizeNormal },
+    { id: 'large', label: ts.settings.emojiSizeLarge },
   ];
 
   return (
     <div>
-      <SettingsSection title={t.settings.mediaPreviewsTitle}>
+      <SettingsSection title={ts.settings.mediaPreviewsTitle}>
         <ToggleRow
-          label={t.settings.mediaPreviewsTitle}
-          hint={t.settings.mediaPreviewsHint}
+          label={ts.settings.mediaPreviewsTitle}
+          hint={ts.settings.mediaPreviewsHint}
           checked={showMediaPreviews}
           onChange={setShowMediaPreviews}
         />
       </SettingsSection>
 
-      <SettingsSection title={t.settings.emojiSizeTitle} hint={t.settings.emojiSizeHint}>
+      <SettingsSection
+        title={ts.settings.emojiSizeTitle}
+        hint={ts.settings.emojiSizeHint}
+      >
         <div className="flex flex-wrap gap-2">
           {emojiOptions.map(({ id, label }) => (
             <OptionPill
@@ -51,8 +59,8 @@ export function TextMediaTab() {
       </SettingsSection>
 
       <SettingsSection
-        title={t.settings.videoPreviewMaxTitle}
-        hint={t.settings.videoPreviewMaxHint}
+        title={ts.settings.videoPreviewMaxTitle}
+        hint={ts.settings.videoPreviewMaxHint}
       >
         <div className="flex flex-wrap gap-2">
           {VIDEO_PREVIEW_MAX_CHOICES.map((mio) => (

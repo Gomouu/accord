@@ -10,13 +10,13 @@ import {
   SATURATION_MAX,
   SATURATION_MIN,
   useUi,
-  useT,
+  useSettingsT,
   type ReducedMotionPref,
 } from '../../stores/ui';
 import { OptionPill, SettingsSection } from './controls';
 
 export function AccessibilityTab() {
-  const t = useT();
+  const ts = useSettingsT();
   const reducedMotion = useUi((s) => s.reducedMotion);
   const setReducedMotion = useUi((s) => s.setReducedMotion);
   const saturation = useUi((s) => s.saturation);
@@ -25,16 +25,16 @@ export function AccessibilityTab() {
   const setFontScale = useUi((s) => s.setFontScale);
 
   const motionOptions: { id: ReducedMotionPref; label: string }[] = [
-    { id: 'system', label: t.settings.reducedMotionSystem },
-    { id: 'on', label: t.settings.reducedMotionOn },
-    { id: 'off', label: t.settings.reducedMotionOff },
+    { id: 'system', label: ts.settings.reducedMotionSystem },
+    { id: 'on', label: ts.settings.reducedMotionOn },
+    { id: 'off', label: ts.settings.reducedMotionOff },
   ];
 
   return (
     <div>
       <SettingsSection
-        title={t.settings.reducedMotionTitle}
-        hint={t.settings.reducedMotionHint}
+        title={ts.settings.reducedMotionTitle}
+        hint={ts.settings.reducedMotionHint}
       >
         <div className="flex flex-wrap gap-2">
           {motionOptions.map(({ id, label }) => (
@@ -50,8 +50,8 @@ export function AccessibilityTab() {
       </SettingsSection>
 
       <SettingsSection
-        title={t.settings.saturationTitle}
-        hint={t.settings.saturationHint}
+        title={ts.settings.saturationTitle}
+        hint={ts.settings.saturationHint}
       >
         <div className="flex items-center gap-4 rounded-lg bg-sidebar px-4 py-3">
           <input
@@ -60,7 +60,7 @@ export function AccessibilityTab() {
             max={SATURATION_MAX}
             step={5}
             value={saturation}
-            aria-label={t.settings.saturationSliderLabel}
+            aria-label={ts.settings.saturationSliderLabel}
             onChange={(e) => setSaturation(Number(e.target.value))}
             className="h-5 w-full rounded-full accent-blurple outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
           />
@@ -70,7 +70,7 @@ export function AccessibilityTab() {
         </div>
       </SettingsSection>
 
-      <SettingsSection title={t.settings.fontSize}>
+      <SettingsSection title={ts.settings.fontSize}>
         <div className="flex flex-wrap gap-2">
           {FONT_SCALES.map((scale) => (
             <OptionPill

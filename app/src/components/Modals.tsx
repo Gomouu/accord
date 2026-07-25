@@ -28,6 +28,7 @@ import { useUi, useT } from '../stores/ui';
 import { Avatar } from './Avatar';
 import { ChannelIcon } from './Sidebar';
 import { CloseIcon } from './ContextMenu';
+import { ErrorBoundary } from './ErrorBoundary';
 import { JoinServerForm } from './JoinServerForm';
 import { messageOf } from './server/controls';
 
@@ -1027,20 +1028,31 @@ export function Modals() {
       return <CreateCategoryModal groupId={modal.groupId} />;
     case 'invite':
       return <InviteModal groupId={modal.groupId} />;
+    // Les deux modales de réglages attendent deux chunks : leur code et le
+    // vocabulaire de réglages de la langue active. Le repli de Suspense est
+    // `null`, donc un chunk introuvable ne laisserait rien à l'écran ; la
+    // frontière d'erreur donne un message et un bouton de rechargement au lieu
+    // d'une modale qui refuse muettement de s'ouvrir.
     case 'settings':
       return (
-        <Suspense fallback={null}>
-          <SettingsModal />
-        </Suspense>
+        <ErrorBoundary>
+          <Suspense fallback={null}>
+            <SettingsModal />
+          </Suspense>
+        </ErrorBoundary>
       );
     case 'serverSettings':
       return (
-        <Suspense fallback={null}>
-          <ServerSettingsModal
-            groupId={modal.groupId}
-            {...(modal.initialTab !== undefined ? { initialTab: modal.initialTab } : {})}
-          />
-        </Suspense>
+        <ErrorBoundary>
+          <Suspense fallback={null}>
+            <ServerSettingsModal
+              groupId={modal.groupId}
+              {...(modal.initialTab !== undefined
+                ? { initialTab: modal.initialTab }
+                : {})}
+            />
+          </Suspense>
+        </ErrorBoundary>
       );
     case 'leaveServer':
       return <LeaveServerModal groupId={modal.groupId} />;

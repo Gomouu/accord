@@ -192,7 +192,7 @@ export function buildOwnUserMenu(
       onClick: () => copie(self.pubkey),
     },
     {
-      label: t.settings.title,
+      label: t.app.settings,
       icon: <GearMenuIcon />,
       separatorBefore: true,
       onClick: () => useUi.getState().openModal({ kind: 'settings' }),

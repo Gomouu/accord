@@ -722,9 +722,16 @@ export function AppShell() {
       <ContextMenu />
       <IncomingCall />
       <CallVideo />
-      <Suspense fallback={null}>
-        <QuickSwitcher />
-      </Suspense>
+      {/*
+       * La palette lit les libellés d'onglets de réglages : elle attend donc,
+       * elle aussi, le vocabulaire de réglages. Même raison qu'aux modales de
+       * réglages — un repli vide ne dirait rien d'un chunk introuvable.
+       */}
+      <ErrorBoundary>
+        <Suspense fallback={null}>
+          <QuickSwitcher />
+        </Suspense>
+      </ErrorBoundary>
     </div>
   );
 }

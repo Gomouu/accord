@@ -122,6 +122,6 @@ describe('buildOwnUserMenu', () => {
     const l = labels(buildOwnUserMenu(fr, SELF, 'online'));
     expect(l).toContain(fr.profil.copyFriendCode);
     expect(l).toContain(fr.contextMenu.copyUserId);
-    expect(l).toContain(fr.settings.title);
+    expect(l).toContain(fr.app.settings);
   });
 });

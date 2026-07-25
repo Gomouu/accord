@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { PrivacyReport } from '../lib/api';
 import { api } from '../lib/client';
-import { useT, useUi } from '../stores/ui';
+import { useSettingsT, useT, useUi } from '../stores/ui';
 import { SettingsSection } from './settings/controls';
 
 /** Human-readable byte size (KiB/MiB — coarse is enough here). */
@@ -32,6 +32,7 @@ function StatRow({ label, value }: { label: string; value: string }) {
 
 export function PrivacyDashboard() {
   const t = useT();
+  const ts = useSettingsT();
   const toast = useUi((s) => s.toast);
   const [report, setReport] = useState<PrivacyReport | null>(null);
 
@@ -49,8 +50,8 @@ export function PrivacyDashboard() {
   if (report === null) {
     return (
       <SettingsSection
-        title={t.settings.privacyDashboardTitle}
-        hint={t.settings.privacyDashboardHint}
+        title={ts.settings.privacyDashboardTitle}
+        hint={ts.settings.privacyDashboardHint}
       >
         <div aria-hidden className="h-40 animate-pulse rounded-lg bg-sidebar" />
       </SettingsSection>
@@ -61,69 +62,72 @@ export function PrivacyDashboard() {
 
   return (
     <SettingsSection
-      title={t.settings.privacyDashboardTitle}
-      hint={t.settings.privacyDashboardHint}
+      title={ts.settings.privacyDashboardTitle}
+      hint={ts.settings.privacyDashboardHint}
     >
       <h4 className="mb-1 mt-2 text-xs font-medium uppercase tracking-wide text-faint">
-        {t.settings.privacyCountsTitle}
+        {ts.settings.privacyCountsTitle}
       </h4>
       <div className="divide-y divide-input rounded-lg bg-sidebar">
-        <StatRow label={t.settings.privacyCountFriends} value={String(counts.friends)} />
-        <StatRow label={t.settings.privacyCountDms} value={String(counts.dm_messages)} />
-        <StatRow label={t.settings.privacyCountGroups} value={String(counts.groups)} />
+        <StatRow label={ts.settings.privacyCountFriends} value={String(counts.friends)} />
+        <StatRow label={ts.settings.privacyCountDms} value={String(counts.dm_messages)} />
+        <StatRow label={ts.settings.privacyCountGroups} value={String(counts.groups)} />
         <StatRow
-          label={t.settings.privacyCountGroupMessages}
+          label={ts.settings.privacyCountGroupMessages}
           value={String(counts.group_messages)}
         />
-        <StatRow label={t.settings.privacyCountFiles} value={String(counts.files)} />
-        <StatRow label={t.settings.privacyCountPins} value={String(counts.pins)} />
+        <StatRow label={ts.settings.privacyCountFiles} value={String(counts.files)} />
+        <StatRow label={ts.settings.privacyCountPins} value={String(counts.pins)} />
       </div>
 
       <h4 className="mb-1 mt-4 text-xs font-medium uppercase tracking-wide text-faint">
-        {t.settings.privacyStorageTitle}
+        {ts.settings.privacyStorageTitle}
       </h4>
       <div className="divide-y divide-input rounded-lg bg-sidebar">
         <StatRow
-          label={t.settings.privacyDbSize}
+          label={ts.settings.privacyDbSize}
           value={storage.db_bytes === null ? '—' : formatBytes(storage.db_bytes)}
         />
         <StatRow
-          label={t.settings.privacyFilesSize}
+          label={ts.settings.privacyFilesSize}
           value={formatBytes(storage.file_bytes)}
         />
         <StatRow
-          label={t.settings.privacyEncrypted}
-          value={storage.db_encrypted_at_rest ? t.settings.privacyEncryptedYes : '—'}
+          label={ts.settings.privacyEncrypted}
+          value={storage.db_encrypted_at_rest ? ts.settings.privacyEncryptedYes : '—'}
         />
       </div>
 
       <h4 className="mb-1 mt-4 text-xs font-medium uppercase tracking-wide text-faint">
-        {t.settings.privacyEgressTitle}
+        {ts.settings.privacyEgressTitle}
       </h4>
-      <p className="mb-1 text-xs text-muted">{t.settings.privacyEgressHint}</p>
+      <p className="mb-1 text-xs text-muted">{ts.settings.privacyEgressHint}</p>
       {egress.available ? (
         <div className="divide-y divide-input rounded-lg bg-sidebar">
           <StatRow
-            label={t.settings.privacyEgressBootstrap}
+            label={ts.settings.privacyEgressBootstrap}
             value={String(egress.bootstrap_peers)}
           />
-          <StatRow label={t.settings.privacyEgressDht} value={String(egress.dht_nodes)} />
           <StatRow
-            label={t.settings.privacyEgressPeers}
+            label={ts.settings.privacyEgressDht}
+            value={String(egress.dht_nodes)}
+          />
+          <StatRow
+            label={ts.settings.privacyEgressPeers}
             value={String(egress.connected_peers)}
           />
           <StatRow
-            label={t.settings.privacyEgressRelays}
+            label={ts.settings.privacyEgressRelays}
             value={String(egress.relay_circuits)}
           />
           <StatRow
-            label={t.settings.privacyEgressCentral}
+            label={ts.settings.privacyEgressCentral}
             value={String(egress.central_servers)}
           />
         </div>
       ) : (
         <p className="rounded-lg bg-sidebar px-4 py-4 text-center text-sm text-muted">
-          {t.settings.privacyEgressUnavailable}
+          {ts.settings.privacyEgressUnavailable}
         </p>
       )}
     </SettingsSection>

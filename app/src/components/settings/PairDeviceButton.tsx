@@ -10,7 +10,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/client';
 import { interpolate } from '../../i18n';
-import { useT, useUi } from '../../stores/ui';
+import { useSettingsT, useT, useUi } from '../../stores/ui';
 
 /** Une offre ouverte, telle que le composant la suit. */
 interface Offer {
@@ -31,6 +31,7 @@ export function formatRemaining(ms: number): string {
 
 export function PairDeviceButton() {
   const t = useT();
+  const ts = useSettingsT();
   const toast = useUi((s) => s.toast);
   const [offer, setOffer] = useState<Offer | null>(null);
   const [fingerprint, setFingerprint] = useState<string | null>(null);
@@ -122,7 +123,7 @@ export function PairDeviceButton() {
       await api.devicesPairConfirm();
       setOffer(null);
       setFingerprint(null);
-      toast('success', t.settings.pairConfirmed);
+      toast('success', ts.settings.pairConfirmed);
     } catch {
       // L'écran reste sur l'empreinte : rien n'a été appairé, et réessayer (ou
       // annuler) doit rester à portée de main.
@@ -140,7 +141,7 @@ export function PairDeviceButton() {
         disabled={busy}
         className="mt-4 rounded-md bg-blurple px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blurple-hover disabled:opacity-50"
       >
-        {t.settings.pairAdd}
+        {ts.settings.pairAdd}
       </button>
     );
   }
@@ -153,18 +154,18 @@ export function PairDeviceButton() {
     return (
       <div className="mt-4 rounded-lg bg-sidebar px-4 py-4">
         <p className="text-sm leading-relaxed text-muted">
-          {t.settings.pairFingerprintHint}
+          {ts.settings.pairFingerprintHint}
         </p>
 
         <div
-          aria-label={t.settings.pairFingerprintLabel}
+          aria-label={ts.settings.pairFingerprintLabel}
           className="selectable mt-3 font-mono text-4xl font-semibold tracking-[0.3em]"
         >
           {fingerprint}
         </div>
 
         <p className="mt-2 text-sm leading-relaxed text-red">
-          {t.settings.pairFingerprintMismatch}
+          {ts.settings.pairFingerprintMismatch}
         </p>
 
         <div className="mt-3 flex flex-wrap gap-2">
@@ -174,14 +175,14 @@ export function PairDeviceButton() {
             disabled={busy}
             className="rounded-md bg-blurple px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blurple-hover disabled:opacity-50"
           >
-            {t.settings.pairConfirm}
+            {ts.settings.pairConfirm}
           </button>
           <button
             type="button"
             onClick={() => void cancel()}
             className="rounded-md bg-chat px-3 py-2 text-sm font-medium transition-colors hover:bg-chat/70"
           >
-            {t.settings.pairCancel}
+            {ts.settings.pairCancel}
           </button>
         </div>
       </div>
@@ -190,10 +191,10 @@ export function PairDeviceButton() {
 
   return (
     <div className="mt-4 rounded-lg bg-sidebar px-4 py-4">
-      <p className="text-sm leading-relaxed text-muted">{t.settings.pairHint}</p>
+      <p className="text-sm leading-relaxed text-muted">{ts.settings.pairHint}</p>
 
       <div
-        aria-label={t.settings.pairCodeLabel}
+        aria-label={ts.settings.pairCodeLabel}
         className="selectable mt-3 font-mono text-2xl font-semibold tracking-[0.2em]"
       >
         {offer.code}
@@ -201,8 +202,8 @@ export function PairDeviceButton() {
 
       <p className={`mt-1 text-xs ${expired ? 'text-red' : 'text-muted'}`}>
         {expired
-          ? t.settings.pairExpired
-          : interpolate(t.settings.pairExpiresIn, {
+          ? ts.settings.pairExpired
+          : interpolate(ts.settings.pairExpiresIn, {
               time: formatRemaining(remaining),
             })}
       </p>
@@ -214,14 +215,14 @@ export function PairDeviceButton() {
           disabled={busy}
           className="rounded-md bg-blurple px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blurple-hover disabled:opacity-50"
         >
-          {t.settings.pairNewCode}
+          {ts.settings.pairNewCode}
         </button>
         <button
           type="button"
           onClick={() => void cancel()}
           className="rounded-md bg-chat px-3 py-2 text-sm font-medium transition-colors hover:bg-chat/70"
         >
-          {t.settings.pairCancel}
+          {ts.settings.pairCancel}
         </button>
       </div>
     </div>

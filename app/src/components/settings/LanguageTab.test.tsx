@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { LANGS, type Lang } from '../../i18n';
-import { dictionaries } from '../../i18n/all';
+import { settingsDictionaries } from '../../i18n/all';
 import { useUi } from '../../stores/ui';
 import { LanguageTab } from './LanguageTab';
 
@@ -12,7 +12,7 @@ beforeEach(() => {
 
 /** Nom natif d'une langue, tel que l'onglet doit l'afficher. */
 function nativeName(lang: Lang): string {
-  const names: Record<Lang, string> = dictionaries.fr.settings.languageNames;
+  const names: Record<Lang, string> = settingsDictionaries.fr.settings.languageNames;
   return names[lang];
 }
 
@@ -34,7 +34,7 @@ describe('LanguageTab', () => {
     fireEvent.click(screen.getByText(nativeName(lang)));
 
     expect(useUi.getState().lang).toBe(lang);
-    const attendu = dictionaries[lang].settings;
+    const attendu = settingsDictionaries[lang].settings;
     expect(screen.getByText(attendu.language)).toBeInTheDocument();
     expect(screen.getByText(attendu.timeFormatTitle)).toBeInTheDocument();
   });

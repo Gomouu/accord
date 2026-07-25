@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react';
 import type { VoiceDeviceSelection, VoiceDevices } from '../../lib/api';
 import { api, rpc } from '../../lib/client';
 import { formatKeyLabel } from '../../hooks/usePushToTalk';
-import { useUi, useT } from '../../stores/ui';
+import { useUi, useSettingsT, useT } from '../../stores/ui';
 import { useVoice } from '../../stores/voice';
 import { SettingsSection, ToggleRow } from './controls';
 
@@ -35,12 +35,12 @@ function readMicLevel(params: unknown): MicLevel | null {
  * surlignée en vert quand le nœud détecte de la parole.
  */
 export function MicMeter({ level, speaking }: MicLevel) {
-  const t = useT();
+  const ts = useSettingsT();
   const clamped = Math.max(0, Math.min(1, level));
   return (
     <div
       role="meter"
-      aria-label={t.settings.micLevel}
+      aria-label={ts.settings.micLevel}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(clamped * 100)}
@@ -69,7 +69,7 @@ function DeviceSelect({
   selected: string | null;
   onSelect: (name: string | null) => void;
 }) {
-  const t = useT();
+  const ts = useSettingsT();
   return (
     <label className="block">
       <span className="mb-1.5 block text-xs font-medium uppercase text-faint">
@@ -80,7 +80,7 @@ function DeviceSelect({
         onChange={(e) => onSelect(e.target.value === '' ? null : e.target.value)}
         className="w-full rounded-md bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
       >
-        <option value="">{t.settings.defaultDevice}</option>
+        <option value="">{ts.settings.defaultDevice}</option>
         {options.map((name) => (
           <option key={name} value={name}>
             {name}
@@ -93,6 +93,7 @@ function DeviceSelect({
 
 export function VoiceTab() {
   const t = useT();
+  const ts = useSettingsT();
   const toast = useUi((s) => s.toast);
   const pttEnabled = useUi((s) => s.pttEnabled);
   const pttKey = useUi((s) => s.pttKey);
@@ -204,16 +205,16 @@ export function VoiceTab() {
 
   return (
     <div>
-      <SettingsSection title={t.settings.devicesTitle}>
+      <SettingsSection title={ts.settings.devicesTitle}>
         <div className="space-y-3 rounded-lg bg-sidebar p-4">
           <DeviceSelect
-            label={t.settings.inputDevice}
+            label={ts.settings.inputDevice}
             options={devices?.inputs ?? []}
             selected={devices?.selected_input ?? null}
             onSelect={(input) => applyDevices({ input })}
           />
           <DeviceSelect
-            label={t.settings.outputDevice}
+            label={ts.settings.outputDevice}
             options={devices?.outputs ?? []}
             selected={devices?.selected_output ?? null}
             onSelect={(output) => applyDevices({ output })}
@@ -222,8 +223,8 @@ export function VoiceTab() {
       </SettingsSection>
 
       <SettingsSection
-        title={t.settings.outputVolumeTitle}
-        hint={t.settings.outputVolumeHint}
+        title={ts.settings.outputVolumeTitle}
+        hint={ts.settings.outputVolumeHint}
       >
         <div className="flex items-center gap-4 rounded-lg bg-sidebar px-4 py-3">
           <input
@@ -232,7 +233,7 @@ export function VoiceTab() {
             max={200}
             step={1}
             value={masterVolume}
-            aria-label={t.settings.outputVolumeLabel}
+            aria-label={ts.settings.outputVolumeLabel}
             onChange={(e) => onMasterVolume(Number(e.target.value))}
             className="h-5 w-full rounded-full accent-blurple outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
           />
@@ -242,7 +243,7 @@ export function VoiceTab() {
         </div>
       </SettingsSection>
 
-      <SettingsSection title={t.settings.micTestTitle} hint={t.settings.micTestHint}>
+      <SettingsSection title={ts.settings.micTestTitle} hint={ts.settings.micTestHint}>
         <div className="flex items-center gap-4 rounded-lg bg-sidebar px-4 py-3">
           <button
             type="button"
@@ -254,24 +255,24 @@ export function VoiceTab() {
                 : 'bg-blurple text-white hover:bg-blurple-hover focus-visible:ring-blurple'
             }`}
           >
-            {testing ? t.settings.micTestStop : t.settings.micTestStart}
+            {testing ? ts.settings.micTestStop : ts.settings.micTestStart}
           </button>
           <MicMeter level={mic.level} speaking={mic.speaking} />
         </div>
       </SettingsSection>
 
-      <SettingsSection title={t.settings.dspTitle} hint={t.settings.dspHint}>
+      <SettingsSection title={ts.settings.dspTitle} hint={ts.settings.dspHint}>
         <ToggleRow
-          label={t.settings.echoCancel}
-          hint={t.settings.echoCancelHint}
+          label={ts.settings.echoCancel}
+          hint={ts.settings.echoCancelHint}
           checked={dsp.echoCancel}
           onChange={(enabled) => {
             setEchoCancel(enabled).catch(() => toast('error', t.errors.actionFailed));
           }}
         />
         <ToggleRow
-          label={t.settings.noiseSuppression}
-          hint={t.settings.noiseSuppressionHint}
+          label={ts.settings.noiseSuppression}
+          hint={ts.settings.noiseSuppressionHint}
           checked={dsp.noiseSuppression}
           onChange={(enabled) => {
             setNoiseSuppression(enabled).catch(() =>
@@ -280,8 +281,8 @@ export function VoiceTab() {
           }}
         />
         <ToggleRow
-          label={t.settings.agc}
-          hint={t.settings.agcHint}
+          label={ts.settings.agc}
+          hint={ts.settings.agcHint}
           checked={dsp.agc}
           onChange={(enabled) => {
             setAgc(enabled).catch(() => toast('error', t.errors.actionFailed));
@@ -289,18 +290,18 @@ export function VoiceTab() {
         />
       </SettingsSection>
 
-      <SettingsSection title={t.settings.pttTitle}>
+      <SettingsSection title={ts.settings.pttTitle}>
         <ToggleRow
-          label={t.settings.pttEnable}
-          hint={t.settings.pttEnableHint}
+          label={ts.settings.pttEnable}
+          hint={ts.settings.pttEnableHint}
           checked={pttEnabled}
           onChange={setPttEnabled}
         />
         <div className="flex items-center justify-between gap-4 rounded-lg bg-sidebar px-4 py-3">
-          <span className="text-sm font-medium text-header">{t.settings.pttKey}</span>
+          <span className="text-sm font-medium text-header">{ts.settings.pttKey}</span>
           <button
             type="button"
-            aria-label={t.settings.pttKey}
+            aria-label={ts.settings.pttKey}
             onClick={() => setCapturing(true)}
             className={`min-w-[96px] rounded-md px-3 py-1.5 text-center text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
               capturing
@@ -308,7 +309,7 @@ export function VoiceTab() {
                 : 'bg-rail font-mono text-norm hover:bg-input hover:text-header'
             }`}
           >
-            {capturing ? t.settings.pttPressKey : formatKeyLabel(pttKey)}
+            {capturing ? ts.settings.pttPressKey : formatKeyLabel(pttKey)}
           </button>
         </div>
       </SettingsSection>

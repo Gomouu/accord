@@ -7,13 +7,14 @@ import { useState } from 'react';
 import { interpolate } from '../../i18n';
 import { APP_LICENSE, APP_VERSION, THIRD_PARTY_FILE } from '../../lib/meta';
 import { useSession } from '../../stores/session';
-import { useT } from '../../stores/ui';
+import { useSettingsT, useT } from '../../stores/ui';
 import { SettingsSection } from './controls';
 
 const COPY_FEEDBACK_MS = 1500;
 
 export function AdvancedTab() {
   const t = useT();
+  const ts = useSettingsT();
   const self = useSession((s) => s.self);
   const [copied, setCopied] = useState(false);
 
@@ -27,7 +28,7 @@ export function AdvancedTab() {
 
   return (
     <div>
-      <SettingsSection title={t.settings.version}>
+      <SettingsSection title={ts.settings.version}>
         <div className="rounded-lg bg-sidebar p-4">
           <p className="text-sm text-norm">
             {t.app.name}{' '}
@@ -36,17 +37,17 @@ export function AdvancedTab() {
         </div>
       </SettingsSection>
 
-      <SettingsSection title={t.settings.license}>
+      <SettingsSection title={ts.settings.license}>
         <div className="rounded-lg bg-sidebar p-4">
           <p className="text-sm leading-relaxed text-muted">
-            {interpolate(t.settings.licenseText, { file: THIRD_PARTY_FILE })}{' '}
+            {interpolate(ts.settings.licenseText, { file: THIRD_PARTY_FILE })}{' '}
             <span className="font-mono text-xs text-faint">({APP_LICENSE})</span>
           </p>
         </div>
       </SettingsSection>
 
       {self && (
-        <SettingsSection title={t.settings.identity}>
+        <SettingsSection title={ts.settings.identity}>
           <div className="rounded-lg bg-sidebar p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
@@ -62,11 +63,11 @@ export function AdvancedTab() {
                 onClick={copyCode}
                 className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
               >
-                {copied ? t.app.copied : t.settings.copyFriendCode}
+                {copied ? t.app.copied : ts.settings.copyFriendCode}
               </button>
             </div>
             <div className="mt-3 text-xs font-medium uppercase text-faint">
-              {t.settings.nodeId}
+              {ts.settings.nodeId}
             </div>
             <div className="selectable break-all font-mono text-xs text-muted">
               {self.node_id}

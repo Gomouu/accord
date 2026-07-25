@@ -46,7 +46,7 @@ export function ShortcutsTab() {
   const pttEnabled = useUi((s) => s.pttEnabled);
   const pttKey = useUi((s) => s.pttKey);
   const mod = isMacPlatform() ? '⌘' : 'Ctrl';
-  const opts = { mod, enter: t.shortcuts.keyEnter, esc: t.settings.escKey };
+  const opts = { mod, enter: t.shortcuts.keyEnter, esc: t.app.escKey };
 
   const rowsOf = (section: ShortcutSection) =>
     SHORTCUTS.filter((s) => s.section === section).map((s) => (

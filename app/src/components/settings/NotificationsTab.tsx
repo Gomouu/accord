@@ -14,7 +14,7 @@ import {
   requestNotificationPermission,
   type NotificationPermission,
 } from '../../lib/notifications';
-import { useUi, useT, type NotifySoundMode } from '../../stores/ui';
+import { useUi, useSettingsT, type NotifySoundMode } from '../../stores/ui';
 import { OptionPill, SettingsSection, ToggleRow } from './controls';
 
 /** Sélecteur d'heure locale (00 h – 23 h) pour la plage Ne pas déranger. */
@@ -41,7 +41,7 @@ function HourSelect({
 }
 
 export function NotificationsTab() {
-  const t = useT();
+  const ts = useSettingsT();
   const notifyDms = useUi((s) => s.notifyDms);
   const notifyGroups = useUi((s) => s.notifyGroups);
   const notifyOnlyUnfocused = useUi((s) => s.notifyOnlyUnfocused);
@@ -58,9 +58,9 @@ export function NotificationsTab() {
   const setQuietHours = useUi((s) => s.setQuietHours);
 
   const soundModes: { id: NotifySoundMode; label: string }[] = [
-    { id: 'all', label: t.settings.notifSoundModeAll },
-    { id: 'mentionsOnly', label: t.settings.notifSoundModeMentions },
-    { id: 'none', label: t.settings.notifSoundModeNone },
+    { id: 'all', label: ts.settings.notifSoundModeAll },
+    { id: 'mentionsOnly', label: ts.settings.notifSoundModeMentions },
+    { id: 'none', label: ts.settings.notifSoundModeNone },
   ];
 
   const [permission, setPermission] = useState<NotificationPermission | null>(null);
@@ -81,14 +81,14 @@ export function NotificationsTab() {
 
   const permissionLabel =
     permission === 'granted'
-      ? t.settings.notifPermissionGranted
+      ? ts.settings.notifPermissionGranted
       : permission === 'unavailable'
-        ? t.settings.notifPermissionUnavailable
-        : t.settings.notifPermissionDenied;
+        ? ts.settings.notifPermissionUnavailable
+        : ts.settings.notifPermissionDenied;
 
   return (
     <div>
-      <SettingsSection title={t.settings.notifPermissionTitle}>
+      <SettingsSection title={ts.settings.notifPermissionTitle}>
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-sidebar px-4 py-3">
           <span
             className={`text-sm ${permission === 'granted' ? 'text-green' : 'text-muted'}`}
@@ -101,36 +101,36 @@ export function NotificationsTab() {
               onClick={askPermission}
               className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
             >
-              {t.settings.notifAllow}
+              {ts.settings.notifAllow}
             </button>
           )}
         </div>
       </SettingsSection>
 
       <SettingsSection
-        title={t.settings.notifPrefsTitle}
-        hint={t.settings.notifPrivacyHint}
+        title={ts.settings.notifPrefsTitle}
+        hint={ts.settings.notifPrivacyHint}
       >
         <ToggleRow
-          label={t.settings.notifDms}
+          label={ts.settings.notifDms}
           checked={notifyDms}
           onChange={setNotifyDms}
         />
         <ToggleRow
-          label={t.settings.notifGroups}
+          label={ts.settings.notifGroups}
           checked={notifyGroups}
           onChange={setNotifyGroups}
         />
         <ToggleRow
-          label={t.settings.notifOnlyUnfocused}
+          label={ts.settings.notifOnlyUnfocused}
           checked={notifyOnlyUnfocused}
           onChange={setNotifyOnlyUnfocused}
         />
       </SettingsSection>
 
-      <SettingsSection title={t.settings.quietTitle} hint={t.settings.quietHint}>
+      <SettingsSection title={ts.settings.quietTitle} hint={ts.settings.quietHint}>
         <ToggleRow
-          label={t.settings.quietEnable}
+          label={ts.settings.quietEnable}
           checked={quietHours.enabled}
           onChange={(enabled) => setQuietHours({ ...quietHours, enabled })}
         />
@@ -139,12 +139,12 @@ export function NotificationsTab() {
             quietHours.enabled ? 'text-norm' : 'pointer-events-none opacity-50'
           }`}
         >
-          <span>{t.settings.quietFrom}</span>
+          <span>{ts.settings.quietFrom}</span>
           <HourSelect
             value={quietHours.start}
             onChange={(start) => setQuietHours({ ...quietHours, start })}
           />
-          <span>{t.settings.quietTo}</span>
+          <span>{ts.settings.quietTo}</span>
           <HourSelect
             value={quietHours.end}
             onChange={(end) => setQuietHours({ ...quietHours, end })}
@@ -152,22 +152,22 @@ export function NotificationsTab() {
         </div>
       </SettingsSection>
 
-      <SettingsSection title={t.settings.notifMasterTitle}>
+      <SettingsSection title={ts.settings.notifMasterTitle}>
         <ToggleRow
-          label={t.settings.notifSoundEnabled}
-          hint={t.settings.notifSoundEnabledHint}
+          label={ts.settings.notifSoundEnabled}
+          hint={ts.settings.notifSoundEnabledHint}
           checked={notifySoundEnabled}
           onChange={setNotifySoundEnabled}
         />
         <ToggleRow
-          label={t.settings.notifNativeEnabled}
-          hint={t.settings.notifNativeEnabledHint}
+          label={ts.settings.notifNativeEnabled}
+          hint={ts.settings.notifNativeEnabledHint}
           checked={notifyNative}
           onChange={setNotifyNative}
         />
       </SettingsSection>
 
-      <SettingsSection title={t.settings.notifSoundModeTitle}>
+      <SettingsSection title={ts.settings.notifSoundModeTitle}>
         <div className="flex flex-wrap gap-2">
           {soundModes.map(({ id, label }) => (
             <OptionPill

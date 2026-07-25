@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { interpolate, type Dict } from '../i18n';
+import { interpolate, type SettingsDict } from '../i18n';
 import { copyToClipboard } from '../lib/clipboard';
 import { markAllRead } from '../lib/markRead';
 import { marquerServeurLu } from '../lib/markServerRead';
@@ -17,7 +17,7 @@ import {
 import { useFriends } from '../stores/friends';
 import { hasPerm, PERMISSIONS, useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
-import { THEME_IDS, type View, useT, useUi } from '../stores/ui';
+import { THEME_IDS, type View, useSettingsT, useT, useUi } from '../stores/ui';
 import { useVoice } from '../stores/voice';
 import { THEME_LABEL_KEYS } from './settings/AppearanceTab';
 
@@ -28,7 +28,7 @@ const SETTINGS_TABS = [
   { id: 'notifications', label: 'notifications', icon: 'notifications' },
 ] as const satisfies readonly {
   id: 'appearance' | 'voice' | 'privacy' | 'notifications';
-  label: keyof Dict['settings'];
+  label: keyof SettingsDict['settings'];
   icon: QuickSwitchCommandIcon;
 }[];
 
@@ -54,6 +54,7 @@ export function useQuickSwitchCommands(
   navigationItems: readonly QuickSwitchItem[],
 ): CommandSwitchItem[] {
   const t = useT();
+  const ts = useSettingsT();
   const view = useUi((state) => state.view);
   const openModal = useUi((state) => state.openModal);
   const setView = useUi((state) => state.setView);
@@ -211,7 +212,7 @@ export function useQuickSwitchCommands(
     }
 
     for (const theme of THEME_IDS) {
-      const name = t.settings[THEME_LABEL_KEYS[theme]];
+      const name = ts.settings[THEME_LABEL_KEYS[theme]];
       commands.push({
         id: `command:theme:${theme}`,
         kind: 'command',
@@ -224,7 +225,7 @@ export function useQuickSwitchCommands(
     }
 
     for (const tab of SETTINGS_TABS) {
-      const name = t.settings[tab.label];
+      const name = ts.settings[tab.label];
       commands.push({
         id: `command:settings:${tab.id}`,
         kind: 'command',
@@ -389,6 +390,7 @@ export function useQuickSwitchCommands(
     setTheme,
     setView,
     t,
+    ts,
     toast,
     toggleDeafen,
     toggleHideMutedChannels,

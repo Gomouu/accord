@@ -2,10 +2,13 @@
 
 import { describe, expect, it } from 'vitest';
 import { LANGS, direction, interpolate } from './index';
-import { dictionaries } from './all';
+import { dictionaries, settingsDictionaries } from './all';
 import { fr } from './fr';
 import { en } from './en';
 import { es } from './es';
+import { frSettings } from './fr.settings';
+import { enSettings } from './en.settings';
+import { esSettings } from './es.settings';
 
 describe('interpolate', () => {
   it('remplace les variables {nom} par leur valeur', () => {
@@ -38,6 +41,7 @@ describe('parité des dictionnaires', () => {
   const frPaths = keyPaths(fr).sort();
   const enPaths = keyPaths(en).sort();
   const esPaths = keyPaths(es).sort();
+  const frSettingsPaths = keyPaths(frSettings).sort();
 
   it('expose exactement les langues déclarées dans LANGS', () => {
     // Le test nommait « les trois langues » en dur : chaque langue ajoutée le
@@ -45,6 +49,12 @@ describe('parité des dictionnaires', () => {
     // deux sources qui doivent rester d'accord — la liste déclarée et les
     // dictionnaires réellement fournis.
     expect(Object.keys(dictionaries).sort()).toEqual([...LANGS].sort());
+  });
+
+  it('fournit une extension de réglages pour chacune de ces langues', () => {
+    // Une langue dont le noyau existe mais pas l'extension ne se verrait qu'à
+    // l'ouverture de la modale de réglages, en production.
+    expect(Object.keys(settingsDictionaries).sort()).toEqual([...LANGS].sort());
   });
 
   it('en.ts couvre exactement les clés de fr.ts (référence)', () => {
@@ -56,8 +66,20 @@ describe('parité des dictionnaires', () => {
     expect(esPaths).toEqual(frPaths);
   });
 
+  it('les extensions de réglages en/es couvrent exactement celles de fr', () => {
+    expect(keyPaths(enSettings).sort()).toEqual(frSettingsPaths);
+    expect(keyPaths(esSettings).sort()).toEqual(frSettingsPaths);
+  });
+
+  it('noyau et extension ne se recouvrent pas', () => {
+    // 🔒 Une clé présente des deux côtés voudrait dire que le socle embarque
+    // encore la chaîne qu'on croyait avoir sortie du chargement initial.
+    const communes = frPaths.filter((path) => frSettingsPaths.includes(path));
+    expect(communes).toEqual([]);
+  });
+
   it('aucune traduction n’est vide', () => {
-    for (const dict of [fr, en, es]) {
+    for (const dict of [fr, en, es, frSettings, enSettings, esSettings]) {
       for (const path of keyPaths(dict)) {
         const leaf = path
           .split('.')

@@ -14,7 +14,7 @@ import {
   PRONOUNS_MAX,
   useSession,
 } from '../../stores/session';
-import { useUi, useT } from '../../stores/ui';
+import { useUi, useSettingsT, useT } from '../../stores/ui';
 import { backupExport, backupImport } from '../../lib/bridge';
 import { lireFichier } from '../../lib/files';
 import { AvatarCropper } from '../AvatarCropper';
@@ -34,6 +34,7 @@ function abbreviate(pubkey: string): string {
 /** Section avatar : aperçu, choix d'image (recadrage + 256 px), retrait. */
 function AvatarSection() {
   const t = useT();
+  const ts = useSettingsT();
   const toast = useUi((s) => s.toast);
   const self = useSession((s) => s.self);
   const setAvatar = useSession((s) => s.setAvatar);
@@ -55,7 +56,7 @@ function AvatarSection() {
     try {
       await setAvatar(dataB64, mime);
       setPreview(dataUrl);
-      toast('info', t.settings.avatarUpdated);
+      toast('info', ts.settings.avatarUpdated);
     } catch {
       toast('error', t.errors.actionFailed);
     } finally {
@@ -69,7 +70,7 @@ function AvatarSection() {
     try {
       await setAvatar(null);
       setPreview(null);
-      toast('info', t.settings.avatarRemoved);
+      toast('info', ts.settings.avatarRemoved);
     } catch {
       toast('error', t.errors.actionFailed);
     } finally {
@@ -78,7 +79,7 @@ function AvatarSection() {
   };
 
   return (
-    <SettingsSection title={t.settings.avatarTitle} hint={t.settings.avatarHint}>
+    <SettingsSection title={ts.settings.avatarTitle} hint={ts.settings.avatarHint}>
       <div className="flex items-center gap-4 rounded-lg bg-sidebar p-4">
         <Avatar
           id={self.pubkey}
@@ -93,7 +94,7 @@ function AvatarSection() {
           ref={fileRef}
           type="file"
           accept="image/*"
-          aria-label={t.settings.avatarChoose}
+          aria-label={ts.settings.avatarChoose}
           className="hidden"
           onChange={(e) => {
             const file = e.target.files?.[0];
@@ -108,7 +109,7 @@ function AvatarSection() {
           onClick={() => fileRef.current?.click()}
           className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
         >
-          {t.settings.avatarChoose}
+          {ts.settings.avatarChoose}
         </button>
         {(self.avatar !== null || preview !== null) && (
           <button
@@ -117,7 +118,7 @@ function AvatarSection() {
             onClick={() => void remove()}
             className="rounded-lg bg-rail px-4 py-2 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
           >
-            {t.settings.avatarRemove}
+            {ts.settings.avatarRemove}
           </button>
         )}
       </div>
@@ -176,6 +177,7 @@ function BannerPreview({
 /** Section bannière : aperçu paysage, choix d'image (recadrage 3:1), retrait. */
 function BannerSection() {
   const t = useT();
+  const ts = useSettingsT();
   const toast = useUi((s) => s.toast);
   const self = useSession((s) => s.self);
   const setBanner = useSession((s) => s.setBanner);
@@ -197,7 +199,7 @@ function BannerSection() {
     try {
       await setBanner(dataB64, mime);
       setPreview(dataUrl);
-      toast('info', t.settings.bannerUpdated);
+      toast('info', ts.settings.bannerUpdated);
     } catch {
       toast('error', t.errors.actionFailed);
     } finally {
@@ -211,7 +213,7 @@ function BannerSection() {
     try {
       await setBanner(null);
       setPreview(null);
-      toast('info', t.settings.bannerRemoved);
+      toast('info', ts.settings.bannerRemoved);
     } catch {
       toast('error', t.errors.actionFailed);
     } finally {
@@ -220,19 +222,19 @@ function BannerSection() {
   };
 
   return (
-    <SettingsSection title={t.settings.bannerTitle} hint={t.settings.bannerHint}>
+    <SettingsSection title={ts.settings.bannerTitle} hint={ts.settings.bannerHint}>
       <div className="rounded-lg bg-sidebar p-4">
         <BannerPreview
           preview={preview}
           hash={self.banner}
           hint={self.pubkey}
-          label={t.settings.bannerTitle}
+          label={ts.settings.bannerTitle}
         />
         <input
           ref={fileRef}
           type="file"
           accept="image/*"
-          aria-label={t.settings.bannerChoose}
+          aria-label={ts.settings.bannerChoose}
           className="hidden"
           onChange={(e) => {
             const file = e.target.files?.[0];
@@ -248,7 +250,7 @@ function BannerSection() {
             onClick={() => fileRef.current?.click()}
             className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
           >
-            {t.settings.bannerChoose}
+            {ts.settings.bannerChoose}
           </button>
           {(self.banner !== null || preview !== null) && (
             <button
@@ -257,7 +259,7 @@ function BannerSection() {
               onClick={() => void remove()}
               className="rounded-lg bg-rail px-4 py-2 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
             >
-              {t.settings.bannerRemove}
+              {ts.settings.bannerRemove}
             </button>
           )}
         </div>
@@ -277,6 +279,7 @@ function BannerSection() {
 /** Section pronoms : champ court, chaîne vide = effacer. */
 function PronounsSection() {
   const t = useT();
+  const ts = useSettingsT();
   const toast = useUi((s) => s.toast);
   const self = useSession((s) => s.self);
   const setPronouns = useSession((s) => s.setPronouns);
@@ -293,7 +296,7 @@ function PronounsSection() {
     setBusy(true);
     try {
       await setPronouns(trimmed);
-      toast('success', t.settings.pronounsSaved);
+      toast('success', ts.settings.pronounsSaved);
     } catch {
       toast('error', t.errors.actionFailed);
     } finally {
@@ -302,11 +305,11 @@ function PronounsSection() {
   };
 
   return (
-    <SettingsSection title={t.settings.pronounsTitle} hint={t.settings.pronounsHint}>
+    <SettingsSection title={ts.settings.pronounsTitle} hint={ts.settings.pronounsHint}>
       <div className="flex gap-3 rounded-lg bg-sidebar p-3">
         <input
-          aria-label={t.settings.pronounsTitle}
-          placeholder={t.settings.pronounsPlaceholder}
+          aria-label={ts.settings.pronounsTitle}
+          placeholder={ts.settings.pronounsPlaceholder}
           value={draft}
           maxLength={PRONOUNS_MAX}
           onChange={(e) => setDraft(e.target.value)}
@@ -321,7 +324,7 @@ function PronounsSection() {
           onClick={() => void save()}
           className="shrink-0 rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
         >
-          {t.settings.pronounsSave}
+          {ts.settings.pronounsSave}
         </button>
       </div>
     </SettingsSection>
@@ -331,6 +334,7 @@ function PronounsSection() {
 /** Section bio : zone de texte avec compteur, chaîne vide = effacer. */
 function BioSection() {
   const t = useT();
+  const ts = useSettingsT();
   const toast = useUi((s) => s.toast);
   const self = useSession((s) => s.self);
   const setBio = useSession((s) => s.setBio);
@@ -347,7 +351,7 @@ function BioSection() {
     setBusy(true);
     try {
       await setBio(trimmed);
-      toast('success', t.settings.bioSaved);
+      toast('success', ts.settings.bioSaved);
     } catch {
       toast('error', t.errors.actionFailed);
     } finally {
@@ -356,11 +360,11 @@ function BioSection() {
   };
 
   return (
-    <SettingsSection title={t.settings.bioTitle} hint={t.settings.bioHint}>
+    <SettingsSection title={ts.settings.bioTitle} hint={ts.settings.bioHint}>
       <div className="rounded-lg bg-sidebar p-3">
         <textarea
-          aria-label={t.settings.bioTitle}
-          placeholder={t.settings.bioPlaceholder}
+          aria-label={ts.settings.bioTitle}
+          placeholder={ts.settings.bioPlaceholder}
           value={draft}
           rows={3}
           maxLength={BIO_MAX}
@@ -377,7 +381,7 @@ function BioSection() {
             onClick={() => void save()}
             className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
           >
-            {t.settings.bioSave}
+            {ts.settings.bioSave}
           </button>
         </div>
       </div>
@@ -409,6 +413,7 @@ function estMauvaisePhrase(erreur: unknown): boolean {
 
 function BackupSection() {
   const t = useT();
+  const ts = useSettingsT();
   const toast = useUi((s) => s.toast);
   const closeModal = useUi((s) => s.closeModal);
   const lock = useSession((s) => s.lock);
@@ -426,7 +431,7 @@ function BackupSection() {
 
   const doExport = async (): Promise<void> => {
     if (phrase === '') {
-      toast('error', t.settings.backupPassphraseEmpty);
+      toast('error', ts.settings.backupPassphraseEmpty);
       return;
     }
     setBusy(true);
@@ -435,7 +440,7 @@ function BackupSection() {
       // Sélecteur annulé : la commande n'a pas été invoquée, rien ne change.
       if (statut === null) return;
       fermerSaisie();
-      toast('info', t.settings.backupExportDone);
+      toast('info', ts.settings.backupExportDone);
       // Le nœud est déjà arrêté côté hôte : ferme la modale (l'écran de
       // déverrouillage ne doit jamais rester sous une modale) puis aligne
       // l'état de session comme une déconnexion volontaire.
@@ -444,7 +449,7 @@ function BackupSection() {
     } catch (e) {
       toast(
         'error',
-        estMauvaisePhrase(e) ? t.settings.backupWrongPassphrase : t.errors.actionFailed,
+        estMauvaisePhrase(e) ? t.onboarding.backupWrongPassphrase : t.errors.actionFailed,
       );
     } finally {
       setBusy(false);
@@ -458,11 +463,11 @@ function BackupSection() {
       // Sélecteur annulé : aucun compte créé.
       if (compte === null) return;
       fermerSaisie();
-      toast('info', t.settings.backupImportDone);
+      toast('info', ts.settings.backupImportDone);
     } catch (e) {
       toast(
         'error',
-        estMauvaisePhrase(e) ? t.settings.backupWrongPassphrase : t.errors.actionFailed,
+        estMauvaisePhrase(e) ? t.onboarding.backupWrongPassphrase : t.errors.actionFailed,
       );
     } finally {
       setBusy(false);
@@ -472,10 +477,10 @@ function BackupSection() {
   const valider = (): void => void (mode === 'export' ? doExport() : doImport());
 
   return (
-    <SettingsSection title={t.settings.backupTitle} hint={t.settings.backupHint}>
+    <SettingsSection title={ts.settings.backupTitle} hint={ts.settings.backupHint}>
       <div className="rounded-lg bg-sidebar p-4">
         <p className="mb-4 rounded-md border-s-4 border-yellow bg-rail/60 px-3 py-2 text-sm leading-relaxed text-muted">
-          {t.settings.backupExportWarning}
+          {ts.settings.backupExportWarning}
         </p>
         {mode === null ? (
           <div className="flex flex-wrap gap-3">
@@ -485,7 +490,7 @@ function BackupSection() {
               onClick={() => setMode('export')}
               className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
             >
-              {t.settings.backupExport}
+              {ts.settings.backupExport}
             </button>
             <button
               type="button"
@@ -493,7 +498,7 @@ function BackupSection() {
               onClick={() => setMode('import')}
               className="rounded-lg bg-rail px-4 py-2 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
             >
-              {t.settings.backupImport}
+              {ts.settings.backupImport}
             </button>
           </div>
         ) : (
@@ -508,8 +513,8 @@ function BackupSection() {
               className="mb-1 block text-sm font-medium text-norm"
             >
               {mode === 'export'
-                ? t.settings.backupPassphrasePrompt
-                : t.settings.backupPassphraseImportPrompt}
+                ? ts.settings.backupPassphrasePrompt
+                : t.onboarding.backupPassphraseImportPrompt}
             </label>
             <input
               id="backup-passphrase"
@@ -522,7 +527,7 @@ function BackupSection() {
             />
             {mode === 'import' && (
               <p className="mt-1 text-xs leading-relaxed text-faint">
-                {t.settings.backupPassphraseImportHint}
+                {t.onboarding.backupPassphraseImportHint}
               </p>
             )}
             <div className="mt-3 flex flex-wrap gap-3">
@@ -531,7 +536,7 @@ function BackupSection() {
                 disabled={busy}
                 className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
               >
-                {t.settings.backupConfirm}
+                {t.onboarding.backupConfirm}
               </button>
               <button
                 type="button"
@@ -539,7 +544,7 @@ function BackupSection() {
                 onClick={fermerSaisie}
                 className="rounded-lg bg-rail px-4 py-2 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
               >
-                {t.settings.backupCancel}
+                {t.onboarding.backupCancel}
               </button>
             </div>
           </form>
@@ -556,6 +561,7 @@ function BackupSection() {
  */
 function LogoutSection() {
   const t = useT();
+  const ts = useSettingsT();
   const closeModal = useUi((s) => s.closeModal);
   const lock = useSession((s) => s.lock);
   const [confirming, setConfirming] = useState(false);
@@ -571,7 +577,7 @@ function LogoutSection() {
   };
 
   return (
-    <SettingsSection title={t.settings.dangerZoneTitle} hint={t.settings.logoutHint}>
+    <SettingsSection title={ts.settings.dangerZoneTitle} hint={ts.settings.logoutHint}>
       <div className="rounded-lg border border-red/40 bg-sidebar p-4">
         {!confirming ? (
           <button
@@ -579,20 +585,18 @@ function LogoutSection() {
             onClick={() => setConfirming(true)}
             className="rounded-lg bg-red px-4 py-2 text-sm font-medium text-on-red transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
           >
-            {t.settings.logout}
+            {t.app.logout}
           </button>
         ) : (
           <div className="flex flex-wrap items-center gap-3">
-            <p className="min-w-0 flex-1 text-sm text-norm">
-              {t.settings.logoutConfirmText}
-            </p>
+            <p className="min-w-0 flex-1 text-sm text-norm">{t.app.logoutConfirmText}</p>
             <button
               type="button"
               disabled={busy}
               onClick={logout}
               className="rounded-lg bg-red px-4 py-2 text-sm font-medium text-on-red transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
             >
-              {t.settings.logoutConfirm}
+              {t.app.logoutConfirm}
             </button>
             <button
               type="button"
@@ -611,6 +615,7 @@ function LogoutSection() {
 
 export function AccountTab() {
   const t = useT();
+  const ts = useSettingsT();
   const toast = useUi((s) => s.toast);
   const self = useSession((s) => s.self);
   const setName = useSession((s) => s.setName);
@@ -630,7 +635,7 @@ export function AccountTab() {
     setBusy(true);
     try {
       await setName(trimmed);
-      toast('success', t.settings.pseudonymSaved);
+      toast('success', ts.settings.pseudonymSaved);
     } catch {
       toast('error', t.errors.actionFailed);
     } finally {
@@ -651,11 +656,11 @@ export function AccountTab() {
 
       <BannerSection />
 
-      <SettingsSection title={t.settings.pseudonym} hint={t.settings.pseudonymHint}>
+      <SettingsSection title={ts.settings.pseudonym} hint={ts.settings.pseudonymHint}>
         <div className="flex gap-3 rounded-lg bg-sidebar p-3">
           <input
-            aria-label={t.settings.pseudonym}
-            placeholder={t.settings.pseudonymPlaceholder}
+            aria-label={ts.settings.pseudonym}
+            placeholder={ts.settings.pseudonymPlaceholder}
             value={draft}
             maxLength={NAME_MAX + 8}
             onChange={(e) => setDraft(e.target.value)}
@@ -670,11 +675,11 @@ export function AccountTab() {
             onClick={() => void save()}
             className="shrink-0 rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50"
           >
-            {t.settings.pseudonymSave}
+            {ts.settings.pseudonymSave}
           </button>
         </div>
         {showInvalid && (
-          <p className="mt-2 text-sm text-red">{t.settings.pseudonymInvalid}</p>
+          <p className="mt-2 text-sm text-red">{ts.settings.pseudonymInvalid}</p>
         )}
       </SettingsSection>
 
@@ -684,7 +689,7 @@ export function AccountTab() {
 
       <ProfilePersonalization />
 
-      <SettingsSection title={t.settings.identity}>
+      <SettingsSection title={ts.settings.identity}>
         <div className="rounded-lg bg-sidebar p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
@@ -700,11 +705,11 @@ export function AccountTab() {
               onClick={copyCode}
               className="shrink-0 rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
             >
-              {copied ? t.app.copied : t.settings.copyFriendCode}
+              {copied ? t.app.copied : ts.settings.copyFriendCode}
             </button>
           </div>
           <div className="mt-3 text-xs font-medium uppercase text-faint">
-            {t.settings.publicKey}
+            {ts.settings.publicKey}
           </div>
           <div className="selectable font-mono text-xs text-muted">
             {abbreviate(self.pubkey)}
@@ -712,9 +717,9 @@ export function AccountTab() {
         </div>
       </SettingsSection>
 
-      <SettingsSection title={t.settings.recoveryNoteTitle}>
+      <SettingsSection title={ts.settings.recoveryNoteTitle}>
         <p className="rounded-lg border-s-4 border-yellow bg-sidebar px-4 py-3 text-sm leading-relaxed text-muted">
-          {t.settings.recoveryNote}
+          {ts.settings.recoveryNote}
         </p>
       </SettingsSection>
 

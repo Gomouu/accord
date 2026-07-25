@@ -18,12 +18,12 @@ import {
   type SystemSettingsSection,
 } from '../../lib/bridge';
 import { requestNotificationPermission } from '../../lib/notifications';
-import { useUi, useT } from '../../stores/ui';
+import { useUi, useSettingsT } from '../../stores/ui';
 import { SettingsSection, ToggleRow } from './controls';
 
 /** Pastille d'état d'une autorisation (accordée / refusée / à demander). */
 function PermissionBadge({ state }: { state: 'granted' | 'denied' | 'ask' }) {
-  const t = useT();
+  const ts = useSettingsT();
   const style =
     state === 'granted'
       ? 'bg-green/15 text-green'
@@ -32,10 +32,10 @@ function PermissionBadge({ state }: { state: 'granted' | 'denied' | 'ask' }) {
         : 'bg-input text-muted';
   const label =
     state === 'granted'
-      ? t.settings.systemPermsStateGranted
+      ? ts.settings.systemPermsStateGranted
       : state === 'denied'
-        ? t.settings.systemPermsStateDenied
-        : t.settings.systemPermsStateAsk;
+        ? ts.settings.systemPermsStateDenied
+        : ts.settings.systemPermsStateAsk;
   return (
     <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${style}`}>
       {label}
@@ -62,11 +62,11 @@ function PermissionRow({
   action?: { label: string; busy: boolean; onClick: () => void } | undefined;
   section: SystemSettingsSection;
 }) {
-  const t = useT();
+  const ts = useSettingsT();
   const toast = useUi((s) => s.toast);
   const openSettings = (): void => {
     openSystemSettings(section).catch(() => {
-      toast('info', t.settings.systemPermsSettingsUnavailable);
+      toast('info', ts.settings.systemPermsSettingsUnavailable);
     });
   };
   return (
@@ -94,7 +94,7 @@ function PermissionRow({
           onClick={openSettings}
           className="rounded-md bg-rail px-3 py-1.5 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input hover:text-header focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
         >
-          {t.settings.systemPermsOpenSettings}
+          {ts.settings.systemPermsOpenSettings}
         </button>
       </div>
     </div>
@@ -102,7 +102,7 @@ function PermissionRow({
 }
 
 export function SystemTab() {
-  const t = useT();
+  const ts = useSettingsT();
   const toast = useUi((s) => s.toast);
   const keepInTray = useUi((s) => s.keepInTray);
   const setKeepInTray = useUi((s) => s.setKeepInTray);
@@ -147,8 +147,8 @@ export function SystemTab() {
         toast(
           'info',
           notif === 'granted'
-            ? t.settings.systemPermsNotifGranted
-            : t.settings.systemPermsNotifDenied,
+            ? ts.settings.systemPermsNotifGranted
+            : ts.settings.systemPermsNotifDenied,
         );
       })
       .finally(() => setNotifBusy(false));
@@ -165,12 +165,12 @@ export function SystemTab() {
         toast(
           granted ? 'info' : 'error',
           granted
-            ? t.settings.systemPermsStateGranted
-            : t.settings.systemPermsMicDeniedToast,
+            ? ts.settings.systemPermsStateGranted
+            : ts.settings.systemPermsMicDeniedToast,
         );
       })
       .catch(() => {
-        toast('info', t.settings.systemPermsSettingsUnavailable);
+        toast('info', ts.settings.systemPermsSettingsUnavailable);
       })
       .finally(() => {
         void micPermissionState().then(setMicState);
@@ -181,31 +181,31 @@ export function SystemTab() {
   return (
     <div>
       <SettingsSection
-        title={t.settings.systemStartupTitle}
-        hint={t.settings.systemStartupHint}
+        title={ts.settings.systemStartupTitle}
+        hint={ts.settings.systemStartupHint}
       >
         <ToggleRow
-          label={t.settings.systemAutostart}
-          hint={t.settings.systemAutostartHint}
+          label={ts.settings.systemAutostart}
+          hint={ts.settings.systemAutostartHint}
           checked={autostart}
           disabled={autostartBusy}
           onChange={toggleAutostart}
         />
       </SettingsSection>
 
-      <SettingsSection title={t.settings.systemTrayTitle}>
+      <SettingsSection title={ts.settings.systemTrayTitle}>
         <ToggleRow
-          label={t.settings.systemKeepInTray}
-          hint={t.settings.systemKeepInTrayHint}
+          label={ts.settings.systemKeepInTray}
+          hint={ts.settings.systemKeepInTrayHint}
           checked={keepInTray}
           onChange={setKeepInTray}
         />
         <ToggleRow
-          label={t.settings.systemCloseToTray}
+          label={ts.settings.systemCloseToTray}
           hint={
             keepInTray
-              ? t.settings.systemCloseToTrayHint
-              : t.settings.systemCloseToTrayDisabledHint
+              ? ts.settings.systemCloseToTrayHint
+              : ts.settings.systemCloseToTrayDisabledHint
           }
           checked={closeToTray}
           disabled={!keepInTray}
@@ -214,23 +214,23 @@ export function SystemTab() {
       </SettingsSection>
 
       <SettingsSection
-        title={t.settings.systemPermsTitle}
-        hint={t.settings.systemPermsHint}
+        title={ts.settings.systemPermsTitle}
+        hint={ts.settings.systemPermsHint}
       >
         <div className="space-y-2">
           <PermissionRow
-            title={t.settings.systemPermsNotifTitle}
-            hint={t.settings.systemPermsNotifHint}
+            title={ts.settings.systemPermsNotifTitle}
+            hint={ts.settings.systemPermsNotifHint}
             action={{
-              label: t.settings.systemPermsNotifButton,
+              label: ts.settings.systemPermsNotifButton,
               busy: notifBusy,
               onClick: requestNotifications,
             }}
             section="notifications"
           />
           <PermissionRow
-            title={t.settings.systemPermsMicTitle}
-            hint={t.settings.systemPermsMicHint}
+            title={ts.settings.systemPermsMicTitle}
+            hint={ts.settings.systemPermsMicHint}
             badge={
               micState === 'granted'
                 ? 'granted'
@@ -243,7 +243,7 @@ export function SystemTab() {
             action={
               micState === 'undetermined'
                 ? {
-                    label: t.settings.systemPermsMicButton,
+                    label: ts.settings.systemPermsMicButton,
                     busy: micBusy,
                     onClick: requestMicrophone,
                   }
@@ -252,8 +252,8 @@ export function SystemTab() {
             section="microphone"
           />
           <PermissionRow
-            title={t.settings.systemPermsNetTitle}
-            hint={t.settings.systemPermsNetHint}
+            title={ts.settings.systemPermsNetTitle}
+            hint={ts.settings.systemPermsNetHint}
             section="firewall"
           />
         </div>

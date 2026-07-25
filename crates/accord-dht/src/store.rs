@@ -1,7 +1,7 @@
 //! Stockage clé-valeur signé de la DHT : validation, expiration, quotas et
 //! republication (SPEC §4).
 
-use accord_crypto::{verify_signature, FriendCode, FRIENDCODE_PAYLOAD_LEN};
+use accord_crypto::{device_list_key, verify_signature, FriendCode, FRIENDCODE_PAYLOAD_LEN};
 use accord_proto::limits::{DHT_MAX_EXPIRY_S, MAX_DHT_VALUE};
 use accord_proto::types::{DhtRecord, RecordKind};
 use std::collections::HashMap;
@@ -127,6 +127,15 @@ impl RecordStore {
         match record.kind {
             RecordKind::Identity => {
                 if !identity_record_is_bound(record) {
+                    return Err(StoreError::KeyMismatch);
+                }
+            }
+            RecordKind::DeviceList => {
+                // La clé doit dériver du publieur, comme pour IDENTITY : sans
+                // cet ancrage, n'importe qui pourrait publier SA liste
+                // d'appareils à la clé d'un autre compte et occuper la place —
+                // la signature seule n'empêche pas de viser la mauvaise porte.
+                if record.key != device_list_key(&record.publisher) {
                     return Err(StoreError::KeyMismatch);
                 }
             }
@@ -268,6 +277,48 @@ mod tests {
     /// `tag` rend les clés distinctes pour un même publieur (test de quota).
     fn presence_record(id: &Identity, tag: u8) -> DhtRecord {
         signed_record(id, RecordKind::Presence, [tag; 32], vec![tag])
+    }
+
+    /// Record DEVICE_LIST publié à sa propre clé, comme il se doit.
+    fn device_list_record(id: &Identity) -> DhtRecord {
+        let key = device_list_key(&id.public_key());
+        signed_record(id, RecordKind::DeviceList, key, vec![7; 16])
+    }
+
+    #[test]
+    fn une_liste_dappareils_publiee_a_sa_propre_cle_est_acceptee() {
+        let id = Identity::generate_with_pow_bits(1);
+        assert!(RecordStore::validate(&device_list_record(&id)).is_ok());
+    }
+
+    #[test]
+    fn une_liste_dappareils_publiee_a_la_cle_dun_autre_compte_est_refusee() {
+        // Sans cet ancrage, Mallory occuperait la place d'Alice dans la DHT :
+        // sa liste est parfaitement signée — par elle-même — et les pairs qui
+        // cherchent celle d'Alice ne trouveraient plus que celle-là.
+        let alice = Identity::generate_with_pow_bits(1);
+        let mallory = Identity::generate_with_pow_bits(1);
+        let mut squat = device_list_record(&mallory);
+        squat.key = device_list_key(&alice.public_key());
+        squat.sig = mallory.sign(&squat.signable_bytes());
+
+        assert!(matches!(
+            RecordStore::validate(&squat),
+            Err(StoreError::KeyMismatch)
+        ));
+    }
+
+    #[test]
+    fn un_genre_inconnu_reste_refuse_au_stockage() {
+        // La tolérance au décodage (6.3) ne doit pas devenir une tolérance au
+        // stockage : accueillir ce qu'on ne sait pas valider offrirait un
+        // espace de stockage arbitraire à tout publieur signé.
+        let id = Identity::generate_with_pow_bits(1);
+        let rec = signed_record(&id, RecordKind::Unknown(0x42), [1; 32], vec![0]);
+        assert!(matches!(
+            RecordStore::validate(&rec),
+            Err(StoreError::UnknownKind)
+        ));
     }
 
     #[test]

@@ -20,6 +20,7 @@ use accord_proto::device::DeviceList;
 use accord_proto::limits::IDENTITY_POW_BITS;
 use rand::rngs::OsRng;
 use rand::RngCore;
+use sha2::{Digest, Sha256};
 
 /// Identité racine d'un compte : signe la liste d'appareils, rien d'autre.
 ///
@@ -141,6 +142,24 @@ pub fn verify_device_list(
     expected_account: &[u8; 32],
     known_version: u64,
 ) -> Result<(), DeviceListError> {
+    verify_device_list_with_pow_bits(list, expected_account, known_version, IDENTITY_POW_BITS)
+}
+
+/// [`verify_device_list`] à une difficulté de preuve de travail explicite.
+///
+/// Existe pour les tests, qui seraient interminables à la difficulté réelle.
+/// La production passe par [`verify_device_list`] et n'a pas à choisir.
+///
+/// 🔒 Ce paramètre est la raison d'être de cette fonction : sans lui, les
+/// tests devaient **réimplémenter** la vérification à basse difficulté, donc
+/// tester une copie plutôt que l'original — un contrôle retiré ici n'aurait
+/// fait échouer aucun test.
+pub fn verify_device_list_with_pow_bits(
+    list: &DeviceList,
+    expected_account: &[u8; 32],
+    known_version: u64,
+    pow_bits: u32,
+) -> Result<(), DeviceListError> {
     if list.account != *expected_account {
         return Err(DeviceListError::WrongAccount);
     }
@@ -154,7 +173,7 @@ pub fn verify_device_list(
     // désormais authentifié, et ne servent qu'à refuser une liste que le
     // propriétaire du compte aurait lui-même mal formée.
     for (i, device) in list.devices.iter().enumerate() {
-        if !verify_pow(&device.pubkey, device.pow_nonce, IDENTITY_POW_BITS) {
+        if !verify_pow(&device.pubkey, device.pow_nonce, pow_bits) {
             return Err(DeviceListError::InvalidPow);
         }
         if list.devices[..i].iter().any(|d| d.pubkey == device.pubkey) {
@@ -162,6 +181,25 @@ pub fn verify_device_list(
         }
     }
     Ok(())
+}
+
+/// Préfixe de domaine de la clé DHT d'une liste d'appareils.
+///
+/// 🔒 Distinct de tout autre préfixe du protocole : sans lui, la clé DHT d'une
+/// liste pourrait coïncider avec celle d'un autre genre de record du même
+/// compte, et l'un écraserait l'autre.
+const DEVICE_LIST_KEY_DOMAIN: &[u8] = b"accord-device-list-key-v1";
+
+/// Clé DHT où publier (et chercher) la liste d'appareils d'un compte.
+///
+/// Dérivée du compte seul : n'importe qui connaissant la clé publique d'un
+/// compte sait où lire sa liste, ce qui est voulu — la liste est publique, elle
+/// n'expose que des clés publiques d'appareils et leurs noms.
+pub fn device_list_key(account: &[u8; 32]) -> [u8; 32] {
+    let mut d = Sha256::new();
+    d.update(DEVICE_LIST_KEY_DOMAIN);
+    d.update(account);
+    d.finalize().into()
 }
 
 /// Numéro de version pour une liste émise à `now_ms`.
@@ -227,25 +265,11 @@ mod tests {
         list
     }
 
-    /// Comme `verify_device_list`, mais à la difficulté de test.
+    /// La **vraie** vérification, à la difficulté de test. Passer par elle
+    /// plutôt que par une copie est ce qui donne leur valeur aux tests
+    /// ci-dessous : ils exercent le code qui tourne en production.
     fn verify(list: &DeviceList, acct: &[u8; 32], known: u64) -> Result<(), DeviceListError> {
-        if list.account != *acct {
-            return Err(DeviceListError::WrongAccount);
-        }
-        if list.version <= known {
-            return Err(DeviceListError::Stale);
-        }
-        verify_signature(&list.account, &list.signable_bytes(), &list.sig)
-            .map_err(|_| DeviceListError::BadSignature)?;
-        for (i, d) in list.devices.iter().enumerate() {
-            if !verify_pow(&d.pubkey, d.pow_nonce, POW) {
-                return Err(DeviceListError::InvalidPow);
-            }
-            if list.devices[..i].iter().any(|o| o.pubkey == d.pubkey) {
-                return Err(DeviceListError::DuplicateDevice);
-            }
-        }
-        Ok(())
+        verify_device_list_with_pow_bits(list, acct, known, POW)
     }
 
     #[test]
@@ -402,5 +426,33 @@ mod tests {
         let ancienne = version_for(1_700_000_000_000);
         let apres_reinstall = version_for(1_800_000_000_000);
         assert!(apres_reinstall > ancienne);
+    }
+
+    #[test]
+    fn la_cle_dht_dune_liste_est_deterministe_et_propre_au_compte() {
+        let a = account();
+        let b = account();
+        assert_eq!(
+            device_list_key(&a.public_key()),
+            device_list_key(&a.public_key())
+        );
+        assert_ne!(
+            device_list_key(&a.public_key()),
+            device_list_key(&b.public_key())
+        );
+    }
+
+    #[test]
+    fn la_cle_dht_dune_liste_ne_collisionne_avec_aucune_autre_du_meme_compte() {
+        // Séparation de domaine : sans préfixe distinct, la clé d'une liste
+        // pourrait tomber sur celle d'un autre genre de record du même compte,
+        // et l'un écraserait l'autre dans la DHT.
+        let a = account();
+        let pk = a.public_key();
+        assert_ne!(device_list_key(&pk), crate::node_id_of(&pk).0);
+        assert_ne!(
+            device_list_key(&pk),
+            crate::FriendCode::of_pubkey(&pk).dht_key()
+        );
     }
 }

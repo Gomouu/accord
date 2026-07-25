@@ -162,6 +162,11 @@ pub enum RecordKind {
     MailboxHint,
     /// Annonce de disponibilité d'un fichier.
     FileProvider,
+    /// Liste d'appareils d'un compte, signée par sa clé racine (multi-appareil,
+    /// jalon 1). Introduite une version après la tolérance [`Self::Unknown`] :
+    /// un nœud antérieur la décode sans casser la réponse qui la contient, et
+    /// se contente de refuser de la stocker.
+    DeviceList,
     /// Genre introduit par une version plus récente. Transporté intact —
     /// la signature du record couvre cet octet — mais jamais stocké.
     Unknown(u8),
@@ -176,6 +181,7 @@ impl RecordKind {
             0x02 => Self::Presence,
             0x03 => Self::MailboxHint,
             0x04 => Self::FileProvider,
+            0x05 => Self::DeviceList,
             other => Self::Unknown(other),
         }
     }
@@ -188,6 +194,7 @@ impl RecordKind {
             Self::Presence => 0x02,
             Self::MailboxHint => 0x03,
             Self::FileProvider => 0x04,
+            Self::DeviceList => 0x05,
             Self::Unknown(v) => v,
         }
     }

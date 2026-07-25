@@ -177,6 +177,12 @@ function notifyEventStarted(title: string): void {
  * localement par `decline`/`hangup` — voir `stores/calls.ts`), notifie
  * (`missed` marque aussi un badge sur le contact) et resynchronise le salon
  * vocal (la session d'appel se termine avec le moteur vocal existant).
+ *
+ * 🔒 Seul `missed` pose le badge, et cette liste ne doit jamais s'élargir :
+ * en multi-appareil, un appel bel et bien pris ailleurs se termine ici en
+ * `answered_elsewhere` — ou en `canceled` si le filet de sécurité du nœud
+ * tranche avant. Élargir la condition laisserait un appel manqué fantôme sur
+ * les autres machines du destinataire (voir `lib/api.ts`, `CallEndedReason`).
  */
 function handleCallEnded(params: {
   peer: string;

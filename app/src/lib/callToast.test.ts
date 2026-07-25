@@ -1,7 +1,8 @@
 /**
  * Tests de `callEndedToast` : traduction pure de `event.call_ended.reason` en
- * toast (voir VOICE_CALLS.md §1.2) — `hangup`/`superseded` ne produisent
- * aucun toast, `missed`/`busy` interpolent le nom du pair.
+ * toast (voir VOICE_CALLS.md §1.2) — `hangup`/`superseded`/
+ * `answered_elsewhere` ne produisent aucun toast, `missed`/`busy` interpolent
+ * le nom du pair.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -57,5 +58,9 @@ describe('callEndedToast', () => {
 
   it('superseded : aucun toast (call_accepted suit immédiatement)', () => {
     expect(callEndedToast(fr, 'superseded', 'Alice')).toBeNull();
+  });
+
+  it('answered_elsewhere : aucun toast (décroché sur un autre appareil)', () => {
+    expect(callEndedToast(fr, 'answered_elsewhere', 'Alice')).toBeNull();
   });
 });

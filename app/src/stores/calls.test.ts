@@ -300,6 +300,28 @@ describe('événement call_ended', () => {
     expect(s.callId).toBeNull();
   });
 
+  it('answered_elsewhere coupe la sonnerie entrante (overlay et son)', () => {
+    useCalls.setState({
+      phase: 'incoming_ringing',
+      peer: 'alice',
+      callId: 'c1',
+      sincePhaseMs: 1000,
+    });
+
+    const applied = useCalls
+      .getState()
+      .applyEnded({ peer: 'alice', call_id: 'c1', reason: 'answered_elsewhere' });
+
+    // `IncomingCall` dérive strictement l'overlay ET la sonnerie de
+    // `phase === 'incoming_ringing' && peer !== null` : les deux champs
+    // remis au repos suffisent donc à garantir que l'appareil se taise.
+    expect(applied).toBe(true);
+    const s = useCalls.getState();
+    expect(s.phase).toBe('idle');
+    expect(s.peer).toBeNull();
+    expect(s.callId).toBeNull();
+  });
+
   it('ignore un événement dont le call_id ne correspond pas et rend false', () => {
     useCalls.setState({
       phase: 'active',

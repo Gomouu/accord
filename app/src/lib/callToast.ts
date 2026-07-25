@@ -1,10 +1,13 @@
 /**
  * Traduit `event.call_ended.reason` en toast discret (voir VOICE_CALLS.md
  * §1.2). Fonction pure — décidée séparément du câblage d'événements
- * (`AppShell`) pour rester testable sans monter l'arbre React. `hangup` et
- * `superseded` ne produisent aucun toast : le premier est la fin normale d'un
- * appel (le panneau disparaît, ça suffit), le second est immédiatement suivi
- * de `event.call_accepted` (appels croisés, aucune UX distincte requise).
+ * (`AppShell`) pour rester testable sans monter l'arbre React. `hangup`,
+ * `superseded` et `answered_elsewhere` ne produisent aucun toast : le premier
+ * est la fin normale d'un appel (le panneau disparaît, ça suffit), le
+ * deuxième est immédiatement suivi de `event.call_accepted` (appels croisés,
+ * aucune UX distincte requise), et le troisième n'apprend rien à personne —
+ * la sonnerie s'arrête sur cet appareil-ci parce que son propriétaire vient
+ * de décrocher sur un autre, geste dont il est déjà l'auteur.
  */
 
 import type { Dict } from '../i18n';
@@ -36,6 +39,7 @@ export function callEndedToast(
       return { kind: 'error', text: t.calls.lostMsg };
     case 'hangup':
     case 'superseded':
+    case 'answered_elsewhere':
       return null;
   }
 }

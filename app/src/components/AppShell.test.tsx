@@ -7,12 +7,16 @@
  * modales) sont neutralisés : seul le câblage clavier propre à `AppShell`
  * est sous test ici (le sélecteur rapide lui-même est testé dans
  * `QuickSwitcher.test.tsx`).
+ *
+ * Couvre aussi le câblage de `event.call_ended`, dont l'aiguillage vers le
+ * badge d'appel manqué n'existe qu'ici (la traduction en toast est testée
+ * dans `lib/callToast.test.ts`).
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { Contact, GroupStateJson, SelfProfile } from '../lib/api';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { CallEndedReason, Contact, GroupStateJson, SelfProfile } from '../lib/api';
 
 vi.mock('../lib/client', () => ({
   rpc: { onEvent: vi.fn(() => () => {}), onStatus: vi.fn(() => () => {}) },
@@ -59,7 +63,8 @@ vi.mock('./ContextMenu', () => ({
 }));
 vi.mock('./IncomingCall', () => ({ IncomingCall: () => null }));
 
-import { api } from '../lib/client';
+import { api, rpc } from '../lib/client';
+import { useCalls } from '../stores/calls';
 import { useFriends } from '../stores/friends';
 import { useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
@@ -68,6 +73,8 @@ import { useVoice } from '../stores/voice';
 import { AppShell } from './AppShell';
 
 const voiceStatusMock = api.voiceStatus as unknown as Mock;
+const callsStatusMock = api.callsStatus as unknown as Mock;
+const onEventMock = rpc.onEvent as unknown as Mock;
 
 const SELF: SelfProfile = {
   node_id: 'n-moi',
@@ -131,6 +138,13 @@ beforeEach(() => {
   useFriends.setState({ contacts: [], loaded: true });
   useGroups.setState({ ids: [], states: {} });
   useVoice.setState({ active: null, participants: new Map() });
+  useCalls.setState({
+    phase: 'idle',
+    peer: null,
+    callId: null,
+    sincePhaseMs: null,
+    missedPeers: new Set(),
+  });
 });
 
 afterEach(() => {
@@ -301,5 +315,63 @@ describe('AppShell — raccourcis globaux', () => {
     fireEvent.keyDown(window, { key: 'M', ctrlKey: true, shiftKey: true });
 
     expect(useVoice.getState().active).toBeNull();
+  });
+});
+
+/**
+ * Monte la coquille avec une sonnerie entrante déjà en cours, puis rejoue le
+ * `event.call_ended` correspondant. La sonnerie est portée par la réponse
+ * simulée de `calls.status` : la resynchronisation au montage écraserait
+ * sinon un `useCalls.setState` posé avant le rendu.
+ */
+async function sonnerPuisTerminer(reason: CallEndedReason): Promise<void> {
+  callsStatusMock.mockResolvedValueOnce({
+    state: 'incoming_ringing',
+    peer: 'alice',
+    call_id: 'c1',
+    since_ms: 0,
+  });
+  // Ne garder que les abonnements pris par ce rendu : les stores s'abonnent
+  // aussi au chargement du module, bien avant le premier test.
+  onEventMock.mockClear();
+  render(<AppShell />);
+  await waitFor(() => expect(useCalls.getState().callId).toBe('c1'));
+
+  // `rpc` diffuse chaque événement à tous ses abonnés : on reproduit ce
+  // fan-out plutôt que de parier sur l'ordre des `useEffect` d'`AppShell`.
+  // `act` couvre le rerendu des composants abonnés au store d'appel.
+  await act(async () => {
+    for (const [handler] of onEventMock.mock.calls) {
+      (handler as (method: string, params: unknown) => void)('event.call_ended', {
+        peer: 'alice',
+        call_id: 'c1',
+        reason,
+      });
+    }
+  });
+}
+
+describe('AppShell — fin d’appel et badge d’appel manqué', () => {
+  it('answered_elsewhere ne marque aucun appel manqué', async () => {
+    await sonnerPuisTerminer('answered_elsewhere');
+
+    // 🔒 L'invariant : l'utilisateur a décroché sur son autre machine. Un
+    // badge ici lui ferait rappeler quelqu'un à qui il vient de parler.
+    expect(useCalls.getState().missedPeers.has('alice')).toBe(false);
+    expect(useCalls.getState().phase).toBe('idle');
+  });
+
+  it('canceled ne marque aucun appel manqué (filet de sécurité du nœud)', async () => {
+    await sonnerPuisTerminer('canceled');
+
+    // Même invariant par un autre chemin : quand le message « pris ailleurs »
+    // n'arrive pas, l'appareil perdant conclut seul en `canceled`.
+    expect(useCalls.getState().missedPeers.has('alice')).toBe(false);
+  });
+
+  it('missed marque bien l’appel manqué (le câblage atteint markMissed)', async () => {
+    await sonnerPuisTerminer('missed');
+
+    expect(useCalls.getState().missedPeers.has('alice')).toBe(true);
   });
 });

@@ -70,6 +70,11 @@ interface CallsState {
    * si l'état a bien été réinitialisé — l'appelant (AppShell) ne notifie
    * (toast) que dans ce cas, ce qui évite aussi un toast redondant pour une
    * fin d'appel qu'on a soi-même déclenchée.
+   *
+   * Le motif n'entre volontairement pas en jeu ici : toute fin remet la
+   * machine au repos, et c'est cette remise au repos (`phase`/`peer`) qui
+   * retire l'overlay de sonnerie et coupe la sonnerie côté `IncomingCall`.
+   * Un nouveau motif est donc pris en charge sans rien changer.
    */
   applyEnded: (params: {
     peer: string;

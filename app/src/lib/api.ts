@@ -735,7 +735,17 @@ export interface CallStatus {
   since_ms: number | null;
 }
 
-/** Motif stable de fin d'appel (`event.call_ended.reason`, voir VOICE_CALLS.md §1.2). */
+/**
+ * Motif stable de fin d'appel (`event.call_ended.reason`, voir VOICE_CALLS.md
+ * §1.2).
+ *
+ * Multi-appareil : un appel sonne sur **tous** les appareils du destinataire.
+ * Celui qui décroche fait taire les autres, qui reçoivent alors
+ * `answered_elsewhere` — ou, si ce message ne leur parvient pas, `canceled`
+ * via le filet de sécurité du nœud (plus d'offres reçues ≈ 8 s). 🔒 Ces deux
+ * motifs peuvent donc arriver sur un appareil dont le propriétaire a bel et
+ * bien pris l'appel : aucun des deux ne prouve un appel manqué.
+ */
 export type CallEndedReason =
   | 'hangup'
   | 'declined'
@@ -744,7 +754,8 @@ export type CallEndedReason =
   | 'missed'
   | 'canceled'
   | 'lost'
-  | 'superseded';
+  | 'superseded'
+  | 'answered_elsewhere';
 
 /** Événements poussés par le nœud (API.md §Événements). */
 export type AccordEvent =

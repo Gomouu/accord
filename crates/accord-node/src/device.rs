@@ -21,10 +21,13 @@
 
 use accord_core::db::LocalDevice;
 use accord_core::Db;
-use accord_crypto::{device_list_key, version_for, AccountIdentity, DeviceIdentity};
+use accord_crypto::{
+    device_list_key, verify_device_list_with_pow_bits, version_for, AccountIdentity, DeviceIdentity,
+};
 use accord_proto::device::{DeviceEntry, DeviceList};
+use accord_proto::limits::IDENTITY_POW_BITS;
 use accord_proto::types::{DhtRecord, RecordKind};
-use accord_proto::WireEncode;
+use accord_proto::{WireDecode, WireEncode};
 
 use crate::error::NodeError;
 
@@ -113,11 +116,75 @@ pub fn device_list_record(account: &AccountIdentity, list: &DeviceList, now_ms: 
     record
 }
 
+/// Vérifie un record DEVICE_LIST censé venir de `account`, et rend la liste.
+///
+/// 🔒 L'ordre des contrôles est délibéré : nature, publieur et ancrage de clé
+/// se règlent en quelques comparaisons, **avant** le décodage et les
+/// vérifications de signature. Un record arrivant de la DHT vient d'inconnus ;
+/// faire l'inverse offrirait à qui veut nous inonder un levier de déni de
+/// service à bon marché.
+pub fn verify_device_list_record(
+    account: &[u8; 32],
+    record: &DhtRecord,
+    known_version: u64,
+) -> Result<DeviceList, NodeError> {
+    verify_device_list_record_with_pow_bits(account, record, known_version, IDENTITY_POW_BITS)
+}
+
+/// [`verify_device_list_record`] à une difficulté de preuve de travail
+/// explicite. Réservé aux tests — voir `accord_crypto::verify_device_list`.
+pub fn verify_device_list_record_with_pow_bits(
+    account: &[u8; 32],
+    record: &DhtRecord,
+    known_version: u64,
+    pow_bits: u32,
+) -> Result<DeviceList, NodeError> {
+    if record.kind != RecordKind::DeviceList {
+        return Err(NodeError::Invalid("record de nature inattendue"));
+    }
+    if record.publisher != *account {
+        return Err(NodeError::Invalid("liste d'appareils non auto-publiée"));
+    }
+    if record.key != device_list_key(account) {
+        return Err(NodeError::Invalid("liste d'appareils à une clé étrangère"));
+    }
+    let mut r = accord_proto::Reader::new(&record.value);
+    let list = DeviceList::decode(&mut r)
+        .map_err(|_| NodeError::Invalid("liste d'appareils illisible"))?;
+    r.finish()
+        .map_err(|_| NodeError::Invalid("octets excédentaires après la liste"))?;
+    verify_device_list_with_pow_bits(&list, account, known_version, pow_bits)
+        .map_err(|_| NodeError::Invalid("liste d'appareils refusée"))?;
+    Ok(list)
+}
+
+/// Appareils par lesquels joindre `account`, d'après la liste en cache.
+///
+/// Rend une liste vide quand rien n'est connu **ou que le cache est périmé** :
+/// l'appelant doit alors rafraîchir avant de faire confiance. Servir une liste
+/// périmée ferait survivre un appareil révoqué aussi longtemps qu'elle (§3.3).
+pub fn cached_devices_for(db: &Db, account: &[u8; 32], now_ms: u64) -> Vec<[u8; 32]> {
+    let Ok(Some(cached)) = db.device_list(account) else {
+        return Vec::new();
+    };
+    let mut r = accord_proto::Reader::new(&cached.encoded);
+    let Ok(list) = DeviceList::decode(&mut r) else {
+        return Vec::new();
+    };
+    if !list.is_fresh(now_ms) {
+        return Vec::new();
+    }
+    list.devices
+        .iter()
+        .map(|d| d.pubkey)
+        .filter(|pk| list.authorises(pk))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use accord_crypto::Identity;
-    use accord_proto::WireDecode;
 
     fn db() -> Db {
         Db::open_in_memory(&[4u8; 32]).expect("base en mémoire")
@@ -244,5 +311,114 @@ mod tests {
         let seconde = build_device_list(&account, &device, "Portable", 1_700_000_060_000);
 
         assert!(seconde.version > premiere.version);
+    }
+
+    /// Compte, appareil et record cohérents, à la difficulté de test.
+    fn published(now: u64) -> (AccountIdentity, DeviceIdentity, DhtRecord) {
+        let account = AccountIdentity::from_identity(Identity::generate_with_pow_bits(1));
+        let device = DeviceIdentity::generate_with_pow_bits(1);
+        let list = build_device_list(&account, &device, "Portable", now);
+        let record = device_list_record(&account, &list, now);
+        (account, device, record)
+    }
+
+    fn verifier(
+        account: &[u8; 32],
+        record: &DhtRecord,
+        known: u64,
+    ) -> Result<DeviceList, NodeError> {
+        verify_device_list_record_with_pow_bits(account, record, known, 1)
+    }
+
+    #[test]
+    fn un_record_bien_forme_rend_la_liste() {
+        let now = 1_700_000_000_000;
+        let (account, device, record) = published(now);
+        let list = verifier(&account.public_key(), &record, 0).expect("liste acceptée");
+        assert!(list.authorises(&device.public_key()));
+    }
+
+    #[test]
+    fn un_record_dun_autre_compte_est_refuse() {
+        let now = 1_700_000_000_000;
+        let (_, _, record) = published(now);
+        let etranger = Identity::generate_with_pow_bits(1).public_key();
+        assert!(verifier(&etranger, &record, 0).is_err());
+    }
+
+    #[test]
+    fn un_record_deplace_a_une_autre_cle_est_refuse() {
+        // Le publieur et la signature sont authentiques ; seule la clé DHT ment.
+        // Sans ce contrôle, la liste d'Alice servirait de réponse à une
+        // recherche portant sur quelqu'un d'autre.
+        let now = 1_700_000_000_000;
+        let (account, _, mut record) = published(now);
+        record.key = [9u8; 32];
+        record.sig = account.identity().sign(&record.signable_bytes());
+        assert!(verifier(&account.public_key(), &record, 0).is_err());
+    }
+
+    #[test]
+    fn une_version_deja_connue_est_refusee() {
+        // Rejeu d'une liste ancienne : c'est ce contrôle qui empêche de
+        // ressusciter un appareil révoqué depuis.
+        let now = 1_700_000_000_000;
+        let (account, _, record) = published(now);
+        let deja = verifier(&account.public_key(), &record, 0).unwrap().version;
+        assert!(verifier(&account.public_key(), &record, deja).is_err());
+    }
+
+    #[test]
+    fn des_octets_en_trop_apres_la_liste_sont_refuses() {
+        let now = 1_700_000_000_000;
+        let (account, _, mut record) = published(now);
+        record.value.push(0);
+        record.sig = account.identity().sign(&record.signable_bytes());
+        assert!(verifier(&account.public_key(), &record, 0).is_err());
+    }
+
+    #[test]
+    fn le_cache_rend_les_appareils_tant_que_la_liste_est_fraiche() {
+        let now = 1_700_000_000_000;
+        let db = db();
+        let (account, device, record) = published(now);
+        db.cache_device_list(&accord_core::db::CachedDeviceList {
+            account: account.public_key(),
+            version: version_for(now),
+            encoded: record.value.clone(),
+            fetched_ms: now,
+        })
+        .unwrap();
+
+        assert_eq!(
+            cached_devices_for(&db, &account.public_key(), now),
+            vec![device.public_key()]
+        );
+    }
+
+    #[test]
+    fn le_cache_ne_rend_rien_quand_la_liste_est_perimee() {
+        // 🔒 Servir une liste périmée ferait survivre un appareil révoqué
+        // aussi longtemps qu'elle. Mieux vaut ne rien rendre et forcer
+        // l'appelant à rafraîchir.
+        let now = 1_700_000_000_000;
+        let db = db();
+        let (account, _, record) = published(now);
+        db.cache_device_list(&accord_core::db::CachedDeviceList {
+            account: account.public_key(),
+            version: version_for(now),
+            encoded: record.value.clone(),
+            fetched_ms: now,
+        })
+        .unwrap();
+
+        let apres_expiration = now + u64::from(DEVICE_LIST_VALID_S) * 1000 + 1;
+        assert!(cached_devices_for(&db, &account.public_key(), apres_expiration).is_empty());
+    }
+
+    #[test]
+    fn le_cache_ne_rend_rien_pour_un_compte_inconnu() {
+        let db = db();
+        assert!(cached_devices_for(&db, &[3u8; 32], 1_700_000_000_000).is_empty());
     }
 }

@@ -220,6 +220,17 @@ export const frSettings = {
     pairJoinWaiting: 'Code envoyé. Échange en cours avec l’autre appareil…',
     pairJoinRejected:
       'Code refusé. Recopie-le tel qu’il s’affiche : il ne contient jamais 0, O, 1, I ni L.',
+    pairAdoptWaiting: 'Empreinte confirmée. Réception du compte depuis l’autre appareil…',
+    pairAdoptHint:
+      'Le compte est arrivé. Choisis une phrase de passe pour le protéger sur CET appareil : elle n’a pas besoin d’être la même que sur l’autre.',
+    pairAdoptSubmit: 'Adopter le compte',
+    pairAdoptLeftover:
+      'Le profil qui a servi à l’appairage restera dans la liste des comptes, à côté de celui-ci. Rien ne l’efface : à toi de choisir lequel ouvrir.',
+    pairAdopted: 'Compte adopté ! Cet appareil est maintenant sur le même compte.',
+    pairAdoptNeverArrived:
+      'Le compte n’est jamais arrivé. Rien n’a été adopté : recommence l’appairage.',
+    pairAdoptFailed:
+      'L’adoption a échoué et le compte reçu est perdu. Recommence l’appairage depuis l’autre appareil.',
     // Voix.
     devicesTitle: 'Périphériques audio',
     inputDevice: 'Entrée (micro)',

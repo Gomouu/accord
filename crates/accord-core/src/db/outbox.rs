@@ -185,6 +185,59 @@ impl Db {
         Ok(n)
     }
 
+    /// Réadresse la file d'un destinataire vers d'autres clés de transport ;
+    /// rend le nombre de lignes réécrites (fan-out compris).
+    ///
+    /// 🔒 Corrige une cible qui s'est révélée fausse, elle ne refait pas
+    /// l'éventail. Tant qu'on ignore la liste d'appareils d'un compte, la seule
+    /// cible possible est sa clé de compte — c'est ce que présente encore tout
+    /// pair non basculé, donc un pari raisonnable. Le jour où sa liste arrive
+    /// et dit que plus aucune machine n'écoute là, ce pari est perdu : la file
+    /// est indexée par clé de transport, et une ligne restée sous la clé de
+    /// compte ne sera JAMAIS livrée — ni en direct (l'identité attendue ne
+    /// correspond à aucune session), ni par la boîte aux lettres (dont la clé
+    /// DHT dérive du destinataire, que le pair ne sonde plus). Elle expirerait
+    /// sept jours plus tard sans qu'aucune erreur n'apparaisse nulle part.
+    ///
+    /// `created_ms` est **conservé** : l'expiration compte depuis l'envoi
+    /// d'origine, pas depuis la correction — sans quoi un message réadressé
+    /// vivrait deux fenêtres de rétention au lieu d'une.
+    ///
+    /// `attempts`, le backoff et le jour de dépôt repartent de zéro : ils
+    /// décrivaient les tentatives vers une machine qui n'a jamais existé, et
+    /// les traîner ferait attendre un quart d'heure à la première tentative
+    /// vers la bonne. Une cible vide est un **non-événement** : on ne supprime
+    /// rien, sinon apprendre une liste illisible effacerait des messages.
+    pub fn outbox_retarget(
+        &self,
+        from: &[u8; 32],
+        to: &[[u8; 32]],
+        now_ms: u64,
+    ) -> Result<usize, CoreError> {
+        let cibles: Vec<[u8; 32]> = to.iter().copied().filter(|t| t != from).collect();
+        if cibles.is_empty() {
+            return Ok(0);
+        }
+        let items = self.outbox_for(from)?;
+        if items.is_empty() {
+            return Ok(0);
+        }
+        let mut written = 0usize;
+        for item in &items {
+            for cible in &cibles {
+                self.conn().execute(
+                    "INSERT INTO outbox (dest, payload, created_ms, next_attempt_ms)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![&cible[..], item.payload, item.created_ms, now_ms],
+                )?;
+                written += 1;
+            }
+            self.conn()
+                .execute("DELETE FROM outbox WHERE id = ?1", [item.id])?;
+        }
+        Ok(written)
+    }
+
     /// Purge les éléments expirés (> 7 jours) ; rend le nombre supprimé.
     pub fn outbox_purge_expired(&self, now_ms: u64) -> Result<usize, CoreError> {
         let n = self.conn().execute(
@@ -293,6 +346,58 @@ mod tests {
             db.outbox_for(&[7; 32]).unwrap().len(),
             1,
             "données intactes"
+        );
+    }
+
+    #[test]
+    fn readressage_deplace_la_file_vers_chaque_appareil() {
+        // Une ligne adressée au compte, deux appareils basculés : la ligne
+        // suit les DEUX machines et disparaît de l'ancienne cible.
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        db.enqueue(&[1; 32], b"bonjour", 1000).unwrap();
+        assert_eq!(
+            db.outbox_retarget(&[1; 32], &[[2; 32], [3; 32]], 9000)
+                .unwrap(),
+            2
+        );
+        assert!(db.outbox_for(&[1; 32]).unwrap().is_empty());
+        for dest in [[2u8; 32], [3u8; 32]] {
+            let items = db.outbox_for(&dest).unwrap();
+            assert_eq!(items.len(), 1);
+            assert_eq!(items[0].payload, b"bonjour");
+            assert_eq!(
+                items[0].created_ms, 1000,
+                "l'expiration compte depuis l'envoi d'origine"
+            );
+            assert_eq!(items[0].attempts, 0, "le backoff repart de zéro");
+        }
+        // Dû immédiatement : traîner l'ancien backoff ferait attendre la
+        // première tentative vers la bonne machine.
+        assert_eq!(db.outbox_due(9000, 10).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn readressage_sans_cible_ne_supprime_rien() {
+        // 🔒 Apprendre une liste illisible ou vide ne doit pas effacer la file :
+        // « je ne sais pas où livrer » n'est pas « il n'y a rien à livrer ».
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        db.enqueue(&[1; 32], b"garde-moi", 1000).unwrap();
+        assert_eq!(db.outbox_retarget(&[1; 32], &[], 9000).unwrap(), 0);
+        // Une cible réduite au destinataire lui-même est également sans effet.
+        assert_eq!(db.outbox_retarget(&[1; 32], &[[1; 32]], 9000).unwrap(), 0);
+        assert_eq!(db.outbox_for(&[1; 32]).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn readressage_conserve_lordre_et_le_contenu_de_toute_la_file() {
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        db.enqueue(&[1; 32], b"un", 1000).unwrap();
+        db.enqueue(&[1; 32], b"deux", 2000).unwrap();
+        assert_eq!(db.outbox_retarget(&[1; 32], &[[2; 32]], 9000).unwrap(), 2);
+        let items = db.outbox_for(&[2; 32]).unwrap();
+        assert_eq!(
+            items.iter().map(|i| i.payload.clone()).collect::<Vec<_>>(),
+            vec![b"un".to_vec(), b"deux".to_vec()]
         );
     }
 

@@ -46,9 +46,12 @@ async fn two_nodes_befriend_and_exchange_dm() {
     let alice_pub = alice.node.public_key();
     let bob_pub = bob.node.public_key();
 
-    // Amorçage de présence : chacun connaît l'adresse P2P de l'autre.
-    alice.register_peer(bob_pub, bob.p2p_addr());
-    bob.register_peer(alice_pub, alice.p2p_addr());
+    // Amorçage de présence : chacun apprend de l'autre ce que la DHT lui
+    // rendrait — sa liste d'appareils signée, puis l'adresse de la machine
+    // qu'elle désigne. Depuis le basculement, l'adresse seule ne suffit plus :
+    // personne n'écoute la clé de compte.
+    alice.learn_peer(&bob).unwrap();
+    bob.learn_peer(&alice).unwrap();
 
     // Alice demande Bob en ami ; la demande traverse le réseau.
     alice.node.friend_request(&bob_pub, "Alice").unwrap();
@@ -181,8 +184,8 @@ async fn dm_de_20000_caracteres_traverse_le_reseau() {
 
     let alice_pub = alice.node.public_key();
     let bob_pub = bob.node.public_key();
-    alice.register_peer(bob_pub, bob.p2p_addr());
-    bob.register_peer(alice_pub, alice.p2p_addr());
+    alice.learn_peer(&bob).unwrap();
+    bob.learn_peer(&alice).unwrap();
 
     // Amitié préalable (prérequis à l'échange de DM).
     alice.node.friend_request(&bob_pub, "Alice").unwrap();
@@ -307,8 +310,8 @@ async fn profile_names_exchange_on_friendship_and_propagate() {
     let bob_pub = bob.node.public_key();
     let alice_hex = accord_node::hex::encode(&alice_pub);
 
-    alice.register_peer(bob_pub, bob.p2p_addr());
-    bob.register_peer(alice_pub, alice.p2p_addr());
+    alice.learn_peer(&bob).unwrap();
+    bob.learn_peer(&alice).unwrap();
 
     // Pseudos définis avant l'amitié (aucun ami : rien n'est émis).
     alice.node.profile_set_name("Alice Prime").unwrap();

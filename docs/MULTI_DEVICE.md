@@ -3,7 +3,11 @@
 **Status**: design of lot 1.A. §4 has been brought back in step with the pairing
 code that shipped in lot 1.D, and §5 with the delivery fan-out that shipped in
 lot 1.E — where the implementation contradicted the design, the design text was
-corrected, not the code. The rest still runs ahead of the code.
+corrected, not the code. Two later corrections of the same kind, and the largest
+so far: the account root **does** travel at pairing (§4.3, and the consequences
+in §2, §3.3 and §8), and the transport switch is a flag day with no
+compatibility path on the wire (§3.2.1, §9). The rest still runs ahead of the
+code.
 **Target**: 7.0.
 **Rule**: nothing is implemented before this document answers the questions it
 raises. That rule exists because two hours of reading `install_session` once
@@ -53,8 +57,8 @@ Two levels, where there was one:
 | | Account key | Device key |
 |---|---|---|
 | Derived from | the recovery phrase | generated on the device, never leaves it |
-| Used for | signing the device list, nothing else | every transport session, every message |
-| Lives | can stay offline most of the time | on one machine only |
+| Used for | everything published in the person's name: the device list, the profile, group op-log entries, file manifests | every transport session, every message |
+| Lives | on every device of the account (§4.3) | on one machine only |
 | Identifies | the person | one machine of that person |
 | Friend code | ✅ points here | ❌ never exposed as an identity |
 
@@ -67,6 +71,16 @@ its invariant; it just stops being applied to the wrong thing.
 saying *device* where *account* is meant fragments a person into several
 contacts; saying *account* where *device* is meant reintroduces the eviction.
 §6 lists which is which.
+
+⚠️ **The two levels separate keys, not powers.** The device key is what makes
+two machines two peers; it is not a smaller privilege. Every paired device holds
+the root as well (§4.3), because a member that cannot sign in the account's name
+can do nothing the account cares about. So "device" bounds *reachability* — one
+session, one mailbox, one revocable entry — and never *authority*. Two
+consequences run through the rest of this document: the device list has several
+signers and therefore cannot be merged last-writer-wins (§3.2.1), and revocation
+is a tool against a device that is lost, not against one whose holder is hostile
+(§3.3, §8).
 
 ---
 
@@ -124,10 +138,10 @@ list with a bumped version number and resurrects a revoked device.
 
 Found while reading the transport, and it changes the order of the work.
 
-Today a peer's transport **static key is its account public key**, and the node
-uses it as the identity directly: `is_friend(&static_pub)`, message routing,
-profile re-announcement. So "the transport uses the device key" cannot be the
-first task:
+When this was written, a peer's transport **static key was its account public
+key**, and the node used it as the identity directly: `is_friend(&static_pub)`,
+message routing, profile re-announcement. So "the transport uses the device key"
+could not be the first task:
 
 - our outgoing sessions would present a key no peer recognises — we would become
   a stranger to every one of our friends, on every released version;
@@ -139,8 +153,56 @@ Same discipline as the handshake capability field and `RecordKind::Unknown`:
 
 | Phase | Ships in | What changes on the wire |
 |---|---|---|
-| 1 — resolve | 6.4 | Publish our device list; resolve and cache a friend's; **accept** a session whose static key is a device in a friend's signed list. We still *present* the account key. Older peers see one new record kind, which they already ignore cleanly (`Unknown(u8)`, 6.3). |
-| 2 — switch | 7.0 | **Present** the device key. This is the flag day, and what actually lifts B1. |
+| 1 — resolve | **6.3.0** | Publish our device list; resolve and cache a friend's; **accept** a session whose static key is a device in a friend's signed list. We still *present* the account key, so nothing changes for anyone yet. Peers from 6.3.0 on ignore the new record kind cleanly (`RecordKind::Unknown(u8)`, shipped in the same release); older ones have no such tolerance and fail the decode — of the record, and of whatever response carried it. In practice they are never asked for one, so what it costs is replication: a device list is stored only by the part of the DHT that has updated. |
+| 2 — switch | **7.0** | **Present** the device key: `NodeConfig::device_key_transport` defaults to true and the endpoint's identity becomes the device identity. Presence, the offline mailbox and the mDNS announcement move with it, since all three are anchored on the transport key. This is the flag day, and what actually lifts B1. |
+
+🔒 **What a flag day costs, and to whom.** A peer running a version without
+phase 1 — 6.2 or older — cannot map a device key back to an account. For it the
+static key *is* the identity, so a switched friend is not a friend behaving
+oddly: it is a stranger. And the failure is quiet, which is the part that has to
+be said out loud. Presence is published under the transport key, so from an
+un-updated address book the switched friend simply stops appearing online, for
+good; a session dialled at the remembered account key dies inside the transport
+on `PeerIdentityMismatch`, before a byte of application data exists and with
+nothing on screen naming the cause.
+
+This is exactly why phase 1 shipped a release **ahead** of the switch instead of
+alongside it: to make the window in which that can happen as short as a release
+cycle. Anyone who updates is fine — including someone who jumps straight from
+6.2 to 7.0, since 7.0 carries phase 1 too, and the resolution has to be present
+at the peer *doing the looking*, not installed in any particular order. The only
+person who loses contact is the one who never updates, and they lose it with
+every friend who did, not just with the first mover. That is worth telling users
+before it happens to them rather than after.
+
+⚠️ **A switch also invalidates targets already chosen.** The offline queue is
+indexed by transport key and re-checks nothing when it drains — that is what
+makes reconnection fast (§3.3). So a message queued to a peer's account key
+before their list arrived is queued to a key they no longer listen on, and it
+fails the way this milestone fails everywhere: in silence, with the line expiring
+seven days later. The information that invalidates the target is the list itself,
+so that is where the correction has to happen — the same shape as the revocation
+purge, and for the same reason.
+
+⚠️ **The switch stays a switch.** `device_key_transport` remains configurable
+after the flag day, and not only for tests: putting it back to `false` is the
+emergency reverse if the switch goes badly in the field.
+`reconcile_local_device_flags` works in both directions — it re-signs and
+republishes the local entry whenever the stored flag disagrees with the key the
+transport actually presents, so a rollback clears `DEVICE_FLAG_TRANSPORT_KEY`
+exactly as the switch set it. What a rollback cannot do is take effect at once:
+correspondents keep writing to the device key until their cached list refreshes
+(24 h at worst, usually the next reconnection), and anything deposited in that
+window lands in a mailbox keyed to a device key the rolled-back node no longer
+polls.
+
+⚠️ There is no negotiated alternative to reach for. `CAP_DEVICE_KEYS` exists and
+the capability field is authenticated in the handshake transcript, but nothing
+emits it (`EndpointConfig::capabilities` is `None` everywhere), so a peer cannot
+be sorted into "understands device keys" before the session exists. And an
+endpoint has exactly one static identity: there is no second listener on the
+account key to keep old peers served. §9 says what that does to the migration
+promise this document used to make.
 
 💡 **`install_session` needs no change at all.** "At most one direct session per
 identity" is already written against `peer_static`. Give the transport
@@ -254,6 +316,17 @@ What bounds the damage:
   days, not `valid_for_s`. It is dropped the moment a newly ingested list
   revokes the key.
 
+⚠️ **What revocation is not, since the root travels (§4.3): a defence against
+the device's holder.** A paired device holds the account root, so it can sign a
+list of its own — including one that omits its revocation — and a correspondent
+adopting the newer version has no way to tell the two signers apart, because
+there is only one signer. `version` derives from the clock, so re-issuing is a
+race between two holders of the same key, not a security property. Revocation
+does what it says against a device that is **lost, broken, sold or
+cooperative**: it stops delivery to a machine that is not fighting back. Against
+someone who has taken an unlocked machine, the account itself is what was taken,
+and §8 says what remains.
+
 ⚠️ **What revocation does not reach: a mailbox deposit already written.** It is
 sealed to the device's key and sits at a DHT key derived from it. There is no
 recall — whoever holds the device can read it until it expires, up to seven
@@ -288,7 +361,8 @@ attempt limit — in `accord-node/src/pairing.rs`.
 3. Both derive a channel from the code with a **symmetric PAKE** (`spake2`, see
    §4.1) and send each other one `PairingHello` (0x18). Not a shared secret sent
    in the clear: the code is short and low-entropy, so it must never be usable
-   offline by an eavesdropper.
+   offline by an eavesdropper. How the new device reaches the authorised one at
+   all, holding nothing but the code, is §4.4.
 4. Both screens show the **same 6-digit fingerprint** of the channel key, in two
    groups of three, and each user confirms on their own side.
 5. Confirming on the **new** device sends its `DeviceEntry` — device public key,
@@ -298,7 +372,14 @@ attempt limit — in `accord-node/src/pairing.rs`.
 6. Confirming on the **authorised** device is what seals the pairing: it adds
    the entry, signs version *n+1*, stores it and publishes it. It refuses when
    no sealed entry has arrived, rather than consuming the offer for nothing.
-   **The root key never moves.**
+7. **Then, and only then, the account root travels** (`PairingSeed`, 0x1F),
+   sealed under the same channel key, from the authorised device to the new one.
+   The order is the invariant: enrolment first, root second, never the reverse.
+   If the list is full, or the signature or the write fails, the root does not
+   leave — a root handed to a machine that no list mentions would be an access
+   no screen shows and no revocation reaches. §4.3 is why it travels at all and
+   what guards it; §4.4 is how the two machines found each other in the first
+   place.
 
 🔒 **Constraints, as implemented**
 
@@ -319,10 +400,12 @@ attempt limit — in `accord-node/src/pairing.rs`.
 - **Every attempt restarts from a fresh SPAKE2 state.** Replaying one state
   across attempts would hand an attacker several observations of the same
   secret.
-- The account root key never travels, not even encrypted. Pairing grants
-  membership in the signed list; it never grants the ability to sign one.
-- Neither the code nor the channel key can reach a log: both types have a mute
-  `Debug`, and it is tested.
+- **The account root travels — sealed, tagged, last, and one way only** (§4.3).
+  It never leaves in the clear, never before the fingerprint is confirmed on the
+  authorising side, never before that side has actually enrolled the device, and
+  never from the joining side back.
+- Neither the code, nor the channel key, nor the root can reach a log: all three
+  types have a mute `Debug`, and it is tested.
 
 **Why the PAKE and not a plain code.** With a plain shared secret, anyone who
 observes the exchange can derive the channel offline and impersonate the new
@@ -414,11 +497,20 @@ exhaust the attempt counter. The counter has to count them — success proves
 nothing about the code (§4.2), so refusing to count would make brute force free.
 
 What they can no longer do is change the fingerprint under the user's eyes. The
-candidate channel is **frozen** once a sealed payload opens, because opening it
-is the one thing that proves knowledge of the code. A later `PairingHello` is
+candidate channel is **frozen** once acquired, and a later `PairingHello` is
 dropped. Without that guard, a stranger could swap the displayed number in the
 instant before the user compares it, and have them confirm a pairing that is not
 theirs.
+
+What counts as "acquired" differs by side, and deliberately. The **authorised**
+device waits for the sealed `DeviceEntry` to open, because that is the one thing
+that proves knowledge of the code and because it must leave its three attempts
+available to whoever is mistyping it. The **joining** device freezes on the
+first well-formed reply: it started the exchange, the answer it displays is the
+one it will compare, and anything arriving later can only be a neighbour
+answering a code that is not its own. That second rule became load-bearing when
+the root started travelling — the joining side adopts an account over the
+channel it froze (§4.3).
 
 So this is a denial of pairing, not a way in, and it is bounded by the
 five-minute window and by the user simply asking for a new code.
@@ -433,6 +525,133 @@ revoked — on an inconsistent list, refusal is the only safe answer.
 Revoking the device you are on is refused. It would cut the account off from
 itself: no machine left to sign the next list, and no way back without the
 recovery phrase. §3.3 describes how the revocation then propagates.
+
+### 4.3 The account root travels — the reversal, and what replaces the promise
+
+This document said twice that the root never moves: once in the flow above, once
+in the constraints under it. **Both were wrong, and the code is right.** Read as
+a regression it looks alarming, so the reasoning belongs here in full.
+
+**A member without the root is listed and powerless.** Everything §6 puts at
+account level is signed by the root: the device list itself, the profile, group
+op-log entries, file manifests. A device that received only membership can
+receive what is addressed to the account and act on none of it — it cannot enrol
+the next device, cannot revoke a stolen one, cannot publish a profile, cannot
+author a group op as the person. The screen would say "device paired" and the
+machine would be a spectator. That is not a smaller feature than multi-device;
+it is a different, useless one.
+
+**And refusing to move it protected nothing.** The product already ships a
+twelve-word recovery phrase that puts the same 32 bytes on any machine that types
+them: no PAKE, no fingerprint, no five-minute window, works over a phone call,
+works on a machine the owner never sees. Refusing to carry the root over a
+channel that is PAKE-derived, human-confirmed, single-use and expiring was
+declining the *harder* path while leaving the easy one wide open.
+`identity::adopt_account_seed` therefore does to a received seed exactly what
+`restore_from_phrase` does to a typed one — the two are the same object arriving
+by two roads, and treating them differently would have been theatre.
+
+🔒 **What guards it, as implemented**
+
+- **Sealed under the channel key**, XChaCha20-Poly1305 with a random 192-bit
+  nonce. The nonce can be random precisely because the channel is disposable —
+  two or three messages and it is gone, where a durable channel would need a
+  counter. A test asserts the seed's bytes appear nowhere in what goes on the
+  wire.
+- **Tagged by content, inside the AEAD.** One channel key seals two payloads of
+  opposite meaning: the joiner's `DeviceEntry` outward (0x19), the root back
+  (0x1F). Without a tag byte in the sealed plaintext, a reflected payload could
+  be re-read as the other kind and 32 bytes of somebody's device entry would open
+  as "a seed". Being inside the AEAD, the tag cannot be edited in flight — the
+  kind of confusion that is invisible on reading and unforgiving here.
+- **Sent last, and only on success**, from the authorising side only: after the
+  human confirmed the fingerprint *there*, and after enrolment actually signed,
+  stored and published version *n+1*. A failure to seal or a missing channel is
+  logged without detail and the root stays home; a device enrolled but not
+  promoted is a pairing the user can simply run again.
+- **Refused by the receiver on four independent grounds**
+  (`Node::ingest_pairing_seed`), none decorative: it must be the side that
+  *typed* a code (an authorised device accepting a seed would be letting a
+  stranger who guessed a code replace its account); the fingerprint must already
+  have been confirmed on this screen, or the seed arriving was asked for by
+  nobody; it must come from the machine the channel was opened with, not from one
+  that watched; and the payload must open under the channel key and carry the
+  root tag. One adoption only — a second seed, even a valid one, is ignored.
+- **Bounded at decode**: 128 bytes (`MAX_PAIRING_SEED`) for a payload whose size
+  is known in advance to be 73. The 4 KiB allowed to an ordinary sealed pairing
+  payload would be sixty times too much room, offered to a peer that has proved
+  nothing yet.
+- **Never written where it lands.** `AccountSeed` zeroizes on drop and has a mute
+  `Debug`; the node keeps it in memory only; the local JSON API exposes a
+  *boolean* saying a seed is waiting, never the seed. The host takes it exactly
+  once, together with the device key — never one without the other, since the
+  authorised device just signed *that* key into the list and a profile that
+  regenerated another would be listed under an identity it no longer holds.
+
+🔒 **Adoption refuses to overwrite an inhabited profile.** A vault already
+present is refused (`NodeError::AlreadyExists`), never replaced. Behind that
+vault there is an identity, friendships and conversations, and *its* recovery
+phrase may be the only thing in the world that reopens them; a pairing is not a
+reason to lose that. So joining an account happens from a fresh profile, and
+that constraint is enforced where the seed is installed rather than trusted to
+the caller.
+
+⚠️ **The old database cannot survive, and it is deleted rather than left.**
+`db_key = HKDF(seed)`, so a database written under the previous seed will never
+open under the adopted one. Leaving it in place would turn the next start into a
+decryption error with nothing on screen able to explain it; it holds nothing
+recoverable anyway — at most the scratch of the node that ran the pairing. The
+device key is the exception that is *reinstalled* rather than regenerated, for
+the reason above.
+
+⚠️ **The price.** Every authorised device is now a full holder of the account.
+That is what makes the union merge rule of §3.2.1 necessary — several signers,
+partial views — and it is what §3.3 and §8 have to price in: revocation stops
+being a lever against a device whose holder kept the root, and physical access to
+one unlocked machine now yields the account rather than a listed peer.
+
+### 4.4 How the two devices find each other
+
+Nothing in the flow above says how the new machine reaches the authorised one.
+It cannot be inferred: the joining device has the code and strictly nothing else
+— no session, no address, no friendship — and the code carries neither an
+address nor an identity. So pairing borrows the chain the project already has for
+a first contact between strangers on the same network: mDNS discovery.
+
+- On submitting the code, the node greets **every Accord peer mDNS already shows
+  it**: one `PairingHello` each, sent direct and unqueued. A pairing hello is
+  worth the five-minute offer that is open now; re-presenting it to a neighbour
+  who powers on tomorrow would mean nothing.
+- Peers discovered **afterwards** are greeted on arrival (`LanSink::on_lan_peer`).
+  The race between a user typing a code and mDNS resolving a neighbour has no
+  fixed winner, and a single sweep at submission time would miss the authorised
+  device about half the time — a failure the user would read as "pairing is
+  broken".
+- Greeting everyone tells nobody anything: the PAKE fails silently for whoever
+  does not have the code, and a hello carries no claim about who is sending it.
+
+🔒 **One hello per peer per offer, and that bound is load-bearing.** Each hello
+consumes one of the far side's three attempts. The obvious way to make discovery
+robust — re-broadcasting on a timer — would therefore burn the very offer the
+user is watching on the other screen, three neighbours' worth of retries and no
+attacker involved anywhere. `PairingOffer::greet` is what remembers, and greeting
+stops entirely once a channel is open, since the authorised device has already
+answered and further hellos would only spend other people's counters.
+
+⚠️ **Bounded at 32 neighbours** (`MAX_LAN_GREETINGS`). A LAN with more than
+thirty-two Accord nodes is not somebody's living room: it is a campus, a hotel, a
+conference. Spraying a hello per machine there would turn pairing into a scanning
+tool, and the offer's memory would grow at the rate the neighbourhood announces
+itself.
+
+⚠️ **Not built: the nomadic case.** Two devices that are not on the same LAN
+cannot find each other at all — a laptop paired from a hotel room has no path to
+the desktop at home. A DHT rendezvous is the intended answer and is deliberately
+left for its own design, because the question it has to answer first is how to
+publish a meeting point derived from a five-minute, 39-bit secret without handing
+an offline grinder exactly what the PAKE exists to deny (§4). Until then, "both
+machines on the same network" is a precondition of pairing and the interface has
+to say so.
 
 ---
 
@@ -580,27 +799,42 @@ ordering.
 | Network attacker (on-path) | Rewrite a device list in flight | Root signature over the whole structure, version included |
 | | Replay an old list to resurrect a revoked device | Monotonic `version`; a lower one is ignored |
 | | Strip the pairing fingerprint step | Both sides require explicit confirmation; no bypass path exists |
-| | Downgrade a 7.0 peer to single-device behaviour | Capability bit `CAP_DEVICE_KEYS`, authenticated in the handshake transcript (shipped in 6.2) |
+| | Downgrade a 7.0 peer to single-device behaviour | ⚠️ Nothing yet. `CAP_DEVICE_KEYS` is defined and the capability field is authenticated in the handshake transcript (6.2), but nothing emits it, so no peer can be told apart by it. It is also why the switch is a flag day and not a negotiation (§3.2.1) |
 | Revoked device | Keep receiving messages | Refused by any peer holding a list ≥ the revoking version |
 | | Keep the old list alive by refusing to relay | It cannot: the list travels through the DHT and every other friend |
-| | Publish a forged list removing its own revocation | It has no root key; the signature fails |
+| | Publish a list removing its own revocation | ⚠️ Nothing, since the root travels (§4.3): it holds the root, so its signature verifies and its version — derived from the clock — outranks the one that revoked it. Revocation binds a device that is lost or cooperative, not one whose holder is hostile |
 | Malicious friend | Send a device list for someone else's account | The DHT key binds to the account; the record's publisher must be the account key |
 | | Claim a person has a device they do not | Same — requires the root signature |
 | Stranger on the DHT | Store a huge device list to exhaust memory | `MAX_DEVICES = 8`, `MAX_REVOKED = 32`, `MAX_DHT_VALUE = 8 KiB`, all enforced at decode |
 | | Brute-force a pairing code | PAKE makes each guess an online interaction; rate limit bounds them; the code expires in 5 min |
 | | Burn a pairing offer with well-formed hellos | Nothing does — three attempts, counted whether they complete or not (§4.2). It is a denial of pairing, not a way in |
 | Someone who steals a device | Read that device's history | Out of scope — the local database is already encrypted at rest by the vault. Revoking the device stops *future* delivery, not past storage |
+| | Act as the account from it, once its vault is open | ⚠️ Nothing. It holds the root (§4.3). The account cannot be rotated — the friend code *is* the root's public key — so the answer is a new account, not a repair |
 
 **What this design does not protect against**, stated plainly:
 
-- **Someone physically in front of an unlocked authorised device can pair their
-  own.** They open the offer, read the code off the screen and confirm the
-  fingerprint on both sides. The flow is *built* to require that presence; it
-  cannot tell the account's owner from anyone else who is standing there. No
-  cryptography addresses this.
-- A compromised authorised device can pair another device. It holds the ability
-  to sign as the account (via the pairing flow). Revocation would be the remedy,
-  after the fact — once it exists (§4.2).
+- **Someone physically in front of an unlocked authorised device can walk away
+  with the account root.** They open the offer, read the code off the screen and
+  confirm the fingerprint on both sides — and the flow then hands their machine
+  the account seed (§4.3). This is a real widening and it is stated rather than
+  buried: the same access used to buy a listed, powerless device; it now buys the
+  account. What did **not** change is the difficulty: an unlocked machine holds
+  the seed in the memory of the running process, and the recovery phrase sits
+  wherever its owner keeps it — so that access already reached the root by paths
+  nothing in this design controls. The flow is *built* to require that
+  presence and cannot tell the account's owner from anyone else standing there.
+  No cryptography addresses this; physical control of your machines does.
+- A compromised authorised device **is** the account, not a device that can ask
+  the account for things. Revocation removes its entry from the list; it does
+  not take the root back, and nothing can — there is no root rotation, since the
+  friend code is the root's public key. Recovery means a new account and telling
+  people so.
+- **Someone who obtains only the code cannot get any of that.** Completing the
+  PAKE proves nothing (§4.2), and the root is sent only after a human confirms
+  the fingerprint *on the authorised device* — comparing it against the screen of
+  the machine they actually meant to add. A code read over a shoulder or copied
+  out of a chat yields a number that does not match, three attempts and five
+  minutes.
 - **The device list is public.** It is published in the DHT, signed and readable
   by anyone who can derive its key from the account public key, which is what
   lets a contact find you. It exposes how many devices an account has, their
@@ -623,17 +857,29 @@ On first start of 7.0 on an existing profile:
    root *and* device, we would have gained nothing: two restored machines would
    share the device key and evict each other exactly as before. This is the step
    the migration must not get wrong.
-3. A version-1 device list is signed with the root key, containing that single
-   device, and published.
-4. The local tables `account` and `devices` are created by a numbered migration
-   step (the mechanism landed in 6.2 as T0.2; `MIGRATIONS` is currently empty,
-   and this is its first entry).
+3. A device list containing that single device is signed with the root key and
+   published. ⚠️ Not "version 1": the version derives from the clock
+   (`version_for`), here as everywhere, so that a root restored from the phrase
+   on a bare machine still outranks the lists its correspondents already hold
+   (§10, question 3).
+4. The local tables are created by a numbered migration step (the mechanism
+   landed in 6.2 as T0.2; this became migration **13**, `MIGRATIONS`' first
+   entry — shipped, and therefore frozen: a correction goes in a later step).
 
-**Backwards compatibility.** A 6.2 peer does not know about device lists and
-keeps talking to the account key directly. A 7.0 node must therefore keep
-accepting sessions on the account key for peers that do not advertise
-`CAP_DEVICE_KEYS` — a compatibility path to be removed only once the fleet has
-moved.
+⚠️ **Backwards compatibility: there is none on the wire, and pretending
+otherwise was the mistake.** This section used to promise that a 7.0 node would
+"keep accepting sessions on the account key for peers that do not advertise
+`CAP_DEVICE_KEYS`". Neither half of that is available. An endpoint has one static
+identity and presents it to everyone, so there is no second listener to keep on
+the account key; and the capability is never emitted, so a peer cannot be sorted
+into old or new before a session exists (§3.2.1). What a 6.2 peer sees after the
+switch is not a downgraded conversation but a friend who stopped existing.
+
+Which is why the compatibility work is *deployment order*, not a code path: phase
+1 shipped a release early so that the resolution is already installed everywhere
+that updates at all, and a 6.2 profile upgrading straight to 7.0 gets both halves
+in one step. The migration itself stays automatic, lossless and invisible; what
+is not invisible is refusing to update.
 
 ---
 
@@ -647,9 +893,13 @@ The roadmap left four open. Deciding them here is the point of this document.
    can then issue a version-*n+1* list revoking every previous device and
    containing only the new one. ⚠️ **To verify during 1.B**: the version counter
    must survive in the phrase-derived state, or a fresh restore would emit
-   version 1 and be ignored by peers holding a higher version. **Proposed fix**:
-   derive the starting version from `issued_ms` rather than a stored counter, so
-   a restored root always outranks anything older.
+   version 1 and be ignored by peers holding a higher version. **Fixed as
+   proposed and shipped**: the version derives from the clock
+   (`accord_crypto::version_for`), never from a stored counter, so a restored
+   root always outranks anything older. ⚠️ Note what that buys and what it does
+   not: it answers *loss*, where nobody contests the account. Against a device
+   whose holder kept the root, re-issuing is a race between two holders of one
+   key (§3.3).
 4. **Real-time media across devices** → single device per call. (§5)
 
 ---
@@ -666,4 +916,6 @@ The roadmap left four open. Deciding them here is the point of this document.
 
 **Settled since**: the PAKE choice (SPAKE2 vs CPace), its licence against
 `deny.toml` and the state of the crate — §4.1. §4.2 records what only writing
-the code could reveal.
+the code could reveal; §4.3 and §4.4 record the two things it decided against
+this document — the account root travels, and the two machines find each other
+over the LAN or not at all.

@@ -4,6 +4,71 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ## [Unreleased]
 
+## [6.4.0] — 2026-07-26
+
+### Added
+
+- **Add a second machine to your account.** Open "Add a device" on the machine
+  you already use, type the eight-character code on the new one, check that the
+  same six digits appear on both screens, and confirm. The new machine adopts
+  the account and restarts on it.
+
+  ⚠️ **Using both at the same time waits for the next release.** Everything that
+  makes two machines work together — a message on both, a call ringing on both,
+  a read on one clearing the badge on the other, catching up after being off —
+  is built, tested and shipped here, but it only comes alive once each machine
+  presents its own key on the network, and that switch is deliberately held back
+  one version. See *Changed* below.
+
+  The code alone is not enough, by design. Someone who reads it over your
+  shoulder still has to be standing in front of your authorised machine to
+  confirm the fingerprint — that is what turns a leaked code into a failed
+  attempt. Three wrong tries burn the code and you have to open a new one.
+
+- **The two machines find each other on the local network.** The code carries no
+  address, so the joining machine greets every Accord peer it can see over mDNS;
+  the handshake fails silently for anyone who does not hold the code. Pairing two
+  machines that are not on the same network is not covered yet.
+
+### Changed
+
+- **This release teaches the network to receive what the next one will send.**
+  Making two machines genuinely two peers means each presenting its own key
+  instead of both claiming one identity. That switch is written and passes its
+  tests, and it is **still turned off here**, on purpose.
+
+  Building it surfaced why. A peer can only attribute a device key to a person
+  through accounts it already relates to — and at a *first* contact there are
+  none. It would therefore record a brand-new friendship under the key of a
+  **machine**: messages would flow, but your friend code would stop designating
+  that contact, and a second device of yours would later look to them like a
+  third person. Their address book would be quietly wrong, and updating would
+  not repair it.
+
+  The fix is in this release, and it is a *receiving* capability: a device list
+  that authenticates itself, so a stranger's machine can be traced back to its
+  owner on the very first exchange. It has to be in the field before anyone
+  starts presenting a device key. Same discipline as the capability field and
+  unknown record kinds — learn to read one version before you start to write.
+
+- **Pairing hands over the account key itself.** A device that could not sign in
+  the account's name could receive messages and nothing else — listed and
+  powerless. The key travels sealed under the channel the two screens just
+  confirmed, and only after that confirmation. It is the same key a recovery
+  phrase already puts on any machine where you type twelve words; refusing to
+  move it over a confirmed channel protected nothing that was not already easier
+  to obtain.
+
+  ⚠️ Two consequences worth stating plainly rather than leaving to be
+  discovered. Physical access to an unlocked, authorised machine now yields the
+  account key, not merely a paired device. And **revoking a device no longer
+  protects you against whoever holds it** — they have the account key, so they
+  can sign a new device list that removes their own revocation, and they never
+  needed to be listed to act as you in the first place. Revocation remains what
+  it always usefully was: a tool for a machine you *lost*, not one whose holder
+  is working against you. There is no way to take a root key back; if one is
+  compromised, the remedy is a new account. `SECURITY.md` says so in full.
+
 ## [6.3.0] — 2026-07-25
 
 ### Added

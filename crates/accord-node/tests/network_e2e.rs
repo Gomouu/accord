@@ -225,9 +225,13 @@ async fn diagnostics_par_pair_compteurs_et_autotest() {
     let alice_pub = alice.node.public_key();
     let bob_pub = bob.node.public_key();
 
-    // Amitié directe (adresses échangées à la main, comme two_node_e2e).
+    // Amitié directe (coordonnées échangées à la main, comme two_node_e2e).
+    // Dans LES DEUX SENS : depuis le basculement, savoir où joindre un pair ne
+    // suffit plus, il faut aussi sa liste d'appareils pour savoir quelle clé
+    // composer — et c'est Bob qui demande l'amitié ici.
     bob.add_bootstrap_peer(alice.p2p_addr()).await.unwrap();
-    alice.register_peer(bob_pub, bob.p2p_addr());
+    alice.learn_peer(&bob).unwrap();
+    bob.learn_peer(&alice).unwrap();
     bob.node.friend_request(&alice_pub, "Bob").unwrap();
     assert!(
         eventually(|| {

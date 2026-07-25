@@ -71,15 +71,36 @@ const TRANSPORT: u32 = DEVICE_FLAG_TRANSPORT_KEY;
 /// Configuration de nœud des tests : boucle locale, port éphémère, preuve de
 /// travail symbolique et mDNS coupé — la vraie difficulté ferait ramper la
 /// suite, et l'annonce LAN ferait dépendre le test du réseau de la machine.
-fn config(paths: Paths, device_key_transport: bool) -> NodeConfig {
+///
+/// ⚠️ `device_key_transport` est **forcé** ici, et il ne l'est plus par défaut.
+///
+/// Le basculement a été repoussé d'une version : la moitié « savoir recevoir »
+/// un premier contact venu d'une clé d'appareil doit être dans le parc **avant**
+/// que quiconque en présente une (voir `NodeConfig::device_key_transport`). Ces
+/// tests démontrent donc le monde d'après, sur une configuration qui l'anticipe.
+///
+/// 🔒 Le jour où le défaut basculera, ce forçage devra disparaître — sans quoi
+/// ces tests redeviendraient muets sur un retour en arrière du défaut, ce qui
+/// était précisément leur intérêt.
+fn config(paths: Paths) -> NodeConfig {
     NodeConfig {
         paths,
         p2p_addr: "127.0.0.1:0".parse().unwrap(),
         api_port: 0,
         pow_bits: 1,
         mdns_enabled: false,
-        device_key_transport,
+        device_key_transport: true,
         ..NodeConfig::default()
+    }
+}
+
+/// Configuration d'un pair **d'avant le basculement** — aujourd'hui le parc
+/// entier, y compris ce que cette version livre : son transport présente encore
+/// la clé de compte.
+fn config_avant_bascule(paths: Paths) -> NodeConfig {
+    NodeConfig {
+        device_key_transport: false,
+        ..config(paths)
     }
 }
 
@@ -96,10 +117,18 @@ fn maintenance_rapide() -> MaintenanceConfig {
     }
 }
 
-/// Démarre un nœud sur un profil déjà scellé.
-async fn boot(paths: &Paths, device_key: bool, maintenance: MaintenanceConfig) -> RunningNode {
+/// Démarre un nœud sur un profil déjà scellé, dans la configuration LIVRÉE.
+async fn boot(paths: &Paths, maintenance: MaintenanceConfig) -> RunningNode {
     let unlocked = identity::unlock(paths, PASSPHRASE).unwrap();
-    run_with_maintenance(unlocked, config(paths.clone(), device_key), maintenance)
+    run_with_maintenance(unlocked, config(paths.clone()), maintenance)
+        .await
+        .unwrap()
+}
+
+/// [`boot`] pour un pair d'avant le basculement.
+async fn boot_avant_bascule(paths: &Paths, maintenance: MaintenanceConfig) -> RunningNode {
+    let unlocked = identity::unlock(paths, PASSPHRASE).unwrap();
+    run_with_maintenance(unlocked, config_avant_bascule(paths.clone()), maintenance)
         .await
         .unwrap()
 }
@@ -352,13 +381,21 @@ async fn les_deux_appareils_dun_compte_recoivent_le_meme_message() {
     );
     p.stocker_sur_le_compte(&liste);
 
-    // Les deux machines démarrent avec le transport basculé : le drapeau de la
-    // liste dit vrai, ce qui est la condition pour que viser l'appareil ait un
-    // sens (`docs/MULTI_DEVICE.md` §3.2.1).
-    let a = boot(&p.paths_a, true, MaintenanceConfig::default()).await;
-    let b = boot(&p.paths_b, true, MaintenanceConfig::default()).await;
-    let f = boot(&p.paths_f, false, MaintenanceConfig::default()).await;
+    // Les trois machines démarrent dans la configuration LIVRÉE : rien n'est
+    // forcé, le basculement est le défaut. C'est ce qui fait de ce test
+    // l'assertion du jalon plutôt qu'une démonstration en laboratoire.
+    let a = boot(&p.paths_a, MaintenanceConfig::default()).await;
+    let b = boot(&p.paths_b, MaintenanceConfig::default()).await;
+    let f = boot(&p.paths_f, MaintenanceConfig::default()).await;
 
+    // 🔒 Le garde-fou qui rend tout le reste concluant : sans lui, un retour
+    // du défaut à `false` ferait passer ce fichier en parlant deux fois à la
+    // même machine, et le jalon serait perdu sans qu'un test ne bronche.
+    assert_ne!(
+        a.node.transport_key(),
+        a.node.public_key(),
+        "la configuration par défaut doit présenter la clé d'APPAREIL"
+    );
     // La clé présentée par chaque machine est bien SA clé d'appareil, pas la
     // clé du compte : sans ça les deux sessions retomberaient sur une seule
     // identité de transport et s'évinceraient.
@@ -374,12 +411,13 @@ async fn les_deux_appareils_dun_compte_recoivent_le_meme_message() {
 
     p.faire_connaitre(&f, &liste);
 
-    // Amorçage de présence : l'ami connaît une adresse PAR APPAREIL, les
-    // machines connaissent celle de l'ami.
+    // Amorçage de présence : l'ami connaît une adresse PAR APPAREIL, et les
+    // machines apprennent de l'ami sa liste et l'adresse qu'elle désigne — lui
+    // aussi est basculé, sa clé de compte ne mène nulle part.
     f.register_peer(p.device_a.public_key(), a.p2p_addr());
     f.register_peer(p.device_b.public_key(), b.p2p_addr());
-    a.register_peer(p.ami, f.p2p_addr());
-    b.register_peer(p.ami, f.p2p_addr());
+    a.learn_peer(&f).unwrap();
+    b.learn_peer(&f).unwrap();
 
     // L'éventail lui-même, avant toute livraison : deux cibles, les deux clés
     // d'appareil, et surtout PAS la clé de compte — plus personne ne l'écoute.
@@ -446,15 +484,20 @@ async fn les_deux_appareils_tiennent_leur_session_en_meme_temps() {
     // qu'après 30 s, donc rien de ce qui arrive dans les secondes qui suivent
     // ne peut venir d'un rattrapage. C'est ce qui rend la borne serrée du
     // second tour concluante.
-    let a = boot(&p.paths_a, true, MaintenanceConfig::default()).await;
-    let b = boot(&p.paths_b, true, MaintenanceConfig::default()).await;
-    let f = boot(&p.paths_f, false, MaintenanceConfig::default()).await;
+    let a = boot(&p.paths_a, MaintenanceConfig::default()).await;
+    let b = boot(&p.paths_b, MaintenanceConfig::default()).await;
+    let f = boot(&p.paths_f, MaintenanceConfig::default()).await;
+    assert_ne!(
+        a.node.transport_key(),
+        a.node.public_key(),
+        "la configuration par défaut doit présenter la clé d'APPAREIL"
+    );
 
     p.faire_connaitre(&f, &liste);
     f.register_peer(p.device_a.public_key(), a.p2p_addr());
     f.register_peer(p.device_b.public_key(), b.p2p_addr());
-    a.register_peer(p.ami, f.p2p_addr());
-    b.register_peer(p.ami, f.p2p_addr());
+    a.learn_peer(&f).unwrap();
+    b.learn_peer(&f).unwrap();
 
     // Premier tour : les deux sessions s'établissent (poignée de main incluse,
     // d'où la borne large).
@@ -526,12 +569,12 @@ async fn un_appareil_eteint_rattrape_a_son_retour() {
 
     // Ici la cadence rapide est nécessaire : c'est la file hors-ligne qui
     // porte tout le rattrapage.
-    let a = boot(&p.paths_a, true, maintenance_rapide()).await;
-    let f = boot(&p.paths_f, false, maintenance_rapide()).await;
+    let a = boot(&p.paths_a, maintenance_rapide()).await;
+    let f = boot(&p.paths_f, maintenance_rapide()).await;
 
     p.faire_connaitre(&f, &liste);
     f.register_peer(p.device_a.public_key(), a.p2p_addr());
-    a.register_peer(p.ami, f.p2p_addr());
+    a.learn_peer(&f).unwrap();
 
     // Le fixe est éteint : l'ami vise quand même les deux appareils, parce que
     // la liste dit qui existe, pas qui est allumé.
@@ -546,9 +589,9 @@ async fn un_appareil_eteint_rattrape_a_son_retour() {
 
     // Le fixe s'allume. Son adresse P2P est réapprise — c'est ce que fait la
     // résolution de présence en production.
-    let b = boot(&p.paths_b, true, maintenance_rapide()).await;
+    let b = boot(&p.paths_b, maintenance_rapide()).await;
     f.register_peer(p.device_b.public_key(), b.p2p_addr());
-    b.register_peer(p.ami, f.p2p_addr());
+    b.learn_peer(&f).unwrap();
     // Un mot du fixe ouvre la session : à la connexion, l'ami vide la file de
     // CETTE machine (`flush_peer`), indépendamment du backoff en cours.
     b.node.dm_send(&p.ami, "de retour", None).unwrap();
@@ -577,31 +620,34 @@ async fn un_appareil_eteint_rattrape_a_son_retour() {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Le parc d'aujourd'hui, inchangé
+// 4. Le parc d'avant le basculement, inchangé
 // ---------------------------------------------------------------------------
 
-/// Démarre un nœud tout neuf, tel que le fait `two_node_e2e.rs`.
-async fn boot_simple(dir: &std::path::Path) -> RunningNode {
+/// Démarre un nœud tout neuf **d'avant le basculement**, tel qu'il tourne
+/// encore chez tous ceux qui n'ont pas mis à jour.
+async fn boot_avant_bascule_neuf(dir: &std::path::Path) -> RunningNode {
     let paths = Paths::new(dir);
     let unlocked = identity::create(&paths, PASSPHRASE, 1).unwrap();
-    run(unlocked, config(paths, false)).await.unwrap()
+    run(unlocked, config_avant_bascule(paths)).await.unwrap()
 }
 
 #[tokio::test]
 async fn un_ami_sans_liste_dappareils_recoit_un_seul_exemplaire() {
-    // 🔒 Le garde-fou de régression. Personne, aujourd'hui, ne publie de liste
-    // d'appareils : si l'éventail se trompait ne serait-ce que d'une cible,
-    // tout le parc installé cesserait de recevoir le jour de la sortie. Ce
-    // test rejoue donc le chemin d'avant le jalon, poignée de main comprise.
+    // 🔒 Le garde-fou de régression. Deux pairs d'avant le basculement, dont
+    // aucun ne connaît de liste d'appareils : si l'éventail se trompait ne
+    // serait-ce que d'une cible, tout le parc pas encore mis à jour cesserait
+    // de recevoir. Ce test rejoue donc le chemin d'avant le jalon, poignée de
+    // main comprise.
     let dir_a = tempfile::tempdir().unwrap();
     let dir_b = tempfile::tempdir().unwrap();
-    let alice = boot_simple(dir_a.path()).await;
-    let bob = boot_simple(dir_b.path()).await;
+    let alice = boot_avant_bascule_neuf(dir_a.path()).await;
+    let bob = boot_avant_bascule_neuf(dir_b.path()).await;
 
     let alice_pub = alice.node.public_key();
     let bob_pub = bob.node.public_key();
     // Sans basculement, la clé de transport EST la clé de compte : c'est ce
-    // que voit tout le parc actuel.
+    // que voit encore tout le parc pas mis à jour, et c'est ce qui rend
+    // l'inscription d'une adresse sous une clé de compte suffisante ici.
     assert_eq!(alice.node.transport_key(), alice_pub);
     assert_eq!(bob.node.transport_key(), bob_pub);
 
@@ -638,7 +684,7 @@ async fn un_ami_sans_liste_dappareils_recoit_un_seul_exemplaire() {
         "sans liste connue, on vise le compte et rien d'autre"
     );
 
-    const TEXTE: &str = "message au parc d'aujourd'hui";
+    const TEXTE: &str = "message au parc d'avant le basculement";
     let avant = mises_en_file(&alice);
     alice.node.dm_send(&bob_pub, TEXTE, None).unwrap();
     assert!(
@@ -674,8 +720,8 @@ async fn une_liste_sans_appareil_bascule_vise_encore_le_compte() {
     // compte, en accord avec les drapeaux à zéro de la liste. Seule la
     // première est allumée : deux machines sur la même clé s'évinceraient,
     // et c'est justement le blocage que la phase 2 lève.
-    let a = boot(&p.paths_a, false, MaintenanceConfig::default()).await;
-    let f = boot(&p.paths_f, false, MaintenanceConfig::default()).await;
+    let a = boot_avant_bascule(&p.paths_a, MaintenanceConfig::default()).await;
+    let f = boot_avant_bascule(&p.paths_f, MaintenanceConfig::default()).await;
     assert_eq!(
         a.node.transport_key(),
         p.compte,
@@ -710,4 +756,143 @@ async fn une_liste_sans_appareil_bascule_vise_encore_le_compte() {
 
     a.shutdown();
     f.shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// 5. Le jour du basculement : les deux versions se parlent
+// ---------------------------------------------------------------------------
+
+/// Prépare deux profils SANS lien préalable : un pair resté sur la version
+/// d'avant, un pair basculé. Aucune amitié n'est écrite dans les bases —
+/// c'est la poignée de main qui doit la nouer, et c'est là que se joue tout
+/// l'intérêt de ce test.
+fn preparer_deux_versions() -> (tempfile::TempDir, tempfile::TempDir, Paths, Paths) {
+    let dir_v = tempfile::tempdir().unwrap();
+    let dir_n = tempfile::tempdir().unwrap();
+    let paths_v = Paths::new(dir_v.path());
+    let paths_n = Paths::new(dir_n.path());
+    identity::create(&paths_v, PASSPHRASE, 1).unwrap();
+    identity::create(&paths_n, PASSPHRASE, 1).unwrap();
+    (dir_v, dir_n, paths_v, paths_n)
+}
+
+#[tokio::test]
+async fn un_pair_davant_et_un_pair_bascule_se_parlent_encore() {
+    // 🔒 **Le test qui décide si le basculement est déployable.** Le parc ne
+    // bascule pas d'un bloc : pendant des semaines, chaque conversation aura
+    // un pair sur chaque version. Si les deux ne s'entendent plus, la mise à
+    // jour coupe les gens de leurs amis restés en arrière — et la panne est
+    // silencieuse des deux côtés, puisqu'un message qui n'aboutit pas se
+    // contente d'attendre en file.
+    //
+    // Le premier contact part du pair **d'avant** : c'est le sens que le code
+    // livré en 6.3.0 sait tenir seul, et donc le seul dont ce test puisse
+    // honnêtement affirmer quelque chose. (Le sens inverse — un pair basculé
+    // qui demande l'amitié à un pair d'avant — dépend, chez le destinataire,
+    // d'un rattachement que 6.3.0 ne sait pas faire : il enregistrerait la
+    // relation au nom de notre machine. Rien ici ne peut le corriger, c'est
+    // son binaire ; c'est une limite du jour du basculement, pas de ce test.)
+    let (_dir_v, _dir_n, paths_v, paths_n) = preparer_deux_versions();
+    let ancien = boot_avant_bascule(&paths_v, maintenance_rapide()).await;
+    let neuf = boot(&paths_n, maintenance_rapide()).await;
+
+    let ancien_pub = ancien.node.public_key();
+    let neuf_pub = neuf.node.public_key();
+
+    // Les deux versions sont bien celles annoncées.
+    assert_eq!(
+        ancien.node.transport_key(),
+        ancien_pub,
+        "le pair d'avant présente encore sa clé de compte"
+    );
+    assert_ne!(
+        neuf.node.transport_key(),
+        neuf_pub,
+        "le pair basculé présente sa clé d'appareil"
+    );
+
+    // Ce que la DHT rend à chacun en production : la liste de l'autre, puis
+    // l'adresse de la machine qu'elle désigne.
+    ancien.learn_peer(&neuf).unwrap();
+    neuf.learn_peer(&ancien).unwrap();
+
+    // 🔒 L'éventail, dans les deux sens, AVANT le moindre envoi. C'est la
+    // moitié que le code de la phase 1 doit déjà savoir tenir : lire la liste
+    // d'un pair basculé et viser sa machine.
+    assert_eq!(
+        ancien.node.delivery_targets(&neuf_pub),
+        vec![neuf.node.transport_key()],
+        "le pair d'avant doit viser la MACHINE du pair basculé"
+    );
+    assert_eq!(
+        neuf.node.delivery_targets(&ancien_pub),
+        vec![ancien_pub],
+        "le pair basculé doit viser la clé de COMPTE du pair d'avant"
+    );
+
+    // Premier contact, du pair d'avant vers le pair basculé.
+    ancien.node.friend_request(&neuf_pub, "Ancien").unwrap();
+    assert!(
+        eventually(|| neuf
+            .node
+            .contacts()
+            .map(|cs| cs.iter().any(|c| c.pubkey == ancien_pub))
+            .unwrap_or(false))
+        .await,
+        "le pair basculé n'a pas reçu la demande d'ami du pair d'avant"
+    );
+    neuf.node.friend_respond(&ancien_pub, true).unwrap();
+    assert!(
+        eventually(|| ancien
+            .node
+            .contacts()
+            .map(|cs| cs
+                .iter()
+                .any(|c| c.pubkey == neuf_pub && c.state == ContactState::Friend))
+            .unwrap_or(false))
+        .await,
+        "l'amitié n'a pas été confirmée chez le pair d'avant"
+    );
+
+    // 🔒 Et la relation porte bien le nom d'une PERSONNE de part et d'autre.
+    // C'est ce qui distingue « ça marche » de « ça marche en apparence » : un
+    // contact enregistré sous une clé d'appareil échangerait des messages tout
+    // aussi bien, jusqu'au jour où un second appareil apparaîtrait comme un
+    // inconnu et où le code ami ne désignerait plus personne.
+    assert!(
+        neuf.node
+            .contacts()
+            .unwrap()
+            .iter()
+            .all(|c| c.pubkey != ancien.node.transport_key() || c.pubkey == ancien_pub),
+        "le pair basculé a enregistré une machine au lieu d'une personne"
+    );
+    assert!(
+        ancien
+            .node
+            .contacts()
+            .unwrap()
+            .iter()
+            .all(|c| c.pubkey != neuf.node.transport_key()),
+        "le pair d'avant a enregistré la machine du pair basculé au lieu de son compte"
+    );
+
+    // Messagerie dans les deux sens sur le lien établi.
+    const DE_L_ANCIEN: &str = "je n'ai pas encore mis à jour";
+    const DU_NEUF: &str = "moi si, et on se parle toujours";
+    ancien.node.dm_send(&neuf_pub, DE_L_ANCIEN, None).unwrap();
+    assert!(
+        eventually(|| copies_recues(&neuf, &ancien_pub, DE_L_ANCIEN) == 1).await,
+        "le pair basculé n'a pas reçu le message du pair d'avant (reçu {} fois)",
+        copies_recues(&neuf, &ancien_pub, DE_L_ANCIEN)
+    );
+    neuf.node.dm_send(&ancien_pub, DU_NEUF, None).unwrap();
+    assert!(
+        eventually(|| copies_recues(&ancien, &neuf_pub, DU_NEUF) == 1).await,
+        "le pair d'avant n'a pas reçu le message du pair basculé (reçu {} fois)",
+        copies_recues(&ancien, &neuf_pub, DU_NEUF)
+    );
+
+    ancien.shutdown();
+    neuf.shutdown();
 }

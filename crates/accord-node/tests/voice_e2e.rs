@@ -102,9 +102,10 @@ async fn two_nodes_join_voice_exchange_frames_and_respect_cap() {
     let alice_hex = accord_node::hex::encode(&alice_pub);
     let bob_hex = accord_node::hex::encode(&bob_pub);
 
-    // Amorçage : chacun connaît l'adresse P2P de l'autre, amitié établie.
-    alice.register_peer(bob_pub, bob.p2p_addr());
-    bob.register_peer(alice_pub, alice.p2p_addr());
+    // Amorçage : chacun apprend de l'autre sa liste d'appareils et l'adresse de
+    // la machine qu'elle désigne (ce que rend la DHT), puis l'amitié s'établit.
+    alice.learn_peer(&bob).unwrap();
+    bob.learn_peer(&alice).unwrap();
     alice.node.friend_request(&bob_pub, "Alice").unwrap();
     assert!(
         eventually(|| async {
@@ -241,8 +242,8 @@ async fn two_nodes_join_voice_exchange_frames_and_respect_cap() {
         let dir = tempfile::tempdir().unwrap();
         let ghost = boot(dir.path()).await;
         let ghost_pub = ghost.node.public_key();
-        alice.register_peer(ghost_pub, ghost.p2p_addr());
-        ghost.register_peer(alice_pub, alice.p2p_addr());
+        alice.learn_peer(&ghost).unwrap();
+        ghost.learn_peer(&alice).unwrap();
 
         let invite_id_hex = alice.node.group_invite_create(&gid, &ghost_pub).unwrap();
         let invite_id: [u8; 16] = accord_node::hex::decode(&invite_id_hex).unwrap();

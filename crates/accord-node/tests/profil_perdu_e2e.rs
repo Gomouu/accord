@@ -83,8 +83,8 @@ async fn attendre(mut cond: impl FnMut() -> bool) -> bool {
 async fn lier_amis(alice: &RunningNode, bob: &RunningNode) {
     let alice_pub = alice.node.public_key();
     let bob_pub = bob.node.public_key();
-    alice.register_peer(bob_pub, bob.p2p_addr());
-    bob.register_peer(alice_pub, alice.p2p_addr());
+    alice.learn_peer(bob).unwrap();
+    bob.learn_peer(alice).unwrap();
     alice.node.friend_request(&bob_pub, "Alice").unwrap();
     assert!(
         attendre(|| {
@@ -137,7 +137,6 @@ async fn profil_perdu_rattrape_par_l_annonce_a_la_connexion() {
     let dir_b = tempfile::tempdir().unwrap();
     let alice = boot_avec(dir_a.path(), lente.clone()).await;
     let bob = boot_avec(dir_b.path(), lente.clone()).await;
-    let alice_pub = alice.node.public_key();
     lier_amis(&alice, &bob).await;
 
     // Bob éteint ; Alice pose pseudo + bannière (annonce → outbox).
@@ -165,9 +164,8 @@ async fn profil_perdu_rattrape_par_l_annonce_a_la_connexion() {
     // outbox rapide) : l'annonce à la connexion d'Alice doit lui apporter le
     // hash, puis les octets.
     let bob = boot_avec(dir_b.path(), lente).await;
-    let bob_pub = bob.node.public_key();
-    alice.register_peer(bob_pub, bob.p2p_addr());
-    bob.register_peer(alice_pub, alice.p2p_addr());
+    alice.learn_peer(&bob).unwrap();
+    bob.learn_peer(&alice).unwrap();
     bob.node
         .profile_update(Some("Bob"), None, None, None, None, None, None, None)
         .unwrap();

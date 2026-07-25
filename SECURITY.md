@@ -140,8 +140,9 @@ arbitrary input; in-memory secrets are wiped via `zeroize`.
 An Accord identity is an **account** (root key) that authorises several
 **devices**, each with its own key; the signed device list says which
 ([docs/MULTI_DEVICE.md](docs/MULTI_DEVICE.md)). Pairing is the one moment where
-an account grants trust, so it is described here in full — including where it
-stops.
+an account grants trust — and, since the root travels, the moment where it hands
+over the key that *is* the account — so it is described here in full, including
+where it stops.
 
 - **Out-of-band code, human-confirmed fingerprint.** The already-authorised
   device shows an 8-character code over a 31-symbol alphabet (≈ 39 bits;
@@ -172,23 +173,64 @@ stops.
   minutes, replaced whenever a new one is requested, and restarting from a fresh
   SPAKE2 state at every attempt. The code and the channel key have a mute
   `Debug` and reach no log.
-- **The account root key never travels**, not even encrypted. Pairing grants
-  membership in the signed device list; it never grants the ability to issue
-  one.
+- **The account root key does travel, at the very end of a successful pairing.**
+  Once the fingerprint has been confirmed on the authorising side *and* the new
+  device has actually been enrolled — signed into the list, stored, published —
+  that side sends the account seed to it, sealed under the pairing channel
+  (`PairingSeed`, 0x1F). This reverses an earlier promise and is deliberate. A
+  device that received only membership could receive what is addressed to the
+  account and sign nothing in its name — not the next device list, not a
+  revocation, not a profile, not a group operation — and the alternative was
+  never "the root stays put": Accord already ships a twelve-word recovery phrase
+  that puts the same 32 bytes on any machine that types them, with no PAKE, no
+  fingerprint and no five-minute window. Installing a received seed does exactly
+  what restoring a typed phrase does, on purpose.
+- **What guards that transfer.** It is sealed under a channel key that no
+  observer can derive offline (XChaCha20-Poly1305, random 192-bit nonce), and it
+  carries a content tag *inside* the AEAD: this one channel seals payloads in
+  both directions — the new device's public key outward, the seed back — and
+  without the tag a reflected payload could be re-read as the other kind. The
+  wire message is bounded at 128 bytes for a payload known in advance to be 73,
+  so it is not an allocation lever. The receiver refuses it on four independent
+  grounds: it must be the side that *typed* a code, it must already have
+  confirmed the fingerprint on its own screen (a seed nobody asked for is
+  dropped), it must come from the very machine the channel was opened with, and
+  the payload must open under the channel key and carry the seed tag. A second
+  seed is ignored. Nothing touches the disk on arrival — the seed waits in
+  memory, zeroized on drop, with a mute `Debug`, and the local API exposes only a
+  boolean saying one is pending. Installing it **refuses a profile that already
+  has a vault** rather than overwriting it, and rebuilds the database, since the
+  database key derives from the seed.
+- **What holding the code alone still does not buy.** Anyone who reads or
+  intercepts the code can complete the exchange — the PAKE authenticates whoever
+  knows the code, and a completed exchange proves nothing beyond that. But the
+  seed leaves only after a human confirms the fingerprint **on the authorised
+  device**, comparing it against the screen of the machine they actually meant to
+  add. Someone who has the code but is not standing in front of that device gets
+  a number that does not match, three attempts, and five minutes.
 - **The device list is signed by the account root key** over its whole content,
   version included, so an old list cannot be replayed with a bumped version. A
   version lower than or equal to one already held is ignored, bounds are
   enforced at decode (8 devices, 32 revocations, 8 KiB record), and the list
   carries an explicit 24 h lifetime past which a holder must refresh before
-  trusting it — a stale list authorises nobody.
+  trusting it — a stale list authorises nobody. Note what that signature does
+  *not* say: since every paired device holds the root, it identifies the account,
+  never which of its machines issued the list. §5.13 draws the consequence for
+  revocation.
 
 **Denial of pairing.** Anyone who can reach the node while an offer is open can
 send well-formed pairing messages, and three of them burn the offer. They cannot
-pair, and they cannot change the fingerprint once a device has proved it holds
-the code: the candidate channel is frozen as soon as a sealed payload opens, so
-a late message is dropped rather than swapping the number under the user's eyes.
-What remains is that a stranger can force the user to start over. Bounded by the
-5-minute window and by asking for a new code.
+pair, and they cannot change the fingerprint under the user's eyes: the candidate
+channel is frozen once acquired, and a late message is dropped rather than
+swapping the number just before it is compared. What "acquired" means differs by
+side, and has to: the authorised device waits for a sealed payload to open, the
+one event that proves knowledge of the code, because it must leave its three
+attempts to whoever is mistyping it; the joining device freezes on the first
+well-formed reply, since it started the exchange and any later answer can only
+come from a neighbour who holds a different code. That second rule is what stops
+a stranger from feeding an account seed to a machine that is waiting to adopt
+one. What remains is that a stranger can force the user to start over. Bounded by
+the 5-minute window and by asking for a new code.
 
 ### 3.6 Local surface (UI ↔ node)
 
@@ -297,13 +339,20 @@ Read before recommending Accord to people whose safety depends on anonymity.
     optional default, the current implementation always seals the vault under
     the **user passphrase** (no random secret in the system keychain): a weak
     phrase weakens the vault.
-12. **Physical presence at an authorised device is enough to pair.** Anyone
-    standing in front of your unlocked, already-authorised machine can open a
-    pairing offer, read the code off the screen and confirm the fingerprint on
-    both sides. The flow is *designed* to require exactly that presence, and it
-    cannot tell the account's owner from anyone else who is standing there. No
-    cryptography protects against this — physical control of your machines
-    does.
+12. **Physical presence at an unlocked authorised device is enough to take the
+    account.** Anyone standing in front of your unlocked, already-authorised
+    machine can open a pairing offer, read the code off the screen and confirm
+    the fingerprint on both sides — and the flow then hands their machine the
+    **account root key** (§3.5). Stated plainly because it is a real widening of
+    what that access buys: it used to end with a device listed in your account
+    and unable to sign anything in its name; it now ends with a second, complete
+    copy of the account. What did not change is the difficulty of getting there.
+    The same person, in front of the same machine, could already read the
+    recovery phrase out of wherever it is kept, or the seed out of the memory of
+    the running process (§5.4). The flow is *designed* to require exactly that
+    presence, and it cannot tell the account's owner from anyone else who is
+    standing there. No cryptography protects against this — physical control of
+    your machines does, and a machine left unlocked is a machine lent out.
 13. **Device revocation is eventually consistent.** A peer that has not
     refreshed its copy of your device list keeps treating a revoked device as
     valid until that copy expires — at most 24 hours, usually less, since every
@@ -323,6 +372,18 @@ Read before recommending Accord to people whose safety depends on anonymity.
     expiry. Revoking a stolen device stops what comes next; it does not reach
     back for what was already in flight. Anyone who needs that guarantee should
     treat the messages sent in the hours before a theft as compromised.
+
+    A third consequence, larger than both and following from §3.5: **revocation
+    does not take the account root back.** A paired device holds it, so a
+    hostile holder can sign a device list of their own — including one that omits
+    their revocation — and correspondents cannot tell the two signers apart,
+    because there is only one signer. List versions derive from the clock, so
+    re-issuing is a race between two holders of the same key rather than a
+    defence. Revocation does what it says against a device that is lost, broken,
+    sold or cooperative. Against someone who has taken an unlocked machine, what
+    was taken is the account: there is no root rotation — the friend code *is*
+    the root's public key — so the remedy is a new account, and telling your
+    contacts so.
 14. **The device list is public.** It is published in the DHT, signed by the
     account key, under a key derived from that same account key — which is what
     lets a contact learn where to reach you without a server. It therefore
@@ -380,6 +441,16 @@ Recommended entry points for an auditor, from most critical to least critical:
   machine-checkable key confirmation, single use tied to the fingerprint
   confirmation rather than to the exchange, attempt counter, expiry, fresh state
   per attempt, absence of the code and the channel key from `Debug` and logs.
+- [ ] **Transfer of the account root at pairing** (`AccountSeed` and the sealing
+  helpers in `accord-crypto/src/pairing.rs`, `Node::send_account_seed` and
+  `Node::ingest_pairing_seed` in `crates/accord-node/src/node/mod.rs`,
+  `identity::adopt_account_seed`): the one-way direction, the content tag that
+  separates the two payload kinds carried by one channel key, the ordering that
+  puts enrolment before the seed, the four receiver-side refusals, single
+  adoption, the 128-byte wire bound, and installation onto a fresh profile only
+  (an existing vault refused, database rebuilt, device key reinstalled rather
+  than regenerated). This is the most sensitive message in the protocol: its
+  contents *are* the account.
 - [ ] **Device list** (`crates/accord-proto/src/device.rs`,
   `crates/accord-crypto/src/device.rs`, `crates/accord-node/src/device.rs`):
   root signature coverage including the version, version monotonicity, decode
@@ -422,11 +493,13 @@ Please do **not** open a public issue for an exploitable flaw.
 
 ### Supported versions
 
-**Only the latest release** receives security fixes (current line: 4.x,
-delivered through the in-app updater). Older releases are not patched — upgrade
-to the current release before reporting.
+**Only the latest release** receives security fixes, delivered through the in-app
+updater. Older releases are not patched — upgrade to the current release before
+reporting. (No version line is named here on purpose: the previous wording still
+said 4.x several releases later, which is exactly the kind of stale claim a
+security document must not make.)
 
 | Version | Supported |
 |---------|-----------|
-| latest release (4.x) | ✅ |
+| latest release | ✅ |
 | older releases | ❌ |

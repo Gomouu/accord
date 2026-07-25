@@ -1829,7 +1829,8 @@ pub enum CoreMsg {
     /// 0x19 — Charge scellée sous la clé du canal d'appairage (jalon 1).
     ///
     /// Portée après la confirmation d'empreinte : le nouvel appareil y met sa
-    /// clé publique, l'appareil autorisé y renvoie la liste signée.
+    /// clé publique, l'appareil autorisé l'inscrit puis lui remet la racine du
+    /// compte scellée sous la même clé de canal ([`CoreMsg::PairingSeed`]).
     ///
     /// 🔒 Opaque au protocole, et **authentifiée par le canal** : qui ne peut
     /// pas l'ouvrir n'avait pas le code. C'est le seul endroit de l'appairage

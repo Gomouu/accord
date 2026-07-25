@@ -87,7 +87,12 @@ async fn run() -> Result<(), BootstrapError> {
 
     let config = NodeConfig {
         // Un nœud d'amorçage ne sert que de point de rendez-vous : il n'a
-        // ni compte ni appareil à distinguer.
+        // ni compte ni appareil à distinguer. Divergence VOULUE du défaut
+        // depuis le basculement : sa clé de transport est son identité tout
+        // court, et personne ne la résout par une liste d'appareils — on le
+        // joint par son adresse. La faire varier ne lui apporterait rien et
+        // changerait son `node_id`, donc sa place dans les tables de routage
+        // du réseau.
         device_key_transport: false,
         paths,
         p2p_addr,

@@ -190,6 +190,15 @@ export const zhSettings = {
     pairJoinSubmit: '提交代码',
     pairJoinWaiting: '代码已发送，正在与另一台设备交换…',
     pairJoinRejected: '代码被拒绝。请照原样抄写：其中绝不含 0、O、1、I 和 L。',
+    pairAdoptWaiting: '数字已核对。正在从另一台设备接收账户…',
+    pairAdoptHint:
+      '账户已到达。请为它在“这台”设备上选一个密码短语：不必和另一台设备上的相同。',
+    pairAdoptSubmit: '接管账户',
+    pairAdoptLeftover:
+      '用来配对的那个身份会留在账户列表里，就在这个账户旁边。它不会被删除：打开哪一个由你决定。',
+    pairAdopted: '账户已接管！这台设备现在属于同一个账户。',
+    pairAdoptNeverArrived: '账户始终没有到达。什么都没有接管：请重新配对。',
+    pairAdoptFailed: '接管失败，收到的账户已经丢失。请从另一台设备重新开始配对。',
     devicesTitle: '音频设备',
     inputDevice: '输入（麦克风）',
     outputDevice: '输出（耳机、音箱）',

@@ -2902,8 +2902,10 @@ fn la_cle_dun_de_nos_appareils_remonte_a_notre_propre_compte() {
 
 #[test]
 fn lappareil_dun_non_ami_ne_remonte_a_aucun_compte() {
-    // Une liste peut être parfaitement signée sans que son compte soit un ami.
-    // Être signé n'est pas être invité.
+    // Une liste peut être parfaitement signée sans que son compte soit un ami,
+    // et l'annoncer depuis une AUTRE machine que celle qu'elle décrit ne
+    // prouve rien : être signé n'est pas être invité. Le pendant — la machine
+    // qui annonce sa propre liste — est le test suivant.
     let n = node();
     let etranger = accord_crypto::Identity::generate_with_pow_bits(1);
     let appareil = accord_crypto::DeviceIdentity::generate();
@@ -2924,5 +2926,193 @@ fn lappareil_dun_non_ami_ne_remonte_a_aucun_compte() {
         n.account_of_transport_key(&appareil.public_key()),
         appareil.public_key(),
         "sans amitié, la clé reste elle-même"
+    );
+}
+
+/// Liste signée par `root` décrivant `appareil` comme présentant sa propre clé.
+fn liste_basculee(
+    root: &accord_crypto::Identity,
+    appareil: &accord_crypto::DeviceIdentity,
+) -> accord_proto::device::DeviceList {
+    crate::device::build_device_list_with_root(
+        root,
+        appareil,
+        "Portable",
+        crate::node::now_ms(),
+        accord_proto::device::DEVICE_FLAG_TRANSPORT_KEY,
+    )
+}
+
+#[test]
+fn la_machine_dun_inconnu_se_rattache_quand_elle_annonce_sa_propre_liste() {
+    // 🔒 Le premier contact. Un demandeur d'ami n'est ni ami ni nous-même :
+    // aucun compte éligible ne peut revendiquer sa machine, et sa demande
+    // arriverait sous la clé d'un portable — la relation naîtrait au nom d'un
+    // appareil, que son code ami ne désignerait jamais.
+    //
+    // La preuve tient en deux moitiés : la racine a signé une entrée portant
+    // cette clé avec le drapeau de transport, et la session a été ouverte AVEC
+    // cette clé (ici, le premier paramètre d'`ingest_core_from`).
+    let n = node();
+    let inconnu = accord_crypto::Identity::generate_with_pow_bits(1);
+    let appareil = accord_crypto::DeviceIdentity::generate();
+    let liste = liste_basculee(&inconnu, &appareil);
+
+    n.ingest_core_from(
+        &appareil.public_key(),
+        &appareil.public_key(),
+        CoreMsg::DeviceListAnnounce { list: liste },
+    )
+    .unwrap();
+
+    assert_eq!(
+        n.account_of_transport_key(&appareil.public_key()),
+        inconnu.public_key(),
+        "la machine qui annonce sa propre liste doit se rattacher à son compte"
+    );
+
+    // …et il est joignable TOUT DE SUITE : sa machine vient de dire par où,
+    // signature de sa racine à l'appui. Attendre la prochaine passe de
+    // résolution DHT — jusqu'à trois minutes — pour répondre à quelqu'un dont
+    // on vient de saisir le code ami serait une régression visible.
+    assert_eq!(
+        n.delivery_targets(&inconnu.public_key()),
+        vec![appareil.public_key()],
+        "la liste prouvée doit servir l'éventail sans attendre la DHT"
+    );
+
+    // 🔒 …mais rien n'est entré en BASE pour autant. Notre liste part sur
+    // CHAQUE session établie, donc la leur aussi : persister ce qu'annonce le
+    // premier inconnu venu ferait grossir la table d'une ligne par pair DHT
+    // croisé, et cette croissance-là se provoque. En mémoire et borné, une
+    // entrée perdue coûte un tour de résolution, pas une panne.
+    assert!(
+        n.with_db(|db| Ok(db.device_list(&inconnu.public_key())?))
+            .unwrap()
+            .is_none(),
+        "la liste d'un inconnu ne doit pas entrer en base"
+    );
+}
+
+#[test]
+fn une_liste_qui_revendique_la_machine_dun_autre_ne_rattache_rien() {
+    // 🔒 Le squat de clé d'appareil. Les nonces de preuve de travail sont
+    // publics : n'importe qui peut signer une liste qui revendique la machine
+    // d'autrui. Si le rattachement se contentait de chercher la clé dans
+    // toutes les listes connues, un usurpateur détournerait les messages
+    // adressés à sa victime en signant une ligne de plus.
+    //
+    // Ce qu'il ne peut pas faire, c'est l'annoncer sur une session scellée
+    // avec la clé privée qu'il revendique.
+    let n = node();
+    let victime = accord_crypto::Identity::generate_with_pow_bits(1);
+    let appareil_victime = accord_crypto::DeviceIdentity::generate();
+    let usurpateur = accord_crypto::Identity::generate_with_pow_bits(1);
+    let appareil_usurpateur = accord_crypto::DeviceIdentity::generate();
+
+    // La liste de l'usurpateur revendique l'appareil de la victime — signature
+    // valide, preuve de travail valide, drapeau posé : tout est en règle sauf
+    // la seule chose qui compte.
+    let mut liste = liste_basculee(&usurpateur, &appareil_usurpateur);
+    liste.devices.push(accord_proto::device::DeviceEntry {
+        pubkey: appareil_victime.public_key(),
+        pow_nonce: appareil_victime.pow_nonce(),
+        name: "Volé".into(),
+        added_ms: crate::node::now_ms(),
+        flags: accord_proto::device::DEVICE_FLAG_TRANSPORT_KEY,
+    });
+    accord_crypto::sign_device_list_with_root(&usurpateur, &mut liste);
+
+    // Annoncée depuis la machine de l'usurpateur, qui est bien dans la liste.
+    n.ingest_core_from(
+        &appareil_usurpateur.public_key(),
+        &appareil_usurpateur.public_key(),
+        CoreMsg::DeviceListAnnounce { list: liste },
+    )
+    .unwrap();
+
+    assert_eq!(
+        n.account_of_transport_key(&appareil_usurpateur.public_key()),
+        usurpateur.public_key(),
+        "l'usurpateur se rattache à lui-même, c'est son droit"
+    );
+    assert_eq!(
+        n.account_of_transport_key(&appareil_victime.public_key()),
+        appareil_victime.public_key(),
+        "la machine de la victime ne doit PAS se rattacher à l'usurpateur"
+    );
+    assert_eq!(
+        n.delivery_targets(&victime.public_key()),
+        vec![victime.public_key()],
+        "et la victime reste joignable par sa propre clé, pas détournée"
+    );
+}
+
+#[test]
+fn la_liste_dun_destinataire_en_file_est_apprise_puis_readresse_la_file() {
+    // 🔒 Deux propriétés d'un seul geste, parce qu'elles ne valent que
+    // ensemble. Le protocole laisse écrire à qui n'est pas notre ami — une
+    // invitation de groupe. Bornée aux seules amitiés, la mise en cache
+    // refuserait la liste de l'invité, sa clé de compte resterait la seule
+    // cible connue, et depuis le basculement plus personne n'y écoute.
+    //
+    // Et l'apprendre ne suffit pas : ce qui attend déjà sous la clé de compte
+    // doit SUIVRE. La file est indexée par clé de transport et son vidage ne
+    // revérifie rien ; une ligne restée là expirerait sept jours plus tard
+    // sans une erreur nulle part.
+    let n = node();
+    let invite = accord_crypto::Identity::generate_with_pow_bits(1);
+    let appareil = accord_crypto::DeviceIdentity::generate();
+    let compte = invite.public_key();
+
+    n.outbox_enqueue(
+        &compte,
+        &CoreMsg::InviteDecline {
+            group_id: [7u8; 16],
+            invite_id: [8u8; 16],
+        },
+    )
+    .unwrap();
+
+    let liste = liste_basculee(&invite, &appareil);
+    let record =
+        crate::device::device_list_record_with_root(&invite, &liste, crate::node::now_ms());
+    n.ingest_device_list_record(&compte, &record).unwrap();
+
+    assert_eq!(
+        n.delivery_targets(&compte),
+        vec![appareil.public_key()],
+        "la liste d'un destinataire en file doit être mise en cache"
+    );
+    assert!(
+        n.outbox_for(&compte).unwrap().is_empty(),
+        "plus rien ne doit attendre sous une clé que personne n'écoute"
+    );
+    assert_eq!(
+        n.outbox_for(&appareil.public_key()).unwrap().len(),
+        1,
+        "l'invitation doit maintenant attendre la MACHINE de l'invité"
+    );
+}
+
+#[test]
+fn la_liste_dun_inconnu_sans_rien_en_file_reste_ignoree() {
+    // La borne tient : le cache ne grandit que de ce que NOUS avons décidé
+    // d'envoyer. Une réponse DHT à propos de quelqu'un qu'on ne cherche pas à
+    // joindre n'y entre pas.
+    let n = node();
+    let inconnu = accord_crypto::Identity::generate_with_pow_bits(1);
+    let appareil = accord_crypto::DeviceIdentity::generate();
+    let liste = liste_basculee(&inconnu, &appareil);
+    let record =
+        crate::device::device_list_record_with_root(&inconnu, &liste, crate::node::now_ms());
+
+    n.ingest_device_list_record(&inconnu.public_key(), &record)
+        .unwrap();
+
+    assert_eq!(
+        n.delivery_targets(&inconnu.public_key()),
+        vec![inconnu.public_key()],
+        "rien ne doit avoir été mis en cache"
     );
 }

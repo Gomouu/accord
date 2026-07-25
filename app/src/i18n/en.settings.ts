@@ -211,6 +211,18 @@ export const enSettings = {
     pairJoinWaiting: 'Code sent. Exchange under way with the other device…',
     pairJoinRejected:
       'Code refused. Copy it exactly as shown: it never contains 0, O, 1, I or L.',
+    pairAdoptWaiting:
+      'Fingerprint confirmed. Receiving the account from the other device…',
+    pairAdoptHint:
+      'The account has arrived. Choose a passphrase to protect it on THIS device: it does not have to match the one on the other device.',
+    pairAdoptSubmit: 'Adopt the account',
+    pairAdoptLeftover:
+      'The profile used for pairing will stay in the account list, next to this one. Nothing erases it: it is up to you which one you open.',
+    pairAdopted: 'Account adopted! This device is now on the same account.',
+    pairAdoptNeverArrived:
+      'The account never arrived. Nothing was adopted: start the pairing again.',
+    pairAdoptFailed:
+      'Adoption failed and the account that was received is lost. Start the pairing again from the other device.',
     // Voice.
     devicesTitle: 'Audio devices',
     inputDevice: 'Input (microphone)',

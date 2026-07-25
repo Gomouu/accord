@@ -212,6 +212,18 @@ export const esSettings = {
     pairJoinWaiting: 'Código enviado. Intercambio en curso con el otro dispositivo…',
     pairJoinRejected:
       'Código rechazado. Cópialo tal como aparece: nunca contiene 0, O, 1, I ni L.',
+    pairAdoptWaiting:
+      'Huella confirmada. Recibiendo la cuenta desde el otro dispositivo…',
+    pairAdoptHint:
+      'La cuenta ha llegado. Elige una contraseña para protegerla en ESTE dispositivo: no tiene por qué ser la misma que en el otro.',
+    pairAdoptSubmit: 'Adoptar la cuenta',
+    pairAdoptLeftover:
+      'El perfil que sirvió para la vinculación seguirá en la lista de cuentas, junto a esta. Nada lo borra: tú decides cuál abrir.',
+    pairAdopted: '¡Cuenta adoptada! Este dispositivo ya está en la misma cuenta.',
+    pairAdoptNeverArrived:
+      'La cuenta nunca llegó. No se ha adoptado nada: vuelve a empezar la vinculación.',
+    pairAdoptFailed:
+      'La adopción falló y la cuenta recibida se ha perdido. Vuelve a empezar la vinculación desde el otro dispositivo.',
     // Voice.
     devicesTitle: 'Dispositivos de audio',
     inputDevice: 'Entrada (micrófono)',

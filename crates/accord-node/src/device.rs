@@ -288,7 +288,7 @@ pub fn has_fresh_list(db: &Db, account: &[u8; 32], now_ms: u64) -> bool {
 }
 
 /// Liste d'appareils en cache pour `account`, si elle est lisible et fraîche.
-fn cached_list_for(db: &Db, account: &[u8; 32], now_ms: u64) -> Option<DeviceList> {
+pub fn cached_list_for(db: &Db, account: &[u8; 32], now_ms: u64) -> Option<DeviceList> {
     let cached = db.device_list(account).ok()??;
     let mut r = accord_proto::Reader::new(&cached.encoded);
     let list = DeviceList::decode(&mut r).ok()?;
@@ -358,9 +358,20 @@ pub fn account_for_static(
 /// direct. Négligeable pour du texte ; **inacceptable pour la voix et la
 /// vidéo**, qui restent mono-appareil (§5).
 pub fn delivery_targets(db: &Db, account: &[u8; 32], now_ms: u64) -> Vec<[u8; 32]> {
-    let Some(list) = cached_list_for(db, account, now_ms) else {
-        return vec![*account];
-    };
+    match cached_list_for(db, account, now_ms) {
+        Some(list) => targets_from_list(&list, account),
+        None => vec![*account],
+    }
+}
+
+/// La règle de [`delivery_targets`], appliquée à une liste déjà en main.
+///
+/// 🔒 Extrait pour qu'il n'existe **qu'une seule** implémentation de la règle.
+/// La liste peut venir du cache en base ou d'une annonce prouvée sur session
+/// (`Node::delivery_targets`) ; ce qu'on en déduit, lui, ne doit pas dépendre
+/// d'où elle vient — deux versions de cette règle finiraient par diverger, et
+/// la divergence enverrait des messages à une clé que personne n'écoute.
+pub fn targets_from_list(list: &DeviceList, account: &[u8; 32]) -> Vec<[u8; 32]> {
     let mut targets = Vec::with_capacity(list.devices.len() + 1);
     let mut account_needed = list.devices.is_empty();
     for device in &list.devices {

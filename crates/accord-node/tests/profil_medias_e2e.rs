@@ -84,8 +84,8 @@ async fn attendre(mut cond: impl FnMut() -> bool) -> bool {
 async fn lier_amis(alice: &RunningNode, bob: &RunningNode) {
     let alice_pub = alice.node.public_key();
     let bob_pub = bob.node.public_key();
-    alice.register_peer(bob_pub, bob.p2p_addr());
-    bob.register_peer(alice_pub, alice.p2p_addr());
+    alice.learn_peer(bob).unwrap();
+    bob.learn_peer(alice).unwrap();
     alice.node.friend_request(&bob_pub, "Alice").unwrap();
     assert!(
         attendre(|| {

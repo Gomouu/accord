@@ -42,6 +42,16 @@ export interface RestoredAccount {
   account_id: string;
 }
 
+/**
+ * Compte issu d'une adoption d'appairage. Même forme que [`RestoredAccount`],
+ * et ce n'est pas une coïncidence : une racine arrivée par un code d'appairage
+ * et une racine saisie en douze mots sont la même chose par deux chemins.
+ */
+export interface AdoptedAccount {
+  session: SessionInfo;
+  account_id: string;
+}
+
 export function isTauri(): boolean {
   return '__TAURI_INTERNALS__' in window;
 }
@@ -177,6 +187,27 @@ export async function accountRestore(
     throw new Error('restauration indisponible hors Tauri (mode développement)');
   }
   return invoke<RestoredAccount>('account_restore', { phrase, passphrase });
+}
+
+/**
+ * Installe dans un compte **neuf** la racine reçue par appairage, la scelle
+ * sous la phrase de passe locale donnée, puis démarre son nœud. Pendant exact
+ * d'[`accountRestore`], et jamais sur le profil actif : celui qui a mené
+ * l'appairage garde son propre coffre.
+ *
+ * 🔒 La graine ne traverse pas cette frontière — ni dans l'appel, ni dans la
+ * réponse. L'hôte la reprend au nœud d'appairage tout seul ; l'UI n'apprend
+ * qu'elle est arrivée que par le booléen `adopted` de `devices.pair_status`.
+ *
+ * ⚠️ L'adoption est **consommée à la première tentative**, avant tout ce qui
+ * peut échouer côté hôte. Un rejet signifie donc qu'il n'y a plus rien à
+ * adopter : rappeler cette commande échouera, il faut refaire un appairage.
+ */
+export async function accountAdoptPaired(passphrase: string): Promise<AdoptedAccount> {
+  if (!isTauri()) {
+    throw new Error('adoption indisponible hors Tauri (mode développement)');
+  }
+  return invoke<AdoptedAccount>('account_adopt_paired', { passphrase });
 }
 
 /**

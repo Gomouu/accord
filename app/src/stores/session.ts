@@ -8,6 +8,7 @@ import { api, rpc } from '../lib/client';
 import type { RpcStatus } from '../lib/rpc';
 import type { SelfProfile } from '../lib/api';
 import {
+  accountAdoptPaired,
   accountCreate,
   accountRestore,
   accountsList,
@@ -138,6 +139,15 @@ interface SessionState {
   /** Déverrouille un compte existant du registre et bascule dessus. */
   unlockAccount: (accountId: string, passphrase: string) => Promise<void>;
   activateAccount: (accountId: string, passphrase: string) => Promise<void>;
+  /**
+   * Adopte la racine reçue par appairage dans un compte **neuf** et bascule
+   * dessus, depuis la session vivante qui a mené l'appairage.
+   *
+   * ⚠️ Rejette si l'hôte a refusé l'adoption — et dans ce cas la racine reçue
+   * est perdue : l'hôte la consomme avant tout ce qui peut échouer. L'appelant
+   * doit dire qu'il faut refaire un appairage, jamais proposer de réessayer.
+   */
+  adoptPairedAccount: (passphrase: string) => Promise<void>;
   /**
    * Change de compte sans quitter l'application : ferme la session active
    * (nœud arrêté, secrets en mémoire effacés côté hôte) et ramène l'UI au
@@ -377,6 +387,42 @@ export const useSession = create<SessionState>((set) => {
           await sessionClose().catch(() => undefined);
           set({ phase: 'welcome', self: null, error });
         } else set({ error });
+        throw e;
+      }
+    },
+
+    adoptPairedAccount: async (passphrase) => {
+      set({ error: null });
+      // 🔒 Tant que l'hôte n'a pas rendu la main, la session courante est
+      // INTACTE — l'adoption échoue avant d'arrêter quoi que ce soit. Ne rien
+      // démonter d'avance est ce qui permet, en cas de refus, de laisser
+      // l'utilisateur sur son profil au lieu de le jeter dehors pour une
+      // adoption qui n'a pas eu lieu.
+      const adopted = await accountAdoptPaired(passphrase);
+      let bascule = false;
+      try {
+        // Bascule d'une session VIVANTE, contrairement à `restoreAccount` qui
+        // part d'un écran d'accueil : purger les stores account-scoped et
+        // fermer le lien RPC n'est pas optionnel ici. Sans ça, conversations
+        // et contacts du profil qui a mené l'appairage resteraient affichés
+        // sous le compte adopté — une fuite entre deux identités qui n'ont
+        // rien à voir. C'est la discipline d'`activateAccount`.
+        set({ phase: 'starting', self: null, recoveryPhrase: null, askName: false });
+        resetAccountScopedStores();
+        clearPendingConversation();
+        rpc.close();
+        bascule = true;
+        const self = await attach(adopted.session);
+        // Comme après une restauration : la racine ramène l'identité, pas le
+        // profil public — le pseudo se rechoisit sur cet appareil.
+        set({ phase: 'ready', self, recoveryPhrase: null, askName: self.name === null });
+      } catch (e) {
+        // L'adoption a bien eu lieu — le compte existe sur disque — mais le
+        // lien n'a pas pris. Le sélecteur de comptes est la seule sortie
+        // honnête : l'ancien nœud est arrêté, et le compte adopté attend d'être
+        // déverrouillé. Y rester coincé sur `starting` serait un écran mort.
+        if (bascule) set({ phase: 'welcome', self: null });
+        set({ error: e instanceof Error ? e.message : String(e) });
         throw e;
       }
     },

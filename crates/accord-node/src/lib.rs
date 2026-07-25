@@ -74,21 +74,26 @@ pub struct NodeConfig {
     /// Le transport présente-t-il la **clé d'appareil** au lieu de la clé de
     /// compte (multi-appareil, jalon 1, lot 1.C phase 2) ?
     ///
-    /// 🔒 **Reste à `false` tant que le parc n'est pas sur 6.4.** Un pair qui
-    /// ne sait pas résoudre une clé d'appareil vers son compte ne reconnaît
-    /// pas son ami : la clé statique de transport **est** encore la clé de
-    /// compte pour lui, et une clé inconnue est un inconnu. Le premier à
-    /// basculer deviendrait un étranger pour tous les autres.
+    /// **Encore `false` par défaut** : le basculement est différé d'une
+    /// version, voir la raison sur `NodeConfig::default`. C'est lui qui lèvera
+    /// le bloqueur B1 : l'invariant « au plus une session directe par identité »
+    /// devient « par appareil » sans qu'une ligne d'`install_session` ne
+    /// change, et deux machines d'un même compte cessent de s'évincer chez
+    /// chacun de leurs amis.
     ///
-    /// La lecture, elle, est déjà active : `device::account_for_static`
-    /// rattache une clé d'appareil listée à son compte. Même déploiement en
-    /// deux temps que le champ de capacités du handshake — savoir lire
-    /// d'abord, écrire ensuite.
+    /// 🔒 Le basculement n'était tenable qu'une fois la moitié « savoir lire »
+    /// déployée (6.3.0, phase 1) : `device::account_for_static` rattache une clé
+    /// d'appareil listée à son compte, et `DEVICE_FLAG_TRANSPORT_KEY` dit aux
+    /// correspondants laquelle des deux clés cette machine présente. Sans
+    /// elles, le premier à basculer serait devenu un inconnu pour tous ses
+    /// amis. Même discipline que le champ de capacités du handshake : savoir
+    /// lire d'abord, écrire ensuite (`docs/MULTI_DEVICE.md` §3.2.1).
     ///
-    /// L'allumer rend le multi-appareil réellement fonctionnel : c'est ce
-    /// basculement qui lève le bloqueur B1, l'invariant « au plus une session
-    /// directe par identité » devenant « par appareil » sans qu'une ligne de
-    /// `install_session` ne change.
+    /// ⚠️ Le champ **reste** configurable, et pas seulement pour les tests : le
+    /// remettre à `false` est le retour en arrière d'urgence si le basculement
+    /// se passait mal sur le terrain. `reconcile_local_device_flags` gère les
+    /// deux sens — la liste d'appareils republie un drapeau retiré aussi bien
+    /// qu'un drapeau posé.
     pub device_key_transport: bool,
     /// Nœuds d'amorçage/relais PAR DÉFAUT livrés avec l'application (points
     /// d'entrée du réseau, à la manière des bootstrap nodes d'IPFS/BitTorrent —
@@ -115,6 +120,23 @@ impl Default for NodeConfig {
             voice_backend: VoiceBackend::default(),
             nat_enabled: true,
             mdns_enabled: true,
+            // 🔒 Encore `false`, et pour une raison précise découverte en
+            // construisant le basculement : le parc doit d'abord savoir
+            // **recevoir** un premier contact venu d'une clé d'appareil.
+            //
+            // Un pair 6.3.0 ne rattache une clé d'appareil qu'aux comptes avec
+            // lesquels il est déjà en relation. Au tout premier contact il n'en
+            // a aucune : il enregistre donc l'amitié sous la clé d'une MACHINE.
+            // Les messages passent, mais le code ami cesse de désigner ce
+            // contact, et un second appareil apparaîtrait chez lui comme une
+            // troisième personne. C'est une corruption durable de son carnet,
+            // silencieuse, et qui ne se répare pas quand il met à jour.
+            //
+            // L'annonce auto-authentifiante qui corrige ça est dans cette
+            // version — mais c'est une capacité de RÉCEPTION. Elle doit être
+            // dans le parc avant que quiconque présente sa clé d'appareil.
+            // Même discipline que le champ de capacités et
+            // `RecordKind::Unknown` : savoir lire une version avant d'écrire.
             device_key_transport: false,
             default_bootstrap: Vec::new(),
         }
@@ -169,8 +191,40 @@ impl RunningNode {
 
     /// Enregistre l'adresse P2P d'un pair (normalement fournie par la
     /// résolution de présence DHT ; exposé pour l'amorçage et les tests).
+    ///
+    /// ⚠️ La clé attendue est celle du **transport**, pas celle du compte : le
+    /// carnet est indexé par la clé que la machine présente, et depuis le
+    /// basculement (lot 1.C phase 2) les deux diffèrent. Inscrire une adresse
+    /// sous une clé de compte ne mène nulle part — l'envoi lié à l'identité
+    /// refuserait une session ouverte sous une autre clé.
     pub fn register_peer(&self, pubkey: [u8; 32], addr: SocketAddr) {
         self.runtime.register_peer(pubkey, addr);
+    }
+
+    /// Apprend d'un autre nœud **les deux moitiés** de ce que la résolution de
+    /// présence rend en production : sa liste d'appareils signée, puis
+    /// l'adresse de la machine qu'elle désigne.
+    ///
+    /// **RÉSERVÉ AUX TESTS.** Un test de nœud sans DHT n'a aucun autre moyen
+    /// d'apprendre la liste d'un pair, et depuis le basculement l'adresse seule
+    /// ne suffit plus : sans la liste, la clé de compte du destinataire reste
+    /// la seule cible connue, et plus aucune machine ne l'écoute
+    /// (`docs/MULTI_DEVICE.md` §3.2.1). En production, ces deux moitiés
+    /// arrivent de la DHT, dans cet ordre, à chaque passe de résolution.
+    /// Réapprendre est **idempotent** : la garde de fraîcheur est celle de la
+    /// passe de maintenance (`presence_resolve_tick`), et pour la même raison —
+    /// réingérer une liste à version identique serait refusé comme un rejeu.
+    /// Un test qui rejoue l'amorçage après un redémarrage en dépend.
+    #[doc(hidden)]
+    pub fn learn_peer(&self, other: &RunningNode) -> Result<(), NodeError> {
+        let compte = other.node.public_key();
+        if !self.node.has_fresh_device_list(&compte) {
+            if let Some(record) = other.node.device_list_record() {
+                self.node.learn_device_list_record(&compte, &record)?;
+            }
+        }
+        self.register_peer(other.node.transport_key(), other.p2p_addr());
+        Ok(())
     }
 
     /// Coordonnées DHT locales, à fournir comme graine d'amorçage à d'autres

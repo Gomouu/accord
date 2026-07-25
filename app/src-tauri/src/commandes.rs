@@ -12,7 +12,8 @@ use tauri::State;
 
 use crate::erreur::ErreurHote;
 use crate::etat::{
-    CompteCree, CompteMeta, CompteRestaure, EtatHote, IdentiteCreee, InfoSession, StatutCoffre,
+    CompteAdopte, CompteCree, CompteMeta, CompteRestaure, EtatHote, IdentiteCreee, InfoSession,
+    StatutCoffre,
 };
 
 /// Difficulté PoW des identités (SPEC §2.2).
@@ -28,6 +29,14 @@ const NOUVEAU_COMPTE_NOM_PROVISOIRE: &str = "Nouveau compte";
 /// premier déverrouillage (qui rafraîchit le vrai pseudo via
 /// `EtatHote::rafraichir_compte_actif`, comme pour tout compte).
 const COMPTE_IMPORTE_NOM_PROVISOIRE: &str = "Compte importé";
+
+/// Nom provisoire d'un compte rejoint par appairage. Il en faut un propre :
+/// la base du profil adopté est neuve (voir `identity::adopt_account_seed`),
+/// donc le pseudo du compte n'y figure pas encore et n'apparaîtra qu'une
+/// fois la synchronisation passée — d'ici là, le sélecteur de comptes doit
+/// dire ce que ce compte est plutôt que de le confondre avec un compte créé
+/// de zéro.
+const COMPTE_APPAIRE_NOM_PROVISOIRE: &str = "Compte appairé";
 
 /// Statut du coffre d'identité : `'absent'` ou `'locked'`.
 #[tauri::command]
@@ -156,6 +165,68 @@ pub async fn account_restore(
     etat.activer(id.clone(), chemins);
     let session = demarrer(&etat, deverrouille).await?;
     Ok(CompteRestaure {
+        session,
+        account_id: id,
+    })
+}
+
+/// Installe dans un compte **neuf** la racine reçue par appairage, puis
+/// démarre son nœud. Pendant exact d'`account_restore`, et pour cause : une
+/// racine arrivée par un code d'appairage et une racine saisie en douze mots
+/// sont la même chose par deux chemins — d'où la même séquence (entrée de
+/// registre neuve, scellement, enregistrement tardif, activation, démarrage)
+/// et la même discipline.
+///
+/// 🔒 Jamais sur le profil actif. Le profil qui a mené l'appairage a son
+/// propre coffre, dont la phrase de récupération est peut-être la seule copie
+/// au monde ; adopter par-dessus l'effacerait. `adopt_account_seed` refuse de
+/// toute façon tout profil déjà habité — la garantie tient donc des deux
+/// côtés, pas seulement du bon usage de cette commande.
+#[tauri::command]
+pub async fn account_adopt_paired(
+    etat: State<'_, EtatHote>,
+    passphrase: String,
+) -> Result<CompteAdopte, ErreurHote> {
+    // 🔒 L'adoption se reprend ICI, avant tout le reste, et une seule fois :
+    // la reprise la consomme côté nœud, et un échec ultérieur oblige à
+    // refaire un appairage. La placer en tête est ce qui rend ce coût
+    // minimal — rien avant elle ne peut échouer (`new_entry` n'écrit rien et
+    // est infaillible), et l'échec de loin le plus probable, « rien à
+    // adopter », coûte alors exactement zéro : aucun répertoire alloué,
+    // aucune entrée de registre, aucun nœud arrêté. La repousser
+    // n'achèterait rien : `adopt_account_seed` en a besoin et vient juste
+    // après.
+    //
+    // ⚠️ Elle exige surtout le nœud d'appairage VIVANT — la clé d'appareil
+    // enrôlée se relit dans sa base — donc elle doit précéder `demarrer`,
+    // qui commence par l'arrêter.
+    let adoption = etat
+        .prendre_adoption()
+        .ok_or(accord_node::NodeError::NotFound("compte appairé à adopter"))?;
+    let (brouillon, chemins) = etat.registre().new_entry(COMPTE_APPAIRE_NOM_PROVISOIRE);
+    let id = brouillon.id.clone();
+    let deverrouille = en_arriere_plan({
+        let chemins = chemins.clone();
+        // 🔒 L'adoption ne ressort d'ici que scellée sur disque : elle n'est
+        // ni journalisée, ni rendue à l'UI, ni convertie en message d'erreur
+        // — son `Debug` est muet et rien ne la formate, et les variantes de
+        // `NodeError` que ce chemin peut produire ne portent que du texte
+        // figé ou l'erreur d'E/S sous-jacente (voir `ErreurHote`).
+        move || identity::adopt_account_seed(&chemins, &adoption, &passphrase, POW_BITS)
+    })
+    .await?;
+    // Enregistrement tardif, comme `account_create` et `account_restore` :
+    // un scellement raté ne laisse jamais dans le registre un compte pointant
+    // sur un répertoire à moitié écrit. Le refus `AlreadyExists`
+    // d'`adopt_account_seed` ne peut pas se produire sur des chemins tirés à
+    // l'instant par `new_entry` ; s'il se produisait quand même (collision
+    // d'identifiant de profil, autant dire jamais), ce serait le bon refus :
+    // le profil déjà là reste intact, rien n'entre au registre, et il faut
+    // refaire un appairage.
+    etat.registre().register(brouillon)?;
+    etat.activer(id.clone(), chemins);
+    let session = demarrer(&etat, deverrouille).await?;
+    Ok(CompteAdopte {
         session,
         account_id: id,
     })

@@ -88,8 +88,8 @@ async fn attendre(mut cond: impl FnMut() -> bool) -> bool {
 async fn lier_amis(alice: &RunningNode, bob: &RunningNode) {
     let alice_pub = alice.node.public_key();
     let bob_pub = bob.node.public_key();
-    alice.register_peer(bob_pub, bob.p2p_addr());
-    bob.register_peer(alice_pub, alice.p2p_addr());
+    alice.learn_peer(bob).unwrap();
+    bob.learn_peer(alice).unwrap();
     alice.node.friend_request(&bob_pub, "Alice").unwrap();
     assert!(
         attendre(|| {
@@ -131,7 +131,6 @@ async fn banniere_posee_pendant_que_l_ami_est_eteint_le_rattrape_au_redemarrage(
     let dir_b = tempfile::tempdir().unwrap();
     let alice = boot(dir_a.path()).await;
     let bob = boot(dir_b.path()).await;
-    let alice_pub = alice.node.public_key();
     lier_amis(&alice, &bob).await;
 
     // Bob s'éteint. Alice pose sa bannière pendant ce temps : l'annonce
@@ -152,9 +151,8 @@ async fn banniere_posee_pendant_que_l_ami_est_eteint_le_rattrape_au_redemarrage(
     // Bob redémarre (même profil, nouvelle adresse) ; les adresses sont
     // ré-échangées comme le font les pairs enregistrés à la main.
     let bob = boot(dir_b.path()).await;
-    let bob_pub = bob.node.public_key();
-    alice.register_peer(bob_pub, bob.p2p_addr());
-    bob.register_peer(alice_pub, alice.p2p_addr());
+    alice.learn_peer(&bob).unwrap();
+    bob.learn_peer(&alice).unwrap();
 
     // L'annonce en attente doit être livrée, et les octets récupérés.
     assert!(

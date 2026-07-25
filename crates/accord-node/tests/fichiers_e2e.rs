@@ -261,9 +261,8 @@ async fn transfert_d_un_fichier_entre_deux_noeuds() {
     let alice = boot(dir_a.path()).await;
     let bob = boot(dir_b.path()).await;
     let alice_pub = alice.node.public_key();
-    let bob_pub = bob.node.public_key();
-    alice.register_peer(bob_pub, bob.p2p_addr());
-    bob.register_peer(alice_pub, alice.p2p_addr());
+    alice.learn_peer(&bob).unwrap();
+    bob.learn_peer(&alice).unwrap();
 
     // Alice publie une petite note (un unique bloc de fichier, transporté en un
     // seul cadre de session — le multi-blocs fragmenté est couvert plus bas).
@@ -336,8 +335,8 @@ async fn image_de_mp_entre_amis_flux_ui_complet() {
     let bob = boot(dir_b.path()).await;
     let alice_pub = alice.node.public_key();
     let bob_pub = bob.node.public_key();
-    alice.register_peer(bob_pub, bob.p2p_addr());
-    bob.register_peer(alice_pub, alice.p2p_addr());
+    alice.learn_peer(&bob).unwrap();
+    bob.learn_peer(&alice).unwrap();
 
     alice.node.friend_request(&bob_pub, "Alice").unwrap();
     let vu = attendre(|| {
@@ -455,9 +454,8 @@ async fn transfert_d_un_fichier_multi_blocs_entre_deux_noeuds() {
     let alice = boot(dir_a.path()).await;
     let bob = boot(dir_b.path()).await;
     let alice_pub = alice.node.public_key();
-    let bob_pub = bob.node.public_key();
-    alice.register_peer(bob_pub, bob.p2p_addr());
-    bob.register_peer(alice_pub, alice.p2p_addr());
+    alice.learn_peer(&bob).unwrap();
+    bob.learn_peer(&alice).unwrap();
 
     // 600 KiB = 3 blocs de 256 KiB : chaque bloc (FileMsg::Block) dépasse
     // largement la MTU applicative de 1 200 o et transite donc fragmenté sur

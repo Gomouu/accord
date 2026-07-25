@@ -82,7 +82,7 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             },
             // 🔒 Un booléen, et jamais la graine. L'hôte apprend ici que la
             // racine du compte est arrivée ; il la reprend par
-            // `Node::pairing_take_adopted_seed`, qui ne passe pas par cette
+            // `Node::pairing_take_adoption`, qui ne passe pas par cette
             // API. Rien de ce qui transite en JSON local ne doit contenir le
             // compte : ce canal est lisible par tout ce qui tourne sur la
             // machine et finit dans les traces de qui débogue.

@@ -11,7 +11,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const devicesList = vi.fn();
 const devicesRename = vi.fn();
 
-vi.mock('../../lib/client', () => ({
+// Seule `api` est bouchonnée : la section embarque désormais les deux bouts de
+// l'appairage, et celui qui rejoint atteint le store de session — lequel
+// s'abonne au vrai `rpc` à sa création. Un module entièrement remplacé le
+// priverait de cet export et ferait échouer l'import, pas le test.
+vi.mock('../../lib/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/client')>()),
   api: {
     devicesList: () => devicesList(),
     devicesRename: (name: string) => devicesRename(name),
@@ -46,6 +51,18 @@ describe('DevicesSection', () => {
 
     expect(await screen.findByText('Portable')).toBeInTheDocument();
     expect(screen.getByText(L.deviceCurrent)).toBeInTheDocument();
+  });
+
+  it('propose les deux bouts de l’appairage, sans porte fermée', async () => {
+    // Ils sont restés cachés derrière un drapeau tant que l'adoption du compte
+    // n'existait pas : les montrer plus tôt aurait annoncé un appairage qui
+    // laissait la machine sur son propre compte. Ce test est ce qui empêche la
+    // porte de se refermer sans qu'on s'en aperçoive.
+    devicesList.mockResolvedValue({ devices: [APPAREIL] });
+    render(<DevicesSection />);
+
+    expect(await screen.findByRole('button', { name: L.pairAdd })).toBeInTheDocument();
+    expect(screen.getByLabelText(L.pairJoinLabel)).toBeInTheDocument();
   });
 
   it('n’affiche jamais la clé publique en entier', async () => {

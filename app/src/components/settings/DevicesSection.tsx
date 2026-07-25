@@ -1,9 +1,9 @@
 /**
  * Section « Mes appareils » (multi-appareil, jalon 1).
  *
- * Un seul appareil aujourd'hui — celui de cette machine. L'appairage en
- * ajoutera d'autres sans que cette liste change de forme, et c'est lui qui
- * apportera la révocation ; renommer est donc la seule action pour l'instant.
+ * La liste des appareils du compte, et les deux bouts de l'appairage qui
+ * l'alimentent. Renommer reste la seule action par ligne : la révocation
+ * viendra avec son propre lot.
  */
 
 import { useEffect, useState } from 'react';
@@ -27,14 +27,6 @@ const MAX_NAME_BYTES = 32;
 function octets(value: string): number {
   return new TextEncoder().encode(value).length;
 }
-
-/**
- * L'appairage est-il utilisable de bout en bout ?
- *
- * `false` tant que l'adoption du compte n'est pas câblée côté hôte : sans elle,
- * la machine qui rejoint termine le protocole et reste son propre compte.
- */
-const APPAIRAGE_UTILISABLE = false;
 
 export function DevicesSection() {
   const t = useT();
@@ -114,27 +106,13 @@ export function DevicesSection() {
         </ul>
       )}
 
-      {/* 🔒 Les deux côtés de l'appairage sont écrits, testés, et volontairement
-          PAS montrés. Le nœud sait tout faire jusqu'à remettre la racine du
-          compte à la machine qui rejoint ; ce qui manque est l'adoption
-          elle-même — rouvrir le coffre demande la phrase de passe que le nœud
-          ne détient pas, et la clé de base dérive de la graine, donc la base
-          ouverte ne peut pas être réutilisée. Il faut une commande hôte puis un
-          redémarrage du nœud.
-
-          Les montrer maintenant afficherait « appareil appairé » à quelqu'un
-          dont la machine est restée son propre compte : un message de succès
-          pour quelque chose qui n'a pas eu lieu, ce qui est pire que l'absence
-          du bouton. Rien ne régresse — cet écran n'a jamais été publié.
-
-          À rétablir avec le câblage hôte (`identity::adopt_account_seed`,
-          `Node::pairing_take_adoption`). */}
-      {APPAIRAGE_UTILISABLE && (
-        <>
-          <PairDeviceButton />
-          <JoinDeviceForm />
-        </>
-      )}
+      {/* Les deux côtés de l'appairage, côte à côte et sans choix préalable :
+          une machine ne sait pas d'avance si elle affichera le code ou le
+          recopiera, et demander « autorise ou rejoins ? » avant d'avoir rien
+          montré ne ferait qu'ajouter une question à la place d'une réponse.
+          C'est l'appareil qui a déjà le compte qui ouvre l'offre. */}
+      <PairDeviceButton />
+      <JoinDeviceForm />
 
       {current !== null && (
         <div className="mt-4 flex flex-wrap items-center gap-2">

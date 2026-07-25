@@ -108,6 +108,7 @@ pub fn executer() -> ExitCode {
             commandes::accounts_list,
             commandes::account_create,
             commandes::account_restore,
+            commandes::account_adopt_paired,
             commandes::account_unlock,
             commandes::session_close,
             commandes::backup_export,

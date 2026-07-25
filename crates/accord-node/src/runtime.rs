@@ -1305,6 +1305,31 @@ impl Runtime {
                     let account = self.node.account_of_transport_key(&static_pub);
                     self.remember_device(static_pub, account, addr);
                     self.mark_live_device(static_pub, account);
+                    // 🔒 Notre liste d'appareils part AVANT tout le reste, et
+                    // vers TOUT pair, pas seulement vers nos amis. Elle dit
+                    // quelle personne tient la machine qui parle : depuis le
+                    // basculement notre clé statique est celle d'un appareil, et
+                    // un correspondant qui ne nous connaît pas encore n'a aucun
+                    // moyen de remonter au compte. Ce qui suit — la file, dont
+                    // la première ligne est souvent notre demande d'ami ou une
+                    // invitation de groupe — serait sinon attribué à un
+                    // portable plutôt qu'à quelqu'un.
+                    //
+                    // Inconditionnel plutôt que réservé aux relations, et c'est
+                    // délibéré : la liste des gens que le protocole autorise à
+                    // nous écrire sans nous connaître ne se résume pas aux
+                    // amitiés (invitations de groupe, réponses d'invitation), et
+                    // une énumération à tenir à jour finit toujours par oublier
+                    // un cas — celui-là échouerait en silence, la relation
+                    // naissant au nom d'une machine. Rien n'est divulgué au
+                    // passage : la liste est déjà publique dans la DHT
+                    // (`docs/MULTI_DEVICE.md` §8), et elle tient dans quelques
+                    // centaines d'octets.
+                    if let Some(msg) = self.node.own_device_list_msg() {
+                        let _ = self
+                            .send_via_best_link(&static_pub, &ChannelMsg::Core(msg))
+                            .await;
+                    }
                     // Pair joignable : pousse immédiatement sa file d'attente.
                     // Celle de CETTE machine — vider ici la file adressée au
                     // compte livrerait à cet appareil des messages destinés à
@@ -1352,16 +1377,9 @@ impl Runtime {
                         self.offer_self_sync(&static_pub).await;
                     }
                     if self.is_friend(&account) {
-                        // Liste d'appareils poussée sur la session (lot 1.C) :
-                        // l'ami connecté n'attend aucun lookup DHT. Avant le
-                        // profil, qui est plus gros — si un seul des deux
-                        // passe, autant que ce soit celui qui dit par où
-                        // joindre le compte.
-                        if let Some(msg) = self.node.own_device_list_msg() {
-                            let _ = self
-                                .send_via_best_link(&static_pub, &ChannelMsg::Core(msg))
-                                .await;
-                        }
+                        // La liste d'appareils est déjà partie plus haut, avant
+                        // la file : elle dit par où joindre le compte, et le
+                        // profil qui suit est bien plus gros.
                         match self.node.own_profile_msg() {
                             Ok(Some(msg)) => {
                                 let banniere = matches!(
@@ -1664,6 +1682,27 @@ impl Runtime {
             self.node.delivery_targets(to_account),
             &self.node.transport_key(),
         );
+        // 🔒 Les deux messages qui s'adressent à quelqu'un qui ne nous connaît
+        // pas encore sont précédés de notre liste d'appareils. Depuis le
+        // basculement, notre clé statique est celle d'une MACHINE ; le
+        // destinataire n'a ni amitié ni liste en cache pour remonter au compte,
+        // et il enregistrerait la relation au nom de notre portable. Le code
+        // ami que nous lui avons donné ne désignerait alors plus personne chez
+        // lui, et notre second appareil lui apparaîtrait comme un tiers.
+        //
+        // Elle emprunte le MÊME chemin que le message qu'elle explique — mêmes
+        // cibles, même file, donc même ordre de sortie : la file est servie par
+        // date de mise en file, et celle-ci est mise avant.
+        if matches!(
+            msg,
+            CoreMsg::FriendRequest { .. } | CoreMsg::FriendResponse { .. }
+        ) {
+            if let Some(annonce) = self.node.own_device_list_msg() {
+                for cible in &cibles {
+                    self.deliver_core_to_device(cible, annonce.clone()).await;
+                }
+            }
+        }
         for cible in cibles {
             self.deliver_core_to_device(&cible, msg.clone()).await;
         }
@@ -2073,32 +2112,55 @@ impl Runtime {
         fixed_window_ok(fenetre, now, 1_000, FILES_RESP_PAR_S)
     }
 
-    /// Envoie un message FILE à un pair : session directe (liaison d'identité
-    /// comme `deliver_core` — si le carnet pointe sur l'adresse d'un relais,
-    /// l'envoi direct échoue proprement au lieu de sceller la requête sous la
-    /// session du relais), puis circuit relais existant. Sans l'un ni l'autre,
-    /// déclenche le repli de joignabilité détaché ([`Self::spawn_files_reach`])
-    /// pour que les relances suivantes aient un chemin. Rend vrai si l'envoi
-    /// est parti (sans garantie de livraison).
-    async fn send_file(&self, to: &[u8; 32], msg: FileMsg) -> bool {
+    /// Envoie un message FILE au COMPTE `to_account` : session directe
+    /// (liaison d'identité comme `deliver_core` — si le carnet pointe sur
+    /// l'adresse d'un relais, l'envoi direct échoue proprement au lieu de
+    /// sceller la requête sous la session du relais), puis circuit relais
+    /// existant. Sans l'un ni l'autre, déclenche le repli de joignabilité
+    /// détaché ([`Self::spawn_files_reach`]) pour que les relances suivantes
+    /// aient un chemin. Rend vrai si l'envoi est parti (sans garantie de
+    /// livraison).
+    ///
+    /// 🔒 C'est le point de traduction compte → machine du canal FILE, le
+    /// pendant de [`Self::deliver_core`] pour le canal CORE. Tout ce qui est en
+    /// amont — le coordinateur de téléchargement, les indices de source, les
+    /// demandeurs mémorisés — raisonne sur des **personnes**, parce que
+    /// `route_file` traduit déjà l'entrant dans l'autre sens.
+    ///
+    /// ⚠️ **Une machine, pas toutes**, et c'est la différence avec le canal
+    /// CORE. Un message doit atteindre chaque appareil de son destinataire ;
+    /// un bloc de fichier n'a besoin que d'UNE source qui réponde, et demander
+    /// le même mégaoctet à trois machines le ferait payer trois fois pour le
+    /// même octet utile (`docs/MULTI_DEVICE.md` §5, coût de l'éventail). On
+    /// s'arrête donc au premier chemin qui accepte l'envoi.
+    async fn send_file(&self, to_account: &[u8; 32], msg: FileMsg) -> bool {
         let channel_msg = ChannelMsg::File(msg);
-        if let Some(addr) = self.addr_of(to) {
-            if self
-                .endpoint
-                .send_to(addr, Some(*to), &channel_msg)
-                .await
-                .is_ok()
-            {
-                return true;
+        let cibles = crate::device::without_self(
+            self.node.delivery_targets(to_account),
+            &self.node.transport_key(),
+        );
+        for cible in &cibles {
+            if let Some(addr) = self.addr_of(cible) {
+                if self
+                    .endpoint
+                    .send_to(addr, Some(*cible), &channel_msg)
+                    .await
+                    .is_ok()
+                {
+                    return true;
+                }
             }
-        }
-        // Repli relais (SPEC §11.3) : sans ce chemin, aucun transfert de
-        // fichier (émojis, stickers, avatars, pièces jointes) n'aboutit entre
-        // deux pairs joignables uniquement via un circuit tunnelé (NAT).
-        if let Some(circuit) = self.endpoint.circuit_for_peer(node_id_of(to)) {
-            match self.endpoint.send_via_relay(circuit, &channel_msg).await {
-                Ok(()) => return true,
-                Err(e) => tracing::debug!(erreur = %e, "fichiers : envoi via relais impossible"),
+            // Repli relais (SPEC §11.3) : sans ce chemin, aucun transfert de
+            // fichier (émojis, stickers, avatars, pièces jointes) n'aboutit
+            // entre deux pairs joignables uniquement via un circuit tunnelé
+            // (NAT).
+            if let Some(circuit) = self.endpoint.circuit_for_peer(node_id_of(cible)) {
+                match self.endpoint.send_via_relay(circuit, &channel_msg).await {
+                    Ok(()) => return true,
+                    Err(e) => {
+                        tracing::debug!(erreur = %e, "fichiers : envoi via relais impossible")
+                    }
+                }
             }
         }
         // Ni adresse ni circuit : l'envoi n'est PAS parti. On tente d'ouvrir
@@ -2106,7 +2168,9 @@ impl Runtime {
         // le coordinateur, prévenu par l'appelant ([`fetch::Coordinator::
         // note_emission`]), libérera vite la place si rien ne part.
         tracing::debug!("fichiers : pair injoignable (ni adresse ni circuit)");
-        self.spawn_files_reach(*to);
+        for cible in cibles {
+            self.spawn_files_reach(cible);
+        }
         false
     }
 
@@ -2694,7 +2758,19 @@ impl NetworkControl for Runtime {
                     relay,
                     last_recv_age_ms: session.map(|s| now.saturating_sub(s.last_recv_ms)),
                     rtt_ms: session.and_then(|s| s.last_rtt_ms),
-                    last_delivery_ms: delivered.get(&pk).copied(),
+                    // Les remises sont notées par MACHINE — c'est à une clé de
+                    // transport qu'on livre. La ligne, elle, parle d'une
+                    // personne : on retient donc la plus récente de ses
+                    // machines. Chercher sous la clé de compte laisserait
+                    // « aucune remise » sur tout ami basculé, alors qu'on vient
+                    // de lui écrire ; l'écran Réseau existe précisément pour
+                    // qu'on puisse se fier à ce qu'il affiche.
+                    last_delivery_ms: self
+                        .node
+                        .delivery_targets(&pk)
+                        .iter()
+                        .filter_map(|cible| delivered.get(cible).copied())
+                        .max(),
                     capabilities: session.map_or(0, |s| s.peer_capabilities),
                 }
             })

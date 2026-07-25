@@ -14,6 +14,7 @@
 use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
 
+use accord_node::pairing::AccountAdoption;
 use accord_node::registry::{AccountEntry, Registry, LEGACY_ID};
 use accord_node::{NodeError, Paths, RunningNode};
 use serde::Serialize;
@@ -104,6 +105,23 @@ pub struct CompteRestaure {
     /// Session du nœud fraîchement démarré.
     pub session: InfoSession,
     /// Identifiant du compte restauré.
+    pub account_id: String,
+}
+
+/// Résultat de l'adoption d'un compte reçu par appairage (contrat
+/// `AdoptedAccount`). Même forme que [`CompteRestaure`] — session + compte —
+/// mais un type distinct, parce que ce n'est pas la même opération : rien
+/// n'a été saisi ici, ni phrase de récupération ni graine, la racine est
+/// arrivée par le canal d'appairage et vient d'être scellée sur disque.
+///
+/// 🔒 Ce type documente surtout ce qu'il ne contient PAS. La racine du
+/// compte ne remonte jamais jusqu'à la webview : ni ici, ni dans l'erreur
+/// qui remplacerait cette structure en cas d'échec.
+#[derive(Debug, Serialize)]
+pub struct CompteAdopte {
+    /// Session du nœud fraîchement démarré sur le compte adopté.
+    pub session: InfoSession,
+    /// Identifiant local du compte adopté (entrée de registre neuve).
     pub account_id: String,
 }
 
@@ -249,6 +267,26 @@ impl EtatHote {
         info
     }
 
+    /// Reprend sur le nœud **en cours d'exécution** ce qu'il faut pour
+    /// installer un compte reçu par appairage : sa racine et la clé
+    /// d'appareil que l'appareil autorisé a inscrite dans la liste signée.
+    ///
+    /// 🔒 Le passage obligé par l'hôte est le sujet même de cette méthode.
+    /// L'API JSON locale n'expose de l'adoption qu'un booléen (`adopted`,
+    /// voir `devices.pair_status`) ; la racine, elle, va du nœud au coffre
+    /// sans jamais traverser la webview.
+    ///
+    /// ⚠️ Consomme l'adoption côté nœud : un second appel rend `None`. Rend
+    /// `None` aussi quand aucun nœud ne tourne — il n'y a alors rien qui ait
+    /// pu être appairé.
+    pub fn prendre_adoption(&self) -> Option<AccountAdoption> {
+        self.noeud
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .and_then(|n| n.node.pairing_take_adoption())
+    }
+
     /// Relit le pseudo et la clé publique du nœud actif (s'il en a un et si
     /// un pseudo a déjà été défini via `profile.set`) pour rafraîchir le
     /// registre : nom affiché du compte actif + date de dernière
@@ -347,6 +385,57 @@ mod tests {
         assert_eq!(json["session"]["port"], 4242);
         assert_eq!(json["session"]["token"], "jeton");
         assert_eq!(json["recovery_phrase"], "douze mots");
+    }
+
+    #[test]
+    fn compte_adopte_serialise_selon_le_contrat_du_pont() {
+        // `bridge.ts` attend { session: { port, token }, account_id } — et rien
+        // d'autre : 🔒 aucun champ ne doit pouvoir porter la racine du compte.
+        let adopte = CompteAdopte {
+            session: InfoSession {
+                port: 4242,
+                token: "jeton".into(),
+            },
+            account_id: "abc123".into(),
+        };
+        let json = serde_json::to_value(&adopte).unwrap();
+        assert_eq!(json["session"]["port"], 4242);
+        assert_eq!(json["account_id"], "abc123");
+        assert_eq!(
+            json.as_object().map(|o| o.len()),
+            Some(2),
+            "la réponse d'adoption ne porte que la session et l'identifiant"
+        );
+    }
+
+    #[test]
+    fn prendre_adoption_sans_noeud_ne_rend_rien() {
+        // C'est le garde-fou qui rend `account_adopt_paired` gratuit quand il
+        // n'y a rien à adopter : sans nœud vivant, aucun appairage n'a pu
+        // avoir lieu, la commande échoue avant d'allouer le moindre profil.
+        let dossier = tempfile::tempdir().unwrap();
+        let etat = EtatHote::new(dossier.path().join("profil"));
+        assert!(etat.prendre_adoption().is_none());
+    }
+
+    #[test]
+    fn un_profil_neuf_du_registre_est_toujours_vierge() {
+        // 🔒 L'invariant dont dépend `account_adopt_paired` : adopter refuse
+        // tout profil déjà habité (`NodeError::AlreadyExists`), et ce refus ne
+        // doit jamais tomber sur le profil que la commande vient d'allouer.
+        // Deux entrées d'affilée pour vérifier aussi qu'elles ne se partagent
+        // pas un répertoire.
+        let app_dir = tempfile::tempdir().unwrap();
+        let registre = Registry::new(app_dir.path().to_path_buf());
+
+        let (_, premier) = registre.new_entry("A");
+        let (_, second) = registre.new_entry("B");
+
+        assert_ne!(premier.root, second.root);
+        for chemins in [&premier, &second] {
+            assert_eq!(statut_du_coffre(chemins), StatutCoffre::Absent);
+            assert!(!chemins.db().exists());
+        }
     }
 
     #[test]

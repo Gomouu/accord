@@ -209,6 +209,17 @@ export const ptSettings = {
     pairJoinWaiting: 'Código enviado. Troca em curso com o outro dispositivo…',
     pairJoinRejected:
       'Código recusado. Copia-o tal como aparece: nunca contém 0, O, 1, I nem L.',
+    pairAdoptWaiting: 'Impressão confirmada. A receber a conta do outro dispositivo…',
+    pairAdoptHint:
+      'A conta chegou. Escolhe uma palavra-passe para a proteger NESTE dispositivo: não precisa de ser a mesma do outro.',
+    pairAdoptSubmit: 'Adotar a conta',
+    pairAdoptLeftover:
+      'O perfil que serviu para o emparelhamento vai ficar na lista de contas, ao lado desta. Nada o apaga: és tu que escolhes qual abrir.',
+    pairAdopted: 'Conta adotada! Este dispositivo está agora na mesma conta.',
+    pairAdoptNeverArrived:
+      'A conta nunca chegou. Nada foi adotado: recomeça o emparelhamento.',
+    pairAdoptFailed:
+      'A adoção falhou e a conta recebida perdeu-se. Recomeça o emparelhamento a partir do outro dispositivo.',
     devicesTitle: 'Dispositivos áudio',
     inputDevice: 'Entrada (microfone)',
     outputDevice: 'Saída (auscultadores, colunas)',

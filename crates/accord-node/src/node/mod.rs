@@ -264,7 +264,7 @@ pub struct Node {
     ///
     /// 🔒 **En mémoire seulement.** L'écrire ici serait poser le compte sur le
     /// disque sous une clé de base qui n'est pas la sienne. C'est l'hôte qui la
-    /// reprend ([`Node::pairing_take_adopted_seed`]) et la scelle dans un coffre
+    /// reprend ([`Node::pairing_take_adoption`]) et la scelle dans un coffre
     /// neuf (`identity::adopt_account_seed`).
     pairing_adopted: Mutex<Option<accord_crypto::pairing::AccountSeed>>,
     /// Dernier indicateur de frappe accepté par pair (anti-abus, ms murales).
@@ -289,8 +289,49 @@ pub struct Node {
     /// qui n'appartiennent qu'à l'appareil — et deux machines d'un même compte
     /// se réécriraient mutuellement leur adresse dans la DHT.
     transport: OnceLock<Arc<Identity>>,
+    /// Rattachements **appareil → compte** prouvés sur une session ouverte,
+    /// en mémoire et bornés ([`MAX_DEVICE_OWNERS`]).
+    ///
+    /// 🔒 C'est la seule façon de rattacher la machine d'un INCONNU. Le chemin
+    /// normal ([`crate::device::account_for_static`]) demande « cette clé
+    /// est-elle un appareil de tel compte ? » et n'interroge que des comptes
+    /// avec lesquels on est en relation — au premier contact, il n'y en a
+    /// aucun, et une demande d'ami arriverait sous la clé d'une MACHINE : le
+    /// contact serait créé au nom d'un portable, que le code ami du demandeur
+    /// ne désignerait jamais, et son second appareil apparaîtrait plus tard
+    /// comme une troisième personne.
+    ///
+    /// 🔒 La preuve tient en deux moitiés indissociables : la racine du compte
+    /// a signé une entrée qui porte CETTE clé avec le drapeau de transport, et
+    /// la session a prouvé la possession de cette même clé. L'inverse — chercher
+    /// à l'aveugle la clé dans toutes les listes connues — serait exploitable :
+    /// n'importe qui peut signer une liste qui revendique la clé d'appareil
+    /// d'autrui (les nonces de preuve de travail sont publics) et détourner
+    /// ainsi le rattachement. Ce qu'il ne peut pas faire, c'est l'annoncer sur
+    /// une session scellée avec la clé privée correspondante.
+    device_owners: Mutex<HashMap<[u8; 32], [u8; 32]>>,
+    /// Listes d'appareils prouvées sur session mais **non persistées**, par
+    /// compte. Même borne, même durée de vie que [`Node::device_owners`].
+    ///
+    /// 🔒 Sans elle, joindre quelqu'un qu'on vient de rencontrer coûterait un
+    /// tour de résolution DHT complet — jusqu'à trois minutes — alors que sa
+    /// machine vient de nous dire par où la joindre, signature à l'appui. Le
+    /// cas est celui de tous les jours : on saisit un code ami, la session
+    /// s'ouvre, et la demande d'ami doit partir tout de suite.
+    ///
+    /// ⚠️ En mémoire seulement, et c'est le compromis : mettre en base la
+    /// liste du premier inconnu venu ferait grossir la table d'une ligne par
+    /// pair croisé sur la DHT, et cette croissance-là se provoque. Une entrée
+    /// perdue coûte un tour de résolution, pas une panne.
+    proven_lists: Mutex<HashMap<[u8; 32], accord_proto::device::DeviceList>>,
     profile_frame_migrated: OnceLock<()>,
 }
+
+/// Borne du cache de rattachement appareil → compte prouvé sur session.
+///
+/// Cache best-effort : une entrée évincée se réapprend à la prochaine annonce
+/// du pair, qui part à chaque établissement de session avec une relation.
+const MAX_DEVICE_OWNERS: usize = 256;
 
 impl Node {
     /// Assemble un nœud à partir d'une identité et d'une base ouvertes.
@@ -325,6 +366,8 @@ impl Node {
             redeem_seen: Mutex::new(HashMap::new()),
             soundboard_seen: Mutex::new(HashMap::new()),
             transport: OnceLock::new(),
+            device_owners: Mutex::new(HashMap::new()),
+            proven_lists: Mutex::new(HashMap::new()),
             profile_frame_migrated: OnceLock::new(),
         }
     }
@@ -378,29 +421,154 @@ impl Node {
 
     /// Ingère la liste d'appareils poussée par un pair sur sa session.
     ///
-    /// 🔒 La liste doit concerner **l'émetteur lui-même**. Sans ce contrôle,
-    /// n'importe quel ami pourrait nous imposer la liste d'appareils d'un
-    /// tiers — donc y glisser sa propre clé et se faire passer pour lui.
-    /// Ignorée en silence si le pair n'est pas un ami : une liste n'est pas
-    /// une raison d'entrer en relation.
+    /// Deux portes d'entrée, et une seule des deux suffit :
+    ///
+    /// - **un ami annonce sa propre liste.** 🔒 Elle doit concerner l'émetteur
+    ///   lui-même : sans ce contrôle, n'importe quel ami pourrait nous imposer
+    ///   la liste d'un tiers — donc y glisser sa propre clé et se faire passer
+    ///   pour lui.
+    /// - **la liste s'authentifie elle-même** ([`Node::device_list_proves_owner`]).
+    ///   C'est le premier contact : l'émetteur nous est encore inconnu, et sans
+    ///   cette porte sa demande d'ami arriverait sous la clé d'une machine.
+    ///
+    /// Une liste seule ne fait toujours pas entrer en relation : elle dit qui
+    /// parle, pas qu'on le connaisse.
     fn ingest_device_list(
         &self,
+        device_pubkey: &[u8; 32],
         peer_pubkey: &[u8; 32],
         list: &accord_proto::device::DeviceList,
     ) -> Result<(), NodeError> {
-        if !self.is_friend(peer_pubkey) || list.account != *peer_pubkey {
+        let dun_ami = self.is_friend(peer_pubkey) && list.account == *peer_pubkey;
+        let prouvee = self.device_list_proves_owner(device_pubkey, list);
+        if !dun_ami && !prouvee {
             return Ok(());
         }
+        // Le rattachement est retenu même quand la liste elle-même est refusée
+        // plus bas pour cause de version déjà connue : ce qu'il prouve — quelle
+        // personne tient cette machine — ne dépend pas de sa nouveauté, et une
+        // ré-annonce à l'identique est le cas normal d'une reconnexion.
+        if prouvee {
+            self.remember_device_owner(*device_pubkey, list.account);
+            self.remember_proven_list(list);
+        }
+        let compte = list.account;
+        // 🔒 Prouvé ne veut pas dire persisté. Notre liste part sur CHAQUE
+        // session établie, donc la leur aussi : un nœud qui parle à des
+        // centaines de pairs DHT verrait sa table grossir d'une ligne par
+        // inconnu croisé, et cette croissance-là, on peut la provoquer. Le
+        // cache reste borné à ce qu'on cherche à joindre — exactement la même
+        // règle que pour un record relevé dans la DHT. Le rattachement, lui,
+        // vit en mémoire et sous une borne dure : il suffit à reconnaître qui
+        // nous écrit, ce qui est tout ce que l'inconnu nous demande.
+        if !self.is_relation(&compte) && !self.has_queued_for(&compte) {
+            return Ok(());
+        }
+        // 🔒 Prouvé ne veut pas dire persisté. Notre liste part sur CHAQUE
+        // session établie, donc la leur aussi : un nœud qui parle à des
+        // centaines de pairs DHT verrait sa table grossir d'une ligne par
+        // inconnu croisé, et cette croissance-là, on peut la provoquer. Le
+        // cache reste borné à ce qu'on cherche à joindre — exactement la même
+        // règle que pour un record relevé dans la DHT. Le rattachement, lui,
+        // vit en mémoire et sous une borne dure : il suffit à reconnaître qui
+        // nous écrit, ce qui est tout ce que l'inconnu nous demande.
         let connue = self
-            .with_db(|db| Ok(db.device_list(peer_pubkey)?))
+            .with_db(|db| Ok(db.device_list(&compte)?))
             .ok()
             .flatten()
             .map(|c| c.version)
             .unwrap_or(0);
-        if accord_crypto::verify_device_list(list, peer_pubkey, connue).is_err() {
+        if accord_crypto::verify_device_list(list, &compte, connue).is_err() {
             return Ok(());
         }
-        self.store_peer_device_list(peer_pubkey, list)
+        self.store_peer_device_list(&compte, list)
+    }
+
+    /// Vrai si `list` prouve que la machine `device_pubkey` agit pour
+    /// `list.account`.
+    ///
+    /// 🔒 La preuve a deux moitiés, et il les faut toutes les deux : la racine
+    /// du compte a **signé** une entrée portant cette clé et le drapeau qui dit
+    /// qu'elle la présente au transport ; et la session sur laquelle la liste
+    /// arrive a **prouvé la possession** de cette même clé. La première seule
+    /// se forge — les nonces de preuve de travail sont publics, donc n'importe
+    /// qui peut signer une liste revendiquant l'appareil d'autrui. La seconde
+    /// seule ne dit rien du compte. Ensemble, elles ne laissent aucune place :
+    /// un usurpateur devrait tenir la clé privée de l'appareil qu'il revendique.
+    ///
+    /// La fraîcheur est exigée pour la même raison que partout ailleurs : une
+    /// liste périmée ferait survivre un appareil révoqué (§3.3).
+    fn device_list_proves_owner(
+        &self,
+        device_pubkey: &[u8; 32],
+        list: &accord_proto::device::DeviceList,
+    ) -> bool {
+        // Version connue à zéro : ce n'est pas la nouveauté de la liste qui est
+        // en jeu, c'est ce qu'elle atteste. Une ré-annonce identique prouve
+        // exactement autant que la première.
+        if accord_crypto::verify_device_list(list, &list.account, 0).is_err() {
+            return false;
+        }
+        if !list.is_fresh(now_ms()) || !list.authorises(device_pubkey) {
+            return false;
+        }
+        list.devices
+            .iter()
+            .any(|d| d.pubkey == *device_pubkey && d.presents_own_key())
+    }
+
+    /// Retient un rattachement appareil → compte prouvé (borné).
+    fn remember_device_owner(&self, device: [u8; 32], account: [u8; 32]) {
+        let mut map = self.device_owners.lock().unwrap_or_else(|e| e.into_inner());
+        if map.len() >= MAX_DEVICE_OWNERS && !map.contains_key(&device) {
+            if let Some(victime) = map.keys().next().copied() {
+                map.remove(&victime);
+            }
+        }
+        map.insert(device, account);
+    }
+
+    /// Compte prouvé pour cette clé de transport, s'il en existe un.
+    fn proven_device_owner(&self, device: &[u8; 32]) -> Option<[u8; 32]> {
+        self.device_owners
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(device)
+            .copied()
+    }
+
+    /// Retient la liste prouvée d'un compte (bornée, en mémoire).
+    ///
+    /// 🔒 Écrite au même endroit et sous la même preuve que le rattachement :
+    /// seule une machine du compte, ayant prouvé sa clé sur la session, peut
+    /// renseigner la liste de CE compte. Un tiers ne peut donc pas détourner
+    /// l'éventail de livraison de quelqu'un d'autre.
+    fn remember_proven_list(&self, list: &accord_proto::device::DeviceList) {
+        let mut map = self.proven_lists.lock().unwrap_or_else(|e| e.into_inner());
+        let connue = map.get(&list.account).map(|l| l.version).unwrap_or(0);
+        if list.version < connue {
+            return; // jamais reculer : une version antérieure ressusciterait un appareil révoqué
+        }
+        if map.len() >= MAX_DEVICE_OWNERS && !map.contains_key(&list.account) {
+            if let Some(victime) = map.keys().next().copied() {
+                map.remove(&victime);
+            }
+        }
+        map.insert(list.account, list.clone());
+    }
+
+    /// Liste prouvée d'un compte, si elle est connue et encore fraîche.
+    fn proven_list(
+        &self,
+        account: &[u8; 32],
+        now_ms: u64,
+    ) -> Option<accord_proto::device::DeviceList> {
+        self.proven_lists
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(account)
+            .filter(|l| l.is_fresh(now_ms))
+            .cloned()
     }
 
     /// Ingère une liste d'appareils relevée dans la DHT.
@@ -414,19 +582,63 @@ impl Node {
     /// clé DHT de la liste se **calcule** depuis la seule clé de compte, qu'un
     /// code ami suffit à obtenir.
     ///
-    /// 🔒 Bornée aux relations. Un record est pourtant auto-ancré et vérifié
-    /// (publieur, clé, signature, preuve de travail, version croissante) —
-    /// mais rien n'oblige à garder en base la liste de gens avec qui on n'a
-    /// aucun lien, et un cache que n'importe quelle réponse DHT peut faire
-    /// grossir est un cache qu'on peut faire grossir exprès.
+    /// 🔒 Bornée à **ce qu'on cherche à joindre**. Un record est pourtant
+    /// auto-ancré et vérifié (publieur, clé, signature, preuve de travail,
+    /// version croissante) — mais rien n'oblige à garder en base la liste de
+    /// gens avec qui on n'a aucun lien, et un cache que n'importe quelle
+    /// réponse DHT peut faire grossir est un cache qu'on peut faire grossir
+    /// exprès. Le cache ne grandit donc que de ce que NOUS avons décidé
+    /// d'envoyer.
+    ///
+    /// La borne inclut les destinataires en file, et pas seulement les
+    /// relations : le protocole laisse écrire à des gens qui ne sont pas nos
+    /// amis — une invitation de groupe, la réponse à une invitation. Bornée
+    /// aux seules amitiés, la liste d'un invité ne serait jamais mise en
+    /// cache, sa clé de compte resterait la seule cible connue, et depuis le
+    /// basculement plus personne n'y écoute : l'invitation ne partirait
+    /// jamais, sans une erreur nulle part. C'est exactement l'ensemble que la
+    /// passe de résolution appelante se donne déjà comme cibles
+    /// (`cibles_de_resolution` : amis, demandes sortantes, destinataires
+    /// d'outbox).
     pub fn ingest_device_list_record(
         &self,
         account: &[u8; 32],
         record: &accord_proto::types::DhtRecord,
     ) -> Result<(), NodeError> {
-        if !self.is_relation(account) {
+        if !self.is_relation(account) && !self.has_queued_for(account) {
             return Ok(());
         }
+        self.learn_device_list_record(account, record)
+    }
+
+    /// Vrai si quelque chose attend en file pour ce destinataire.
+    fn has_queued_for(&self, dest: &[u8; 32]) -> bool {
+        self.with_db(|db| Ok(!db.outbox_for(dest)?.is_empty()))
+            .unwrap_or(false)
+    }
+
+    /// [`Node::ingest_device_list_record`] **sans** la borne aux relations.
+    ///
+    /// **RÉSERVÉ AUX TESTS** — même statut que `run_with_socket`. Tient lieu,
+    /// dans un test de nœud qui ne câble aucune DHT, de la relève que la
+    /// maintenance fait en production (`presence_resolve_tick`). Depuis le
+    /// basculement elle est indispensable : la clé de compte d'un pair basculé
+    /// ne désigne plus aucune machine qui écoute, donc sans sa liste on ne
+    /// saurait même pas quoi composer — un test qui se contentait d'inscrire
+    /// une adresse au carnet n'a plus rien qui aboutisse.
+    ///
+    /// 🔒 Aucune vérification n'est retirée : publieur, ancrage de la clé DHT,
+    /// signature racine, preuve de travail par appareil et version monotone
+    /// s'appliquent toutes. Seule tombe la borne « on ne met en cache que les
+    /// gens avec qui on a un lien », qui est une défense en profondeur du
+    /// chemin réseau — et ce chemin, lui, passe toujours par la porte gardée
+    /// ci-dessus.
+    #[doc(hidden)]
+    pub fn learn_device_list_record(
+        &self,
+        account: &[u8; 32],
+        record: &accord_proto::types::DhtRecord,
+    ) -> Result<(), NodeError> {
         let connue = self
             .with_db(|db| Ok(db.device_list(account)?))
             .ok()
@@ -471,7 +683,51 @@ impl Node {
                 }
             }
             Ok(())
-        })
+        })?;
+        self.retarget_outbox_after_list_change(account);
+        Ok(())
+    }
+
+    /// Réadresse ce qui attendait à la clé de COMPTE quand la liste qu'on vient
+    /// d'apprendre dit que plus aucune machine n'y écoute.
+    ///
+    /// 🔒 Le pendant de la purge de révocation ci-dessus, et pour la même
+    /// raison : la file est indexée par clé de transport et son vidage ne
+    /// revérifie rien. Tant qu'on ignore la liste d'un compte, la seule cible
+    /// possible est sa clé de compte — c'est ce que présente tout pair non
+    /// basculé. Le jour où sa liste arrive et retire cette clé de l'éventail,
+    /// tout ce qui attend dessous devient indélivrable **en silence** : l'envoi
+    /// direct échoue en liaison d'identité, le dépôt en boîte va à une clé DHT
+    /// que le pair ne sonde plus, et la ligne expire sept jours plus tard sans
+    /// une erreur nulle part. C'est ce qu'a coûté le basculement à la toute
+    /// première demande d'ami de chaque utilisateur.
+    ///
+    /// ⚠️ Ce n'est pas un second point d'éventail (`docs/MULTI_DEVICE.md` §5) :
+    /// l'éventail a bien eu lieu une fois, dans `deliver_core`. C'est la
+    /// **correction** d'une cible choisie faute de mieux, faite à l'endroit
+    /// exact où arrive l'information qui l'invalide.
+    fn retarget_outbox_after_list_change(&self, account: &[u8; 32]) {
+        let now = now_ms();
+        // Notre propre clé de transport ne peut jamais devenir une cible : une
+        // ligne à notre propre nom ne serait vidée par personne, et les passes
+        // de résolution la prendraient pour un pair à chercher dans la DHT.
+        let moi = self.transport_key();
+        let cibles = self
+            .with_db(|db| Ok(crate::device::delivery_targets(db, account, now)))
+            .map(|t| crate::device::without_self(t, &moi))
+            .unwrap_or_default();
+        if cibles.contains(account) {
+            return;
+        }
+        match self.with_db(|db| Ok(db.outbox_retarget(account, &cibles, now)?)) {
+            Ok(0) => {}
+            Ok(n) => tracing::info!(
+                messages = n,
+                compte = %crate::hex::encode(&account[..4]),
+                "appareils : file réadressée vers les machines du compte"
+            ),
+            Err(e) => tracing::warn!(erreur = %e, "appareils : réadressage de file impossible"),
+        }
     }
 
     /// Vrai si la liste d'appareils en cache pour `account` est encore fraîche.
@@ -1049,6 +1305,14 @@ impl Node {
     /// carnet, ni la session vivante, ni le rattrapage d'historique. Le
     /// paramètre de `account_for_static` s'appelle `accounts`, et non « amis »,
     /// exactement pour ce cas.
+    ///
+    /// 🔒 Le repli sur [`Node::proven_device_owner`] couvre le PREMIER CONTACT,
+    /// et lui seul : un demandeur d'ami n'est encore ni ami ni nous-même, donc
+    /// aucun compte éligible ne peut revendiquer sa machine. Le repli n'élargit
+    /// pas la liste des comptes interrogés — ce serait ouvrir la porte à
+    /// quiconque signe une liste revendiquant la clé d'appareil d'autrui : il
+    /// n'accepte que des rattachements que le pair a **prouvés** sur une
+    /// session (voir le champ `device_owners`).
     pub fn account_of_transport_key(&self, static_pub: &[u8; 32]) -> [u8; 32] {
         let mut accounts = self.friend_pubkeys().unwrap_or_default();
         accounts.push(self.public_key());
@@ -1062,17 +1326,33 @@ impl Node {
         })
         .ok()
         .flatten()
+        .or_else(|| self.proven_device_owner(static_pub))
         .unwrap_or(*static_pub)
     }
 
     /// Clés de transport par lesquelles joindre `account` (lot 1.E).
     ///
     /// Rend toujours au moins une cible : un compte dont on ne sait rien reste
-    /// joignable par sa clé, qui est ce que présente tout le parc actuel.
+    /// joignable par sa clé, qui est ce que présente tout pair non basculé.
+    ///
+    /// Deux sources pour la liste, une seule règle pour en déduire les cibles
+    /// ([`crate::device::targets_from_list`]) : le cache en base d'abord —
+    /// celui d'une relation, refraîchi par la DHT —, puis la liste **prouvée
+    /// sur session** d'un pair qu'on ne connaît pas encore. Sans ce second
+    /// recours, écrire à quelqu'un dont on vient de saisir le code ami
+    /// attendrait la prochaine passe de résolution, jusqu'à trois minutes,
+    /// alors que sa machine vient de nous dire par où la joindre.
     pub fn delivery_targets(&self, account: &[u8; 32]) -> Vec<[u8; 32]> {
         let now = now_ms();
-        self.with_db(|db| Ok(crate::device::delivery_targets(db, account, now)))
-            .unwrap_or_else(|_| vec![*account])
+        let liste = self
+            .with_db(|db| Ok(crate::device::cached_list_for(db, account, now)))
+            .ok()
+            .flatten()
+            .or_else(|| self.proven_list(account, now));
+        liste.map_or_else(
+            || vec![*account],
+            |list| crate::device::targets_from_list(&list, account),
+        )
     }
 
     /// Révoque un appareil du compte et publie la version n+1.
@@ -1732,7 +2012,7 @@ impl Node {
                 Ok(vec![])
             }
             CoreMsg::DeviceListAnnounce { list } => {
-                self.ingest_device_list(peer_pubkey, &list)?;
+                self.ingest_device_list(device_pubkey, peer_pubkey, &list)?;
                 Ok(vec![])
             }
             CoreMsg::SelfReadMark { scope, conv, up_to } => {

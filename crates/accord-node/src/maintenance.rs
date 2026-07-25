@@ -154,11 +154,17 @@ pub fn is_queueable_offline(msg: &CoreMsg) -> bool {
     match msg {
         // Typing indicators and read receipts are ephemeral DirectMsg kinds.
         CoreMsg::DirectMsg { kind, .. } => !EPHEMERAL_DM_KINDS.contains(kind),
+        // 🔒 La liste d'appareils accompagne la demande d'ami qu'elle explique
+        // (voir `Runtime::deliver_core`), donc elle doit survivre au même
+        // destinataire injoignable. Perdue, la demande arriverait seule et
+        // serait attribuée à la MACHINE qui l'a envoyée, faute de savoir à qui
+        // elle appartient : la relation naîtrait au nom d'un portable.
+        CoreMsg::DeviceListAnnounce { .. }
         // Invitations de groupe : doivent survivre à un destinataire
         // injoignable (hors ligne, NAT sans circuit) — file locale puis
         // boîte aux lettres DHT. L'expiration du ticket reste vérifiée à
         // l'ingestion côté invité, un ticket périmé livré tard est ignoré.
-        CoreMsg::MsgAck { .. }
+        | CoreMsg::MsgAck { .. }
         | CoreMsg::FriendRequest { .. }
         | CoreMsg::FriendResponse { .. }
         | CoreMsg::GroupOpMsg { .. }
@@ -1050,19 +1056,39 @@ async fn profile_tick(rt: &Runtime, _cfg: &MaintenanceConfig) {
     };
     let mut annonces = 0usize;
     for friend in friends {
-        if rt.addr_of(&friend).is_none() {
-            continue; // ami sans lien connu : l'outbox couvre déjà ce cas
-        }
-        if rt
-            .send_via_best_link(&friend, &ChannelMsg::Core(msg.clone()))
-            .await
-        {
-            annonces += 1;
+        for cible in cibles_de(rt, &friend) {
+            if rt.addr_of(&cible).is_none() {
+                continue; // machine sans lien connu : l'outbox couvre ce cas
+            }
+            if rt
+                .send_via_best_link(&cible, &ChannelMsg::Core(msg.clone()))
+                .await
+            {
+                annonces += 1;
+            }
         }
     }
     if annonces > 0 {
         tracing::debug!(annonces, "profil : ré-annonce périodique");
     }
+}
+
+/// Clés de transport par lesquelles joindre `compte`, telles que la livraison
+/// les calcule, la nôtre exclue.
+///
+/// 🔒 Les passes périodiques raisonnent sur des **personnes** — un ami, un
+/// membre de groupe — mais `send_via_best_link` et le carnet n'indexent que des
+/// **machines**. Écrire à une clé de compte que plus aucun appareil ne présente
+/// ne trouve ni session ni circuit, et la passe échoue en silence à chaque
+/// tour : c'est ce qui arrive, sans cette traduction, à la ré-annonce de profil
+/// et à l'anti-entropie de groupe le jour du basculement. Un compte dont aucun
+/// appareil n'a basculé rend exactement sa clé de compte — comportement
+/// d'avant, à l'octet près.
+fn cibles_de(rt: &Runtime, compte: &[u8; 32]) -> Vec<[u8; 32]> {
+    crate::device::without_self(
+        rt.node().delivery_targets(compte),
+        &rt.node().transport_key(),
+    )
 }
 
 /// Émet une offre `GroupSync` par groupe vers les membres joignables.
@@ -1095,14 +1121,20 @@ async fn group_sync_tick(rt: &Runtime, _cfg: &MaintenanceConfig) {
             digest: offer.digest,
         };
         for member in members.keys().filter(|m| **m != me) {
-            if rt.addr_of(member).is_none() {
-                continue; // membre sans lien connu : rien à offrir cette passe
-            }
-            if rt
-                .send_via_best_link(member, &ChannelMsg::Core(msg.clone()))
-                .await
-            {
-                offers += 1;
+            // Une offre par MACHINE du membre : chacune tient son propre
+            // op-log et doit pouvoir tirer ce qui lui manque. Un membre dont
+            // aucun appareil n'a basculé rend exactement une cible, sa clé de
+            // compte, et cette boucle se réduit au comportement d'avant.
+            for cible in cibles_de(rt, member) {
+                if rt.addr_of(&cible).is_none() {
+                    continue; // machine sans lien connu : rien à offrir ici
+                }
+                if rt
+                    .send_via_best_link(&cible, &ChannelMsg::Core(msg.clone()))
+                    .await
+                {
+                    offers += 1;
+                }
             }
         }
     }

@@ -207,6 +207,17 @@ export const deSettings = {
     pairJoinWaiting: 'Code gesendet. Austausch mit dem anderen Gerät läuft…',
     pairJoinRejected:
       'Code abgelehnt. Übertrage ihn genau so, wie er angezeigt wird: Er enthält nie 0, O, 1, I oder L.',
+    pairAdoptWaiting: 'Prüfnummer bestätigt. Das Konto wird vom anderen Gerät empfangen…',
+    pairAdoptHint:
+      'Das Konto ist angekommen. Wähle eine Passphrase, die es auf DIESEM Gerät schützt: Sie muss nicht dieselbe sein wie auf dem anderen.',
+    pairAdoptSubmit: 'Konto übernehmen',
+    pairAdoptLeftover:
+      'Das Profil, mit dem gekoppelt wurde, bleibt in der Kontoliste neben diesem stehen. Nichts löscht es: Du entscheidest, welches du öffnest.',
+    pairAdopted: 'Konto übernommen! Dieses Gerät ist jetzt auf demselben Konto.',
+    pairAdoptNeverArrived:
+      'Das Konto ist nie angekommen. Es wurde nichts übernommen: Beginne die Kopplung von vorn.',
+    pairAdoptFailed:
+      'Die Übernahme ist fehlgeschlagen und das empfangene Konto ist verloren. Beginne die Kopplung vom anderen Gerät aus von vorn.',
     devicesTitle: 'Audiogeräte',
     inputDevice: 'Eingang (Mikrofon)',
     outputDevice: 'Ausgang (Kopfhörer, Lautsprecher)',

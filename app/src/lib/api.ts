@@ -972,8 +972,20 @@ export class Api {
    * empreinte apparaît, c'est celle que les deux appareils doivent afficher à
    * l'identique — la comparer est ce qui distingue l'appareil attendu d'un
    * inconnu qui aurait intercepté le code.
+   *
+   * `role` dit de quel côté se trouve cette machine (`null` hors appairage).
+   *
+   * 🔒 `adopted` est un **booléen**, et la graine ne passe jamais par ici. Il
+   * annonce que la racine du compte est arrivée sur le canal confirmé ; c'est
+   * l'hôte qui la reprend au nœud, hors de cette API. Ce canal JSON est
+   * lisible par tout ce qui tourne sur la machine et finit dans les traces de
+   * qui débogue : rien de ce qui EST le compte n'a le droit d'y transiter.
    */
-  devicesPairStatus(): Promise<{ fingerprint: string | null }> {
+  devicesPairStatus(): Promise<{
+    fingerprint: string | null;
+    role: 'authoriser' | 'joiner' | null;
+    adopted: boolean;
+  }> {
     return this.rpc.call('devices.pair_status');
   }
 

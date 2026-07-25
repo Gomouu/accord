@@ -212,6 +212,16 @@ pub fn cached_devices_for(db: &Db, account: &[u8; 32], now_ms: u64) -> Vec<[u8; 
         .unwrap_or_default()
 }
 
+/// Vrai si l'on détient pour `account` une liste lisible et encore fraîche.
+///
+/// Distinct de « la liste contient des appareils » : une liste fraîche dont
+/// tous les appareils sont révoqués reste une réponse valable, et la relever
+/// encore serait du trafic pour rien — la DHT rendrait le même record, dont la
+/// version serait alors refusée à chaque passe.
+pub fn has_fresh_list(db: &Db, account: &[u8; 32], now_ms: u64) -> bool {
+    cached_list_for(db, account, now_ms).is_some()
+}
+
 /// Liste d'appareils en cache pour `account`, si elle est lisible et fraîche.
 fn cached_list_for(db: &Db, account: &[u8; 32], now_ms: u64) -> Option<DeviceList> {
     let cached = db.device_list(account).ok()??;

@@ -260,13 +260,20 @@ pub struct Node {
     /// Cadence des `SoundboardPlay` entrants par pair : `(début de fenêtre ms,
     /// compte)`. Anti-DoS sonore en mémoire, borné ([`SOUNDBOARD_SEEN_MAX_PEERS`]).
     soundboard_seen: Mutex<HashMap<[u8; 32], (u64, u32)>>,
-    /// Clé publique que le TRANSPORT présente réellement à nos pairs.
+    /// Identité que le TRANSPORT présente réellement à nos pairs.
     ///
-    /// Distincte de [`Node::public_key`] dès que cette machine présente sa clé
-    /// d'appareil (lot 1.C phase 2). Renseignée au démarrage ; à défaut, la clé
-    /// de compte — qui est ce que présente tout le parc actuel, et ce que
+    /// Distincte de [`Node::identity`] dès que cette machine présente sa clé
+    /// d'appareil (lot 1.C phase 2). Renseignée au démarrage ; à défaut,
+    /// l'identité de compte — ce que présente tout le parc actuel, et ce que
     /// présente un nœud assemblé sans runtime dans les tests.
-    transport_key: OnceLock<[u8; 32]>,
+    ///
+    /// 🔒 L'identité complète, pas seulement la clé publique : la présence DHT
+    /// et les boîtes aux lettres hors-ligne s'adressent à la machine, donc se
+    /// signent et se descellent avec **cette** clé. N'en garder que la partie
+    /// publique laisserait ces deux chemins signer au nom du compte des choses
+    /// qui n'appartiennent qu'à l'appareil — et deux machines d'un même compte
+    /// se réécriraient mutuellement leur adresse dans la DHT.
+    transport: OnceLock<Arc<Identity>>,
     profile_frame_migrated: OnceLock<()>,
 }
 
@@ -300,24 +307,33 @@ impl Node {
             typing_seen: Mutex::new(HashMap::new()),
             redeem_seen: Mutex::new(HashMap::new()),
             soundboard_seen: Mutex::new(HashMap::new()),
-            transport_key: OnceLock::new(),
+            transport: OnceLock::new(),
             profile_frame_migrated: OnceLock::new(),
         }
     }
 
-    /// Déclare la clé publique que le transport présente réellement.
+    /// Déclare l'identité que le transport présente réellement.
     ///
-    /// Appelée une fois au démarrage, avant toute publication de liste
-    /// d'appareils. Sans appel, [`Node::transport_key`] rend la clé de compte.
-    pub fn set_transport_key(&self, pubkey: [u8; 32]) {
-        let _ = self.transport_key.set(pubkey);
+    /// Appelée une fois au démarrage, avant toute publication de présence ou de
+    /// liste d'appareils. Sans appel, c'est l'identité de compte.
+    pub fn set_transport_identity(&self, identity: Arc<Identity>) {
+        let _ = self.transport.set(identity);
+    }
+
+    /// Identité présentée par le transport de cette machine.
+    fn transport_identity(&self) -> &Arc<Identity> {
+        self.transport.get_or_init(|| Arc::clone(&self.identity))
     }
 
     /// Clé publique présentée par le transport de cette machine.
+    ///
+    /// C'est sous elle que nos pairs nous connaissent au niveau réseau : c'est
+    /// donc elle qui indexe la présence DHT, notre boîte aux lettres hors-ligne
+    /// et notre annonce mDNS. [`Node::public_key`] reste l'identité **durable**
+    /// — amitiés, profil, op-logs — et les deux ne se confondent que tant que
+    /// le transport n'a pas basculé.
     pub fn transport_key(&self) -> [u8; 32] {
-        *self
-            .transport_key
-            .get_or_init(|| self.identity.public_key())
+        self.transport_identity().public_key()
     }
 
     /// Émet un événement temps réel vers l'UI (sans effet si aucun hub).
@@ -367,18 +383,69 @@ impl Node {
         if accord_crypto::verify_device_list(list, peer_pubkey, connue).is_err() {
             return Ok(());
         }
+        self.store_peer_device_list(peer_pubkey, list)
+    }
+
+    /// Ingère une liste d'appareils relevée dans la DHT.
+    ///
+    /// C'est la moitié manquante du lot 1.C : on savait publier la sienne et
+    /// accepter celle qu'un ami pousse sur une session ouverte, mais pas
+    /// l'apprendre **sans** session. Or c'est précisément ce qu'il faut pour
+    /// joindre un pair dont les appareils ont basculé : sa présence n'est plus
+    /// publiée sous sa clé de compte, et sans sa liste on ne saurait même pas
+    /// quelle autre clé chercher. La poule et l'œuf se dénouent parce que la
+    /// clé DHT de la liste se **calcule** depuis la seule clé de compte, qu'un
+    /// code ami suffit à obtenir.
+    ///
+    /// 🔒 Bornée aux relations. Un record est pourtant auto-ancré et vérifié
+    /// (publieur, clé, signature, preuve de travail, version croissante) —
+    /// mais rien n'oblige à garder en base la liste de gens avec qui on n'a
+    /// aucun lien, et un cache que n'importe quelle réponse DHT peut faire
+    /// grossir est un cache qu'on peut faire grossir exprès.
+    pub fn ingest_device_list_record(
+        &self,
+        account: &[u8; 32],
+        record: &accord_proto::types::DhtRecord,
+    ) -> Result<(), NodeError> {
+        if !self.is_relation(account) {
+            return Ok(());
+        }
+        let connue = self
+            .with_db(|db| Ok(db.device_list(account)?))
+            .ok()
+            .flatten()
+            .map(|c| c.version)
+            .unwrap_or(0);
+        let list = crate::device::verify_device_list_record(account, record, connue)?;
+        self.store_peer_device_list(account, &list)
+    }
+
+    /// Persiste la liste d'appareils d'un pair déjà vérifiée.
+    fn store_peer_device_list(
+        &self,
+        account: &[u8; 32],
+        list: &accord_proto::device::DeviceList,
+    ) -> Result<(), NodeError> {
         let mut w = accord_proto::Writer::new();
         accord_proto::WireEncode::encode(list, &mut w);
         self.with_db(|db| {
             db.cache_device_list(&accord_core::db::CachedDeviceList {
-                account: *peer_pubkey,
+                account: *account,
                 version: list.version,
                 encoded: w.into_bytes(),
                 fetched_ms: now_ms(),
             })?;
             Ok(())
-        })?;
-        Ok(())
+        })
+    }
+
+    /// Vrai si la liste d'appareils en cache pour `account` est encore fraîche.
+    ///
+    /// Sert à ne relever dans la DHT que ce qui manque : une liste vaut 24 h,
+    /// la resolver à chaque passe serait du trafic pur.
+    pub fn has_fresh_device_list(&self, account: &[u8; 32]) -> bool {
+        self.with_db(|db| Ok(crate::device::has_fresh_list(db, account, now_ms())))
+            .unwrap_or(false)
     }
 
     /// Traite le message PAKE d'un appareil qui tente de s'appairer.
@@ -1708,20 +1775,29 @@ impl Node {
     // ---- Points d'accès des boucles de maintenance (D-024) ----
 
     /// Record DHT de présence auto-signé portant les adresses du nœud.
+    ///
+    /// 🔒 Ancré sur la clé de **transport**, pas sur celle du compte. Une
+    /// présence par compte ne peut porter qu'un jeu d'adresses : deux machines
+    /// d'un même compte publieraient à la même clé DHT, chacune avec une
+    /// signature valide, et le dernier écrivain gagnerait. Les adresses du
+    /// compte se mettraient à osciller entre les deux machines au rythme de la
+    /// republication, et un correspondant sur deux joindrait la mauvaise. La
+    /// liste d'appareils sert d'indirection : compte → appareils → présences.
     pub fn presence_record(
         &self,
         addrs: &[std::net::SocketAddr],
     ) -> accord_proto::types::DhtRecord {
+        let identity = self.transport_identity();
         let mut record = accord_proto::types::DhtRecord {
-            key: crate::maintenance::presence_key(&self.identity.public_key()),
+            key: crate::maintenance::presence_key(&identity.public_key()),
             kind: accord_proto::types::RecordKind::Presence,
             value: crate::maintenance::encode_presence_value(addrs),
-            publisher: self.identity.public_key(),
+            publisher: identity.public_key(),
             timestamp_ms: now_ms(),
             expiry_s: crate::maintenance::PRESENCE_EXPIRY_S,
             sig: [0u8; 64],
         };
-        record.sig = self.identity.sign(&record.signable_bytes());
+        record.sig = identity.sign(&record.signable_bytes());
         record
     }
 
@@ -1816,13 +1892,20 @@ impl Node {
 
     /// Ouvre un dépôt de boîte aux lettres relevé dans la DHT et authentifie
     /// son expéditeur (`expected_sender_node` : node_id du contact sondé).
+    ///
+    /// 🔒 Descellé avec l'identité de **transport** : un dépôt est scellé pour
+    /// la clé à laquelle l'expéditeur a essayé de livrer, c'est-à-dire un
+    /// appareil. L'ouvrir avec la clé de compte échouerait dès que les deux
+    /// diffèrent — et la boîte deviendrait silencieusement muette, sans erreur
+    /// visible ailleurs qu'ici. L'expéditeur, lui, reste identifié par son
+    /// compte : c'est sous ce nom qu'on le connaît.
     pub fn open_mailbox_deposit(
         &self,
         expected_sender_node: &[u8; 32],
         fragment_values: &[Vec<u8>],
     ) -> Result<Vec<Vec<u8>>, NodeError> {
         Ok(accord_core::offline::open_deposit(
-            &self.identity,
+            self.transport_identity(),
             expected_sender_node,
             fragment_values,
         )?)

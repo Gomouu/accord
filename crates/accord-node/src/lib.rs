@@ -324,10 +324,14 @@ async fn run_node(
     // continue de signer et de s'identifier avec `identity` : le profil, les
     // amitiés, les op-logs appartiennent au compte, pas à la machine.
     let transport_identity: Arc<accord_crypto::Identity> = if config.device_key_transport {
-        Arc::new(accord_crypto::Identity::from_seed_with_pow_bits(
+        // La preuve de travail de l'appareil est déjà minée et persistée : la
+        // recalculer à chaque démarrage serait du temps brûlé pour retrouver
+        // exactement le même nonce.
+        Arc::new(accord_crypto::Identity::from_seed_and_pow(
             *local_device.seed(),
+            local_device.pow_nonce(),
             config.pow_bits,
-        ))
+        )?)
     } else {
         Arc::clone(&identity)
     };
@@ -371,7 +375,8 @@ async fn run_node(
         relay_serving: true,
         ..EndpointConfig::default()
     };
-    let (endpoint, events) = Endpoint::new(socket, transport_identity, clock, ep_config);
+    let (endpoint, events) =
+        Endpoint::new(socket, Arc::clone(&transport_identity), clock, ep_config);
     endpoint.spawn();
     // Retient le port effectivement lié pour les prochains lancements (B2) —
     // sans objet pour un socket injecté (adresse du mesh simulé).
@@ -380,10 +385,16 @@ async fn run_node(
     }
 
     // Nœud DHT local.
+    //
+    // 🔒 Bâti sur l'identité de TRANSPORT, pas sur celle du compte : nos pairs
+    // nous placent dans leur table de routage à partir de la clé qu'ils voient
+    // dans le handshake (`NodeAnnounce`). Annoncer ici une autre identité nous
+    // ferait calculer nos distances XOR, choisir nos relais domicile et placer
+    // nos records depuis une position que personne d'autre ne nous attribue.
     let local_info = NodeInfo {
-        node_id: identity.node_id(),
-        static_pub: identity.public_key(),
-        pow_nonce: identity.pow_nonce(),
+        node_id: transport_identity.node_id(),
+        static_pub: transport_pub,
+        pow_nonce: transport_identity.pow_nonce(),
         // Capacité relais annoncée (SPEC §10-§11.3) : permet à deux amis en NAT
         // symétrique de nous sélectionner comme relais partagé. La sélection
         // déterministe côté client écarte un relais injoignable, donc annoncer
@@ -414,7 +425,7 @@ async fn run_node(
     // locale dans la liste d'appareils. C'est ce drapeau que les correspondants
     // lisent pour savoir s'ils doivent écrire au compte ou à l'appareil ; le
     // laisser mentir couperait la livraison le jour du basculement.
-    node.set_transport_key(transport_pub);
+    node.set_transport_identity(Arc::clone(&transport_identity));
     if let Err(e) = node.reconcile_local_device_flags() {
         tracing::warn!(erreur = %e, "liste d'appareils : réalignement impossible");
     }
@@ -541,9 +552,15 @@ async fn run_node(
                 let rt = Arc::clone(&runtime);
                 Arc::new(move || rt.emit_network_if_changed())
             };
+            // 🔒 Annoncé sous la clé de TRANSPORT. Le nom d'instance et le nom
+            // d'hôte mDNS en dérivent : deux machines d'un même compte sur le
+            // même réseau annonceraient sinon exactement le même service —
+            // collision de nom — et chacune écarterait l'annonce de l'autre en
+            // la prenant pour la sienne. L'adresse apprise indexe de surcroît
+            // le carnet, qui doit l'être par la clé effectivement présentée.
             node::discovery::spawn(
                 runtime.lan_shared(),
-                identity.public_key(),
+                transport_pub,
                 local_ips,
                 p2p_port,
                 Arc::clone(&runtime) as Arc<dyn node::discovery::LanSink>,

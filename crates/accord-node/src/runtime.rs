@@ -707,6 +707,23 @@ impl Runtime {
         book.by_pubkey.insert(pubkey, addr);
     }
 
+    /// Mémorise l'adresse d'un APPAREIL, et l'aliase sur son compte.
+    ///
+    /// L'alias n'est pas un raccourci : la moitié du nœud demande « ce compte
+    /// est-il joignable, et où ? » sans avoir à choisir de machine — la voix,
+    /// qui reste mono-appareil par conception, les filtres de joignabilité de
+    /// la maintenance, l'écran Réseau. Sans lui, tous ces chemins verraient
+    /// chaque ami basculé comme injoignable, alors qu'une session est ouverte.
+    /// Ce qui doit viser UNE machine précise — la livraison, la file
+    /// hors-ligne — passe par [`crate::device::delivery_targets`], jamais par
+    /// cet alias.
+    fn remember_device(&self, device: [u8; 32], account: [u8; 32], addr: SocketAddr) {
+        self.remember(device, addr);
+        if account != device {
+            self.remember(account, addr);
+        }
+    }
+
     pub(crate) fn addr_of(&self, pubkey: &[u8; 32]) -> Option<SocketAddr> {
         self.book
             .lock()
@@ -772,6 +789,17 @@ impl Runtime {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .insert(pubkey);
+    }
+
+    /// [`Self::mark_live`] pour un appareil, aliasé sur son compte — même
+    /// raison que [`Self::remember_device`] : sans l'alias, `is_peer_live`
+    /// répondrait « non » pour un ami dont une session est pourtant ouverte, et
+    /// le repli relais serait retenté à chaque passe de maintenance.
+    fn mark_live_device(&self, device: [u8; 32], account: [u8; 32]) {
+        self.mark_live(device);
+        if account != device {
+            self.mark_live(account);
+        }
     }
 
     /// Purge du suivi les pairs dont la session vers `addr` s'est fermée. La
@@ -1267,14 +1295,25 @@ impl Runtime {
                 TransportEvent::Connected {
                     addr, static_pub, ..
                 } => {
-                    self.remember(static_pub, addr);
-                    self.mark_live(static_pub);
+                    // 🔒 Deux identités, deux usages. `static_pub` est la clé
+                    // que la MACHINE présente : elle indexe le carnet, la file
+                    // hors-ligne et le relais. `account` est la PERSONNE : elle
+                    // seule décide si c'est un ami, si son profil doit partir,
+                    // si l'adresse mérite d'être persistée. Les confondre est
+                    // sans conséquence tant que le transport présente la clé de
+                    // compte, et casse tout le jour où il ne le fait plus.
+                    let account = self.node.account_of_transport_key(&static_pub);
+                    self.remember_device(static_pub, account, addr);
+                    self.mark_live_device(static_pub, account);
                     // Pair joignable : pousse immédiatement sa file d'attente.
+                    // Celle de CETTE machine — vider ici la file adressée au
+                    // compte livrerait à cet appareil des messages destinés à
+                    // un autre, et les retirerait de la file au passage.
                     maintenance::flush_peer(&self, &static_pub, addr).await;
                     // … et relance les téléchargements qui l'attendaient
                     // (intentions en backoff dont il est l'indice,
                     // avatar/bannière annoncés mais manquants en local).
-                    self.files_on_peer_connected(&static_pub);
+                    self.files_on_peer_connected(&account);
                     // Convergence de profil DÉTERMINISTE (D-052) : notre
                     // profil courant part à CHAQUE établissement de session
                     // avec un ami. Les autres canaux (annonce au changement
@@ -1290,8 +1329,10 @@ impl Runtime {
                     // Carnet d'adresses PERSISTANT (reconnexion rapide au
                     // prochain démarrage, avant la DHT). Voir aussi l'appel
                     // jumeau sur `Message` pour les sessions antérieures à
-                    // l'amitié.
-                    self.maybe_persist_friend_addr(static_pub, addr);
+                    // l'amitié. Persisté sous le COMPTE : c'est lui qu'on
+                    // reconnaît comme relation, et au redémarrage on rappelle
+                    // « la dernière adresse où cette personne répondait ».
+                    self.maybe_persist_friend_addr(account, addr);
                     // Nouvel épisode de session : réarme le filet de
                     // ré-annonce (voir `profile_reannounced`). Indispensable
                     // ici et pas seulement sur `Disconnected` : l'extinction
@@ -1300,8 +1341,8 @@ impl Runtime {
                     self.profile_reannounced
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
-                        .remove(&static_pub);
-                    if self.is_friend(&static_pub) {
+                        .remove(&account);
+                    if self.is_friend(&account) {
                         // Liste d'appareils poussée sur la session (lot 1.C) :
                         // l'ami connecté n'attend aucun lookup DHT. Avant le
                         // profil, qui est plus gros — si un seul des deux
@@ -1347,9 +1388,12 @@ impl Runtime {
                     msg,
                     ..
                 } => {
-                    self.remember(static_pub, addr);
-                    self.mark_live(static_pub);
-                    self.maybe_persist_friend_addr(static_pub, addr);
+                    // Même dédoublement que sur `Connected` : la machine pour le
+                    // réseau, la personne pour l'applicatif.
+                    let mut account = self.node.account_of_transport_key(&static_pub);
+                    self.remember_device(static_pub, account, addr);
+                    self.mark_live_device(static_pub, account);
+                    self.maybe_persist_friend_addr(account, addr);
                     // La relation peut NAÎTRE pendant le routage (FriendRequest/
                     // FriendResponse ingérés) : re-tente la persistance APRÈS,
                     // sinon un nœud qui s'éteint juste après avoir accepté une
@@ -1359,7 +1403,13 @@ impl Runtime {
                     let est_core = matches!(&*msg, ChannelMsg::Core(_));
                     self.route(addr, static_pub, *msg).await;
                     if est_core {
-                        self.maybe_persist_friend_addr(static_pub, addr);
+                        // Le routage a pu ingérer la liste d'appareils de ce
+                        // pair : la traduction qui échouait avant peut réussir
+                        // maintenant. La refaire ici est ce qui rattache la
+                        // toute première session d'un appareil à son compte.
+                        account = self.node.account_of_transport_key(&static_pub);
+                        self.remember_device(static_pub, account, addr);
+                        self.maybe_persist_friend_addr(account, addr);
                     }
                     // Filet D-052 (voir `profile_reannounced`) : premier
                     // message ENTRANT d'un ami sur cet épisode de session —
@@ -1371,8 +1421,8 @@ impl Runtime {
                         .profile_reannounced
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
-                        .insert(static_pub);
-                    if premier_message && self.is_friend(&static_pub) {
+                        .insert(account);
+                    if premier_message && self.is_friend(&account) {
                         if let Ok(Some(msg)) = self.node.own_profile_msg() {
                             let envoye = self
                                 .send_via_best_link(&static_pub, &ChannelMsg::Core(msg))
@@ -2468,9 +2518,15 @@ impl NetworkControl for Runtime {
         // (même règle que `direct_session_addr` — après un redémarrage
         // silencieux, la session cadavre coexiste 2 min avec la fraîche),
         // une session relayée sert de repli d'affichage.
+        //
+        // Indexée par COMPTE : `peer_static` est la clé de la machine, et
+        // l'écran Réseau liste des personnes. Sans la traduction, tout ami
+        // basculé s'afficherait « aucun lien » alors qu'une session est
+        // ouverte — un diagnostic qui ment est pire qu'un diagnostic absent.
         let mut sessions: HashMap<[u8; 32], accord_transport::SessionView> = HashMap::new();
         for view in self.endpoint.session_views() {
-            match sessions.get(&view.peer_static) {
+            let peer = self.node.account_of_transport_key(&view.peer_static);
+            match sessions.get(&peer) {
                 Some(cur) => {
                     let cur_direct = cur.relay_circuit.is_none();
                     let new_direct = view.relay_circuit.is_none();
@@ -2480,11 +2536,11 @@ impl NetworkControl for Runtime {
                         _ => view.last_recv_ms > cur.last_recv_ms,
                     };
                     if remplace {
-                        sessions.insert(view.peer_static, view);
+                        sessions.insert(peer, view);
                     }
                 }
                 None => {
-                    sessions.insert(view.peer_static, view);
+                    sessions.insert(peer, view);
                 }
             }
         }

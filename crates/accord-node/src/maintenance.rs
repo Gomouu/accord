@@ -622,21 +622,47 @@ async fn presence_resolve_tick(rt: &Runtime, cfg: &MaintenanceConfig) {
     let mut resolved = 0usize;
     let mut punched = 0usize;
     for i in window {
-        let peer = cibles[i];
-        // Résolution de présence : best-effort. Un pair derrière un NAT
-        // symétrique peut n'avoir AUCUN record résoluble (rien de répliqué,
-        // pas encore publié) — le repli relais ci-dessous n'en dépend pas.
-        let addrs = match rt.dht().get(rt.dht_rpc(), presence_key(&peer), now).await {
-            Some(record) => match verify_presence_record(&peer, &record, now) {
-                Ok(addrs) => addrs,
-                Err(e) => {
-                    tracing::debug!(erreur = %e, "présence : record rejeté");
-                    Vec::new()
+        let compte = cibles[i];
+        // 🔒 On résout et on poinçonne par CIBLE DE LIVRAISON, pas par compte.
+        // La présence est publiée sous la clé de transport ; un compte dont les
+        // appareils ont basculé n'en publie plus aucune sous sa clé racine, et
+        // le poinçonnage vers cette clé se solderait par un
+        // `PeerIdentityMismatch` — le WELCOME porterait la clé d'appareil.
+        // L'expansion est faite ICI, dans la fenêtre, pour que le coût en
+        // lectures reste borné par `contacts_per_tick` et non par le nombre
+        // total d'amis. Sur une clé sans liste connue elle rend cette clé
+        // même : le parc actuel repasse au comportement d'avant.
+        //
+        // Avant d'expandre, on relève la liste dans la DHT si celle qu'on a
+        // n'est plus fraîche. Sa clé se calcule depuis la seule clé de compte,
+        // donc sans session préalable — c'est ce qui permet de joindre un pair
+        // dont tous les appareils ont basculé, et dont la clé racine ne publie
+        // donc plus aucune présence.
+        if !rt.node().has_fresh_device_list(&compte) {
+            let key = accord_crypto::device_list_key(&compte);
+            if let Some(record) = rt.dht().get(rt.dht_rpc(), key, now).await {
+                if let Err(e) = rt.node().ingest_device_list_record(&compte, &record) {
+                    tracing::debug!(erreur = %e, "appareils : liste relevée refusée");
                 }
-            },
-            None => Vec::new(),
-        };
-        if !addrs.is_empty() {
+            }
+        }
+        for peer in rt.node().delivery_targets(&compte) {
+            // Résolution de présence : best-effort. Un pair derrière un NAT
+            // symétrique peut n'avoir AUCUN record résoluble (rien de répliqué,
+            // pas encore publié) — le repli relais ci-dessous n'en dépend pas.
+            let addrs = match rt.dht().get(rt.dht_rpc(), presence_key(&peer), now).await {
+                Some(record) => match verify_presence_record(&peer, &record, now) {
+                    Ok(addrs) => addrs,
+                    Err(e) => {
+                        tracing::debug!(erreur = %e, "présence : record rejeté");
+                        Vec::new()
+                    }
+                },
+                None => Vec::new(),
+            };
+            if addrs.is_empty() {
+                continue;
+            }
             resolved += 1;
             // Cible de repli pour l'outbox, sans écraser une adresse déjà
             // prouvée.
@@ -652,7 +678,6 @@ async fn presence_resolve_tick(rt: &Runtime, cfg: &MaintenanceConfig) {
             });
             punched += 1;
         }
-
         // Repli relais (SPEC §11.3), INCONDITIONNEL : si aucune session n'existe
         // dans le délai imparti — poinçonnage impossible (NAT symétrique),
         // échoué, ou jamais tenté faute de présence résoluble — on bascule sur
@@ -661,13 +686,20 @@ async fn presence_resolve_tick(rt: &Runtime, cfg: &MaintenanceConfig) {
         // publique du pair, pas de sa présence). Détaché et idempotent :
         // `ensure_relay_to` ne fait rien si le pair est déjà joignable (session
         // directe/relayée) ou si un circuit existe déjà.
-        let est_ami = amis.contains(&peer);
+        let est_ami = amis.contains(&compte);
         if let Some(rt_arc) = rt.arc() {
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(relay::PUNCH_FALLBACK_MS)).await;
-                if !rt_arc.is_peer_live(&peer) {
-                    rt_arc.ensure_relay_to(peer).await;
+                // Un circuit par appareil : la table du relais indexe les
+                // sessions sur la clé que chaque pair lui a présentée, donc sur
+                // l'appareil. Ouvrir un circuit vers le compte se solderait par
+                // un « cible inconnue » côté relais.
+                for peer in rt_arc.node().delivery_targets(&compte) {
+                    if !rt_arc.is_peer_live(&peer) {
+                        rt_arc.ensure_relay_to(peer).await;
+                    }
                 }
+                let peer = compte;
                 // Upgrade relais → direct (SPEC §11.2), AMIS SEULEMENT (le
                 // destinataire rejette un `PunchRequest` d'un non-ami ; pour un
                 // premier contact, le circuit relais suffit à livrer) : une
@@ -878,7 +910,10 @@ pub(crate) async fn flush_peer(rt: &Runtime, peer: &[u8; 32], _addr: SocketAddr)
 /// les jours {courant, veille}, ré-assemble les fragments et ingère le dépôt.
 async fn mailbox_tick(rt: &Runtime, cfg: &MaintenanceConfig) {
     let now = now_ms();
-    let my_node = node_id_of(&rt.node().public_key()).0;
+    // 🔒 Notre boîte est indexée sur la clé de TRANSPORT : c'est à elle que
+    // l'expéditeur a essayé de livrer, donc là qu'il a déposé. Sonder sous la
+    // clé de compte ne trouverait plus rien dès que les deux diffèrent.
+    let my_node = node_id_of(&rt.node().transport_key()).0;
     let friends = match rt.node().friend_pubkeys() {
         Ok(f) => f,
         Err(e) => {

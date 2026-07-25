@@ -73,6 +73,19 @@ interface FriendsState {
   ) => void;
 }
 
+/**
+ * Numéro du dernier chargement démarré (même motif que `refreshSeq` dans
+ * `stores/dms.ts`, à ceci près que la liste d'amis est unique — un seul
+ * compteur suffit).
+ *
+ * 🔒 Plusieurs `friends.list` peuvent voler en même temps : l'arrivée d'un
+ * message, une marque de lecture locale, et désormais la lecture faite sur un
+ * AUTRE appareil du compte. Sans ce garde-fou, la réponse la plus ancienne peut
+ * arriver la dernière et remettre à l'écran un compteur de non-lus déjà périmé
+ * — une pastille qui remonte toute seule après qu'on a lu.
+ */
+let loadSeq = 0;
+
 export const useFriends = create<FriendsState>((set, get) => ({
   contacts: [],
   loaded: false,
@@ -80,7 +93,11 @@ export const useFriends = create<FriendsState>((set, get) => ({
   ownStatusText: null,
 
   load: async () => {
+    const seq = ++loadSeq;
     const { contacts } = await api.friendsList();
+    // Réponse périmée (un chargement plus récent a démarré depuis) :
+    // l'appliquer réécraserait des données plus fraîches — on l'ignore.
+    if (seq !== loadSeq) return;
     set({ contacts, loaded: true });
   },
 

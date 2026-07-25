@@ -247,6 +247,48 @@ describe('useFriends.applyProfile', () => {
   });
 });
 
+describe('useFriends.load', () => {
+  it('ignore une réponse doublée par un chargement plus récent', async () => {
+    // 🔒 Plusieurs `friends.list` volent en même temps : l'arrivée d'un
+    // message, une marque de lecture locale, et la lecture faite sur un AUTRE
+    // appareil du compte. Si la plus ancienne arrive la dernière, elle remet à
+    // l'écran un compteur de non-lus déjà périmé — une pastille qui remonte
+    // toute seule après qu'on a lu.
+    const perime = { ...contact('alice-pk', 'Alice'), unread: 3 };
+    const frais = { ...contact('alice-pk', 'Alice'), unread: 0 };
+
+    // Le premier appel répond APRÈS le second : c'est tout l'objet du test.
+    let repondrePerime = (): void => {};
+    friendsListMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          repondrePerime = () => resolve({ contacts: [perime] });
+        }),
+    );
+    friendsListMock.mockResolvedValueOnce({ contacts: [frais] });
+
+    const premier = useFriends.getState().load();
+    const second = useFriends.getState().load();
+    await second;
+    repondrePerime();
+    await premier;
+
+    expect(useFriends.getState().contacts).toEqual([frais]);
+  });
+
+  it('applique la réponse quand aucun chargement plus récent n’a démarré', async () => {
+    // Le contrôle : sans course, le chargement doit évidemment s'appliquer —
+    // sinon le garde-fou aurait simplement tout cassé.
+    const alice = { ...contact('alice-pk', 'Alice'), unread: 2 };
+    friendsListMock.mockResolvedValueOnce({ contacts: [alice] });
+
+    await useFriends.getState().load();
+
+    expect(useFriends.getState().contacts).toEqual([alice]);
+    expect(useFriends.getState().loaded).toBe(true);
+  });
+});
+
 describe('useFriends.markRead', () => {
   it('enregistre la position de lecture puis recharge la liste', async () => {
     // Arrange : après relecture, le nœud rend le contact sans non-lu.

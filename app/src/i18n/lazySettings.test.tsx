@@ -10,7 +10,7 @@
  */
 
 import { Suspense } from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** Une instance neuve du module i18n, dont les caches sont vides. */
@@ -81,5 +81,62 @@ describe('extension de réglages', () => {
 
     expect(await screen.findByText('Désactivé')).toBeInTheDocument();
     expect(screen.queryByText('chargement')).not.toBeInTheDocument();
+  });
+
+  it('remonte un chunk introuvable à la frontière d’erreur, sans reboucler', async () => {
+    vi.resetModules();
+    let tentatives = 0;
+    vi.doMock('./fr.settings', () => {
+      tentatives += 1;
+      throw new Error('chunk introuvable');
+    });
+
+    const { useSettingsT, useUi } = await import('../stores/ui');
+    const { ErrorBoundary } = await import('../components/ErrorBoundary');
+    useUi.setState({ lang: 'fr' });
+
+    function Sonde() {
+      const ts = useSettingsT();
+      return <span>{ts.settings.autoLockOff}</span>;
+    }
+
+    render(
+      <ErrorBoundary>
+        <Suspense fallback={<span>chargement</span>}>
+          <Sonde />
+        </Suspense>
+      </ErrorBoundary>,
+    );
+
+    // 🔒 Un `throw` de promesse rejetée ne remonte pas à une frontière d'erreur :
+    // React ne voit qu'un signal de suspension et re-rend. Sans conversion en
+    // erreur, l'échec resterait invisible (les replis de Suspense sont `null`)
+    // et chaque re-rendu relancerait un téléchargement, indéfiniment.
+    expect(await screen.findByText('Une erreur est survenue')).toBeInTheDocument();
+    expect(tentatives).toBeLessThanOrEqual(2);
+
+    vi.doUnmock('./fr.settings');
+  });
+
+  it('signale une bascule de langue impossible au lieu de la laisser sans effet', async () => {
+    vi.resetModules();
+    vi.doMock('./de.settings', () => {
+      throw new Error('chunk introuvable');
+    });
+
+    const { useUi } = await import('../stores/ui');
+    useUi.setState({ lang: 'fr', toasts: [] });
+
+    useUi.getState().setLang('de');
+
+    // Sans la branche d'échec, la promesse était rejetée dans le vide : la
+    // langue ne basculait pas et rien ne le disait.
+    await waitFor(() => {
+      expect(useUi.getState().toasts).toHaveLength(1);
+    });
+    expect(useUi.getState().toasts[0]?.kind).toBe('error');
+    expect(useUi.getState().lang).toBe('fr');
+
+    vi.doUnmock('./de.settings');
   });
 });

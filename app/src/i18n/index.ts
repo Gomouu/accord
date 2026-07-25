@@ -171,6 +171,19 @@ const resolvedSettings = new Map<Lang, SettingsDict>();
 const pendingSettings = new Map<Lang, Promise<SettingsDict>>();
 
 /**
+ * Dernier échec de chargement, par langue.
+ *
+ * 🔒 Sans lui, un chunk introuvable tourne en boucle et sans bruit. Jeter une
+ * promesse à React n'est qu'un *signal de suspension* : le rejet réveille le
+ * rendu exactement comme la résolution, sans jamais devenir une erreur qu'une
+ * frontière puisse attraper. Le rendu suivant retrouvait donc l'extension
+ * absente et relançait un téléchargement — mesuré à ~15 000 tentatives par
+ * seconde — sous un repli de Suspense vide, donc invisible. [`useSettingsT`]
+ * lit cette carte pour convertir l'échec en erreur, une bonne fois.
+ */
+const failedSettings = new Map<Lang, unknown>();
+
+/**
  * Extension de réglages d'une langue **si déjà chargée**, sinon `null`.
  *
  * Pas de repli sur le français, contrairement à [`dictionary`] : le français
@@ -181,6 +194,17 @@ export function settingsDictionary(lang: Lang): SettingsDict | null {
   return resolvedSettings.get(lang) ?? null;
 }
 
+/**
+ * Échec retenu pour cette langue, sinon `undefined`.
+ *
+ * Lecture pure : l'échec n'est effacé que par une nouvelle tentative
+ * ([`loadSettingsDict`]), jamais par le fait de le lire. Un rendu React peut
+ * être rejoué ou abandonné ; il ne doit pas être le seul à avoir vu l'erreur.
+ */
+export function settingsFailure(lang: Lang): unknown {
+  return failedSettings.get(lang);
+}
+
 /** Charge (une seule fois) l'extension de réglages d'une langue. */
 export function loadSettingsDict(lang: Lang): Promise<SettingsDict> {
   const known = resolvedSettings.get(lang);
@@ -188,6 +212,9 @@ export function loadSettingsDict(lang: Lang): Promise<SettingsDict> {
   const enCours = pendingSettings.get(lang);
   if (enCours !== undefined) return enCours;
 
+  // Toute nouvelle tentative repart d'une ardoise propre : un échec retenu
+  // décrit la tentative précédente, pas celle-ci.
+  failedSettings.delete(lang);
   const chargement = SETTINGS_LOADERS[lang]()
     .then((module) => {
       const dict = module[`${lang}Settings`] as SettingsDict;
@@ -195,10 +222,11 @@ export function loadSettingsDict(lang: Lang): Promise<SettingsDict> {
       return dict;
     })
     .catch((erreur: unknown) => {
-      // Un chunk introuvable (cache corrompu, mise à jour partielle) ne doit
-      // pas condamner définitivement la modale : sans cet oubli, la promesse
-      // rejetée resterait en cache et chaque réouverture rejouerait l'échec
-      // sans jamais retenter le téléchargement.
+      // Retenu plutôt que ravalé : c'est ce que `useSettingsT` jettera au
+      // rendu suivant, et ce qui arrête la boucle. La promesse en cours est
+      // oubliée pour qu'un appel délibéré (changement de langue) puisse
+      // retenter le téléchargement.
+      failedSettings.set(lang, erreur);
       pendingSettings.delete(lang);
       throw erreur;
     });

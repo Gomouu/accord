@@ -14,6 +14,7 @@ import {
   loadDictionary,
   loadSettingsDict,
   settingsDictionary,
+  settingsFailure,
   LANGS,
   type Dict,
   type Lang,
@@ -905,9 +906,19 @@ export const useUi = create<UiState>((set, get) => {
         set({ lang });
         return;
       }
-      void Promise.all([loadDictionary(lang), loadSettingsDict(lang)]).then(() => {
-        set((s) => ({ lang, dictReady: s.dictReady + 1 }));
-      });
+      void Promise.all([loadDictionary(lang), loadSettingsDict(lang)]).then(
+        () => {
+          set((s) => ({ lang, dictReady: s.dictReady + 1 }));
+        },
+        () => {
+          // Un chunk manquant laissait la bascule sans effet et sans un mot :
+          // la pastille restait sur l'ancienne langue, l'utilisateur cliquait
+          // à nouveau sans savoir pourquoi. Le message part dans la langue
+          // encore active, la seule dont on ait le dictionnaire.
+          applyLangDirection(get().lang);
+          get().toast('error', dictionary(get().lang).errors.actionFailed);
+        },
+      );
     },
     setTheme: (nextTheme) => {
       applyTheme(nextTheme, get().customTheme);
@@ -1094,11 +1105,21 @@ export function useT(): Dict {
  * 🔒 Jeter une promesse ne fonctionne que parce que [`loadSettingsDict`] rend
  * toujours la *même* promesse pour une langue donnée : sinon chaque rendu
  * suspendu en relancerait une, à l'infini.
+ *
+ * 🔒 Et l'échec doit être converti en erreur à la main. React ne voit dans une
+ * promesse jetée qu'un signal de suspension : il re-rend au rejet comme à la
+ * résolution, sans jamais rien lever. Sans la branche ci-dessous, un chunk
+ * introuvable relancerait un téléchargement à chaque re-rendu, derrière un
+ * repli vide — invisible et sans fin. Une fois l'erreur levée, la frontière la
+ * plus proche (voir `ErrorBoundary` autour des modales) l'attrape et propose
+ * de recharger.
  */
 export function useSettingsT(): SettingsDict {
   const lang = useUi((s) => s.lang);
   useUi((s) => s.dictReady);
   const dict = settingsDictionary(lang);
-  if (dict === null) throw loadSettingsDict(lang);
-  return dict;
+  if (dict !== null) return dict;
+  const echec = settingsFailure(lang);
+  if (echec !== undefined) throw echec;
+  throw loadSettingsDict(lang);
 }

@@ -38,6 +38,29 @@ pub(crate) const NEW_RING_MIN_INTERVAL_MS: u64 = 3_000;
 /// borne l'amplification à moins d'un petit message par offre reçue.
 pub(crate) const BUSY_REPLY_MIN_INTERVAL_MS: u64 = 2_000;
 
+/// Silence toléré sur une sonnerie entrante avant de conclure qu'elle n'a plus
+/// d'objet (ms).
+///
+/// 🔒 C'est le filet du multi-appareil, et il ne dépend d'**aucun** message
+/// reçu. L'appelant réémet son offre toutes les [`OFFER_RESEND_MS`] tant que ça
+/// sonne, et cesse net dès qu'il décroche : un appareil qui sonne encore sans
+/// plus rien recevoir en conclut de lui-même. Sans ce filet, la perte du
+/// message « décroché ailleurs » ferait sonner les autres appareils pendant les
+/// [`RING_TIMEOUT_MS`] complètes, puis afficher un **appel manqué** pour un
+/// appel qui a été pris — ce qui est pire que de ne pas sonner du tout.
+///
+/// Quatre périodes : assez pour absorber une rafale de pertes, assez court pour
+/// que la sonnerie résiduelle reste de l'ordre de la seconde.
+pub(crate) const RING_STALE_MS: u64 = 4 * OFFER_RESEND_MS;
+
+/// Nombre d'émissions de « décroché ailleurs » après une réponse honorée.
+///
+/// Le message voyage en UDP ; en répéter quelques-uns coûte trois petits
+/// datagrammes et raccourcit la sonnerie résiduelle d'une poignée de secondes
+/// dans le cas courant. Ce n'est qu'une optimisation de latence :
+/// [`RING_STALE_MS`] garantit la correction même s'ils se perdent tous.
+pub(crate) const TAKEN_RESENDS: u8 = 3;
+
 /// Borne du suivi de cadence par pair (au-delà, table réinitialisée — même
 /// motif que le suivi de débit du service de fichiers).
 const PEER_TRACKING_MAX: usize = 256;
@@ -113,6 +136,14 @@ pub(crate) enum CallAction {
         /// Appel terminé.
         call_id: [u8; 16],
     },
+    /// Émettre `CallTaken` au COMPTE du pair : ses autres appareils peuvent
+    /// cesser de sonner. Le gagnant le reçoit aussi et l'ignore.
+    SendTaken {
+        /// Destinataire (compte).
+        to: [u8; 32],
+        /// Appel honoré.
+        call_id: [u8; 16],
+    },
     /// Démarrer la session audio de l'appel (salon `room == call_id`).
     JoinAudio {
         /// Pair de l'appel.
@@ -168,11 +199,21 @@ enum State {
         peer: [u8; 32],
         call_id: [u8; 16],
         received_ms: u64,
+        /// Dernière offre reçue pour cette sonnerie — y compris les
+        /// réémissions. Distinct de `received_ms`, qui fixe l'échéance et ne
+        /// bouge jamais : rejouer une offre ne doit pas prolonger la sonnerie.
+        last_offer_ms: u64,
     },
     Active {
         peer: [u8; 32],
         call_id: [u8; 16],
         connected_ms: u64,
+        /// Émissions restantes de « décroché ailleurs » (voir
+        /// [`TAKEN_RESENDS`]). Zéro quand c'est nous qui avons décroché : dans
+        /// ce sens, c'est l'appelant qui prévient nos autres appareils.
+        taken_left: u8,
+        /// Dernière émission de « décroché ailleurs ».
+        last_taken_ms: u64,
     },
 }
 
@@ -222,6 +263,7 @@ impl CallMachine {
                 peer,
                 call_id,
                 received_ms,
+                ..
             } => CallSnapshot {
                 phase: CallPhase::IncomingRinging,
                 peer: Some(*peer),
@@ -232,6 +274,7 @@ impl CallMachine {
                 peer,
                 call_id,
                 connected_ms,
+                ..
             } => CallSnapshot {
                 phase: CallPhase::Active,
                 peer: Some(*peer),
@@ -286,6 +329,11 @@ impl CallMachine {
             peer,
             call_id,
             connected_ms: now_ms,
+            // Zéro : c'est nous qui décrochons. Prévenir nos propres autres
+            // appareils est le rôle de l'APPELANT, seul à savoir quelle
+            // réponse il a honorée.
+            taken_left: 0,
+            last_taken_ms: now_ms,
         };
         Ok(vec![
             CallAction::SendAnswer { to: peer, call_id },
@@ -379,7 +427,12 @@ impl CallMachine {
                 if *peer == from && *ringing == call_id {
                     // Réémission de la même offre (pertes UDP) : dédupliquée,
                     // l'échéance d'origine est conservée (pas de sonnerie
-                    // infinie en rejouant la même offre).
+                    // infinie en rejouant la même offre). Seule la date de
+                    // DERNIÈRE offre avance — c'est elle qui alimente le filet
+                    // de RING_STALE_MS, et elle seule.
+                    if let State::Incoming { last_offer_ms, .. } = &mut self.state {
+                        *last_offer_ms = now_ms;
+                    }
                     return vec![];
                 }
                 if *peer == from {
@@ -421,6 +474,8 @@ impl CallMachine {
                         peer: from,
                         call_id,
                         connected_ms: now_ms,
+                        taken_left: 0,
+                        last_taken_ms: now_ms,
                     };
                     vec![
                         CallAction::EventEnded {
@@ -480,11 +535,43 @@ impl CallMachine {
             peer,
             call_id,
             connected_ms: now_ms,
+            // Une première annonce part tout de suite ; `tick` en réémettra
+            // TAKEN_RESENDS - 1 autres, puisque le message peut se perdre.
+            taken_left: TAKEN_RESENDS.saturating_sub(1),
+            last_taken_ms: now_ms,
         };
         vec![
+            CallAction::SendTaken { to: peer, call_id },
             CallAction::JoinAudio { peer, call_id },
             CallAction::EventAccepted { peer, call_id },
         ]
+    }
+
+    /// « Décroché ailleurs » : un autre appareil de ce compte a pris l'appel.
+    ///
+    /// N'agit **que** sur une sonnerie en cours qui corrèle exactement. Le
+    /// gagnant reçoit le même message — il est adressé au compte, donc à tous
+    /// les appareils — et l'ignore parce qu'il est déjà `Active`. Un message
+    /// forgé ou rejoué ne peut donc qu'éteindre une sonnerie que son propre
+    /// appelant a déjà quittée.
+    pub(crate) fn on_taken(&mut self, from: [u8; 32], call_id: [u8; 16]) -> Vec<CallAction> {
+        let State::Incoming {
+            peer,
+            call_id: ringing,
+            ..
+        } = self.state
+        else {
+            return vec![];
+        };
+        if peer != from || ringing != call_id {
+            return vec![];
+        }
+        self.state = State::Idle;
+        vec![CallAction::EventEnded {
+            peer,
+            call_id,
+            reason: "answered_elsewhere",
+        }]
     }
 
     /// Refus de notre offre : mêmes corrélations strictes que la réponse.
@@ -565,14 +652,28 @@ impl CallMachine {
     }
 
     /// Vivacité audio perdue pendant un appel actif (le pair a disparu) :
-    /// l'appel se termine proprement (le raccrochage émis est best-effort).
+    /// l'appel se termine localement, **en silence**.
+    ///
+    /// 🔒 Aucun raccrochage émis, et c'est le point. Multi-appareil : si deux
+    /// appareils de l'appelé décrochent dans le même aller-retour, l'appelant
+    /// n'en honore qu'un — mais le perdant, lui, se croit en appel. Son audio
+    /// ne vient jamais, et dix secondes plus tard il émettait un raccrochage
+    /// vers le COMPTE de l'appelant. Or l'appelant ne peut pas distinguer ce
+    /// raccrochage de celui du gagnant : la signalisation entrante est
+    /// traduite en compte avant d'atteindre le moteur voix. Il coupait donc
+    /// l'appel qu'il était en train de tenir.
+    ///
+    /// Ne rien émettre ne coûte rien dans le cas mono-appareil : si l'audio est
+    /// perdu, c'est que le pair a disparu — le raccrochage n'arrivait déjà
+    /// nulle part. Et si les deux sont vivants derrière une coupure réseau,
+    /// chacun conclut de son côté au même délai. Le message ne servait que
+    /// quand il ne servait à rien, et nuisait quand il servait.
     pub(crate) fn on_audio_lost(&mut self) -> Vec<CallAction> {
         let State::Active { peer, call_id, .. } = self.state else {
             return vec![];
         };
         self.state = State::Idle;
         vec![
-            CallAction::SendHangup { to: peer, call_id },
             CallAction::LeaveAudio,
             CallAction::EventEnded {
                 peer,
@@ -632,9 +733,10 @@ impl CallMachine {
                 peer,
                 call_id,
                 received_ms,
+                last_offer_ms,
             } => {
+                let (peer, call_id) = (*peer, *call_id);
                 if now_ms.saturating_sub(*received_ms) >= RING_TIMEOUT_MS {
-                    let (peer, call_id) = (*peer, *call_id);
                     self.state = State::Idle;
                     return vec![CallAction::EventEnded {
                         peer,
@@ -642,7 +744,38 @@ impl CallMachine {
                         reason: "missed",
                     }];
                 }
+                // 🔒 Le filet : plus aucune offre depuis RING_STALE_MS. Soit
+                // l'appelant a raccroché et l'annulation s'est perdue, soit il
+                // a décroché ailleurs et le « décroché ailleurs » s'est perdu
+                // aussi. Dans les deux cas la sonnerie n'a plus d'objet, et
+                // l'attendre jusqu'au bout la ferait conclure « appel manqué »
+                // pour un appel qui a été pris.
+                if now_ms.saturating_sub(*last_offer_ms) >= RING_STALE_MS {
+                    self.state = State::Idle;
+                    return vec![CallAction::EventEnded {
+                        peer,
+                        call_id,
+                        reason: "canceled",
+                    }];
+                }
                 vec![]
+            }
+            State::Active {
+                peer,
+                call_id,
+                taken_left,
+                last_taken_ms,
+                ..
+            } => {
+                if *taken_left == 0 || now_ms.saturating_sub(*last_taken_ms) < OFFER_RESEND_MS {
+                    return vec![];
+                }
+                *taken_left -= 1;
+                *last_taken_ms = now_ms;
+                vec![CallAction::SendTaken {
+                    to: *peer,
+                    call_id: *call_id,
+                }]
             }
             _ => vec![],
         }
@@ -663,6 +796,7 @@ impl CallMachine {
             peer: from,
             call_id,
             received_ms: now_ms,
+            last_offer_ms: now_ms,
         };
         vec![CallAction::EventIncoming {
             peer: from,
@@ -844,9 +978,19 @@ mod tests {
 
     #[test]
     fn incoming_ring_expires_as_missed() {
+        // Un appel réellement non décroché : l'appelant sonne jusqu'au bout,
+        // donc ses offres continuent d'arriver. C'est ce qui distingue
+        // « manqué » de « annulé » — et c'est pourquoi le test doit les
+        // rejouer : sans elles, le filet de RING_STALE_MS conclurait, à raison,
+        // que plus personne n'appelle.
         let mut m = machine();
         m.on_offer(ALICE, CALL, 0);
-        assert!(m.tick(RING_TIMEOUT_MS - 1).is_empty());
+        let mut t = 0;
+        while t + OFFER_RESEND_MS < RING_TIMEOUT_MS {
+            t += OFFER_RESEND_MS;
+            m.on_offer(ALICE, CALL, t);
+            assert!(m.tick(t).is_empty(), "sonnerie encore vivante à t={t}");
+        }
         assert_eq!(
             m.tick(RING_TIMEOUT_MS),
             vec![CallAction::EventEnded {
@@ -1033,5 +1177,148 @@ mod tests {
             call_id: CALL,
             reason: "lost",
         }));
+        // 🔒 Et surtout AUCUN raccrochage. Multi-appareil : l'appareil qui a
+        // perdu la course au décrochage se croit en appel, son audio n'arrive
+        // jamais, et un raccrochage de sa part serait indiscernable de celui du
+        // gagnant côté appelant — qui couperait l'appel qu'il tient vraiment.
+        assert!(
+            !actions
+                .iter()
+                .any(|a| matches!(a, CallAction::SendHangup { .. })),
+            "perdre l'audio ne doit rien émettre : {actions:?}"
+        );
+    }
+
+    #[test]
+    fn decrocher_previent_les_autres_appareils_de_lappele() {
+        // L'appelant honore une réponse : il annonce « décroché » au COMPTE de
+        // l'appelé, que la livraison éclate sur tous ses appareils.
+        let mut m = machine();
+        m.start(BOB, CALL, 0).unwrap();
+        let actions = m.on_answer(BOB, CALL, 100);
+        assert!(
+            actions.contains(&CallAction::SendTaken {
+                to: BOB,
+                call_id: CALL
+            }),
+            "l'annonce doit partir avec la réponse honorée : {actions:?}"
+        );
+
+        // Et elle est réémise, parce qu'un datagramme se perd.
+        let mut vues = 1;
+        let mut t = 100;
+        for _ in 0..10 {
+            t += OFFER_RESEND_MS;
+            if m.tick(t).contains(&CallAction::SendTaken {
+                to: BOB,
+                call_id: CALL,
+            }) {
+                vues += 1;
+            }
+        }
+        assert_eq!(vues, TAKEN_RESENDS, "réémissions bornées, pas infinies");
+    }
+
+    #[test]
+    fn decrocher_soi_meme_nannonce_rien() {
+        // 🔒 Sens unique. Si l'appareil qui décroche annonçait lui aussi, il
+        // enverrait le message au COMPTE DE L'APPELANT — dont les appareils ne
+        // sonnent pas — et pas aux siens. Du bruit sans effet, et une fausse
+        // impression que le cas est couvert.
+        let mut m = machine();
+        m.on_offer(ALICE, CALL, 0);
+        let actions = m.accept(CALL, 10).unwrap();
+        assert!(!actions
+            .iter()
+            .any(|a| matches!(a, CallAction::SendTaken { .. })));
+        assert!(m.tick(10 + OFFER_RESEND_MS * 5).is_empty());
+    }
+
+    #[test]
+    fn un_appareil_qui_sonne_seteint_sur_decroche_ailleurs() {
+        let mut m = machine();
+        m.on_offer(ALICE, CALL, 0);
+        let actions = m.on_taken(ALICE, CALL);
+        assert_eq!(
+            actions,
+            vec![CallAction::EventEnded {
+                peer: ALICE,
+                call_id: CALL,
+                reason: "answered_elsewhere",
+            }]
+        );
+        assert_eq!(m.snapshot().phase, CallPhase::Idle);
+    }
+
+    #[test]
+    fn decroche_ailleurs_ne_touche_ni_le_gagnant_ni_un_autre_appel() {
+        // Le gagnant reçoit le même message — il est adressé au compte — et
+        // doit l'ignorer, sans quoi il raccrocherait l'appel qu'il vient de
+        // prendre.
+        let mut gagnant = machine();
+        gagnant.on_offer(ALICE, CALL, 0);
+        gagnant.accept(CALL, 10).unwrap();
+        assert!(gagnant.on_taken(ALICE, CALL).is_empty());
+        assert_eq!(gagnant.snapshot().phase, CallPhase::Active);
+
+        // Et un message qui ne corrèle pas ne peut pas éteindre une sonnerie :
+        // ni d'un autre pair, ni pour un autre appel.
+        let mut m = machine();
+        m.on_offer(ALICE, CALL, 0);
+        assert!(m.on_taken(BOB, CALL).is_empty());
+        assert!(m.on_taken(ALICE, CALL2).is_empty());
+        assert_eq!(m.snapshot().phase, CallPhase::IncomingRinging);
+    }
+
+    #[test]
+    fn une_sonnerie_sans_nouvelles_seteint_delle_meme() {
+        // 🔒 Le filet, et le cœur de la tâche : il ne dépend d'AUCUN message
+        // reçu. Si « décroché ailleurs » se perd entièrement, l'appareil
+        // constate que l'appelant a cessé de réémettre son offre et conclut.
+        // Sans lui, il sonnerait 45 s puis afficherait « appel manqué » pour un
+        // appel qui a été pris.
+        let mut m = machine();
+        m.on_offer(ALICE, CALL, 0);
+
+        // Tant que les offres arrivent, ça sonne.
+        let mut t = 0;
+        for _ in 0..10 {
+            t += OFFER_RESEND_MS;
+            m.on_offer(ALICE, CALL, t);
+            assert!(m.tick(t).is_empty(), "sonnerie vivante à t={t}");
+        }
+
+        // Les offres s'arrêtent : l'appelant a décroché ailleurs.
+        assert!(m.tick(t + RING_STALE_MS - 1).is_empty());
+        assert_eq!(
+            m.tick(t + RING_STALE_MS),
+            vec![CallAction::EventEnded {
+                peer: ALICE,
+                call_id: CALL,
+                reason: "canceled",
+            }],
+            "et surtout PAS « missed »"
+        );
+        assert_eq!(m.snapshot().phase, CallPhase::Idle);
+    }
+
+    #[test]
+    fn rejouer_une_offre_ne_prolonge_pas_la_sonnerie() {
+        // 🔒 L'invariant que le filet ne doit pas casser : `received_ms` fixe
+        // l'échéance et ne bouge jamais. Sinon un appelant qui réémet sans fin
+        // ferait sonner un appareil indéfiniment.
+        let mut m = machine();
+        m.on_offer(ALICE, CALL, 0);
+        let mut t = 0;
+        while t < RING_TIMEOUT_MS {
+            t += OFFER_RESEND_MS;
+            m.on_offer(ALICE, CALL, t);
+            m.tick(t);
+        }
+        assert_eq!(
+            m.snapshot().phase,
+            CallPhase::Idle,
+            "la sonnerie doit expirer malgré les réémissions"
+        );
     }
 }

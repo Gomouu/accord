@@ -1514,6 +1514,7 @@ impl Engine {
                 self.calls.on_decline(from, call_id, reason)
             }
             CoreMsg::CallHangup { call_id } => self.calls.on_hangup(from, call_id),
+            CoreMsg::CallTaken { call_id } => self.calls.on_taken(from, call_id),
             _ => return,
         };
         self.run_call_actions(actions);
@@ -1540,6 +1541,9 @@ impl Engine {
                 }
                 CallAction::SendHangup { to, call_id } => {
                     self.send_call_msg(to, CoreMsg::CallHangup { call_id });
+                }
+                CallAction::SendTaken { to, call_id } => {
+                    self.send_call_msg(to, CoreMsg::CallTaken { call_id });
                 }
                 CallAction::JoinAudio { peer, call_id } => self.join_call_room(peer, call_id),
                 CallAction::LeaveAudio => self.leave_active(),
@@ -1839,6 +1843,7 @@ mod tests {
                         | CoreMsg::CallAnswer { .. }
                         | CoreMsg::CallDecline { .. }
                         | CoreMsg::CallHangup { .. }
+                        | CoreMsg::CallTaken { .. }
                 ) {
                     return Some((to, *msg));
                 }
@@ -2292,7 +2297,10 @@ mod tests {
         assert!(handle.status().await.unwrap().is_none());
         let hangup = loop {
             match next_call_msg(&mut out).await {
-                Some((_, CoreMsg::CallOffer { .. })) => continue, // réémissions
+                // Réémissions de l'offre, et annonces « décroché ailleurs »
+                // destinées aux AUTRES appareils de l'appelé (lot 1.E) : ni
+                // l'une ni l'autre ne conclut cet appel.
+                Some((_, CoreMsg::CallOffer { .. } | CoreMsg::CallTaken { .. })) => continue,
                 other => break other,
             }
         };

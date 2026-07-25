@@ -924,49 +924,60 @@ async fn mailbox_tick(rt: &Runtime, cfg: &MaintenanceConfig) {
     let window = rt.mailbox_window(friends.len(), cfg.contacts_per_tick);
     for i in window {
         let friend = friends[i];
-        let sender_node = node_id_of(&friend).0;
-        for day in offline::poll_days(now) {
-            let key0 = offline::mailbox_key(&my_node, day, &sender_node, 0);
-            let Some(rec0) = rt.dht().get(rt.dht_rpc(), key0, now).await else {
-                continue;
-            };
-            if rec0.publisher != friend {
-                tracing::debug!("boîtes : fragment d'un publieur inattendu, ignoré");
-                continue;
-            }
-            let total = match offline::fragment_total(&rec0.value) {
-                Ok(t) if (1..=offline::MAX_FRAGMENTS).contains(&t) => t as usize,
-                _ => {
-                    tracing::debug!("boîtes : en-tête de fragment invalide");
+        // 🔒 Une case par APPAREIL de l'expéditeur. La clé de boîte mêle
+        // destinataire, jour et expéditeur : si les deux machines d'un ami
+        // déposaient sous la clé du compte, elles écriraient au même endroit
+        // le même jour et la seconde effacerait la première. Le parc actuel
+        // rend une seule cible, la clé de compte — donc une seule case, comme
+        // avant.
+        for expediteur in rt.node().delivery_targets(&friend) {
+            let sender_node = node_id_of(&expediteur).0;
+            for day in offline::poll_days(now) {
+                let key0 = offline::mailbox_key(&my_node, day, &sender_node, 0);
+                let Some(rec0) = rt.dht().get(rt.dht_rpc(), key0, now).await else {
+                    continue;
+                };
+                if rec0.publisher != expediteur {
+                    tracing::debug!("boîtes : fragment d'un publieur inattendu, ignoré");
                     continue;
                 }
-            };
-            let mut values = Vec::with_capacity(total);
-            values.push(rec0.value.clone());
-            for frag in 1..total {
-                let key = offline::mailbox_key(&my_node, day, &sender_node, frag as u32);
-                match rt.dht().get(rt.dht_rpc(), key, now).await {
-                    Some(rec) if rec.publisher == friend => values.push(rec.value.clone()),
-                    _ => break,
-                }
-            }
-            if values.len() != total {
-                tracing::debug!("boîtes : dépôt incomplet, nouvelle tentative plus tard");
-                continue;
-            }
-            match rt.node().open_mailbox_deposit(&sender_node, &values) {
-                Ok(payloads) => {
-                    let messages = payloads.len();
-                    rt.net_counters().mailbox_pickup(messages as u64);
-                    for payload in payloads {
-                        match decode_core(&payload) {
-                            Ok(msg) => rt.route_core(&friend, msg).await,
-                            Err(_) => tracing::debug!("boîtes : message illisible ignoré"),
-                        }
+                let total = match offline::fragment_total(&rec0.value) {
+                    Ok(t) if (1..=offline::MAX_FRAGMENTS).contains(&t) => t as usize,
+                    _ => {
+                        tracing::debug!("boîtes : en-tête de fragment invalide");
+                        continue;
                     }
-                    tracing::debug!(messages, "boîtes : dépôt hors-ligne relevé");
+                };
+                let mut values = Vec::with_capacity(total);
+                values.push(rec0.value.clone());
+                for frag in 1..total {
+                    let key = offline::mailbox_key(&my_node, day, &sender_node, frag as u32);
+                    match rt.dht().get(rt.dht_rpc(), key, now).await {
+                        Some(rec) if rec.publisher == expediteur => values.push(rec.value.clone()),
+                        _ => break,
+                    }
                 }
-                Err(e) => tracing::debug!(erreur = %e, "boîtes : dépôt rejeté"),
+                if values.len() != total {
+                    tracing::debug!("boîtes : dépôt incomplet, nouvelle tentative plus tard");
+                    continue;
+                }
+                match rt.node().open_mailbox_deposit(&sender_node, &values) {
+                    Ok(payloads) => {
+                        let messages = payloads.len();
+                        rt.net_counters().mailbox_pickup(messages as u64);
+                        for payload in payloads {
+                            match decode_core(&payload) {
+                                // 🔒 Ingéré au nom de la PERSONNE, pas de la
+                                // machine : le dépôt vient d'un appareil, mais
+                                // le message vient de l'ami.
+                                Ok(msg) => rt.route_core(&friend, msg).await,
+                                Err(_) => tracing::debug!("boîtes : message illisible ignoré"),
+                            }
+                        }
+                        tracing::debug!(messages, "boîtes : dépôt hors-ligne relevé");
+                    }
+                    Err(e) => tracing::debug!(erreur = %e, "boîtes : dépôt rejeté"),
+                }
             }
         }
     }
@@ -1262,6 +1273,14 @@ mod tests {
         assert!(!is_queueable_offline(&CoreMsg::GroupSyncPull {
             group_id: [0; 16],
             since_lamport: 0,
+        }));
+        // 🔒 « Décroché ailleurs » ne doit JAMAIS survivre à sa fenêtre : livré
+        // une heure plus tard, il éteindrait une sonnerie sans rapport, ou
+        // rien du tout. La sonnerie qui n'a pas reçu le message se termine de
+        // toute façon d'elle-même — c'est le filet, pas la file, qui garantit
+        // la correction.
+        assert!(!is_queueable_offline(&CoreMsg::CallTaken {
+            call_id: [0; 16],
         }));
     }
 

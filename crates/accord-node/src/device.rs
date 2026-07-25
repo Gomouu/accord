@@ -323,6 +323,25 @@ pub fn delivery_targets(db: &Db, account: &[u8; 32], now_ms: u64) -> Vec<[u8; 32
     targets
 }
 
+/// Retire notre propre clé de transport d'une liste de cibles.
+///
+/// 🔒 S'adresser à son **propre compte** est le mode normal de tout ce qui
+/// circule entre ses machines — marques de lecture, rattrapage. La livraison
+/// résout alors le compte en tous ses appareils, **le nôtre compris** : sans ce
+/// filtre, chaque message partirait aussi vers nous-mêmes. Il n'y a pas
+/// d'adresse à laquelle nous joindre dans notre propre carnet, donc rien
+/// n'aboutirait ; mais une ligne s'empilerait dans la file hors-ligne à notre
+/// propre nom, que rien ne viderait jamais, et que les passes de résolution
+/// prendraient ensuite pour une cible à chercher dans la DHT.
+///
+/// Rendre une liste vide est un résultat légitime : c'est ce qui arrive à un
+/// compte d'un seul appareil qui s'écrit à lui-même. L'appelant ne livre alors
+/// rien, ce qui est exactement correct — il n'y a personne d'autre à prévenir.
+pub fn without_self(mut targets: Vec<[u8; 32]>, me: &[u8; 32]) -> Vec<[u8; 32]> {
+    targets.retain(|t| t != me);
+    targets
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -904,6 +923,24 @@ mod tests {
         let compte = en_cache(&db, &account, &record, now);
 
         assert_eq!(delivery_targets(&db, &compte, now), vec![compte]);
+    }
+
+    #[test]
+    fn on_ne_se_livre_pas_a_soi_meme() {
+        let moi = [1u8; 32];
+        let autre = [2u8; 32];
+
+        // Le cas qui compte : le compte a deux machines, on s'écrit à
+        // soi-même, seule l'autre doit recevoir.
+        assert_eq!(without_self(vec![moi, autre], &moi), vec![autre]);
+        assert_eq!(without_self(vec![autre, moi], &moi), vec![autre]);
+
+        // Un compte d'un seul appareil qui s'écrit à lui-même : personne à
+        // prévenir, et une liste vide est la bonne réponse — pas un repli.
+        assert!(without_self(vec![moi], &moi).is_empty());
+
+        // Écrire à quelqu'un d'autre ne perd jamais de cible.
+        assert_eq!(without_self(vec![autre], &moi), vec![autre]);
     }
 
     #[test]

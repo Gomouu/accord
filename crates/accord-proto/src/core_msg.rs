@@ -1748,6 +1748,20 @@ pub enum CoreMsg {
         /// Appel terminé.
         call_id: [u8; 16],
     },
+    /// 0x1A — « Décroché ailleurs » : l'appelant a honoré une réponse, les
+    /// autres appareils de l'appelé peuvent cesser de sonner (jalon 1, lot
+    /// 1.E). Émis vers le COMPTE, donc reçu par tous les appareils y compris
+    /// le gagnant, qui l'ignore — n'agit que sur une sonnerie en cours.
+    ///
+    /// ⚠️ Ce message est un **raccourci de latence, pas une garantie**. Il
+    /// voyage en UDP et peut se perdre entièrement ; l'arrêt de la sonnerie ne
+    /// doit donc jamais en dépendre. Le filet, lui, ne dépend d'aucun message
+    /// reçu : l'appelant cesse de réémettre `CallOffer` dès qu'il décroche, et
+    /// un appareil qui sonne sans plus rien recevoir conclut de lui-même.
+    CallTaken {
+        /// Appel désormais honoré ailleurs.
+        call_id: [u8; 16],
+    },
     /// 0x15 — Rachat d'un lien d'invitation public : le porteur d'un code
     /// partageable prouve qu'il détient le secret (préimage du `code_hash`
     /// de l'op `InviteCreate` répliquée) et demande son admission à
@@ -1816,7 +1830,45 @@ pub enum CoreMsg {
         /// `nonce ‖ chiffré`, borné au décodage.
         sealed: Vec<u8>,
     },
+    /// 0x1B — Position de lecture partagée entre les appareils d'UN MÊME
+    /// compte (jalon 1, lot 1.E). Adressée à notre propre compte, donc reçue
+    /// par nos autres machines et par personne d'autre.
+    ///
+    /// Sans elle, chaque machine tient son compteur de non-lus dans son coin :
+    /// une conversation lue au bureau revient en gras sur le portable, et le
+    /// badge ment jusqu'à ce qu'on la rouvre. La convention est tranchée —
+    /// « lu = lu sur au moins un appareil » (`docs/MULTI_DEVICE.md` §5).
+    ///
+    /// 🔒 À ne pas confondre avec l'accusé de lecture, qui dit au PAIR ce
+    /// qu'on a lu. Celui-ci ne sort jamais du compte, et son émission ne doit
+    /// donc suivre aucun réglage de confidentialité qui parle du pair : sinon
+    /// couper les accusés casserait au passage la synchronisation entre ses
+    /// propres machines, sans que rien ne le laisse deviner.
+    SelfReadMark {
+        /// Portée de la marque. Seul [`SELF_READ_SCOPE_DM`] est défini ; toute
+        /// autre valeur est rejetée au décodage.
+        scope: u8,
+        /// Conversation visée, interprétée selon `scope` : pour
+        /// [`SELF_READ_SCOPE_DM`], la clé de compte du pair. Trente-deux
+        /// octets parce qu'une portée « salon » y logerait `group_id` puis
+        /// `channel_id` sans changer la forme du message.
+        conv: [u8; 32],
+        /// Dernier message DU PAIR couvert par la marque.
+        ///
+        /// ⚠️ Un `msg_id`, pas un lamport, et c'est là que tient toute la
+        /// justesse du mécanisme. Le lamport que l'interface transmet peut
+        /// être celui d'un de NOS messages, tiré de NOTRE horloge ; diffusé
+        /// tel quel, il couvrirait chez l'autre appareil des messages du pair
+        /// que nous n'avons jamais vus. Un identifiant, lui, ne se traduit
+        /// pas : l'autre appareil n'avance que jusqu'à un message qu'il
+        /// connaît, et ignore une marque qui ne lui dit rien.
+        up_to: [u8; 16],
+    },
 }
+
+/// Portée d'une [`CoreMsg::SelfReadMark`] : conversation directe. `conv` porte
+/// alors la clé de compte du pair.
+pub const SELF_READ_SCOPE_DM: u8 = 0;
 
 /// Raison d'un [`CoreMsg::CallDecline`] : refus explicite de l'utilisateur.
 pub const CALL_DECLINE_REJECTED: u8 = 0;
@@ -2030,6 +2082,10 @@ impl WireEncode for CoreMsg {
                 w.put_u8(0x14);
                 w.put_arr(call_id);
             }
+            CoreMsg::CallTaken { call_id } => {
+                w.put_u8(0x1A);
+                w.put_arr(call_id);
+            }
             CoreMsg::InviteRedeem {
                 group_id,
                 invite_id,
@@ -2061,6 +2117,12 @@ impl WireEncode for CoreMsg {
             CoreMsg::PairingSealed { sealed } => {
                 w.put_u8(0x19);
                 w.put_vbytes(sealed);
+            }
+            CoreMsg::SelfReadMark { scope, conv, up_to } => {
+                w.put_u8(0x1B);
+                w.put_u8(*scope);
+                w.put_arr(conv);
+                w.put_arr(up_to);
             }
         }
     }
@@ -2256,6 +2318,25 @@ impl WireDecode for CoreMsg {
             0x19 => Ok(CoreMsg::PairingSealed {
                 sealed: r.vbytes(MAX_PAIRING_SEALED, "pairing.sealed")?,
             }),
+            0x1A => Ok(CoreMsg::CallTaken { call_id: r.arr()? }),
+            0x1B => Ok(CoreMsg::SelfReadMark {
+                // 🔒 Portée bornée ICI, pas au moment de s'en servir. Une
+                // valeur inconnue laissée passer finirait dans un `match`
+                // lointain dont le bras par défaut trancherait à l'aveugle —
+                // et le mauvais défaut, ici, avance une position de lecture
+                // sur une conversation qui n'est pas celle visée.
+                //
+                // ⚠️ Rejeter jette le datagramme entier. Assumé : un
+                // `CoreMsg` en porte exactement un, contrairement au genre de
+                // record DHT qui voyageait dans une liste et emportait toute
+                // la réponse avec lui.
+                scope: match r.u8()? {
+                    SELF_READ_SCOPE_DM => SELF_READ_SCOPE_DM,
+                    _ => return Err(DecodeError::InvalidValue("self_read.scope")),
+                },
+                conv: r.arr()?,
+                up_to: r.arr()?,
+            }),
             _ => Err(DecodeError::InvalidValue("core kind")),
         }
     }
@@ -2382,6 +2463,37 @@ mod tests {
     }
 
     #[test]
+    fn self_read_mark_roundtrips_and_rejects_unknown_scope() {
+        let msg = CoreMsg::SelfReadMark {
+            scope: SELF_READ_SCOPE_DM,
+            conv: [0xA7; 32],
+            up_to: [0x5C; 16],
+        };
+        let mut w = Writer::new();
+        msg.encode(&mut w);
+        let bytes = w.into_bytes();
+        // Opcode gelé : le déplacer casserait la compatibilité en silence.
+        assert_eq!(bytes.first(), Some(&0x1B));
+        let mut r = Reader::new(&bytes);
+        assert_eq!(CoreMsg::decode(&mut r).unwrap(), msg);
+
+        // 🔒 Portée inconnue : refusée au décodage, jamais portée jusqu'à
+        // l'usage. L'octet de portée est le second du message.
+        let mut hostile = bytes.clone();
+        hostile[1] = 1;
+        let mut r = Reader::new(&hostile);
+        assert!(CoreMsg::decode(&mut r).is_err());
+        hostile[1] = 0xFF;
+        let mut r = Reader::new(&hostile);
+        assert!(CoreMsg::decode(&mut r).is_err());
+
+        // Message tronqué : refusé sans panique (entrée entièrement contrôlée
+        // par l'émetteur).
+        let mut r = Reader::new(&bytes[..bytes.len() - 1]);
+        assert!(CoreMsg::decode(&mut r).is_err());
+    }
+
+    #[test]
     fn malformed_new_ops_are_rejected() {
         // Truncated TimeoutMember body (member present, missing until_ms).
         assert!(GroupOpBody::decode_body(0x1D, &[0u8; 32]).is_err());
@@ -2453,6 +2565,7 @@ mod tests {
                 reason: CALL_DECLINE_BUSY,
             },
             CoreMsg::CallHangup { call_id: [9; 16] },
+            CoreMsg::CallTaken { call_id: [9; 16] },
         ] {
             assert_eq!(core_roundtrip(&msg), msg);
         }

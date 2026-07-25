@@ -1575,7 +1575,16 @@ impl Runtime {
     /// compte : la boucle ci-dessous se réduit alors au comportement d'avant, à
     /// l'octet près.
     async fn deliver_core(&self, to_account: &[u8; 32], msg: CoreMsg) {
-        for cible in self.node.delivery_targets(to_account) {
+        // 🔒 Notre propre machine sort de la liste. S'adresser à son propre
+        // compte est le mode normal de ce qui circule entre ses appareils, et
+        // l'expansion nous inclurait — un message partirait vers nous-mêmes,
+        // n'aboutirait pas faute d'adresse, et laisserait dans la file
+        // hors-ligne une ligne à notre propre nom que rien ne viderait jamais.
+        let cibles = crate::device::without_self(
+            self.node.delivery_targets(to_account),
+            &self.node.transport_key(),
+        );
+        for cible in cibles {
             self.deliver_core_to_device(&cible, msg.clone()).await;
         }
     }
@@ -1741,6 +1750,7 @@ impl Runtime {
                 | CoreMsg::CallAnswer { .. }
                 | CoreMsg::CallDecline { .. }
                 | CoreMsg::CallHangup { .. }
+                | CoreMsg::CallTaken { .. }
         ) {
             if let Some(voice) = self.voice.get() {
                 voice.peer_call(*static_pub, core_msg);

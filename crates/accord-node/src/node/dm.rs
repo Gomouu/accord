@@ -5,7 +5,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use accord_core::db::DmRecord;
 use accord_core::messaging;
-use accord_proto::core_msg::{CoreMsg, FileRef};
+use accord_proto::core_msg::{CoreMsg, FileRef, SELF_READ_SCOPE_DM};
 use serde_json::{json, Value};
 
 use crate::error::NodeError;
@@ -158,6 +158,11 @@ impl Node {
     /// actually advances, the privacy toggle is on and the peer is presumed
     /// online, a `ReadReceipt` targeting the peer's latest covered message is
     /// emitted — never persisted, never queued offline.
+    ///
+    /// Une marque qui avance est par ailleurs répercutée à nos AUTRES
+    /// appareils ([`Node::sync_read_mark_to_own_devices`]) — deux
+    /// destinataires distincts, deux messages distincts, et surtout deux
+    /// règles distinctes : voir le 🔒 posé sur la seconde.
     pub fn dm_mark_read(&self, peer_pubkey: &[u8; 32], lamport: u64) -> Result<(), NodeError> {
         let key = dm_mark_key(peer_pubkey);
         let previous = self.with_db(|db| Ok(read_u64(db.meta(&key)?)))?;
@@ -171,6 +176,7 @@ impl Node {
         let advanced = lamport > previous;
         if advanced {
             self.with_db(|db| Ok(db.set_meta(&key, &lamport.to_be_bytes())?))?;
+            self.sync_read_mark_to_own_devices(peer_pubkey, lamport)?;
         }
         // Ouvrir une conversation éteint ses mentions non lues (parité Discord).
         // Sans condition de position : acquitter une mention ne va que dans le
@@ -202,6 +208,121 @@ impl Node {
             });
         }
         Ok(())
+    }
+
+    /// Répercute notre position de lecture aux AUTRES appareils du compte
+    /// (« lu = lu sur au moins un appareil », `docs/MULTI_DEVICE.md` §5).
+    ///
+    /// 🔒 **Jamais conditionnée au réglage des accusés de lecture.** Ce
+    /// réglage décide de ce que le PAIR apprend ; celui-ci ne quitte pas le
+    /// compte. Les confondre ferait cesser la synchronisation entre les
+    /// machines de l'utilisateur à l'instant où il coupe un réglage qui n'en
+    /// parle pas — une option de confidentialité qui casse en douce une
+    /// fonction sans rapport est le pire genre de surprise.
+    ///
+    /// Ni conditionnée à la présence en ligne : la cible est notre propre
+    /// compte, pas le pair, et c'est la couche de livraison qui sait quels
+    /// appareils sont joignables.
+    ///
+    /// ⚠️ La marque est **éphémère** : `maintenance::is_queueable_offline` ne
+    /// la met pas en file, donc un appareil éteint ne la rattrape pas. Coût
+    /// assumé — il se remet à jour tout seul dès qu'on ouvre la conversation
+    /// chez lui, et une file de marques périmées ne ferait que rejouer des
+    /// positions déjà dépassées.
+    fn sync_read_mark_to_own_devices(
+        &self,
+        peer_pubkey: &[u8; 32],
+        lamport: u64,
+    ) -> Result<(), NodeError> {
+        // Ramené à un message DU PAIR : c'est cette normalisation qui rend la
+        // marque transposable d'une machine à l'autre (voir le ⚠️ sur
+        // `CoreMsg::SelfReadMark::up_to`). Rien à annoncer quand aucun message
+        // du pair n'est couvert — le compteur de non-lus des autres appareils
+        // ne se calcule que sur ceux-là, il ne bougerait pas d'un pouce.
+        let Some(up_to) = self.with_db(|db| Ok(db.latest_dm_from_peer(peer_pubkey, lamport)?))?
+        else {
+            return Ok(());
+        };
+        self.outbound.send(Outbound::Core {
+            // Adressé au COMPTE : la couche réseau le développe en un envoi
+            // par appareil joignable. Nous y figurons peut-être nous-mêmes,
+            // sans conséquence — l'ingestion est un `max`, donc idempotente.
+            to: self.public_key(),
+            msg: Box::new(CoreMsg::SelfReadMark {
+                scope: SELF_READ_SCOPE_DM,
+                conv: *peer_pubkey,
+                up_to,
+            }),
+        });
+        Ok(())
+    }
+
+    /// Ingère une marque de lecture émise par un autre appareil de NOTRE
+    /// compte : la position locale avance jusqu'au message désigné.
+    ///
+    /// Silencieuse dans tous les cas de refus : un message qui n'est pas des
+    /// nôtres, une portée qu'on ne sait pas traiter ou un identifiant inconnu
+    /// ne sont pas des erreurs à remonter, seulement des marques sans effet.
+    pub(super) fn ingest_self_read_mark(
+        &self,
+        sender: &[u8; 32],
+        scope: u8,
+        conv: &[u8; 32],
+        up_to: &[u8; 16],
+    ) -> Result<(), NodeError> {
+        // 🔒 Le seul contrôle d'autorisation du chemin : sans lui, n'importe
+        // quel ami pourrait éteindre le badge de n'importe quelle
+        // conversation. Le décodage a déjà écarté les portées inconnues.
+        if scope != SELF_READ_SCOPE_DM || !self.is_own_device(sender) {
+            return Ok(());
+        }
+        // La position vient de NOTRE base : un identifiant que cet appareil ne
+        // connaît pas ne couvre rien ici. C'est ce qui empêche une marque
+        // émise ailleurs de faire passer pour lus des messages du pair que
+        // cette machine n'a jamais reçus.
+        let Some(lamport) = self.with_db(|db| Ok(db.dm_lamport(up_to)?))? else {
+            return Ok(());
+        };
+        let key = dm_mark_key(conv);
+        // Même monotonie que le marquage local : une marque partie d'un
+        // appareil en retard ne doit pas faire redevenir non lus des messages
+        // lus depuis longtemps sur celui-ci.
+        if lamport <= self.with_db(|db| Ok(read_u64(db.meta(&key)?)))? {
+            return Ok(());
+        }
+        self.with_db(|db| Ok(db.set_meta(&key, &lamport.to_be_bytes())?))?;
+        self.emit(
+            "event.dm_self_read",
+            json!({ "peer": hex::encode(conv), "lamport": lamport }),
+        );
+        Ok(())
+    }
+
+    /// Vrai si `key` est une clé sous laquelle un appareil de NOTRE compte se
+    /// présente au transport.
+    ///
+    /// 🔒 Deux formes acceptées, parce que le parc est à cheval sur les deux
+    /// phases du basculement (`docs/MULTI_DEVICE.md` §3.2.1) :
+    ///
+    /// - la clé de **compte**, que présentent encore tous les appareils non
+    ///   basculés. Nul ne peut la présenter au transport sans détenir la
+    ///   graine du compte — donc sans être une de nos machines ;
+    /// - la clé d'**appareil** une fois le transport basculé, qui doit alors
+    ///   figurer dans notre propre liste signée.
+    ///
+    /// Ne garder que la seconde couperait une direction sur deux du parc
+    /// mixte : un appareil non basculé parlant à un appareil basculé serait
+    /// refusé ici, et lui seul — panne asymétrique, donc invisible aux tests
+    /// qui n'essaient qu'un sens.
+    fn is_own_device(&self, key: &[u8; 32]) -> bool {
+        if *key == self.public_key() {
+            return true;
+        }
+        // Pas de liste lisible = rien qui prouve quoi que ce soit : on refuse,
+        // comme `DeviceList::authorises` refuse une liste incohérente.
+        self.current_device_list()
+            .map(|list| list.authorises(key))
+            .unwrap_or(false)
     }
 
     /// Vrai si l'émission des accusés de lecture est activée (réglage de
@@ -529,6 +650,68 @@ mod tests {
         None
     }
 
+    /// Vide le canal sortant en une passe. Une photo unique, parce qu'une
+    /// assertion qui cherche un message consommerait sinon celui que la
+    /// suivante attend — et le test passerait pour de mauvaises raisons.
+    fn sortants(rx: &mut mpsc::Receiver<Outbound>) -> Vec<([u8; 32], CoreMsg)> {
+        let mut out = Vec::new();
+        while let Ok(action) = rx.try_recv() {
+            if let Outbound::Core { to, msg } = action {
+                out.push((to, *msg));
+            }
+        }
+        out
+    }
+
+    /// Première marque de lecture de compte sortante, avec son destinataire.
+    fn marque_sortante(rx: &mut mpsc::Receiver<Outbound>) -> Option<([u8; 32], CoreMsg)> {
+        sortants(rx)
+            .into_iter()
+            .find(|(_, m)| matches!(m, CoreMsg::SelfReadMark { .. }))
+    }
+
+    /// Inscrit `appareil` dans la liste signée du compte de `node`, comme le
+    /// ferait un appairage abouti.
+    fn autorise_appareil(node: &Node, appareil: &accord_crypto::DeviceIdentity) {
+        let liste = crate::device::build_device_list_with_root(
+            &node.identity,
+            appareil,
+            "Portable",
+            now_ms(),
+            accord_proto::device::DEVICE_FLAG_TRANSPORT_KEY,
+        );
+        node.store_device_list(&liste).unwrap();
+    }
+
+    /// Fait ingérer à `node` un message texte du pair.
+    fn texte_du_pair(node: &Node, peer: &[u8; 32], msg_id: [u8; 16], lamport: u64) {
+        let body = MsgBody::Text {
+            text: "encore".into(),
+            reply_to: None,
+            attachments: vec![],
+        };
+        node.ingest_core(
+            peer,
+            CoreMsg::DirectMsg {
+                msg_id,
+                lamport,
+                sent_ms: 2_000,
+                kind: body.kind(),
+                body: body.encode_body(),
+            },
+        )
+        .unwrap();
+    }
+
+    /// Marque de lecture de compte visant `peer` jusqu'au message `up_to`.
+    fn marque(peer: [u8; 32], up_to: [u8; 16]) -> CoreMsg {
+        CoreMsg::SelfReadMark {
+            scope: SELF_READ_SCOPE_DM,
+            conv: peer,
+            up_to,
+        }
+    }
+
     #[test]
     fn mark_read_sends_receipt_to_online_peer_once() {
         let (node, peer, lamport, mut rx) = node_with_incoming_dm();
@@ -770,5 +953,202 @@ mod tests {
             node.dm_peer_read_lamport(&peer).unwrap(),
             Some(sent_lamport)
         );
+    }
+
+    #[test]
+    fn marquer_lu_annonce_la_position_a_notre_propre_compte() {
+        let (node, peer, lamport, mut rx) = node_with_incoming_dm();
+        // Un message à nous, POSTÉRIEUR à celui du pair : c'est le lamport que
+        // l'interface passera, et il vient de NOTRE horloge.
+        node.dm_send(&peer, "réponse", None).unwrap();
+        while rx.try_recv().is_ok() {}
+
+        node.dm_mark_read(&peer, u64::MAX).unwrap();
+        let (to, msg) = marque_sortante(&mut rx).expect("marque de compte attendue");
+        assert_eq!(
+            to,
+            node.public_key(),
+            "adressée au COMPTE : c'est la couche réseau qui la ventile par appareil"
+        );
+        assert_eq!(
+            msg,
+            marque(peer, [9; 16]),
+            "ramenée au dernier message DU PAIR, jamais au nôtre ni à un lamport"
+        );
+
+        // Re-marquer la même position n'annonce rien (retour de focus).
+        node.dm_mark_read(&peer, u64::MAX).unwrap();
+        assert!(marque_sortante(&mut rx).is_none());
+        assert_eq!(lamport, 7);
+    }
+
+    #[test]
+    fn couper_les_accuses_de_lecture_ne_coupe_pas_la_synchro_de_nos_appareils() {
+        // 🔒 Le réglage promet quelque chose au sujet du PAIR. S'il coupait au
+        // passage la synchronisation entre les machines de l'utilisateur, une
+        // option de confidentialité casserait en douce une fonction sans
+        // rapport — et rien à l'écran ne le dirait.
+        let (node, peer, lamport, mut rx) = node_with_incoming_dm();
+        node.set_read_receipts(false).unwrap();
+        node.dm_mark_read(&peer, lamport).unwrap();
+
+        let envois = sortants(&mut rx);
+        assert!(
+            !envois
+                .iter()
+                .any(|(_, m)| matches!(m, CoreMsg::DirectMsg { kind: 6, .. })),
+            "le pair ne doit rien apprendre : c'est ce que le réglage promet"
+        );
+        assert!(
+            envois.iter().any(
+                |(to, m)| *to == node.public_key() && matches!(m, CoreMsg::SelfReadMark { .. })
+            ),
+            "nos propres appareils, eux, restent synchronisés"
+        );
+    }
+
+    #[test]
+    fn une_marque_dun_appareil_du_compte_avance_la_position() {
+        let (node, peer, lamport, _rx) = node_with_incoming_dm();
+        let appareil = accord_crypto::DeviceIdentity::generate_with_pow_bits(1);
+        autorise_appareil(&node, &appareil);
+        assert_eq!(node.dm_unread(&peer).unwrap(), 1);
+
+        // Phase 2 : l'appareil présente SA clé, inscrite dans notre liste.
+        node.ingest_core(&appareil.public_key(), marque(peer, [9; 16]))
+            .unwrap();
+        assert_eq!(node.dm_read_lamport(&peer).unwrap(), lamport);
+        assert_eq!(node.dm_unread(&peer).unwrap(), 0);
+
+        // Phase 1 et parc mixte : l'appareil non basculé présente la clé de
+        // COMPTE. Nul ne peut la présenter sans détenir la graine du compte,
+        // donc sans être une de nos machines — elle doit être acceptée, sans
+        // quoi la moitié du parc mixte ne synchroniserait rien.
+        let (node, peer, lamport, _rx) = node_with_incoming_dm();
+        autorise_appareil(&node, &appareil);
+        node.ingest_core(&node.public_key(), marque(peer, [9; 16]))
+            .unwrap();
+        assert_eq!(node.dm_read_lamport(&peer).unwrap(), lamport);
+        assert_eq!(node.dm_unread(&peer).unwrap(), 0);
+    }
+
+    #[test]
+    fn une_marque_dune_cle_non_autorisee_ne_change_rien() {
+        // 🔒 Le seul contrôle qui protège le badge : sans lui, n'importe quel
+        // ami éteindrait n'importe quelle conversation à distance.
+        let (node, peer, _lamport, _rx) = node_with_incoming_dm();
+        let appareil = accord_crypto::DeviceIdentity::generate_with_pow_bits(1);
+        autorise_appareil(&node, &appareil);
+
+        let etranger = accord_crypto::DeviceIdentity::generate_with_pow_bits(1);
+        // L'ami lui-même est le cas qui compte : c'est celui dont on reçoit
+        // vraiment des messages, donc celui qui peut vraiment essayer.
+        for intrus in [peer, etranger.public_key(), [0x7E; 32]] {
+            node.ingest_core(&intrus, marque(peer, [9; 16])).unwrap();
+            assert_eq!(
+                node.dm_read_lamport(&peer).unwrap(),
+                0,
+                "clé non autorisée : la position ne doit pas bouger"
+            );
+            assert_eq!(node.dm_unread(&peer).unwrap(), 1);
+        }
+
+        // Un appareil RÉVOQUÉ redevient un étranger : c'est la liste COURANTE
+        // qui fait foi, pas celle du jour de l'appairage. Une machine volée
+        // doit cesser de piloter les badges du compte.
+        let mut liste = crate::device::build_device_list_with_root(
+            &node.identity,
+            &appareil,
+            "Portable",
+            now_ms(),
+            accord_proto::device::DEVICE_FLAG_TRANSPORT_KEY,
+        );
+        liste.revoked.push(accord_proto::device::RevokedEntry {
+            pubkey: appareil.public_key(),
+            revoked_ms: now_ms(),
+        });
+        accord_crypto::sign_device_list_with_root(&node.identity, &mut liste);
+        node.store_device_list(&liste).unwrap();
+        node.ingest_core(&appareil.public_key(), marque(peer, [9; 16]))
+            .unwrap();
+        assert_eq!(node.dm_read_lamport(&peer).unwrap(), 0);
+        assert_eq!(node.dm_unread(&peer).unwrap(), 1);
+    }
+
+    #[test]
+    fn une_marque_plus_ancienne_ne_fait_pas_reculer_la_position() {
+        // Un appareil resté trois jours éteint rejoue sa vieille position en
+        // se rallumant. Sans monotonie, la conversation redeviendrait non lue
+        // toute seule sur la machine qui, elle, était à jour.
+        let (node, peer, lamport, _rx) = node_with_incoming_dm();
+        let appareil = accord_crypto::DeviceIdentity::generate_with_pow_bits(1);
+        autorise_appareil(&node, &appareil);
+        texte_du_pair(&node, &peer, [10; 16], lamport + 5);
+
+        node.ingest_core(&appareil.public_key(), marque(peer, [10; 16]))
+            .unwrap();
+        assert_eq!(node.dm_read_lamport(&peer).unwrap(), lamport + 5);
+        assert_eq!(node.dm_unread(&peer).unwrap(), 0);
+
+        node.ingest_core(&appareil.public_key(), marque(peer, [9; 16]))
+            .unwrap();
+        assert_eq!(
+            node.dm_read_lamport(&peer).unwrap(),
+            lamport + 5,
+            "une position en retard est écartée, pas appliquée"
+        );
+        assert_eq!(node.dm_unread(&peer).unwrap(), 0);
+    }
+
+    #[test]
+    fn une_marque_ne_couvre_pas_un_message_du_pair_jamais_recu_ici() {
+        // Deux machines d'un même compte, amies du même pair. Le bureau a reçu
+        // deux messages, le portable un seul — un portable resté éteint une
+        // journée. La marque du bureau ne doit pas faire passer pour lu, sur
+        // le portable, un message qu'il n'a jamais vu : il l'afficherait alors
+        // en gris à sa prochaine synchronisation, et l'utilisateur ne saurait
+        // jamais qu'il existe.
+        let (bureau, peer, lamport, mut rx) = node_with_incoming_dm();
+        let graine = *bureau.identity.seed();
+        texte_du_pair(&bureau, &peer, [10; 16], lamport + 5);
+
+        let (sink, _rx2) = OutboundSink::channel(64);
+        let portable = Node::new(
+            Identity::from_seed_with_pow_bits(graine, 1),
+            Db::open_in_memory(&[2u8; 32]).unwrap(),
+            sink,
+        );
+        assert_eq!(portable.public_key(), bureau.public_key());
+        portable.friend_request(&peer, "Pair").unwrap();
+        portable
+            .ingest_core(&peer, CoreMsg::FriendResponse { accepted: true })
+            .unwrap();
+        texte_du_pair(&portable, &peer, [9; 16], lamport);
+        assert_eq!(portable.dm_unread(&peer).unwrap(), 1);
+
+        // Le bureau marque tout lu et diffuse.
+        while rx.try_recv().is_ok() {}
+        bureau.dm_mark_read(&peer, u64::MAX).unwrap();
+        let (_, diffusee) = marque_sortante(&mut rx).expect("marque de compte attendue");
+        assert_eq!(diffusee, marque(peer, [10; 16]));
+
+        portable
+            .ingest_core(&bureau.public_key(), diffusee.clone())
+            .unwrap();
+        assert_eq!(
+            portable.dm_read_lamport(&peer).unwrap(),
+            0,
+            "identifiant inconnu ici : rien n'avance"
+        );
+        assert_eq!(portable.dm_unread(&peer).unwrap(), 1);
+
+        // Le message rattrapé, la même marque rejouée l'éteint enfin : le
+        // refus ci-dessus était bien un report, pas une perte.
+        texte_du_pair(&portable, &peer, [10; 16], lamport + 5);
+        portable
+            .ingest_core(&bureau.public_key(), diffusee)
+            .unwrap();
+        assert_eq!(portable.dm_read_lamport(&peer).unwrap(), lamport + 5);
+        assert_eq!(portable.dm_unread(&peer).unwrap(), 0);
     }
 }

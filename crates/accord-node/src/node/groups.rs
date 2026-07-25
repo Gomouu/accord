@@ -2285,19 +2285,31 @@ impl Node {
 
     /// Marque un salon lu jusqu'à `lamport` (position locale des non-lus,
     /// persistée dans les métadonnées).
+    ///
+    /// La marque est monotone, comme celle des conversations directes
+    /// ([`super::Node::dm_mark_read`]) : une position inférieure ou égale à
+    /// celle déjà retenue est ignorée en silence.
     pub fn group_mark_read(
         &self,
         group_id: &[u8; 16],
         channel_id: &[u8; 16],
         lamport: u64,
     ) -> Result<(), NodeError> {
+        let key = group_mark_key(group_id, channel_id);
         self.with_db(|db| {
-            db.set_meta(
-                &group_mark_key(group_id, channel_id),
-                &lamport.to_be_bytes(),
-            )?;
+            // 🔒 Sans cette garde, un salon se remarquerait non lu tout seul :
+            // un appareil du compte resté en arrière — ou une synchronisation
+            // périmée — réécrirait sa vieille position par-dessus la bonne, et
+            // le badge ressusciterait des messages lus depuis des jours. Une
+            // position en retard n'est pas une erreur, seulement une machine
+            // qui n'avait pas encore rattrapé : elle est écartée sans bruit.
+            if lamport > read_u64(db.meta(&key)?) {
+                db.set_meta(&key, &lamport.to_be_bytes())?;
+            }
             // Ouvrir un salon éteint ses mentions non lues (parité Discord) : le
             // compteur agrégé du serveur (`count_group_mentions`) retombe d'autant.
+            // Hors garde de position : acquitter une mention ne va que dans le
+            // sens du lu, donc ne peut pas faire régresser l'état.
             db.mark_group_channel_mentions_read(group_id, channel_id)?;
             Ok(())
         })
@@ -2377,6 +2389,40 @@ mod tests {
         )
         .unwrap();
         (n, gid, cat, chan)
+    }
+
+    #[test]
+    fn la_marque_de_lecture_dun_salon_avance_mais_ne_recule_jamais() {
+        // Même invariant que pour les conversations directes : un appareil du
+        // compte resté en arrière — ou une synchronisation périmée — ne doit
+        // pas réécrire sa vieille position par-dessus la bonne, sans quoi le
+        // salon redeviendrait non lu tout seul sur la machine à jour.
+        let (n, gid, _cat, chan) = node_with_categorized_channel();
+        let position = || {
+            n.group_read_marks(&gid)
+                .unwrap()
+                .into_iter()
+                .find(|(c, _)| *c == chan)
+                .unwrap()
+                .1
+        };
+        assert_eq!(position(), 0);
+
+        n.group_mark_read(&gid, &chan, 12).unwrap();
+        assert_eq!(position(), 12);
+
+        // En arrière : écartée en silence, pas d'erreur — un appareil en
+        // retard n'est pas une faute.
+        n.group_mark_read(&gid, &chan, 5).unwrap();
+        assert_eq!(position(), 12);
+
+        // Égale : sans effet non plus (re-marquage au retour de focus).
+        n.group_mark_read(&gid, &chan, 12).unwrap();
+        assert_eq!(position(), 12);
+
+        // En avant : appliquée.
+        n.group_mark_read(&gid, &chan, 30).unwrap();
+        assert_eq!(position(), 30);
     }
 
     #[test]

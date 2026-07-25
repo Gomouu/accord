@@ -1343,6 +1343,15 @@ impl Node {
                 self.ingest_device_list(peer_pubkey, &list)?;
                 Ok(vec![])
             }
+            CoreMsg::SelfReadMark { scope, conv, up_to } => {
+                // `peer_pubkey` est ici la clé de transport de l'émetteur, non
+                // traduite : `account_of_transport_key` ne remonte au compte
+                // que pour un AMI, et l'on n'est pas son propre ami. C'est
+                // exactement ce dont l'autorisation a besoin — elle compare à
+                // nos propres clés, pas à un compte.
+                self.ingest_self_read_mark(peer_pubkey, scope, &conv, &up_to)?;
+                Ok(vec![])
+            }
             CoreMsg::PairingHello { msg } => Ok(self.ingest_pairing_hello(&msg)),
             CoreMsg::PairingSealed { sealed } => {
                 self.ingest_pairing_sealed(&sealed);
@@ -1891,8 +1900,18 @@ impl Node {
                 return Ok((Vec::new(), Vec::new()));
             }
             let payloads: Vec<Vec<u8>> = items.iter().map(|i| i.payload.clone()).collect();
-            let records =
-                accord_core::offline::deposit_records(&self.identity, dest, &payloads, now_ms)?;
+            // 🔒 Déposé au nom de l'APPAREIL. La clé de boîte mêle le nœud du
+            // destinataire, le jour et le nœud de l'expéditeur : deux machines
+            // d'un même compte déposant pour la même personne le même jour
+            // écriraient à la même clé DHT, et le dernier écrivain effacerait
+            // le dépôt de l'autre. Le destinataire sonde une clé par appareil
+            // de l'expéditeur, ce qui redonne à chacune sa case.
+            let records = accord_core::offline::deposit_records(
+                self.transport_identity(),
+                dest,
+                &payloads,
+                now_ms,
+            )?;
             Ok((records, items.iter().map(|i| i.id).collect()))
         })
     }

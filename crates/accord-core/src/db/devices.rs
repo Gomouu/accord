@@ -71,6 +71,24 @@ impl Db {
         Ok(())
     }
 
+    /// Efface l'appareil local : la base retrouve l'état d'une machine qui
+    /// n'en a pas encore, et le prochain démarrage lui en forge un neuf.
+    ///
+    /// 🔒 Existe pour l'import de sauvegarde. Une archive contient la base,
+    /// donc cette graine ; la restaurer telle quelle sur une seconde machine y
+    /// réinstallerait la clé d'appareil de la première, et le transport ne
+    /// garde qu'une session directe par clé statique — les deux machines
+    /// s'évinceraient l'une l'autre chez chacun de leurs amis.
+    ///
+    /// Effacer plutôt qu'écrire une graine neuve ici : la création d'une
+    /// identité d'appareil (aléa, preuve de travail, difficulté) est une
+    /// décision qui appartient au démarrage, et la dupliquer laisserait deux
+    /// endroits capables de diverger.
+    pub fn clear_local_device(&self) -> Result<(), CoreError> {
+        self.conn.execute("DELETE FROM local_device", [])?;
+        Ok(())
+    }
+
     /// Renomme l'appareil local. Sans effet s'il n'existe pas encore.
     pub fn rename_local_device(&self, name: &str) -> Result<(), CoreError> {
         self.conn

@@ -22,12 +22,20 @@
 //!   destination vide exigée, coffre d'identité exigé dans l'archive (on ne
 //!   crée jamais un profil importé indéverrouillable) ; en cas d'échec
 //!   partiel, la destination — vide à l'entrée par contrat — est nettoyée
-//!   (best-effort) pour ne jamais laisser un demi-profil sur disque.
+//!   (best-effort) pour ne jamais laisser un demi-profil sur disque ;
+//! - 🔒 **identité d'appareil non transportable** : l'archive porte la base,
+//!   donc la graine d'appareil de la machine d'origine. Elle est effacée à
+//!   l'extraction (voir [`effacer_etat_machine`]) — sans quoi restaurer une
+//!   sauvegarde sur une seconde machine y réinstallerait la clé de la
+//!   première, et les deux s'évinceraient l'une l'autre chez chacun de leurs
+//!   amis. Le COMPTE, lui, traverse la sauvegarde intact : coffre, amitiés,
+//!   historique, profil.
 
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Component, Path, PathBuf};
 
+use accord_core::Db;
 use accord_crypto::archive::{is_sealed_backup, BackupOpener, BackupSealer, CHUNK_LEN, TAG_LEN};
 use accord_crypto::vault::VaultParams;
 use zip::write::SimpleFileOptions;
@@ -51,6 +59,12 @@ fn erreur_zip(e: zip::result::ZipError) -> NodeError {
 /// de route ne laisse jamais d'archive tronquée au chemin final. Exige un
 /// coffre d'identité présent : un profil sans coffre n'a rien à sauvegarder
 /// (et son import serait refusé de toute façon).
+///
+/// 🔒 `secret` **est** la phrase de passe du coffre, pas un secret d'archive
+/// distinct. L'import s'appuie dessus pour rouvrir la base et en retirer ce
+/// qui appartient à la machine d'origine ([`effacer_etat_machine`]) : sceller
+/// sous une autre phrase produirait une archive dont l'import échoue au lieu
+/// de propager une clé d'appareil partagée.
 pub fn export_backup(paths: &Paths, dest: &Path, secret: &[u8]) -> Result<(), NodeError> {
     if !paths.has_identity() {
         return Err(NodeError::NotFound("coffre d'identité à sauvegarder"));
@@ -148,6 +162,9 @@ fn remplir(lecture: &mut impl Read, tampon: &mut [u8]) -> Result<usize, NodeErro
 /// (ceinture et bretelles). L'archive doit contenir le coffre d'identité :
 /// sans lui, le profil importé serait indéverrouillable et invisible du
 /// registre de comptes — refusé, et la destination est nettoyée.
+///
+/// 🔒 Le profil obtenu porte le MÊME compte que l'original et une identité
+/// d'APPAREIL neuve : voir [`effacer_etat_machine`].
 pub fn import_backup(
     archive: &Path,
     dest_dir: &Path,
@@ -187,7 +204,7 @@ pub fn import_backup(
         None
     };
     let source_zip = zip_dechiffre.as_deref().unwrap_or(archive);
-    let resultat = importer_zip(source_zip, dest_dir);
+    let resultat = importer_zip(source_zip, dest_dir, secret);
     if let Some(tmp) = zip_dechiffre {
         // Le zip déchiffré contient les médias en clair : jamais de résidu.
         let _ = std::fs::remove_file(&tmp);
@@ -255,7 +272,7 @@ fn ouvrir_fichier_scelle(src: &Path, dst: &Path, secret: &[u8]) -> Result<(), No
 
 /// Extrait le zip `archive` (déjà en clair) dans `dest_dir` — cœur historique
 /// de l'import, commun aux deux formats.
-fn importer_zip(archive: &Path, dest_dir: &Path) -> Result<(), NodeError> {
+fn importer_zip(archive: &Path, dest_dir: &Path, secret: Option<&[u8]>) -> Result<(), NodeError> {
     let mut zip = ZipArchive::new(BufReader::new(File::open(archive)?)).map_err(erreur_zip)?;
     for nom in zip.file_names() {
         if !nom_archive_sur(nom) {
@@ -265,24 +282,112 @@ fn importer_zip(archive: &Path, dest_dir: &Path) -> Result<(), NodeError> {
         }
     }
     std::fs::create_dir_all(dest_dir)?;
-    let resultat = extraire(&mut zip, dest_dir).and_then(|()| {
-        // Une sauvegarde valide contient toujours le coffre (garanti par
-        // `export_backup`) : re-vérifié ici avant que l'appelant n'enregistre
-        // quoi que ce soit dans le registre de comptes.
-        if Paths::new(dest_dir).has_identity() {
-            Ok(())
-        } else {
-            Err(NodeError::Invalid(
-                "archive sans coffre d'identité (identity.vault)",
-            ))
-        }
-    });
+    let resultat = extraire(&mut zip, dest_dir)
+        .and_then(|()| {
+            // Une sauvegarde valide contient toujours le coffre (garanti par
+            // `export_backup`) : re-vérifié ici avant que l'appelant n'enregistre
+            // quoi que ce soit dans le registre de comptes.
+            if Paths::new(dest_dir).has_identity() {
+                Ok(())
+            } else {
+                Err(NodeError::Invalid(
+                    "archive sans coffre d'identité (identity.vault)",
+                ))
+            }
+        })
+        // 🔒 Dans la MÊME chaîne que l'extraction, donc sous le même
+        // nettoyage : un profil à demi désolidarisé de sa machine d'origine
+        // ne doit jamais rester sur disque, il serait pire que pas de profil
+        // du tout.
+        .and_then(|()| effacer_etat_machine(dest_dir, secret));
     if resultat.is_err() {
         // La destination était vide (ou absente) à l'entrée par contrat :
         // tout son contenu vient de cette extraction — nettoyage best-effort.
         let _ = std::fs::remove_dir_all(dest_dir);
     }
     resultat
+}
+
+/// Retire du profil fraîchement extrait ce qui appartient à la MACHINE
+/// d'origine plutôt qu'au compte : l'identité d'appareil, et la liste
+/// d'appareils que ce compte publie.
+///
+/// 🔒 **Pourquoi.** Le transport ne garde qu'une session directe par clé
+/// statique. Deux machines qui présentent la même clé d'appareil s'évincent
+/// donc l'une l'autre chez chacun de leurs amis, en silence — le blocage exact
+/// que le modèle multi-appareil existe pour lever (`docs/MULTI_DEVICE.md` §1).
+/// L'archive contenant la base, elle contient cette clé.
+///
+/// **À l'import, pas à l'exclusion de l'archive.** Trois raisons :
+/// 1. les archives déjà exportées portent la graine — seule une correction du
+///    côté qui les LIT protège les sauvegardes existantes, c'est-à-dire
+///    précisément celles que les gens vont restaurer sur leur seconde machine ;
+/// 2. la graine vit dans une ligne d'une base SQLCipher, pas dans un fichier
+///    séparé : l'exclure exigerait d'ouvrir et de récrire une copie complète
+///    de la base à l'export, là où l'invariant du module est justement que
+///    l'export copie des fichiers fermés, sans y toucher ;
+/// 3. l'import est le seul moment où l'on sait sur quelle machine on atterrit.
+///
+/// **Effacer, pas régénérer.** Une base sans ligne `local_device` est l'état
+/// d'un profil qui n'a pas encore démarré, que tout le nœud sait déjà traiter ;
+/// `device::ensure_local_device` forge la clé au premier lancement, à la
+/// difficulté de la configuration. Fabriquer une graine ici dupliquerait cette
+/// décision.
+///
+/// **Restauration sur la MÊME machine** (le cas ordinaire de reprise après
+/// sinistre) : la machine y gagne aussi une clé d'appareil neuve. Ce n'est pas
+/// un choix qu'on pourrait faire autrement — la destination d'import est vide
+/// par contrat, donc l'ancienne clé n'existe plus que dans l'archive, et
+/// exclure la graine à l'export aboutirait exactement au même profil. Rien
+/// dans une archive ne dit sur quelle machine elle est restaurée, et toute
+/// heuristique qui se tromperait ramènerait l'éviction mutuelle. Le coût est
+/// borné : la liste republiée ne contient plus que l'appareil courant, et les
+/// copies que les amis ont en cache expirent en 24 h
+/// (`device::DEVICE_LIST_VALID_S`). C'est sans commune mesure avec deux
+/// machines qui se coupent mutuellement de tous leurs amis, sans fin.
+///
+/// ⚠️ La liste d'appareils du compte part avec la graine, et pas par excès de
+/// zèle : `Node::current_device_list` sert la liste PERSISTÉE dès qu'elle
+/// existe et n'y réinsère jamais l'appareil local. La garder laisserait la
+/// machine restaurée absente de la liste de son propre compte — invisible dans
+/// « Mes appareils », injoignable pour qui livre par appareil. La conséquence
+/// assumée est qu'une autre machine déjà appairée disparaît de la liste
+/// republiée et doit être réappairée ; l'inverse sacrifierait la machine sur
+/// laquelle l'utilisateur est assis.
+///
+/// Le reste de ce que la base porte de « propre à la machine » y RESTE
+/// délibérément : le port P2P retenu (`network.port`) n'est qu'une préférence
+/// — pris ailleurs, la liaison retombe sur la plage stable puis sur un port
+/// éphémère —, les périphériques audio choisis reviennent au défaut système
+/// quand leur nom n'existe pas ici, et le dossier de sauvegarde planifié n'est
+/// qu'un chemin. Aucun n'est un secret, aucun n'a d'unicité à préserver : les
+/// recopier ne casse rien de durable, et les effacer perdrait un réglage.
+///
+/// Sans phrase de passe (ancien zip en clair, sauvegardes ≤ 3.4) la base ne
+/// s'ouvre pas — mais ce format est antérieur à la table `local_device`
+/// (migration 13) : il n'y a rien à y effacer.
+fn effacer_etat_machine(dest_dir: &Path, secret: Option<&[u8]>) -> Result<(), NodeError> {
+    let Some(secret) = secret else {
+        return Ok(());
+    };
+    let paths = Paths::new(dest_dir);
+    if !paths.db().exists() {
+        // Ouvrir ici en CRÉERAIT une, vide — celle que le démarrage crée de
+        // toute façon. Une archive sans base ne porte aucune graine.
+        return Ok(());
+    }
+    let phrase =
+        std::str::from_utf8(secret).map_err(|_| NodeError::Invalid("phrase de passe non UTF-8"))?;
+    // Le coffre et le scellement de l'archive partagent la phrase de passe du
+    // profil (contrat d'`export_backup`) : la base s'ouvre donc toujours pour
+    // une archive issue d'ici. Si elle ne s'ouvre pas, l'import échoue et la
+    // destination est nettoyée — un demi-import se refait, une clé d'appareil
+    // partagée en silence ne se remarque même pas.
+    let unlocked = crate::identity::unlock(&paths, phrase)?;
+    let db = Db::open(&paths.db(), &unlocked.db_key)?;
+    db.clear_local_device()?;
+    db.forget_device_list(&unlocked.identity.public_key())?;
+    Ok(())
 }
 
 /// Vrai si un nom d'entrée d'archive est sûr : relatif, sans `.` ni `..`,
@@ -437,16 +542,41 @@ mod tests {
     /// Difficulté PoW réduite pour des tests rapides.
     const POW_TEST: u32 = 1;
 
-    /// Prépare un profil plausible : coffre scellé réel, pseudo-base, blob
-    /// dans un sous-répertoire et répertoire vide (préservé au roundtrip).
+    /// Prépare un profil plausible : coffre scellé réel, base SQLCipher réelle
+    /// telle qu'un démarrage la laisse (identité d'appareil + pseudo du
+    /// compte), blob dans un sous-répertoire et répertoire vide (préservé au
+    /// roundtrip).
+    ///
+    /// Une VRAIE base, pas un fichier factice : c'est la seule façon
+    /// d'exercer ce que l'import doit en retirer, et le pseudo est ce qui
+    /// prouve qu'il ne retire pas tout.
     fn profil_de_test(racine: &Path) -> Paths {
         let paths = Paths::new(racine);
-        crate::identity::create(&paths, "phrase-de-passe-test", POW_TEST).unwrap();
-        std::fs::write(paths.db(), b"contenu-base-chiffree").unwrap();
+        let unlocked = crate::identity::create(&paths, "phrase-de-passe-test", POW_TEST).unwrap();
+        let db = Db::open(&paths.db(), &unlocked.db_key).unwrap();
+        crate::device::ensure_local_device(&db).unwrap();
+        accord_core::profile::set_local_name(&db, "alice").unwrap();
+        // Base FERMÉE avant l'export : invariant du module (pas de page en vol,
+        // pas de journal WAL à côté du fichier principal).
+        drop(db);
         std::fs::create_dir_all(racine.join("blobs/ab")).unwrap();
         std::fs::write(racine.join("blobs/ab/cdef"), b"blob-1").unwrap();
         std::fs::create_dir_all(racine.join("vide")).unwrap();
         paths
+    }
+
+    /// Ouvre la base d'un profil de test comme le ferait un démarrage : coffre
+    /// déverrouillé par la phrase de passe, base par la clé qui en dérive.
+    fn ouvrir_base(paths: &Paths) -> (crate::identity::Unlocked, Db) {
+        let unlocked = crate::identity::unlock(paths, "phrase-de-passe-test").unwrap();
+        let db = Db::open(&paths.db(), &unlocked.db_key).unwrap();
+        (unlocked, db)
+    }
+
+    /// Clé publique de l'appareil persisté dans `db`, s'il y en a un.
+    fn appareil_de(db: &Db) -> Option<[u8; 32]> {
+        let stored = db.local_device().unwrap()?;
+        Some(accord_crypto::DeviceIdentity::from_seed(stored.seed).public_key())
     }
 
     /// Forge une archive contenant exactement les entrées `noms` (contenu
@@ -479,10 +609,15 @@ mod tests {
             std::fs::read(paths.vault()).unwrap(),
             std::fs::read(importe.vault()).unwrap()
         );
+        // La base n'est plus comparable OCTET À OCTET : l'import y efface ce
+        // qui appartient à la machine d'origine (voir `effacer_etat_machine`).
+        // C'est son contenu de COMPTE qui doit traverser intact.
+        let (_, db) = ouvrir_base(&importe);
         assert_eq!(
-            std::fs::read(paths.db()).unwrap(),
-            std::fs::read(importe.db()).unwrap()
+            accord_core::profile::local_name(&db).unwrap().as_deref(),
+            Some("alice")
         );
+        drop(db);
         assert_eq!(
             std::fs::read(dest.join("blobs/ab/cdef")).unwrap(),
             b"blob-1"
@@ -681,6 +816,129 @@ mod tests {
 
         assert!(matches!(erreur, Err(NodeError::Invalid(_))));
         assert!(!dest.exists(), "le demi-profil extrait doit être nettoyé");
+    }
+
+    #[test]
+    fn une_restauration_sur_une_autre_machine_forge_une_identite_dappareil_neuve() {
+        // 🔒 Le test que ce module doit au jalon multi-appareil. L'archive
+        // contient la base, donc la graine d'appareil de la machine d'origine.
+        // La recopier donnerait à deux machines la même clé de transport, et
+        // le transport ne garde qu'une session directe par clé statique :
+        // elles s'évinceraient l'une l'autre chez chacun de leurs amis.
+
+        // Arrange : machine A, avec l'appareil que son premier démarrage crée.
+        let machine_a = tempfile::tempdir().unwrap();
+        let paths_a = profil_de_test(machine_a.path());
+        let (compte_a, db_a) = ouvrir_base(&paths_a);
+        let appareil_a = appareil_de(&db_a).expect("machine A a un appareil");
+        drop(db_a);
+
+        // Act : export sur A, import sur une machine B vierge.
+        let sortie = tempfile::tempdir().unwrap();
+        let archive = sortie.path().join("compte.accordbackup");
+        export_backup(&paths_a, &archive, b"phrase-de-passe-test").unwrap();
+        let machine_b = sortie.path().join("machine-b");
+        import_backup(&archive, &machine_b, Some(b"phrase-de-passe-test")).unwrap();
+
+        // Assert : premier démarrage de B, exactement comme en production —
+        // `ensure_local_device` recharge l'appareil persisté s'il y en a un, et
+        // n'en forge un que sinon. C'est donc bien lui qui décide, pas le test.
+        let paths_b = Paths::new(&machine_b);
+        let (compte_b, db_b) = ouvrir_base(&paths_b);
+        let herite = appareil_de(&db_b);
+        let appareil_b = crate::device::ensure_local_device(&db_b)
+            .unwrap()
+            .public_key();
+
+        // 🔒 Deux appareils DISTINCTS…
+        assert_ne!(
+            appareil_a, appareil_b,
+            "les deux machines partagent leur clé d'appareil"
+        );
+        assert_eq!(
+            herite, None,
+            "l'import doit EFFACER l'appareil d'origine, pas seulement en ajouter un"
+        );
+        // …pour un SEUL compte. Sans cette moitié, le test passerait aussi en
+        // ne restaurant rien du tout.
+        assert_eq!(
+            compte_b.identity.public_key(),
+            compte_a.identity.public_key(),
+            "le compte doit traverser la sauvegarde inchangé"
+        );
+        assert_eq!(
+            accord_core::profile::local_name(&db_b).unwrap().as_deref(),
+            Some("alice"),
+            "le profil du compte doit traverser la sauvegarde inchangé"
+        );
+    }
+
+    #[test]
+    fn la_liste_dappareils_du_compte_ne_survit_pas_a_la_restauration() {
+        // La liste publiée NOMME la machine. `Node::current_device_list` sert
+        // celle qui est persistée dès qu'elle existe et n'y réinsère jamais
+        // l'appareil local : la garder laisserait la machine restaurée absente
+        // de la liste de son propre compte. Le cache des listes des AMIS, lui,
+        // appartient au compte et n'a aucune raison de partir.
+        let machine_a = tempfile::tempdir().unwrap();
+        let paths_a = profil_de_test(machine_a.path());
+        let (compte_a, db_a) = ouvrir_base(&paths_a);
+        let compte = compte_a.identity.public_key();
+        let ami = [9u8; 32];
+        for account in [compte, ami] {
+            db_a.cache_device_list(&accord_core::db::CachedDeviceList {
+                account,
+                version: 7,
+                encoded: vec![1, 2, 3],
+                fetched_ms: 1_700_000_000_000,
+            })
+            .unwrap();
+        }
+        drop(db_a);
+
+        let sortie = tempfile::tempdir().unwrap();
+        let archive = sortie.path().join("compte.accordbackup");
+        export_backup(&paths_a, &archive, b"phrase-de-passe-test").unwrap();
+        let machine_b = sortie.path().join("machine-b");
+        import_backup(&archive, &machine_b, Some(b"phrase-de-passe-test")).unwrap();
+
+        let (_, db_b) = ouvrir_base(&Paths::new(&machine_b));
+        assert!(
+            db_b.device_list(&compte).unwrap().is_none(),
+            "la liste du compte nomme l'appareil disparu : elle doit être refaite"
+        );
+        assert!(
+            db_b.device_list(&ami).unwrap().is_some(),
+            "la liste d'un ami appartient au compte, pas à la machine"
+        );
+    }
+
+    #[test]
+    fn le_port_p2p_retenu_survit_a_la_restauration() {
+        // Décision explicite, pas un oubli : le port retenu est une
+        // PRÉFÉRENCE. Occupé sur la machine d'accueil, la liaison retombe sur
+        // la plage stable puis sur un port éphémère. Ce n'est ni un secret ni
+        // une identité — rien n'exige son unicité, contrairement à la clé
+        // d'appareil. L'effacer perdrait un réglage sans rien protéger.
+        let machine_a = tempfile::tempdir().unwrap();
+        let paths_a = profil_de_test(machine_a.path());
+        let (_, db_a) = ouvrir_base(&paths_a);
+        let port = crate::node::network::encode_port(48016);
+        db_a.set_meta(crate::node::network::META_PORT, &port)
+            .unwrap();
+        drop(db_a);
+
+        let sortie = tempfile::tempdir().unwrap();
+        let archive = sortie.path().join("compte.accordbackup");
+        export_backup(&paths_a, &archive, b"phrase-de-passe-test").unwrap();
+        let machine_b = sortie.path().join("machine-b");
+        import_backup(&archive, &machine_b, Some(b"phrase-de-passe-test")).unwrap();
+
+        let (_, db_b) = ouvrir_base(&Paths::new(&machine_b));
+        assert_eq!(
+            db_b.meta(crate::node::network::META_PORT).unwrap(),
+            Some(port)
+        );
     }
 
     #[test]

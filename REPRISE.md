@@ -10,56 +10,57 @@ pour le détail du lot en cours.
 | 1.A — conception | ✅ `docs/MULTI_DEVICE.md` |
 | 1.B — identités compte/appareil | ✅ y compris le choix du PAKE (§4.1) |
 | 1.C **phase 1** — savoir résoudre | ✅ publication DHT, résolution, cache, push direct, rattachement appareil → compte |
-| 1.C **phase 2** — présenter la clé d'appareil | ⏳ **bloqué** : attend que le parc ait la phase 1 |
+| 1.C **phase 2** — présenter la clé d'appareil | 🔨 le socle est posé et vert ; le drapeau `device_key_transport` reste à `false` |
 | 1.D — appairage | ✅ code, canal, échange, écrans des deux côtés, confirmation d'empreinte, inscription, révocation |
-| 1.E — livraison multi-appareils | 🔨 primitives faites (`delivery_targets`, marques monotones, dédup du rattrapage) ; **rien n'est branché** — voir ci-dessous |
+| 1.E — livraison multi-appareils | 🔨 tâche 1 (diffusion) et 2 (boîte par appareil) faites ; 3 à 5 à faire |
 
-## ⚠️ Ce qui est écrit mais volontairement PAS branché
+## Ce que le drapeau `device_key_transport` attend encore
 
-`device::delivery_targets` sait dire vers quelles clés livrer pour joindre un
-compte. **Il n'est appelé par personne**, et ce n'est pas un oubli : dès qu'un
-pair publie sa liste (ce que fait la 6.4), l'appeler ferait partir les messages
-vers des clés d'appareil pour lesquelles aucune session n'existe — la
-livraison s'arrêterait en silence. Il se branche quand le transport présente
-la clé d'appareil (phase 2 du lot 1.C).
+Il est à `false` et le restera jusqu'à ce que le parc ait la phase 1. Mais tout
+ce qui aurait cassé le jour où il bascule est désormais écrit contre la bonne
+identité, et se comporte à l'octet près comme avant tant que les deux
+coïncident :
 
-Même discipline que le champ de capacités : écrire la lecture d'abord.
+- la **présence DHT** est publiée sous la clé de transport (deux machines d'un
+  compte se réécrivaient l'adresse l'une de l'autre) ;
+- la **boîte aux lettres** hors-ligne est sondée et descellée avec l'identité de
+  transport ;
+- le **`NodeInfo` DHT local** vient de l'identité de transport, comme la place
+  que les autres nous attribuent ;
+- **mDNS** annonce la clé de transport (deux machines d'un compte annonçaient le
+  même service et s'ignoraient) ;
+- la **boucle d'événements** nomme les deux identités : la machine pour le
+  carnet, la file et le relais ; la personne pour l'amitié, le profil et
+  l'op-log. Le carnet et l'ensemble des vivants indexent l'appareil **et**
+  l'aliasent sur le compte, parce que la moitié du nœud demande « cette personne
+  est-elle joignable » sans vouloir choisir de machine ;
+- **résolution, poinçonnage et circuits relais** itèrent les cibles de
+  livraison ; poinçonner vers un compte finirait en `PeerIdentityMismatch`, ce
+  qui jette au passage toute la file du pending ;
+- la **liste d'appareils se relève dans la DHT**, et plus seulement quand un ami
+  la pousse sur une session ouverte. C'était la partie circulaire : un compte
+  basculé ne publie plus de présence sous sa clé racine, donc sans sa liste on
+  ignore quelle autre clé chercher. Ça se dénoue parce que la clé DHT de la
+  liste se calcule depuis la seule clé de compte.
 
-## La prochaine tâche, précisément
+## Ce qui reste au lot 1.E
 
-**Lot 1.D — le transport de l'appairage.** Le cœur cryptographique est prêt
-dans `crates/accord-crypto/src/pairing.rs` (11 tests) : code de 8 caractères,
-canal SPAKE2 symétrique, empreinte à six chiffres.
+3. **Appels** : sonnerie sur tous les appareils, décrochage exclusif, arrêt des
+   autres sonneries.
+4. **Rattrapage** entre ses propres appareils à la reconnexion.
+5. **Accusés de lecture** : convention « lu sur au moins un appareil ».
 
-Fait : `crates/accord-crypto/src/pairing.rs` (11 tests), `CoreMsg::PairingHello`
-(0x18, borné à 256 o au décodage), `crates/accord-node/src/pairing.rs` —
-machine à états pure, 10 tests — et `devices.pair_start` / `devices.pair_cancel`.
+Tâches 1 et 2 faites : `deliver_core` résout le compte en cibles et livre une
+fois par cible ; la file hors-ligne est indexée par cible, donc par appareil.
 
-Reste à écrire :
-
-1. **Le routage** de `PairingHello` dans `runtime.rs` vers l'offre en cours, et
-   la réponse avec notre propre message PAKE.
-2. **La confirmation d'empreinte des deux côtés** : `devices.pair_confirm`,
-   qui appelle `PairingOffer::confirm`. L'empreinte du canal candidat doit
-   remonter jusqu'à l'écran (elle n'est pas encore exposée — volontairement,
-   voir le commit `8afc8e6`).
-3. **L'ajout de l'appareil à la liste**, signature en version *n+1*,
-   publication.
-4. **Les écrans** : « Ajouter un appareil » (code + QR) côté autorisé, saisie
-   côté nouveau, confirmation d'empreinte des deux côtés.
-
-Tests exigés par la feuille de route (§6.4, lot 1.D) : appairage nominal ; code
-expiré ; code réutilisé ; empreinte non confirmée ; **tentative d'appairage par
-un tiers qui a intercepté le code** — doit échouer sans la confirmation.
-
-## 🔴 Question ouverte, apparue à l'implémentation
+## 🔴 Question ouverte, toujours pas tranchée
 
 **Comment le nouvel appareil joint-il celui qui est autorisé ?** Il n'a ni
 session, ni adresse, et le code n'en porte aucune. `docs/MULTI_DEVICE.md` §4
 décrit tout le protocole cryptographique et reste muet là-dessus.
 
-`devices.pair_submit` rend donc le message PAKE au lieu de l'envoyer, et son
-acheminement reste à concevoir. Trois pistes, aucune tranchée :
+`devices.pair_submit` rend donc le message PAKE au lieu de l'envoyer. Trois
+pistes, aucune tranchée :
 
 - **découverte LAN** (le mécanisme mDNS existe déjà) — couvre le cas courant
   « mes deux machines sont chez moi », pas le cas nomade ;
@@ -68,25 +69,34 @@ acheminement reste à concevoir. Trois pistes, aucune tranchée :
 - **le QR porte l'adresse** en plus du code — simple, mais inutile quand on
   recopie le code à la main.
 
-À trancher avant de finir le lot 1.D.
-
-## Deux pièges déjà rencontrés, à ne pas refaire
+## Pièges déjà rencontrés, à ne pas refaire
 
 🔒 **L'ordre du lot 1.C était faux dans la feuille de route.** Commencer par
 « le transport utilise la clé d'appareil » coupe toutes les amitiés du réseau :
 la clé statique de transport d'un pair **est** sa clé de compte aujourd'hui.
 Corrigé en deux phases — voir `docs/MULTI_DEVICE.md` §3.2.1.
 
+🔒 **Une liste d'appareils dit QUI, pas OÙ.** Un appareil est listé longtemps
+avant que son transport présente sa propre clé. D'où
+`DEVICE_FLAG_TRANSPORT_KEY` : il dit lequel des deux régimes cet appareil
+applique *maintenant*. Le cas qui existera réellement pendant des semaines est
+le parc **mixte** — les appareils basculés **plus** la clé de compte pour les
+autres — et c'est celui qu'on rate en simplifiant.
+
 🔒 **En SPAKE2 symétrique, `finish()` qui réussit ne prouve rien.** Les deux
 côtés dérivent une clé même avec des codes différents ; elles diffèrent, voilà
-tout. Une erreur ne signale qu'un message mal formé. L'offre d'appairage ne
-doit donc **jamais** être consommée sur un échange abouti — seulement après la
-confirmation d'empreinte par un humain. Sinon n'importe qui la détruit à
-distance avec un datagramme bien formé.
+tout. L'offre ne doit donc jamais être consommée sur un échange abouti —
+seulement après confirmation d'empreinte par un humain.
 
 🔒 **`install_session` n'a rien à changer pour lever B1.** L'éviction porte
 déjà sur `peer_static`. Des clés par appareil la rendent « par appareil »
 gratuitement.
+
+🔒 **Une sauvegarde restaurée ne doit pas cloner la clé d'appareil.** L'archive
+copie la base, qui contient la graine d'appareil : restaurer sur une seconde
+machine y réinstallait la même clé, donc l'éviction mutuelle que ce jalon
+supprime. Effacé à l'import, avec la liste du compte — sans quoi la machine
+restaurée serait absente de sa propre liste.
 
 ## Dette assumée : le budget du chunk initial
 
@@ -106,6 +116,13 @@ rendrait le plafond de nouveau significatif.
 type de référence. Il faut vraisemblablement deux dictionnaires typés — un
 noyau et une extension de réglages — et non un simple `import()`.
 
+## À surveiller : une lecture base par message sortant
+
+`deliver_core` appelle `delivery_targets`, donc une lecture indexée par message
+et par destinataire. Sur une diffusion de groupe c'est une lecture par membre.
+Mesuré nulle part pour l'instant, et volontairement pas mis en cache — mais
+c'est le premier endroit où regarder si un envoi de groupe devient lent.
+
 ## Réflexes de cette base de code
 
 - **Une borne de longueur se compte en octets**, jamais en caractères, dès
@@ -114,8 +131,12 @@ noyau et une extension de réglages — et non un simple `import()`.
   difficulté de preuve de travail plutôt que dupliquer la vérification.
 - **Déployer la tolérance une version avant d'en avoir besoin** (champ de
   capacités, `RecordKind::Unknown`, résolution d'appareil).
+- **Un test doit prouver qu'il mord** : muter la production, constater le rouge,
+  revenir. Un test vert sur du code cassé coûte plus qu'aucun test.
 - Les langues, la détection BCP-47 et le sélecteur dérivent tous de `LANGS` :
   une langue ajoutée ne demande que son dictionnaire et son entrée de chargeur.
+- **Jamais `git add -A` dans un checkout partagé** : une autre session y
+  travaille, et son travail part dans le commit. Chemins explicites.
 
 ## Action qui n'appartient qu'à toi
 

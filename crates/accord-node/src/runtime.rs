@@ -1658,18 +1658,28 @@ impl Runtime {
         // appartiennent à une personne, pas à une machine. Sans clé
         // d'appareil en jeu — le cas de tout le parc aujourd'hui — c'est
         // l'identité.
-        let static_pub = self.node.account_of_transport_key(&static_pub);
+        //
+        // ⚠️ La DHT est l'exception, et c'est délibéré : elle route des
+        // MACHINES. Un pair y est placé sous le `node_id` dérivé de la clé
+        // qu'il présente au handshake, chez nous comme chez tous les autres.
+        // L'inscrire sous son compte parce qu'il se trouve être un ami rendrait
+        // notre table incohérente avec celle du reste du réseau — et nos
+        // réponses `FIND_NODE` enverraient les autres vers un nœud qui n'existe
+        // pas sous cette identité.
+        let account = self.node.account_of_transport_key(&static_pub);
         match msg {
             ChannelMsg::Dht(dht_msg) => self.route_dht(addr, static_pub, dht_msg).await,
-            ChannelMsg::Core(core_msg) => self.route_core(&static_pub, core_msg).await,
-            // Trames et pings voix : routés vers le moteur voix (D-025).
+            ChannelMsg::Core(core_msg) => self.route_core(&account, core_msg).await,
+            // Trames et pings voix : routés vers le moteur voix (D-025). Le
+            // moteur tient son roster par personne — l'appel est avec un ami,
+            // pas avec une de ses machines.
             ChannelMsg::Voice(voice_msg) => {
                 if let Some(voice) = self.voice.get() {
-                    voice.peer_frame(static_pub, voice_msg);
+                    voice.peer_frame(account, voice_msg);
                 }
             }
             // Fichiers : service des pairs et téléchargements en cours.
-            ChannelMsg::File(file_msg) => self.route_file(static_pub, file_msg).await,
+            ChannelMsg::File(file_msg) => self.route_file(account, file_msg).await,
             // Relais : hors du périmètre de ce routeur (sous-système dédié).
             _ => {}
         }

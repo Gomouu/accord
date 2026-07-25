@@ -30,6 +30,17 @@ pub const MAX_REVOKED: usize = 32;
 /// Longueur maximale du nom d'un appareil (octets UTF-8).
 pub const MAX_DEVICE_NAME: usize = 32;
 
+/// Bit de [`DeviceEntry::flags`] : cet appareil **présente sa propre clé** comme
+/// clé statique de transport.
+///
+/// 🔒 Sans lui, une liste d'appareils ne dirait pas par où joindre le compte,
+/// seulement qui en fait partie — deux choses différentes pendant toute la
+/// transition. Un appareil migré publie son entrée bien avant de basculer son
+/// transport (déploiement en deux temps, `docs/MULTI_DEVICE.md` §3.2.1) ; qui
+/// lui écrirait à sa clé d'appareil pendant cette fenêtre parlerait à personne.
+/// Le bit dit lequel des deux régimes cet appareil applique **maintenant**.
+pub const DEVICE_FLAG_TRANSPORT_KEY: u32 = 1 << 0;
+
 /// Un appareil autorisé à agir pour le compte.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeviceEntry {
@@ -42,9 +53,21 @@ pub struct DeviceEntry {
     pub name: String,
     /// Date d'ajout (ms epoch).
     pub added_ms: u64,
-    /// Drapeaux réservés. 🔒 Les bits inconnus sont **ignorés**, jamais une
-    /// erreur : c'est ce qui permettra d'en ajouter sans casser les anciens.
+    /// Drapeaux. Voir [`DEVICE_FLAG_TRANSPORT_KEY`]. 🔒 Les bits inconnus sont
+    /// **ignorés**, jamais une erreur : c'est ce qui permet d'en ajouter sans
+    /// casser les anciens.
     pub flags: u32,
+}
+
+impl DeviceEntry {
+    /// Vrai si cet appareil présente sa propre clé au transport.
+    ///
+    /// Faux pour tout appareil publié avant le basculement — et le repli qui
+    /// s'ensuit (joindre le compte par sa clé racine) est le comportement
+    /// correct pour lui, pas une approximation.
+    pub fn presents_own_key(&self) -> bool {
+        self.flags & DEVICE_FLAG_TRANSPORT_KEY != 0
+    }
 }
 
 /// Un appareil retiré du compte.
@@ -385,6 +408,33 @@ mod tests {
             revoked_ms: 0,
         });
         assert!(!l.authorises(&[10; 32]));
+    }
+
+    #[test]
+    fn the_transport_flag_is_read_bit_by_bit() {
+        let mut d = device(10);
+        assert!(!d.presents_own_key());
+        d.flags = DEVICE_FLAG_TRANSPORT_KEY;
+        assert!(d.presents_own_key());
+        // Un bit encore inconnu ne doit ni allumer ni éteindre celui-ci : c'est
+        // la condition pour en ajouter d'autres sans réécrire ce code.
+        d.flags = DEVICE_FLAG_TRANSPORT_KEY | 0x8000_0000;
+        assert!(d.presents_own_key());
+        d.flags = 0x8000_0000;
+        assert!(!d.presents_own_key());
+    }
+
+    #[test]
+    fn the_transport_flag_survives_the_wire() {
+        let mut l = list();
+        l.devices[0].flags = DEVICE_FLAG_TRANSPORT_KEY;
+        let decoded = DeviceList::from_bytes(&l.to_bytes()).unwrap();
+        assert!(decoded.devices[0].presents_own_key());
+        assert!(!decoded.devices[1].presents_own_key());
+        // 🔒 Et il est signé : sans ça, un tiers retirerait le bit en vol pour
+        // faire écrire au compte plutôt qu'à l'appareil — ou l'ajouterait pour
+        // détourner vers une clé que personne n'écoute.
+        assert_ne!(l.signable_bytes(), list().signable_bytes());
     }
 
     #[test]

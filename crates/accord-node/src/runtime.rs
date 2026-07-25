@@ -1511,10 +1511,34 @@ impl Runtime {
         }
     }
 
-    /// Livre un `CoreMsg` à un pair : session directe si l'adresse est connue,
-    /// sinon mise en file hors-ligne persistante (vidée par la maintenance :
-    /// renvoi direct avec backoff puis dépôt en boîte aux lettres DHT).
-    async fn deliver_core(&self, to_pubkey: &[u8; 32], msg: CoreMsg) {
+    /// Livre un `CoreMsg` au COMPTE `to_account` : une remise par appareil
+    /// joignable (lot 1.E).
+    ///
+    /// 🔒 La liste des cibles est calculée ici, à l'entrée de la couche
+    /// réseau, et nulle part ailleurs. Tout ce qui est en amont — l'op-log, les
+    /// amitiés, la file d'attente applicative — raisonne sur des **comptes** ;
+    /// tout ce qui est en aval raisonne sur des **clés de transport**. Deux
+    /// points de traduction, c'est un de trop : on finirait par écrire à un
+    /// appareil au nom d'un compte, ou l'inverse.
+    ///
+    /// Un compte sans appareil basculé rend exactement une cible, sa clé de
+    /// compte : la boucle ci-dessous se réduit alors au comportement d'avant, à
+    /// l'octet près.
+    async fn deliver_core(&self, to_account: &[u8; 32], msg: CoreMsg) {
+        for cible in self.node.delivery_targets(to_account) {
+            self.deliver_core_to_device(&cible, msg.clone()).await;
+        }
+    }
+
+    /// Livre un `CoreMsg` à UNE clé de transport : session directe si l'adresse
+    /// est connue, sinon mise en file hors-ligne persistante (vidée par la
+    /// maintenance : renvoi direct avec backoff puis dépôt en boîte aux lettres
+    /// DHT).
+    ///
+    /// La file d'attente est indexée par cette clé, donc **par appareil** : un
+    /// appareil hors ligne rattrape à sa reconnexion sans que les autres aient
+    /// à attendre, et sans qu'un message livré ici soit redéposé là-bas.
+    async fn deliver_core_to_device(&self, to_pubkey: &[u8; 32], msg: CoreMsg) {
         let channel_msg = ChannelMsg::Core(msg);
         // Store-and-forward (Lot G) : les messages DURABLES portent un `msg_id`,
         // sont accusés (`MsgAck`) et dédupliqués par le destinataire. On les

@@ -331,6 +331,9 @@ async fn run_node(
     } else {
         Arc::clone(&identity)
     };
+    // Retenue avant que l'endpoint ne consomme l'`Arc` : c'est cette clé que
+    // les correspondants verront, donc celle que la liste d'appareils annonce.
+    let transport_pub = transport_identity.public_key();
     let injected = socket_override.is_some();
 
     // Transport chiffré : socket injecté (tests) ou UDP réel, multiplexé avec
@@ -407,6 +410,14 @@ async fn run_node(
         sink.clone(),
         Some(hub.clone()),
     ));
+    // Clé réellement présentée par le transport, puis réalignement de l'entrée
+    // locale dans la liste d'appareils. C'est ce drapeau que les correspondants
+    // lisent pour savoir s'ils doivent écrire au compte ou à l'appareil ; le
+    // laisser mentir couperait la livraison le jour du basculement.
+    node.set_transport_key(transport_pub);
+    if let Err(e) = node.reconcile_local_device_flags() {
+        tracing::warn!(erreur = %e, "liste d'appareils : réalignement impossible");
+    }
     // Migration douce : les invitations de serveur reçues avant cette
     // version (onglet Amis) sont re-présentées comme cartes dans le MP de
     // leur inviteur — idempotent, aucun état perdu.

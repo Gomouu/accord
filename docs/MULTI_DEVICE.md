@@ -147,6 +147,35 @@ identity" is already written against `peer_static`. Give the transport
 per-device keys and it becomes "per device" for free. B1 was never the eviction
 rule — it is the identity fed to it.
 
+#### The list says who, not where — so each entry has to say which
+
+Phase 1 leaves the two halves out of step: a device is *listed* long before it
+*presents* its own key. A list alone therefore cannot answer the only question
+delivery asks — which key do I write to? Read naively, it would send every
+message of the whole fleet to a device key nobody is listening on.
+
+`DeviceEntry::flags` carries `DEVICE_FLAG_TRANSPORT_KEY` for exactly this.
+It is set only when that device's transport really presents its own key —
+derived from the effective key at startup, never copied from a config toggle,
+and re-signed if it ever disagrees. Delivery then reads:
+
+| Fleet state | Targets |
+|---|---|
+| no fresh list known | the account key |
+| list, no entry flagged (all of phase 1) | the account key |
+| every entry flagged | one target per device |
+| **mixed** | the flagged devices **plus** the account key |
+
+The mixed row is the one that will exist in the wild for weeks, and the one that
+disappears if you simplify. Keeping only flagged devices cuts off everyone who
+has not updated; always adding the account key files a message forever for a
+listener that no longer exists. Unflagged devices collapse into a single target
+because they all present the same key — and evict each other from the transport,
+which is precisely the blocker this milestone lifts.
+
+The flag is inside `signable_bytes`, so it cannot be stripped in flight to
+redirect a conversation.
+
 ### 3.3 Revocation is eventually consistent, and that is not a bug
 
 A friend who is offline when you revoke a device keeps accepting that device

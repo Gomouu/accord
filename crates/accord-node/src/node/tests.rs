@@ -1597,6 +1597,7 @@ fn annonce(root: &Identity, device: &accord_crypto::DeviceIdentity) -> CoreMsg {
             device,
             "Portable",
             crate::node::now_ms(),
+            accord_proto::device::DEVICE_FLAG_TRANSPORT_KEY,
         ),
     }
 }
@@ -2273,6 +2274,7 @@ fn la_cle_dun_appareil_dami_remonte_a_son_compte() {
         &appareil,
         "Portable",
         crate::node::now_ms(),
+        accord_proto::device::DEVICE_FLAG_TRANSPORT_KEY,
     );
     n.ingest_core(
         &peer.public_key(),
@@ -2299,6 +2301,7 @@ fn lappareil_dun_non_ami_ne_remonte_a_aucun_compte() {
         &appareil,
         "Portable",
         crate::node::now_ms(),
+        accord_proto::device::DEVICE_FLAG_TRANSPORT_KEY,
     );
     n.ingest_core(
         &etranger.public_key(),

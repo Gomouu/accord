@@ -75,8 +75,9 @@ pub fn build_device_list(
     device: &DeviceIdentity,
     name: &str,
     now_ms: u64,
+    flags: u32,
 ) -> DeviceList {
-    build_device_list_with_root(account.identity(), device, name, now_ms)
+    build_device_list_with_root(account.identity(), device, name, now_ms, flags)
 }
 
 /// [`build_device_list`] pour un appelant qui ne possède pas son identité
@@ -86,6 +87,7 @@ pub fn build_device_list_with_root(
     device: &DeviceIdentity,
     name: &str,
     now_ms: u64,
+    flags: u32,
 ) -> DeviceList {
     let mut list = DeviceList {
         account: root.public_key(),
@@ -97,13 +99,28 @@ pub fn build_device_list_with_root(
             pow_nonce: device.pow_nonce(),
             name: name.to_string(),
             added_ms: now_ms,
-            flags: 0,
+            flags,
         }],
         revoked: Vec::new(),
         sig: [0u8; 64],
     };
     accord_crypto::sign_device_list_with_root(root, &mut list);
     list
+}
+
+/// Drapeaux à porter par l'entrée de l'appareil local, d'après la clé que son
+/// transport présente réellement.
+///
+/// 🔒 Déduit, jamais recopié depuis la configuration : c'est la clé effective
+/// qui fait foi. Un drapeau qui affirmerait un basculement que le transport
+/// n'a pas fait dirigerait tous les messages du compte vers une clé que
+/// personne n'écoute.
+pub fn local_device_flags(transport_pub: &[u8; 32], device_pub: &[u8; 32]) -> u32 {
+    if transport_pub == device_pub {
+        accord_proto::device::DEVICE_FLAG_TRANSPORT_KEY
+    } else {
+        0
+    }
 }
 
 /// Emballe une liste d'appareils en record DHT signé, prêt à publier.
@@ -184,21 +201,23 @@ pub fn verify_device_list_record_with_pow_bits(
 /// l'appelant doit alors rafraîchir avant de faire confiance. Servir une liste
 /// périmée ferait survivre un appareil révoqué aussi longtemps qu'elle (§3.3).
 pub fn cached_devices_for(db: &Db, account: &[u8; 32], now_ms: u64) -> Vec<[u8; 32]> {
-    let Ok(Some(cached)) = db.device_list(account) else {
-        return Vec::new();
-    };
+    cached_list_for(db, account, now_ms)
+        .map(|list| {
+            list.devices
+                .iter()
+                .map(|d| d.pubkey)
+                .filter(|pk| list.authorises(pk))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Liste d'appareils en cache pour `account`, si elle est lisible et fraîche.
+fn cached_list_for(db: &Db, account: &[u8; 32], now_ms: u64) -> Option<DeviceList> {
+    let cached = db.device_list(account).ok()??;
     let mut r = accord_proto::Reader::new(&cached.encoded);
-    let Ok(list) = DeviceList::decode(&mut r) else {
-        return Vec::new();
-    };
-    if !list.is_fresh(now_ms) {
-        return Vec::new();
-    }
-    list.devices
-        .iter()
-        .map(|d| d.pubkey)
-        .filter(|pk| list.authorises(pk))
-        .collect()
+    let list = DeviceList::decode(&mut r).ok()?;
+    list.is_fresh(now_ms).then_some(list)
 }
 
 /// Compte auquel appartient la clé de transport `static_pub`, s'il en est un
@@ -231,33 +250,70 @@ pub fn account_for_static(
         .copied()
 }
 
-/// Destinataires à atteindre pour livrer à `account`.
+/// Clés de transport à atteindre pour livrer à `account`.
 ///
-/// Rend les **clés d'appareil** quand une liste fraîche est connue, et la clé
-/// de compte sinon.
+/// La règle tient en une phrase : **un appareil est joignable à sa propre clé
+/// s'il annonce la présenter, et à la clé du compte sinon.**
 ///
-/// 🔒 Ce repli n'est pas une commodité, c'est la moitié « savoir lire » du
-/// déploiement en deux temps (voir `docs/MULTI_DEVICE.md` §3.2.1). Un pair qui
-/// n'a pas encore publié de liste — tout le parc antérieur à 6.4 — reste
-/// joignable par sa clé de compte, qui est encore ce que son transport
-/// présente. Rendre une liste vide le rendrait injoignable du jour au
-/// lendemain.
+/// Concrètement :
+/// - aucune liste fraîche connue → la clé de compte, seule ;
+/// - liste où aucun appareil ne porte [`DEVICE_FLAG_TRANSPORT_KEY`] → la clé de
+///   compte, seule (tout le parc pendant la phase 1) ;
+/// - liste entièrement basculée → une clé par appareil ;
+/// - liste **mixte** → les appareils basculés, **plus** la clé de compte pour
+///   ceux qui ne le sont pas.
+///
+/// 🔒 Le dernier cas est celui qui existera réellement pendant des semaines, et
+/// c'est celui qu'on rate en le simplifiant. Ne garder que les appareils
+/// basculés couperait les autres ; ajouter systématiquement la clé de compte
+/// ferait déposer, à jamais, un message en boîte pour un destinataire qui
+/// n'écoute plus. Les appareils non basculés se confondent tous en une seule
+/// cible parce qu'ils présentent tous la même clé — et s'évincent d'ailleurs
+/// mutuellement du transport, ce qui est précisément le blocage que ce jalon
+/// lève.
 ///
 /// ⚠️ Un compte à N appareils multiplie le trafic par N pour un message
 /// direct. Négligeable pour du texte ; **inacceptable pour la voix et la
 /// vidéo**, qui restent mono-appareil (§5).
 pub fn delivery_targets(db: &Db, account: &[u8; 32], now_ms: u64) -> Vec<[u8; 32]> {
-    let devices = cached_devices_for(db, account, now_ms);
-    if devices.is_empty() {
+    let Some(list) = cached_list_for(db, account, now_ms) else {
+        return vec![*account];
+    };
+    let mut targets = Vec::with_capacity(list.devices.len() + 1);
+    let mut account_needed = list.devices.is_empty();
+    for device in &list.devices {
+        if !list.authorises(&device.pubkey) {
+            continue;
+        }
+        if device.presents_own_key() {
+            if !targets.contains(&device.pubkey) {
+                targets.push(device.pubkey);
+            }
+        } else {
+            account_needed = true;
+        }
+    }
+    // La clé de compte passe en tête : c'est celle du parc actuel, donc celle
+    // qui aboutit dans l'immense majorité des cas.
+    if account_needed && !targets.contains(account) {
+        targets.insert(0, *account);
+    }
+    if targets.is_empty() {
+        // Liste fraîche mais dont chaque appareil est révoqué : on ne peut pas
+        // conclure « injoignable ». La clé de compte reste le dernier recours.
         return vec![*account];
     }
-    devices
+    targets
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use accord_crypto::Identity;
+
+    /// Drapeaux d'un appareil qui présente sa propre clé — l'état d'après le
+    /// basculement, et celui que la plupart de ces tests supposent.
+    const TRANSPORT: u32 = accord_proto::device::DEVICE_FLAG_TRANSPORT_KEY;
 
     fn db() -> Db {
         Db::open_in_memory(&[4u8; 32]).expect("base en mémoire")
@@ -323,7 +379,7 @@ mod tests {
         // même identité de transport — exactement ce que le jalon corrige.
         let account = AccountIdentity::from_identity(Identity::generate_with_pow_bits(1));
         let device = DeviceIdentity::generate_with_pow_bits(1);
-        let list = build_device_list(&account, &device, "Portable", 1_700_000_000_000);
+        let list = build_device_list(&account, &device, "Portable", 1_700_000_000_000, TRANSPORT);
 
         assert!(list.authorises(&device.public_key()));
         assert!(!list.authorises(&account.public_key()));
@@ -333,7 +389,7 @@ mod tests {
     fn la_liste_publiee_se_verifie_avec_la_cle_du_compte() {
         let account = AccountIdentity::from_identity(Identity::generate_with_pow_bits(1));
         let device = DeviceIdentity::generate_with_pow_bits(1);
-        let list = build_device_list(&account, &device, "Portable", 1_700_000_000_000);
+        let list = build_device_list(&account, &device, "Portable", 1_700_000_000_000, TRANSPORT);
 
         // Difficulté de test : la PoW réelle rendrait ce test interminable.
         // On passe par la VRAIE vérification, pas par une copie.
@@ -352,7 +408,7 @@ mod tests {
         let account = AccountIdentity::from_identity(Identity::generate_with_pow_bits(1));
         let device = DeviceIdentity::generate_with_pow_bits(1);
         let now = 1_700_000_000_000;
-        let list = build_device_list(&account, &device, "Portable", now);
+        let list = build_device_list(&account, &device, "Portable", now, TRANSPORT);
         let record = device_list_record(&account, &list, now);
 
         assert_eq!(record.kind, RecordKind::DeviceList);
@@ -366,7 +422,7 @@ mod tests {
         let account = AccountIdentity::from_identity(Identity::generate_with_pow_bits(1));
         let device = DeviceIdentity::generate_with_pow_bits(1);
         let now = 1_700_000_000_000;
-        let list = build_device_list(&account, &device, "Portable", now);
+        let list = build_device_list(&account, &device, "Portable", now, TRANSPORT);
         let record = device_list_record(&account, &list, now);
 
         let mut r = accord_proto::Reader::new(&record.value);
@@ -380,8 +436,10 @@ mod tests {
         // toujours dépasser la précédente, sinon les pairs l'ignoreraient.
         let account = AccountIdentity::from_identity(Identity::generate_with_pow_bits(1));
         let device = DeviceIdentity::generate_with_pow_bits(1);
-        let premiere = build_device_list(&account, &device, "Portable", 1_700_000_000_000);
-        let seconde = build_device_list(&account, &device, "Portable", 1_700_000_060_000);
+        let premiere =
+            build_device_list(&account, &device, "Portable", 1_700_000_000_000, TRANSPORT);
+        let seconde =
+            build_device_list(&account, &device, "Portable", 1_700_000_060_000, TRANSPORT);
 
         assert!(seconde.version > premiere.version);
     }
@@ -390,7 +448,7 @@ mod tests {
     fn published(now: u64) -> (AccountIdentity, DeviceIdentity, DhtRecord) {
         let account = AccountIdentity::from_identity(Identity::generate_with_pow_bits(1));
         let device = DeviceIdentity::generate_with_pow_bits(1);
-        let list = build_device_list(&account, &device, "Portable", now);
+        let list = build_device_list(&account, &device, "Portable", now, TRANSPORT);
         let record = device_list_record(&account, &list, now);
         (account, device, record)
     }
@@ -592,10 +650,10 @@ mod tests {
         let root = Identity::generate_with_pow_bits(1);
         let device = DeviceIdentity::generate_with_pow_bits(1);
         let now = 1_700_000_000_000;
-        let par_reference = build_device_list_with_root(&root, &device, "Portable", now);
+        let par_reference = build_device_list_with_root(&root, &device, "Portable", now, TRANSPORT);
 
         let account = AccountIdentity::from_identity(root);
-        let par_valeur = build_device_list(&account, &device, "Portable", now);
+        let par_valeur = build_device_list(&account, &device, "Portable", now, TRANSPORT);
 
         assert_eq!(par_reference, par_valeur);
     }
@@ -651,7 +709,7 @@ mod tests {
         let garde = DeviceIdentity::generate_with_pow_bits(1);
         let retire = DeviceIdentity::generate_with_pow_bits(1);
 
-        let mut liste = build_device_list(&account, &garde, "Fixe", now);
+        let mut liste = build_device_list(&account, &garde, "Fixe", now, TRANSPORT);
         liste.revoked.push(accord_proto::device::RevokedEntry {
             pubkey: retire.public_key(),
             revoked_ms: now,
@@ -661,7 +719,10 @@ mod tests {
             pow_nonce: retire.pow_nonce(),
             name: "Ancien".into(),
             added_ms: now,
-            flags: 0,
+            // 🔒 L'appareil retiré affirme présenter sa propre clé. C'est le
+            // cas qui compte : si la révocation était vérifiée APRÈS le
+            // drapeau, cette entrée se glisserait dans les cibles.
+            flags: TRANSPORT,
         });
         account.sign_device_list(&mut liste);
         let record = device_list_record(&account, &liste, now);
@@ -672,6 +733,150 @@ mod tests {
         assert!(
             !cibles.contains(&retire.public_key()),
             "un appareil révoqué ne doit plus rien recevoir"
+        );
+    }
+
+    #[test]
+    fn un_appareil_qui_ne_presente_pas_sa_cle_se_joint_par_le_compte() {
+        // 🔒 L'état de TOUT le parc pendant la phase 1 : la liste est publiée,
+        // fraîche, signée — et le transport présente encore la clé de compte.
+        // Viser l'appareil ici couperait la livraison pour tout le monde le
+        // jour où cette version sort.
+        let now = 1_700_000_000_000;
+        let db = db();
+        let account = AccountIdentity::from_identity(Identity::generate_with_pow_bits(1));
+        let appareil = DeviceIdentity::generate_with_pow_bits(1);
+        let liste = build_device_list(&account, &appareil, "Portable", now, 0);
+        let record = device_list_record(&account, &liste, now);
+        let compte = en_cache(&db, &account, &record, now);
+
+        assert_eq!(delivery_targets(&db, &compte, now), vec![compte]);
+    }
+
+    #[test]
+    fn un_parc_mixte_vise_les_bascules_et_le_compte() {
+        // 🔒 Le cas qui existera vraiment pendant des semaines, et celui qu'on
+        // rate en simplifiant : un appareil a basculé, l'autre pas. Ne garder
+        // que le premier couperait le second ; ne garder que le compte
+        // couperait le premier.
+        let now = 1_700_000_000_000;
+        let db = db();
+        let account = AccountIdentity::from_identity(Identity::generate_with_pow_bits(1));
+        let bascule = DeviceIdentity::generate_with_pow_bits(1);
+        let ancien = DeviceIdentity::generate_with_pow_bits(1);
+
+        let mut liste = build_device_list(&account, &bascule, "Portable", now, TRANSPORT);
+        liste.devices.push(accord_proto::device::DeviceEntry {
+            pubkey: ancien.public_key(),
+            pow_nonce: ancien.pow_nonce(),
+            name: "Fixe".into(),
+            added_ms: now,
+            flags: 0,
+        });
+        account.sign_device_list(&mut liste);
+        let record = device_list_record(&account, &liste, now);
+        let compte = en_cache(&db, &account, &record, now);
+
+        let cibles = delivery_targets(&db, &compte, now);
+        assert_eq!(cibles.len(), 2, "une cible par voie distincte : {cibles:?}");
+        assert!(cibles.contains(&bascule.public_key()));
+        assert!(cibles.contains(&compte));
+        assert!(
+            !cibles.contains(&ancien.public_key()),
+            "l'appareil non basculé n'écoute pas sa propre clé"
+        );
+    }
+
+    #[test]
+    fn deux_appareils_non_bascules_ne_font_quune_cible() {
+        // Ils présentent la même clé — celle du compte — et s'évincent d'ailleurs
+        // mutuellement du transport. Les compter deux fois ferait partir deux
+        // exemplaires du même message vers la même session.
+        let now = 1_700_000_000_000;
+        let db = db();
+        let account = AccountIdentity::from_identity(Identity::generate_with_pow_bits(1));
+        let a = DeviceIdentity::generate_with_pow_bits(1);
+        let b = DeviceIdentity::generate_with_pow_bits(1);
+
+        let mut liste = build_device_list(&account, &a, "A", now, 0);
+        liste.devices.push(accord_proto::device::DeviceEntry {
+            pubkey: b.public_key(),
+            pow_nonce: b.pow_nonce(),
+            name: "B".into(),
+            added_ms: now,
+            flags: 0,
+        });
+        account.sign_device_list(&mut liste);
+        let record = device_list_record(&account, &liste, now);
+        let compte = en_cache(&db, &account, &record, now);
+
+        assert_eq!(delivery_targets(&db, &compte, now), vec![compte]);
+    }
+
+    #[test]
+    fn deux_appareils_bascules_recoivent_chacun() {
+        // Le jalon en une assertion : un message direct part vers les DEUX
+        // machines du destinataire.
+        let now = 1_700_000_000_000;
+        let db = db();
+        let account = AccountIdentity::from_identity(Identity::generate_with_pow_bits(1));
+        let a = DeviceIdentity::generate_with_pow_bits(1);
+        let b = DeviceIdentity::generate_with_pow_bits(1);
+
+        let mut liste = build_device_list(&account, &a, "A", now, TRANSPORT);
+        liste.devices.push(accord_proto::device::DeviceEntry {
+            pubkey: b.public_key(),
+            pow_nonce: b.pow_nonce(),
+            name: "B".into(),
+            added_ms: now,
+            flags: TRANSPORT,
+        });
+        account.sign_device_list(&mut liste);
+        let record = device_list_record(&account, &liste, now);
+        let compte = en_cache(&db, &account, &record, now);
+
+        let cibles = delivery_targets(&db, &compte, now);
+        assert_eq!(cibles.len(), 2);
+        assert!(cibles.contains(&a.public_key()));
+        assert!(cibles.contains(&b.public_key()));
+        assert!(
+            !cibles.contains(&compte),
+            "plus personne n'écoute la clé de compte quand tout a basculé"
+        );
+    }
+
+    #[test]
+    fn une_liste_entierement_revoquee_retombe_sur_le_compte() {
+        // Cas dégénéré : une liste fraîche dont chaque appareil est révoqué ne
+        // permet pas de conclure « injoignable ». Rendre zéro cible ferait
+        // disparaître le message sans trace ; la clé de compte reste le dernier
+        // recours, et l'échec se constate au moins par l'absence de réponse.
+        let now = 1_700_000_000_000;
+        let db = db();
+        let account = AccountIdentity::from_identity(Identity::generate_with_pow_bits(1));
+        let seul = DeviceIdentity::generate_with_pow_bits(1);
+        let mut liste = build_device_list(&account, &seul, "Portable", now, TRANSPORT);
+        liste.revoked.push(accord_proto::device::RevokedEntry {
+            pubkey: seul.public_key(),
+            revoked_ms: now,
+        });
+        account.sign_device_list(&mut liste);
+        let record = device_list_record(&account, &liste, now);
+        let compte = en_cache(&db, &account, &record, now);
+
+        assert_eq!(delivery_targets(&db, &compte, now), vec![compte]);
+    }
+
+    #[test]
+    fn les_drapeaux_locaux_suivent_la_cle_de_transport() {
+        let compte = [1u8; 32];
+        let appareil = [2u8; 32];
+        // Phase 1 : le transport présente la clé de COMPTE.
+        assert_eq!(local_device_flags(&compte, &appareil), 0);
+        // Phase 2 : il présente la clé d'appareil.
+        assert_eq!(
+            local_device_flags(&appareil, &appareil),
+            accord_proto::device::DEVICE_FLAG_TRANSPORT_KEY
         );
     }
 }

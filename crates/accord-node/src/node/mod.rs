@@ -260,6 +260,13 @@ pub struct Node {
     /// Cadence des `SoundboardPlay` entrants par pair : `(début de fenêtre ms,
     /// compte)`. Anti-DoS sonore en mémoire, borné ([`SOUNDBOARD_SEEN_MAX_PEERS`]).
     soundboard_seen: Mutex<HashMap<[u8; 32], (u64, u32)>>,
+    /// Clé publique que le TRANSPORT présente réellement à nos pairs.
+    ///
+    /// Distincte de [`Node::public_key`] dès que cette machine présente sa clé
+    /// d'appareil (lot 1.C phase 2). Renseignée au démarrage ; à défaut, la clé
+    /// de compte — qui est ce que présente tout le parc actuel, et ce que
+    /// présente un nœud assemblé sans runtime dans les tests.
+    transport_key: OnceLock<[u8; 32]>,
     profile_frame_migrated: OnceLock<()>,
 }
 
@@ -293,8 +300,24 @@ impl Node {
             typing_seen: Mutex::new(HashMap::new()),
             redeem_seen: Mutex::new(HashMap::new()),
             soundboard_seen: Mutex::new(HashMap::new()),
+            transport_key: OnceLock::new(),
             profile_frame_migrated: OnceLock::new(),
         }
+    }
+
+    /// Déclare la clé publique que le transport présente réellement.
+    ///
+    /// Appelée une fois au démarrage, avant toute publication de liste
+    /// d'appareils. Sans appel, [`Node::transport_key`] rend la clé de compte.
+    pub fn set_transport_key(&self, pubkey: [u8; 32]) {
+        let _ = self.transport_key.set(pubkey);
+    }
+
+    /// Clé publique présentée par le transport de cette machine.
+    pub fn transport_key(&self) -> [u8; 32] {
+        *self
+            .transport_key
+            .get_or_init(|| self.identity.public_key())
     }
 
     /// Émet un événement temps réel vers l'UI (sans effet si aucun hub).
@@ -643,6 +666,16 @@ impl Node {
         .unwrap_or(*static_pub)
     }
 
+    /// Clés de transport par lesquelles joindre `account` (lot 1.E).
+    ///
+    /// Rend toujours au moins une cible : un compte dont on ne sait rien reste
+    /// joignable par sa clé, qui est ce que présente tout le parc actuel.
+    pub fn delivery_targets(&self, account: &[u8; 32]) -> Vec<[u8; 32]> {
+        let now = now_ms();
+        self.with_db(|db| Ok(crate::device::delivery_targets(db, account, now)))
+            .unwrap_or_else(|_| vec![*account])
+    }
+
     /// Révoque un appareil du compte et publie la version n+1.
     ///
     /// 🔒 **On ne révoque pas l'appareil sur lequel on est.** Ce serait se
@@ -718,7 +751,42 @@ impl Node {
             &local,
             &stored.name,
             now_ms(),
+            crate::device::local_device_flags(&self.transport_key(), &local.public_key()),
         ))
+    }
+
+    /// Aligne l'entrée de l'appareil local sur la clé que le transport présente
+    /// vraiment, et republie si elle avait bougé.
+    ///
+    /// 🔒 Appelée une fois au démarrage. Sans elle, la liste persistée garderait
+    /// éternellement le drapeau du jour où elle a été signée : la mise à jour
+    /// qui bascule le transport sur la clé d'appareil laisserait les
+    /// correspondants continuer d'écrire à la clé de compte — que plus personne
+    /// n'écoute. Le retour en arrière (drapeau à retirer) compte tout autant, et
+    /// c'est pour ça que la comparaison se fait dans les deux sens.
+    pub fn reconcile_local_device_flags(&self) -> Result<(), NodeError> {
+        let Some(stored) = self.with_db(|db| Ok(db.local_device()?))? else {
+            return Ok(());
+        };
+        let local = accord_crypto::DeviceIdentity::from_seed(stored.seed).public_key();
+        let voulu = crate::device::local_device_flags(&self.transport_key(), &local);
+        let mut list = self.current_device_list()?;
+        let Some(entry) = list.devices.iter_mut().find(|d| d.pubkey == local) else {
+            return Ok(());
+        };
+        if entry.flags == voulu {
+            return Ok(());
+        }
+        entry.flags = voulu;
+        list.version = accord_crypto::version_for(now_ms());
+        accord_crypto::sign_device_list_with_root(&self.identity, &mut list);
+        self.store_device_list(&list)?;
+        self.publish_device_list(&list);
+        tracing::info!(
+            presente_sa_cle = voulu != 0,
+            "liste d'appareils : entrée locale réalignée sur la clé de transport"
+        );
+        Ok(())
     }
 
     /// Persiste la liste d'appareils du compte.

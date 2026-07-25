@@ -168,6 +168,23 @@ impl Db {
         Ok(())
     }
 
+    /// Purge tout ce qui attend pour un destinataire ; rend le nombre supprimé.
+    ///
+    /// 🔒 Sert à honorer une révocation d'appareil. La file est indexée par clé
+    /// de transport, et son vidage à la reconnexion d'un pair ne revérifie
+    /// aucune autorisation — c'est justement ce qui la rend rapide. Une machine
+    /// révoquée qui se reconnecte recevrait donc tout ce qui lui avait été
+    /// adressé avant, pendant les sept jours de rétention de la file, bien
+    /// au-delà des vingt-quatre heures que la révocation promet. Effacer au
+    /// moment où l'on apprend la révocation est ce qui ramène le pire cas dans
+    /// la fenêtre annoncée.
+    pub fn outbox_purge_dest(&self, dest: &[u8; 32]) -> Result<usize, CoreError> {
+        let n = self
+            .conn()
+            .execute("DELETE FROM outbox WHERE dest = ?1", [&dest[..]])?;
+        Ok(n)
+    }
+
     /// Purge les éléments expirés (> 7 jours) ; rend le nombre supprimé.
     pub fn outbox_purge_expired(&self, now_ms: u64) -> Result<usize, CoreError> {
         let n = self.conn().execute(

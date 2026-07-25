@@ -435,6 +435,24 @@ impl Node {
                 encoded: w.into_bytes(),
                 fetched_ms: now_ms(),
             })?;
+            // 🔒 Apprendre une révocation, c'est aussi devoir oublier ce qui
+            // attendait la machine révoquée. La file hors-ligne est indexée par
+            // clé de transport et son vidage à la reconnexion d'un pair ne
+            // revérifie rien — c'est ce qui la rend rapide. Sans cette purge,
+            // un appareil volé qui se rebranche recevrait tout ce qui lui avait
+            // été adressé avant, pendant les sept jours de rétention de la
+            // file : bien au-delà des vingt-quatre heures que la révocation
+            // promet, et sans que rien nulle part ne le signale.
+            for revoked in &list.revoked {
+                match db.outbox_purge_dest(&revoked.pubkey)? {
+                    0 => {}
+                    n => tracing::info!(
+                        messages = n,
+                        appareil = %crate::hex::encode(&revoked.pubkey[..4]),
+                        "révocation : messages en attente retirés de la file"
+                    ),
+                }
+            }
             Ok(())
         })
     }

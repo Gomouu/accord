@@ -144,6 +144,15 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ### Fixed
 
+- **Revoking a device now also drops what was already queued for it.** The
+  offline queue is indexed by transport key, and emptying it when a peer
+  reconnects deliberately re-checks nothing — that is what makes it fast. So a
+  device revoked after a message had been queued for it would still receive that
+  message on its next connection, for as long as the queue keeps it: seven days,
+  against the twenty-four hours revocation promises and that `SECURITY.md`
+  states. The queue is now cleared for every key a newly learned list revokes,
+  which brings the worst case back inside the announced window.
+
 - **A restored backup no longer clones the device key.** The archive copies the
   whole profile, database included, and the database holds this machine's device
   seed. Restoring on a second machine installed the same device key there — and

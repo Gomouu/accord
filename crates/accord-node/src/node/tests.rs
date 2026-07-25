@@ -1618,6 +1618,60 @@ fn la_liste_dappareils_dun_ami_est_mise_en_cache() {
 }
 
 #[test]
+fn apprendre_une_revocation_vide_ce_qui_attendait_lappareil() {
+    // 🔒 Le trou que ce test ferme : la file hors-ligne est indexée par clé de
+    // transport, et son vidage à la reconnexion d'un pair ne revérifie aucune
+    // autorisation. Un appareil volé qui se rebranche recevrait donc tout ce
+    // qui lui avait été adressé avant, pendant les SEPT JOURS de rétention de
+    // la file — alors que la révocation promet vingt-quatre heures, et que
+    // `SECURITY.md` l'écrit noir sur blanc.
+    let (n, peer) = node_with_friend();
+    let vole = appareil_reel();
+    let garde = appareil_reel();
+
+    // Un message attend chacun des deux appareils de l'ami.
+    let msg = CoreMsg::DirectMsg {
+        msg_id: [7u8; 16],
+        lamport: 1,
+        sent_ms: crate::node::now_ms(),
+        kind: 0,
+        body: b"pour plus tard".to_vec(),
+    };
+    n.outbox_enqueue(&vole.public_key(), &msg).unwrap();
+    n.outbox_enqueue(&garde.public_key(), &msg).unwrap();
+    assert_eq!(n.outbox_for(&vole.public_key()).unwrap().len(), 1);
+
+    // L'ami révoque l'appareil volé et pousse sa liste n+1.
+    let mut liste = crate::device::build_device_list_with_root(
+        &peer,
+        &garde,
+        "Fixe",
+        crate::node::now_ms(),
+        accord_proto::device::DEVICE_FLAG_TRANSPORT_KEY,
+    );
+    liste.revoked.push(accord_proto::device::RevokedEntry {
+        pubkey: vole.public_key(),
+        revoked_ms: crate::node::now_ms(),
+    });
+    accord_crypto::sign_device_list_with_root(&peer, &mut liste);
+    n.ingest_core(
+        &peer.public_key(),
+        CoreMsg::DeviceListAnnounce { list: liste },
+    )
+    .unwrap();
+
+    assert!(
+        n.outbox_for(&vole.public_key()).unwrap().is_empty(),
+        "ce qui attendait l'appareil révoqué doit disparaître avec la révocation"
+    );
+    assert_eq!(
+        n.outbox_for(&garde.public_key()).unwrap().len(),
+        1,
+        "et rien d'autre ne doit être emporté au passage"
+    );
+}
+
+#[test]
 fn un_ami_ne_peut_pas_imposer_la_liste_dun_tiers() {
     // 🔒 Le contrôle qui compte. Sans lui, n'importe quel ami pousserait la
     // liste d'appareils de quelqu'un d'autre — avec sa propre clé dedans — et

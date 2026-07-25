@@ -88,6 +88,13 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "device_list"
+path = "fuzz_targets/device_list.rs"
+test = false
+doc = false
+bench = false
+
 # Profil release avec symboles de debug : indispensable pour des stacktraces
 # exploitables quand libFuzzer trouve un crash.
 [profile.release]

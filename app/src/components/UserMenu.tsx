@@ -493,14 +493,12 @@ export function UserMenu({
                         <span className={`${ICON_FRAME_CLASS} bg-red/10 text-red`}>
                           <LeaveMenuIcon />
                         </span>
-                        <span className="min-w-0 flex-1 truncate">
-                          {t.settings.logout}
-                        </span>
+                        <span className="min-w-0 flex-1 truncate">{t.app.logout}</span>
                       </button>
                     ) : (
                       <div className="rounded-lg border border-red/20 bg-sidebar/85 p-3 shadow-1">
                         <p className="text-pretty text-sm text-norm">
-                          {t.settings.logoutConfirmText}
+                          {t.app.logoutConfirmText}
                         </p>
                         <div className="mt-3 flex gap-2">
                           <button
@@ -508,7 +506,7 @@ export function UserMenu({
                             onClick={confirmLogout}
                             className="min-h-10 flex-1 rounded-md bg-red px-3 text-sm font-medium text-on-red transition-[filter,transform] duration-fast hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red active:scale-[0.98]"
                           >
-                            {t.settings.logoutConfirm}
+                            {t.app.logoutConfirm}
                           </button>
                           <button
                             type="button"

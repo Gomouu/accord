@@ -10,13 +10,15 @@ import type {
 import { AppShell } from '../components/AppShell';
 import { Toasts } from '../components/Toasts';
 import { THEME_LABEL_KEYS } from '../components/settings/AppearanceTab';
+// Vitrine francophone : pas de chargement paresseux à ménager ici.
+import { frSettings } from '../i18n/fr.settings';
 import { useCalls } from '../stores/calls';
 import { useDms } from '../stores/dms';
 import { useFriends } from '../stores/friends';
 import { channelKey, useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
 import { groupTypingKey, useTyping } from '../stores/typing';
-import { THEME_IDS, useT, useUi, type Theme, type View } from '../stores/ui';
+import { THEME_IDS, useUi, type Theme, type View } from '../stores/ui';
 import { useVoice } from '../stores/voice';
 import '../styles/global.css';
 import '../styles/theme-scenes.css';
@@ -463,7 +465,6 @@ function basculerApercuAppel(): void {
 }
 
 function DemoToolbar() {
-  const t = useT();
   const theme = useUi((state) => state.theme);
   const view = useUi((state) => state.view);
   const setTheme = useUi((state) => state.setTheme);
@@ -476,7 +477,7 @@ function DemoToolbar() {
     { label: 'Amis', view: { kind: 'friends' } },
   ];
   const themes: Array<{ label: string; theme: Theme }> = THEME_IDS.map((id) => ({
-    label: t.settings[THEME_LABEL_KEYS[id]],
+    label: frSettings.settings[THEME_LABEL_KEYS[id]],
     theme: id,
   }));
 

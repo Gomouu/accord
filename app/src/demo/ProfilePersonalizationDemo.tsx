@@ -1,5 +1,7 @@
 import { decorationLabel } from '../i18n';
-import { fr } from '../i18n/fr';
+// Vitrine francophone : l'extension de réglages est importée en direct, elle
+// n'a pas de chunk paresseux à ménager ici.
+import { frSettings } from '../i18n/fr.settings';
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Avatar } from '../components/Avatar';
@@ -95,7 +97,7 @@ function DecorationGallery() {
             />
             <div className="w-full text-center">
               <h3 className="truncate text-sm font-semibold text-header">
-                {decorationLabel(fr, decoration.id)}
+                {decorationLabel(frSettings, decoration.id)}
               </h3>
               <p className="mt-0.5 truncate font-mono text-[10px] text-faint">
                 {decoration.id}
@@ -137,7 +139,7 @@ function EffectGallery() {
                 <Avatar id={`effect-${effect.id}`} name="Noa Lin" size={44} />
                 <div className="rounded-md bg-modal/75 px-2 py-1 shadow-1 backdrop-blur-sm">
                   <h3 className="font-semibold text-header">
-                    {decorationLabel(fr, effect.id)}
+                    {decorationLabel(frSettings, effect.id)}
                   </h3>
                   <p className="font-mono text-[10px] text-faint">{effect.id}</p>
                 </div>
@@ -188,7 +190,7 @@ function FrameGallery() {
               {frame.render()}
             </div>
             <h3 className="mt-10 truncate text-center text-sm font-semibold text-header">
-              {decorationLabel(fr, frame.id)}
+              {decorationLabel(frSettings, frame.id)}
             </h3>
             <p className="mt-0.5 truncate text-center font-mono text-[10px] text-faint">
               {frame.id}

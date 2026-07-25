@@ -9,7 +9,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/client';
 import { type AccountDevice } from '../../lib/api';
-import { useT, useUi } from '../../stores/ui';
+import { useSettingsT, useT, useUi } from '../../stores/ui';
 import { SettingsSection } from './controls';
 import { JoinDeviceForm } from './JoinDeviceForm';
 import { PairDeviceButton } from './PairDeviceButton';
@@ -30,6 +30,7 @@ function octets(value: string): number {
 
 export function DevicesSection() {
   const t = useT();
+  const ts = useSettingsT();
   const toast = useUi((s) => s.toast);
   const [devices, setDevices] = useState<AccountDevice[] | null>(null);
   const [draft, setDraft] = useState('');
@@ -65,7 +66,7 @@ export function DevicesSection() {
     try {
       const { name } = await api.devicesRename(trimmed);
       setDevices((list) => (list ?? []).map((d) => (d.is_current ? { ...d, name } : d)));
-      toast('success', t.settings.deviceRenamed);
+      toast('success', ts.settings.deviceRenamed);
     } catch {
       toast('error', t.errors.actionFailed);
     } finally {
@@ -75,13 +76,13 @@ export function DevicesSection() {
 
   return (
     <SettingsSection
-      title={t.settings.devicesListTitle}
-      hint={t.settings.devicesListHint}
+      title={ts.settings.devicesListTitle}
+      hint={ts.settings.devicesListHint}
     >
       {devices === null ? (
         <p className="text-sm text-muted">{t.app.loading}</p>
       ) : devices.length === 0 ? (
-        <p className="text-sm text-muted">{t.settings.devicesEmpty}</p>
+        <p className="text-sm text-muted">{ts.settings.devicesEmpty}</p>
       ) : (
         <ul className="flex flex-col gap-2">
           {devices.map((d) => (
@@ -97,7 +98,7 @@ export function DevicesSection() {
               </div>
               {d.is_current && (
                 <span className="shrink-0 rounded-full bg-blurple/15 px-2 py-0.5 text-xs font-medium text-blurple">
-                  {t.settings.deviceCurrent}
+                  {ts.settings.deviceCurrent}
                 </span>
               )}
             </li>
@@ -120,8 +121,8 @@ export function DevicesSection() {
             onKeyDown={(e) => {
               if (e.key === 'Enter') void save();
             }}
-            aria-label={t.settings.deviceNameLabel}
-            placeholder={t.settings.deviceNameLabel}
+            aria-label={ts.settings.deviceNameLabel}
+            placeholder={ts.settings.deviceNameLabel}
             className="min-w-0 flex-1 rounded-md bg-chat px-3 py-2 text-sm outline-none ring-blurple focus-visible:ring-2"
           />
           <button
@@ -130,7 +131,7 @@ export function DevicesSection() {
             disabled={!dirty || !valid || saving}
             className="shrink-0 rounded-md bg-blurple px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blurple-hover disabled:opacity-50"
           >
-            {t.settings.pseudonymSave}
+            {ts.settings.pseudonymSave}
           </button>
         </div>
       )}

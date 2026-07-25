@@ -10,8 +10,8 @@ import {
   frameById,
 } from './decorations';
 import { decorationLabel, type Lang } from '../i18n';
-import { dictionaries } from '../i18n/all';
-import { fr } from '../i18n/fr';
+import { settingsDictionaries } from '../i18n/all';
+import { frSettings } from '../i18n/fr.settings';
 
 describe('personalization registry', () => {
   it('preserves every persisted ID and rejects duplicates', () => {
@@ -110,8 +110,8 @@ describe('personalization registry', () => {
   it('has a translated label for every registry item, in every language', () => {
     // Les libellés vivent dans les dictionnaires : une décoration ajoutée sans
     // sa traduction s'afficherait sous son identifiant technique.
-    for (const lang of Object.keys(dictionaries) as Lang[]) {
-      const dict = dictionaries[lang];
+    for (const lang of Object.keys(settingsDictionaries) as Lang[]) {
+      const dict = settingsDictionaries[lang];
       const manquants = DECORATION_REGISTRY.map((item) => item.id).filter(
         (id) => decorationLabel(dict, id) === id,
       );
@@ -121,7 +121,9 @@ describe('personalization registry', () => {
 
   it('has no label left over for a decoration that no longer exists', () => {
     const connus = new Set(DECORATION_REGISTRY.map((item) => item.id));
-    const orphelins = Object.keys(fr.decorations.labels).filter((id) => !connus.has(id));
+    const orphelins = Object.keys(frSettings.decorations.labels).filter(
+      (id) => !connus.has(id),
+    );
     expect(orphelins).toEqual([]);
   });
 

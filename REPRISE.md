@@ -98,23 +98,30 @@ machine y réinstallait la même clé, donc l'éviction mutuelle que ce jalon
 supprime. Effacé à l'import, avec la liste du compte — sans quoi la machine
 restaurée serait absente de sa propre liste.
 
-## Dette assumée : le budget du chunk initial
+## Dette réglée : le budget du chunk initial
 
-Relevé de 140 à 150 ko le 2026-07-25, avec la raison écrite dans
-`scripts/check-bundle-budget.mjs`. **Le vrai correctif n'est pas fait.**
+Relevé de 140 à 150 ko le 2026-07-25 faute du vrai correctif, puis **rabaissé à
+140 ko le même jour, une fois le correctif fait**. Chunk initial : 139,8 ko
+avant, 134,1 ko après.
 
-Le français est le seul dictionnaire chargé d'emblée : les neuf autres sont des
-morceaux paresseux, donc gratuits, mais chaque chaîne française ajoutée
-n'importe où tombe dans le chargement initial.
+Le français reste le seul dictionnaire chargé d'emblée — les neuf autres sont
+des morceaux paresseux, donc gratuits — mais il est maintenant en deux
+fichiers : le noyau (`app/src/i18n/fr.ts`) et l'extension de réglages
+(`fr.settings.ts`, sections `settings` et `decorations`), qui ne descend qu'à
+l'ouverture de la modale de réglages.
 
-Or `settings` et `decorations.labels` ne sont lus **que** dans la modale de
-réglages, qui est déjà un morceau paresseux. Les sortir du dictionnaire
-français chargé d'emblée ramènerait le chargement initial vers le bas et
-rendrait le plafond de nouveau significatif.
+La difficulté était que `Dict` dérive de `typeof fr` : découper `fr` cassait le
+type de référence. Réponse : **deux types de référence**, `Dict` (noyau) et
+`SettingsDict` (extension), dérivés de `fr` et de `frSettings`. Les deux
+`Record<Lang, …>` d'`app/src/i18n/all.ts` obligent toujours les dix langues à
+couvrir les deux moitiés à la compilation, et `parity.test.ts` les confronte
+séparément.
 
-⚠️ La difficulté : `Dict` dérive de `typeof fr`, donc découper `fr` casse le
-type de référence. Il faut vraisemblablement deux dictionnaires typés — un
-noyau et une extension de réglages — et non un simple `import()`.
+🔒 Les deux types étant distincts, un composant du socle n'a que `t: Dict` et ne
+peut pas écrire `t.settings.xxx` : le découpage ne peut pas se défaire en
+silence. Les quelques libellés de réglages que le socle affiche lui-même
+(l'entrée de menu, la déconnexion, l'import de sauvegarde) ont migré dans
+`app` et `onboarding`.
 
 ## À surveiller : une lecture base par message sortant
 

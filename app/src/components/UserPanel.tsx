@@ -333,8 +333,8 @@ export function UserPanel() {
         </button>
         <button
           type="button"
-          aria-label={t.settings.title}
-          title={t.settings.title}
+          aria-label={t.app.settings}
+          title={t.app.settings}
           onClick={() => openModal({ kind: 'settings' })}
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-rail active:scale-95"
         >

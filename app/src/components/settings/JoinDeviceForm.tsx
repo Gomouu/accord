@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/client';
-import { useT, useUi } from '../../stores/ui';
+import { useSettingsT, useT, useUi } from '../../stores/ui';
 
 /** Longueur d'un code, espaces et tirets ignorés (`CODE_LEN` côté nœud). */
 const CODE_LEN = 8;
@@ -44,6 +44,7 @@ export function isCodeComplete(input: string): boolean {
 
 export function JoinDeviceForm() {
   const t = useT();
+  const ts = useSettingsT();
   const toast = useUi((s) => s.toast);
   const [draft, setDraft] = useState('');
   const [deadlineMs, setDeadlineMs] = useState<number | null>(null);
@@ -144,7 +145,7 @@ export function JoinDeviceForm() {
       setDeadlineMs(null);
       setFingerprint(null);
       setDraft('');
-      toast('success', t.settings.pairConfirmed);
+      toast('success', ts.settings.pairConfirmed);
     } catch {
       // L'écran reste sur l'empreinte : rien n'a été appairé, et réessayer (ou
       // annuler) doit rester à portée de main.
@@ -162,18 +163,18 @@ export function JoinDeviceForm() {
     return (
       <div className="mt-4 rounded-lg bg-sidebar px-4 py-4">
         <p className="text-sm leading-relaxed text-muted">
-          {t.settings.pairFingerprintHint}
+          {ts.settings.pairFingerprintHint}
         </p>
 
         <div
-          aria-label={t.settings.pairFingerprintLabel}
+          aria-label={ts.settings.pairFingerprintLabel}
           className="selectable mt-3 font-mono text-4xl font-semibold tracking-[0.3em]"
         >
           {fingerprint}
         </div>
 
         <p className="mt-2 text-sm leading-relaxed text-red">
-          {t.settings.pairFingerprintMismatch}
+          {ts.settings.pairFingerprintMismatch}
         </p>
 
         <div className="mt-3 flex flex-wrap gap-2">
@@ -183,14 +184,14 @@ export function JoinDeviceForm() {
             disabled={busy}
             className="rounded-md bg-blurple px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blurple-hover disabled:opacity-50"
           >
-            {t.settings.pairConfirm}
+            {ts.settings.pairConfirm}
           </button>
           <button
             type="button"
             onClick={() => void cancel()}
             className="rounded-md bg-chat px-3 py-2 text-sm font-medium transition-colors hover:bg-chat/70"
           >
-            {t.settings.pairCancel}
+            {ts.settings.pairCancel}
           </button>
         </div>
       </div>
@@ -200,14 +201,16 @@ export function JoinDeviceForm() {
   if (awaitingPeer) {
     return (
       <div className="mt-4 rounded-lg bg-sidebar px-4 py-4">
-        <p className="text-sm leading-relaxed text-muted">{t.settings.pairJoinWaiting}</p>
+        <p className="text-sm leading-relaxed text-muted">
+          {ts.settings.pairJoinWaiting}
+        </p>
 
         <button
           type="button"
           onClick={() => void cancel()}
           className="mt-3 rounded-md bg-chat px-3 py-2 text-sm font-medium transition-colors hover:bg-chat/70"
         >
-          {t.settings.pairCancel}
+          {ts.settings.pairCancel}
         </button>
       </div>
     );
@@ -221,14 +224,14 @@ export function JoinDeviceForm() {
         void submit();
       }}
     >
-      <p className="text-sm leading-relaxed text-muted">{t.settings.pairJoinHint}</p>
+      <p className="text-sm leading-relaxed text-muted">{ts.settings.pairJoinHint}</p>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <input
           type="text"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          aria-label={t.settings.pairJoinLabel}
+          aria-label={ts.settings.pairJoinLabel}
           placeholder={CODE_SAMPLE}
           autoComplete="off"
           spellCheck={false}
@@ -239,13 +242,13 @@ export function JoinDeviceForm() {
           disabled={busy || !isCodeComplete(draft)}
           className="shrink-0 rounded-md bg-blurple px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blurple-hover disabled:opacity-50"
         >
-          {t.settings.pairJoinSubmit}
+          {ts.settings.pairJoinSubmit}
         </button>
       </div>
 
       {failure !== null && (
         <p className="mt-2 text-sm leading-relaxed text-red">
-          {failure === 'expired' ? t.settings.pairExpired : t.settings.pairJoinRejected}
+          {failure === 'expired' ? ts.settings.pairExpired : ts.settings.pairJoinRejected}
         </p>
       )}
     </form>

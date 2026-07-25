@@ -13,7 +13,7 @@ import {
   peekSettingsTab,
   subscribeSettingsTab,
 } from '../../lib/settingsNavigation';
-import { useUi, useT } from '../../stores/ui';
+import { useUi, useSettingsT, useT } from '../../stores/ui';
 import { CloseIcon } from '../ContextMenu';
 import {
   DEFAULT_TAB,
@@ -25,11 +25,12 @@ import {
 
 export function SettingsModal() {
   const t = useT();
+  const ts = useSettingsT();
   const closeModal = useUi((s) => s.closeModal);
   const requestedTab = peekSettingsTab();
   const [tabId, setTabId] = useState<SettingsTabId>(requestedTab ?? DEFAULT_TAB.id);
   const [query, setQuery] = useState('');
-  const groups = filterSettingsGroups(SETTINGS_GROUPS, t, query);
+  const groups = filterSettingsGroups(SETTINGS_GROUPS, t, ts, query);
   const navRef = useRef<HTMLElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -68,13 +69,13 @@ export function SettingsModal() {
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label={t.settings.title}
+        aria-label={t.app.settings}
         onKeyDown={(e) => bouclerTab(e, dialogRef.current)}
         className="modal-panel-enter accord-settings relative flex h-[94vh] w-[min(1100px,94vw)] overflow-hidden rounded-xl bg-chat shadow-3 max-sm:h-full max-sm:w-full max-sm:rounded-none"
       >
         <nav
           ref={navRef}
-          aria-label={t.settings.title}
+          aria-label={t.app.settings}
           onKeyDown={(e) => deplacerFocusVertical(e, navRef.current)}
           className="accord-settings-nav flex w-[30%] min-w-[180px] shrink-0 justify-end overflow-y-auto border-e border-rail/60 bg-sidebar pb-8 ps-3 pe-2 pt-12 max-sm:w-[132px] max-sm:min-w-[132px] max-sm:pl-2 max-sm:pt-14"
         >
@@ -83,8 +84,8 @@ export function SettingsModal() {
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              aria-label={t.settings.searchPlaceholder}
-              placeholder={t.settings.searchPlaceholder}
+              aria-label={ts.settings.searchPlaceholder}
+              placeholder={ts.settings.searchPlaceholder}
               className="mb-2 min-h-9 w-full rounded-md border border-transparent bg-input px-2.5 py-1.5 text-sm text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
             />
             {groups.map((group, index) => (
@@ -93,7 +94,7 @@ export function SettingsModal() {
                   <div className="mx-2.5 my-2 h-px bg-input/60" role="separator" />
                 )}
                 <div className="px-2.5 pb-1.5 text-xs font-medium uppercase tracking-wide text-faint">
-                  {group.label(t)}
+                  {group.label(t, ts)}
                 </div>
                 {group.tabs.map((tab) => (
                   <button
@@ -107,14 +108,14 @@ export function SettingsModal() {
                         : 'text-muted hover:bg-chat-hover hover:text-norm'
                     }`}
                   >
-                    {tab.label(t)}
+                    {tab.label(t, ts)}
                   </button>
                 ))}
               </div>
             ))}
             {groups.length === 0 && (
               <p className="px-2.5 py-6 text-center text-sm text-muted">
-                {interpolate(t.settings.searchNoResults, { query: query.trim() })}
+                {interpolate(ts.settings.searchNoResults, { query: query.trim() })}
               </p>
             )}
           </div>
@@ -122,10 +123,12 @@ export function SettingsModal() {
 
         <div className="flex min-w-0 flex-1">
           <section
-            aria-label={active.label(t)}
+            aria-label={active.label(t, ts)}
             className="accord-settings-content min-w-0 max-w-[740px] flex-1 overflow-y-auto px-6 pb-20 pt-14 max-sm:px-4"
           >
-            <h2 className="mb-6 text-xl font-semibold text-header">{active.label(t)}</h2>
+            <h2 className="mb-6 text-xl font-semibold text-header">
+              {active.label(t, ts)}
+            </h2>
             <Content />
           </section>
           <div className="absolute end-3 top-3">
@@ -139,7 +142,7 @@ export function SettingsModal() {
                 <CloseIcon size={18} />
               </span>
               <span className="mt-1.5 text-xs font-medium uppercase text-faint max-sm:hidden">
-                {t.settings.escKey}
+                {t.app.escKey}
               </span>
             </button>
           </div>

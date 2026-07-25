@@ -12,9 +12,12 @@ import {
   dictionaryLoaded,
   direction,
   loadDictionary,
+  loadSettingsDict,
+  settingsDictionary,
   LANGS,
   type Dict,
   type Lang,
+  type SettingsDict,
 } from '../i18n';
 import { type OwnPresenceStatus } from '../lib/api';
 import { type QuietHours } from '../lib/notifications';
@@ -894,11 +897,15 @@ export const useUi = create<UiState>((set, get) => {
       // toujours déjà en cache (l'écran de langue précharge au survol) ; sinon
       // l'interface reste dans la langue précédente le temps du chargement,
       // plutôt que de clignoter en français.
-      if (dictionaryLoaded(lang)) {
+      //
+      // Les deux moitiés sont attendues, pas seulement le noyau : on ne change
+      // de langue que depuis la modale de réglages, qui suspendrait — donc
+      // disparaîtrait — si on basculait avant que son vocabulaire soit là.
+      if (dictionaryLoaded(lang) && settingsDictionary(lang) !== null) {
         set({ lang });
         return;
       }
-      void loadDictionary(lang).then(() => {
+      void Promise.all([loadDictionary(lang), loadSettingsDict(lang)]).then(() => {
         set((s) => ({ lang, dictReady: s.dictReady + 1 }));
       });
     },
@@ -1071,4 +1078,27 @@ export function useT(): Dict {
   // le repli français lorsqu'un dictionnaire finit de charger.
   useUi((s) => s.dictReady);
   return dictionary(lang);
+}
+
+/**
+ * Vocabulaire du panneau de réglages pour la langue active.
+ *
+ * Suspend (au sens de React) tant que l'extension n'est pas descendue. C'est
+ * volontaire : les deux appelants — la modale de réglages et la palette de
+ * commandes — sont déjà des composants paresseux montés sous `<Suspense>`, et
+ * suspendre les fait attendre exactement comme ils attendent déjà leur propre
+ * chunk. L'alternative, rendre `null` et se re-rendre plus tard, obligerait
+ * chaque appelant à gérer un état « pas encore » qui n'apparaît jamais en
+ * pratique — et se dégraderait en écran vide silencieux le jour où il apparaît.
+ *
+ * 🔒 Jeter une promesse ne fonctionne que parce que [`loadSettingsDict`] rend
+ * toujours la *même* promesse pour une langue donnée : sinon chaque rendu
+ * suspendu en relancerait une, à l'infini.
+ */
+export function useSettingsT(): SettingsDict {
+  const lang = useUi((s) => s.lang);
+  useUi((s) => s.dictReady);
+  const dict = settingsDictionary(lang);
+  if (dict === null) throw loadSettingsDict(lang);
+  return dict;
 }

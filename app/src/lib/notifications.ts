@@ -165,7 +165,7 @@ export async function sendNativeNotification(
     // Mode streamer : le titre (qui écrit) reste, le contenu du message part.
     // Une bulle système apparaît par-dessus n'importe quelle fenêtre, y compris
     // une capture en cours — c'est la fuite la plus probable de toutes.
-    const shown = ui.streamerMode ? dictionary(ui.lang).settings.streamerHidden : body;
+    const shown = ui.streamerMode ? dictionary(ui.lang).app.streamerHidden : body;
     plugin.sendNotification({ title, body: shown });
     return true;
   } catch {

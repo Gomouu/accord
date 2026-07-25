@@ -14,8 +14,8 @@ import {
   type CouleursPerso,
 } from '../../lib/customTheme';
 import { copyToClipboard } from '../../lib/clipboard';
-import { useUi, useT, THEME_IDS, type Theme } from '../../stores/ui';
-import { interpolate, type Dict, type TextKey } from '../../i18n';
+import { useUi, useSettingsT, useT, THEME_IDS, type Theme } from '../../stores/ui';
+import { interpolate, type Dict, type SettingsDict, type TextKey } from '../../i18n';
 import { ThemeAtmosphere } from '../ThemeAtmosphere';
 import { OptionPill, SettingsSection } from './controls';
 import './appearance-theme-gallery.css';
@@ -28,11 +28,11 @@ import './appearance-theme-gallery.css';
 function CustomThemeEditor({
   couleurs,
   onChange,
-  t,
+  ts,
 }: {
   couleurs: CouleursPerso;
   onChange: (c: CouleursPerso) => void;
-  t: Dict;
+  ts: SettingsDict;
 }) {
   const champ = (cle: 'fond' | 'panneaux' | 'accent', label: string): React.ReactNode => (
     <label className="flex items-center justify-between gap-3 rounded-lg bg-sidebar px-4 py-3">
@@ -74,22 +74,22 @@ function CustomThemeEditor({
 
   return (
     <div className="flex flex-col gap-2">
-      {champ('fond', t.settings.customFond)}
-      {champ('panneaux', t.settings.customPanneaux)}
-      {champ('accent', t.settings.customAccent)}
+      {champ('fond', ts.settings.customFond)}
+      {champ('panneaux', ts.settings.customPanneaux)}
+      {champ('accent', ts.settings.customAccent)}
       <div className="flex items-center gap-2 pt-1">
-        <span className="text-sm font-medium text-norm">{t.settings.customBase}</span>
+        <span className="text-sm font-medium text-norm">{ts.settings.customBase}</span>
         <OptionPill
           selected={couleurs.base === 'dark'}
           onSelect={() => onChange({ ...couleurs, base: 'dark' })}
         >
-          {t.settings.customBaseDark}
+          {ts.settings.customBaseDark}
         </OptionPill>
         <OptionPill
           selected={couleurs.base === 'light'}
           onSelect={() => onChange({ ...couleurs, base: 'light' })}
         >
-          {t.settings.customBaseLight}
+          {ts.settings.customBaseLight}
         </OptionPill>
       </div>
       <button
@@ -97,7 +97,7 @@ function CustomThemeEditor({
         onClick={copier}
         className="mt-1 self-start rounded-md bg-sidebar px-3 py-1.5 text-sm font-medium text-norm transition-colors hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
       >
-        {copie ? t.settings.customExportDone : t.settings.customExport}
+        {copie ? ts.settings.customExportDone : ts.settings.customExport}
       </button>
       <div className="flex items-center gap-2">
         <input
@@ -107,8 +107,8 @@ function CustomThemeEditor({
             setCodeImport(e.target.value);
             setErreurImport(false);
           }}
-          placeholder={t.settings.customImportPlaceholder}
-          aria-label={t.settings.customImport}
+          placeholder={ts.settings.customImportPlaceholder}
+          aria-label={ts.settings.customImport}
           className="min-w-0 flex-1 rounded-md border border-input bg-sidebar px-3 py-1.5 text-sm text-norm placeholder:text-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
         />
         <button
@@ -117,16 +117,18 @@ function CustomThemeEditor({
           disabled={codeImport.trim() === ''}
           className="shrink-0 rounded-md bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blurple-hover disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
         >
-          {t.settings.customImport}
+          {ts.settings.customImport}
         </button>
       </div>
-      {erreurImport && <p className="text-sm text-red">{t.settings.customImportError}</p>}
+      {erreurImport && (
+        <p className="text-sm text-red">{ts.settings.customImportError}</p>
+      )}
     </div>
   );
 }
 
 /** Clé i18n du libellé de chaque thème (voir `settings.theme*` dans fr.ts/en.ts). */
-export const THEME_LABEL_KEYS: Record<Theme, TextKey<Dict['settings']>> = {
+export const THEME_LABEL_KEYS: Record<Theme, TextKey<SettingsDict['settings']>> = {
   dark: 'themeDark',
   light: 'themeLight',
   midnight: 'themeMidnight',
@@ -344,10 +346,12 @@ function ThemeGallery({
   theme,
   setTheme,
   t,
+  ts,
 }: {
   theme: Theme;
   setTheme: (theme: Theme) => void;
   t: Dict;
+  ts: SettingsDict;
 }) {
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const customTheme = useUi((s) => s.customTheme);
@@ -379,7 +383,7 @@ function ThemeGallery({
   return (
     <div
       role="radiogroup"
-      aria-label={t.settings.theme}
+      aria-label={ts.settings.theme}
       onKeyDown={onKeyDown}
       className="grid grid-cols-2 gap-4 sm:grid-cols-4"
     >
@@ -387,7 +391,7 @@ function ThemeGallery({
         <ThemeCard
           key={id}
           id={id}
-          label={t.settings[THEME_LABEL_KEYS[id]]}
+          label={ts.settings[THEME_LABEL_KEYS[id]]}
           selected={theme === id}
           onSelect={() => selectTheme(id)}
           buttonRef={(el) => {
@@ -406,6 +410,7 @@ function ThemeGallery({
 
 export function AppearanceTab() {
   const t = useT();
+  const ts = useSettingsT();
   const theme = useUi((s) => s.theme);
   const customTheme = useUi((s) => s.customTheme);
   const density = useUi((s) => s.density);
@@ -417,47 +422,47 @@ export function AppearanceTab() {
 
   return (
     <div>
-      <SettingsSection title={t.settings.theme}>
-        <ThemeGallery theme={theme} setTheme={setTheme} t={t} />
+      <SettingsSection title={ts.settings.theme}>
+        <ThemeGallery theme={theme} setTheme={setTheme} t={t} ts={ts} />
       </SettingsSection>
 
       <SettingsSection
-        title={t.settings.customThemeTitle}
-        hint={t.settings.customThemeHint}
+        title={ts.settings.customThemeTitle}
+        hint={ts.settings.customThemeHint}
       >
-        <CustomThemeEditor couleurs={customTheme} onChange={setCustomTheme} t={t} />
+        <CustomThemeEditor couleurs={customTheme} onChange={setCustomTheme} ts={ts} />
       </SettingsSection>
 
-      <SettingsSection title={t.settings.fontUiTitle} hint={t.settings.fontUiHint}>
+      <SettingsSection title={ts.settings.fontUiTitle} hint={ts.settings.fontUiHint}>
         <div className="flex flex-wrap gap-2">
           <OptionPill selected={fontUi === 'system'} onSelect={() => setFontUi('system')}>
-            {t.settings.fontUiSystem}
+            {ts.settings.fontUiSystem}
           </OptionPill>
           <OptionPill
             selected={fontUi === 'rounded'}
             onSelect={() => setFontUi('rounded')}
           >
-            {t.settings.fontUiRounded}
+            {ts.settings.fontUiRounded}
           </OptionPill>
           <OptionPill selected={fontUi === 'serif'} onSelect={() => setFontUi('serif')}>
-            {t.settings.fontUiSerif}
+            {ts.settings.fontUiSerif}
           </OptionPill>
         </div>
       </SettingsSection>
 
-      <SettingsSection title={t.settings.density} hint={t.settings.densityHint}>
+      <SettingsSection title={ts.settings.density} hint={ts.settings.densityHint}>
         <div className="flex flex-wrap gap-2">
           <OptionPill
             selected={density === 'comfortable'}
             onSelect={() => setDensity('comfortable')}
           >
-            {t.settings.densityComfortable}
+            {ts.settings.densityComfortable}
           </OptionPill>
           <OptionPill
             selected={density === 'compact'}
             onSelect={() => setDensity('compact')}
           >
-            {t.settings.densityCompact}
+            {ts.settings.densityCompact}
           </OptionPill>
         </div>
       </SettingsSection>

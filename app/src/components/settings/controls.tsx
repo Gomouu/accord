@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { interpolate } from '../../i18n';
 import { profileColorCss } from '../../lib/color';
-import { useT } from '../../stores/ui';
+import { useSettingsT } from '../../stores/ui';
 
 /** Section titrée d'un onglet (titre en petites capitales, façon Discord). */
 export function SettingsSection({
@@ -154,7 +154,7 @@ export function ColorSwatchPicker({
   busy: boolean;
   onPick: (color: number | null) => void;
 }) {
-  const t = useT();
+  const ts = useSettingsT();
   // Repli sur le blurple de la palette (même valeur que le token design
   // system --color-blurple) quand aucune couleur personnalisée n'est encore
   // choisie — l'input natif `type=color` exige un littéral hexadécimal.
@@ -185,7 +185,7 @@ export function ColorSwatchPicker({
             type="button"
             disabled={busy}
             aria-pressed={selected}
-            aria-label={interpolate(t.settings.colorSwatchLabel, { hex })}
+            aria-label={interpolate(ts.settings.colorSwatchLabel, { hex })}
             onClick={() => onPick(color)}
             style={{ backgroundColor: hex }}
             className={`h-9 w-9 shrink-0 rounded-full border border-input transition-transform duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-50 ${
@@ -197,12 +197,12 @@ export function ColorSwatchPicker({
         );
       })}
       <label
-        title={t.settings.colorCustom}
+        title={ts.settings.colorCustom}
         className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-faint bg-rail text-faint transition-colors duration-fast hover:text-norm has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-blurple has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-sidebar"
       >
         <input
           type="color"
-          aria-label={t.settings.colorCustom}
+          aria-label={ts.settings.colorCustom}
           disabled={busy}
           value={customDraft}
           onChange={(e) => setCustomDraft(e.target.value)}
@@ -214,7 +214,7 @@ export function ColorSwatchPicker({
       <button
         type="button"
         disabled={busy || value === null}
-        aria-label={t.settings.colorNone}
+        aria-label={ts.settings.colorNone}
         onClick={() => onPick(null)}
         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-faint text-faint transition-colors duration-fast hover:border-red hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
       >

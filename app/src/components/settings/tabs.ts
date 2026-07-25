@@ -4,7 +4,7 @@
  */
 
 import type { ComponentType } from 'react';
-import type { Dict } from '../../i18n';
+import type { Dict, SettingsDict } from '../../i18n';
 import { AccessibilityTab } from './AccessibilityTab';
 import { AccountTab } from './AccountTab';
 import { AdvancedTab } from './AdvancedTab';
@@ -36,59 +36,71 @@ export type SettingsTabId =
 
 export interface SettingsTab {
   id: SettingsTabId;
-  label: (t: Dict) => string;
+  label: (t: Dict, ts: SettingsDict) => string;
   Content: ComponentType;
 }
 
 export interface SettingsGroup {
   id: string;
-  label: (t: Dict) => string;
+  label: (t: Dict, ts: SettingsDict) => string;
   tabs: SettingsTab[];
 }
 
 /** Onglet ouvert par défaut. */
 export const DEFAULT_TAB: SettingsTab = {
   id: 'account',
-  label: (t) => t.settings.account,
+  label: (_t, ts) => ts.settings.account,
   Content: AccountTab,
 };
 
 export const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     id: 'user',
-    label: (t) => t.settings.userSection,
+    label: (_t, ts) => ts.settings.userSection,
     tabs: [
       DEFAULT_TAB,
-      { id: 'privacy', label: (t) => t.settings.privacy, Content: PrivacyTab },
+      { id: 'privacy', label: (_t, ts) => ts.settings.privacy, Content: PrivacyTab },
     ],
   },
   {
     id: 'app',
-    label: (t) => t.settings.appSection,
+    label: (_t, ts) => ts.settings.appSection,
     tabs: [
-      { id: 'appearance', label: (t) => t.settings.appearance, Content: AppearanceTab },
+      {
+        id: 'appearance',
+        label: (_t, ts) => ts.settings.appearance,
+        Content: AppearanceTab,
+      },
       {
         id: 'accessibility',
-        label: (t) => t.settings.accessibility,
+        label: (_t, ts) => ts.settings.accessibility,
         Content: AccessibilityTab,
       },
-      { id: 'textMedia', label: (t) => t.settings.textMedia, Content: TextMediaTab },
+      {
+        id: 'textMedia',
+        label: (_t, ts) => ts.settings.textMedia,
+        Content: TextMediaTab,
+      },
       {
         id: 'language',
-        label: (t) => t.settings.languageAndTime,
+        label: (_t, ts) => ts.settings.languageAndTime,
         Content: LanguageTab,
       },
-      { id: 'shortcuts', label: (t) => t.settings.shortcuts, Content: ShortcutsTab },
-      { id: 'voice', label: (t) => t.settings.voice, Content: VoiceTab },
+      {
+        id: 'shortcuts',
+        label: (_t, ts) => ts.settings.shortcuts,
+        Content: ShortcutsTab,
+      },
+      { id: 'voice', label: (_t, ts) => ts.settings.voice, Content: VoiceTab },
       {
         id: 'notifications',
-        label: (t) => t.settings.notifications,
+        label: (_t, ts) => ts.settings.notifications,
         Content: NotificationsTab,
       },
       { id: 'planning', label: (t) => t.planning.tabLabel, Content: PlanningTab },
-      { id: 'system', label: (t) => t.settings.system, Content: SystemTab },
+      { id: 'system', label: (_t, ts) => ts.settings.system, Content: SystemTab },
       { id: 'updates', label: (t) => t.updates.title, Content: UpdatesTab },
-      { id: 'advanced', label: (t) => t.settings.advanced, Content: AdvancedTab },
+      { id: 'advanced', label: (_t, ts) => ts.settings.advanced, Content: AdvancedTab },
     ],
   },
 ];
@@ -109,6 +121,7 @@ function fold(value: string): string {
 export function filterSettingsGroups(
   groups: SettingsGroup[],
   t: Dict,
+  ts: SettingsDict,
   query: string,
 ): SettingsGroup[] {
   const needle = fold(query.trim());
@@ -116,7 +129,7 @@ export function filterSettingsGroups(
   return groups
     .map((group) => ({
       ...group,
-      tabs: group.tabs.filter((tab) => fold(tab.label(t)).includes(needle)),
+      tabs: group.tabs.filter((tab) => fold(tab.label(t, ts)).includes(needle)),
     }))
     .filter((group) => group.tabs.length > 0);
 }

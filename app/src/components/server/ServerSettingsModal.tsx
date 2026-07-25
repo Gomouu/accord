@@ -225,7 +225,7 @@ export function ServerSettingsModal({
                 <CloseIcon size={18} />
               </span>
               <span className="mt-1.5 text-xs font-medium uppercase text-faint max-sm:hidden">
-                {t.settings.escKey}
+                {t.app.escKey}
               </span>
             </button>
           </div>

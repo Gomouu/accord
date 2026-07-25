@@ -5,12 +5,18 @@
  * attrape déjà une clé manquante, mais pas un placeholder oublié — `{count}`
  * présent en FR et absent ailleurs casse silencieusement l'interpolation à
  * l'exécution.
+ *
+ * Les deux moitiés de chaque langue sont confrontées séparément (noyau et
+ * extension de réglages) : une clé qui se serait égarée d'une moitié à l'autre
+ * dans une seule langue passerait inaperçue si on les fusionnait avant de
+ * comparer.
  */
 
 import { describe, expect, it } from 'vitest';
 import { type Lang } from './index';
-import { dictionaries } from './all';
+import { dictionaries, settingsDictionaries } from './all';
 import { fr } from './fr';
+import { frSettings } from './fr.settings';
 
 type Leaf = string;
 type Tree = { [key: string]: Leaf | Tree };
@@ -31,12 +37,27 @@ function placeholders(text: string): string[] {
   return [...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1] ?? '').sort();
 }
 
-const flatFr = flatten(fr as Tree);
 /** Toutes les langues sauf la référence : ce sont elles qu'on confronte au FR. */
 const traductions = (Object.keys(dictionaries) as Lang[]).filter((lang) => lang !== 'fr');
 
-describe.each(traductions)('parité i18n FR/%s', (lang) => {
-  const flatTrad = flatten(dictionaries[lang] as unknown as Tree);
+/** Les deux moitiés d'une langue, chacune avec sa référence française. */
+const moities = [
+  {
+    nom: 'noyau',
+    reference: flatten(fr as Tree),
+    de: (lang: Lang) => dictionaries[lang],
+  },
+  {
+    nom: 'réglages',
+    reference: flatten(frSettings as Tree),
+    de: (lang: Lang) => settingsDictionaries[lang],
+  },
+] as const;
+
+describe.each(
+  moities.flatMap((moitie) => traductions.map((lang) => ({ ...moitie, lang }))),
+)('parité i18n FR/$lang ($nom)', ({ reference: flatFr, de, lang }) => {
+  const flatTrad = flatten(de(lang) as unknown as Tree);
 
   it('a exactement le même ensemble de clés', () => {
     expect(Object.keys(flatTrad).sort()).toEqual(Object.keys(flatFr).sort());

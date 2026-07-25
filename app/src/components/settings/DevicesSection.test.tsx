@@ -19,12 +19,12 @@ vi.mock('../../lib/client', () => ({
 }));
 
 import { DevicesSection } from './DevicesSection';
-import { fr } from '../../i18n/fr';
+import { frSettings } from '../../i18n/fr.settings';
 import { useUi } from '../../stores/ui';
 
 // Libellés lus dans le dictionnaire plutôt que recopiés : le test suit une
 // reformulation sans devenir faux, et ne dépend pas de la langue par défaut.
-const L = fr.settings;
+const L = frSettings.settings;
 
 const APPAREIL = {
   pubkey: 'ab'.repeat(32),

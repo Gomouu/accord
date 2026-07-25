@@ -24,10 +24,10 @@ vi.mock('../../lib/client', () => ({
 }));
 
 import { formatRemaining, PairDeviceButton } from './PairDeviceButton';
-import { fr } from '../../i18n/fr';
+import { frSettings } from '../../i18n/fr.settings';
 import { useUi } from '../../stores/ui';
 
-const L = fr.settings;
+const L = frSettings.settings;
 const T0 = 1_700_000_000_000;
 /** Cinq minutes, la durée de vie d'un code (`CODE_TTL_MS` côté nœud). */
 const TTL = 5 * 60 * 1000;

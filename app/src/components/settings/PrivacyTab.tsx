@@ -9,13 +9,20 @@ import { useEffect, useState } from 'react';
 import { api } from '../../lib/client';
 import { useFriends } from '../../stores/friends';
 import { interpolate } from '../../i18n';
-import { AUTO_LOCK_CHOICES, useUi, useT, type StartupPresence } from '../../stores/ui';
+import {
+  AUTO_LOCK_CHOICES,
+  useUi,
+  useSettingsT,
+  useT,
+  type StartupPresence,
+} from '../../stores/ui';
 import { Avatar } from '../Avatar';
 import { PrivacyDashboard } from '../PrivacyDashboard';
 import { OptionPill, SettingsSection, ToggleRow } from './controls';
 
 export function PrivacyTab() {
   const t = useT();
+  const ts = useSettingsT();
   const toast = useUi((s) => s.toast);
   const contacts = useFriends((s) => s.contacts);
   const load = useFriends((s) => s.load);
@@ -67,26 +74,26 @@ export function PrivacyTab() {
   const blocked = contacts.filter((c) => c.state === 'blocked');
 
   const autoLockLabel = (minutes: number): string => {
-    if (minutes === 0) return t.settings.autoLockOff;
-    if (minutes === 60) return t.settings.autoLockHour;
-    return interpolate(t.settings.autoLockMinutes, { n: String(minutes) });
+    if (minutes === 0) return ts.settings.autoLockOff;
+    if (minutes === 60) return ts.settings.autoLockHour;
+    return interpolate(ts.settings.autoLockMinutes, { n: String(minutes) });
   };
 
   return (
     <div>
-      <SettingsSection title={t.settings.streamerTitle}>
+      <SettingsSection title={ts.settings.streamerTitle}>
         <ToggleRow
-          label={t.settings.streamerLabel}
-          hint={t.settings.streamerHint}
+          label={ts.settings.streamerLabel}
+          hint={ts.settings.streamerHint}
           checked={streamerMode}
           onChange={setStreamerMode}
         />
       </SettingsSection>
 
-      <SettingsSection title={t.settings.autoLockTitle} hint={t.settings.autoLockHint}>
+      <SettingsSection title={ts.settings.autoLockTitle} hint={ts.settings.autoLockHint}>
         <div
           role="group"
-          aria-label={t.settings.autoLockTitle}
+          aria-label={ts.settings.autoLockTitle}
           className="flex flex-wrap gap-2"
         >
           {AUTO_LOCK_CHOICES.map((minutes) => (
@@ -107,27 +114,27 @@ export function PrivacyTab() {
         </div>
       </SettingsSection>
 
-      <SettingsSection title={t.settings.readReceiptsTitle}>
+      <SettingsSection title={ts.settings.readReceiptsTitle}>
         <ToggleRow
-          label={t.settings.readReceiptsLabel}
-          hint={t.settings.readReceiptsHint}
+          label={ts.settings.readReceiptsLabel}
+          hint={ts.settings.readReceiptsHint}
           checked={readReceipts ?? true}
           onChange={toggleReadReceipts}
         />
       </SettingsSection>
 
-      <SettingsSection title={t.settings.typingIndicatorTitle}>
+      <SettingsSection title={ts.settings.typingIndicatorTitle}>
         <ToggleRow
-          label={t.settings.typingIndicatorLabel}
-          hint={t.settings.typingIndicatorHint}
+          label={ts.settings.typingIndicatorLabel}
+          hint={ts.settings.typingIndicatorHint}
           checked={typingIndicatorEnabled}
           onChange={setTypingIndicatorEnabled}
         />
       </SettingsSection>
 
       <SettingsSection
-        title={t.settings.startupPresenceTitle}
-        hint={t.settings.startupPresenceHint}
+        title={ts.settings.startupPresenceTitle}
+        hint={ts.settings.startupPresenceHint}
       >
         <div className="flex flex-wrap gap-2">
           <OptionPill
@@ -145,7 +152,7 @@ export function PrivacyTab() {
         </div>
       </SettingsSection>
 
-      <SettingsSection title={t.settings.blockedUsers}>
+      <SettingsSection title={ts.settings.blockedUsers}>
         {blocked.length === 0 ? (
           <p className="rounded-lg bg-sidebar px-4 py-6 text-center text-sm text-muted">
             {t.friends.emptyBlocked}
@@ -186,9 +193,9 @@ export function PrivacyTab() {
         )}
       </SettingsSection>
 
-      <SettingsSection title={t.settings.antiSpamTitle}>
+      <SettingsSection title={ts.settings.antiSpamTitle}>
         <p className="rounded-lg border-s-4 border-blurple bg-sidebar px-4 py-3 text-sm leading-relaxed text-muted">
-          {t.settings.antiSpamHint}
+          {ts.settings.antiSpamHint}
         </p>
       </SettingsSection>
 

@@ -51,7 +51,7 @@ export function BackupImportButton({ onImported, onToast, className, children }:
       onToast(
         'error',
         estMauvaisePhrase(e)
-          ? t.settings.backupWrongPassphrase
+          ? t.onboarding.backupWrongPassphrase
           : e instanceof Error
             ? e.message
             : String(e),
@@ -81,7 +81,7 @@ export function BackupImportButton({ onImported, onToast, className, children }:
         htmlFor="backup-import-passphrase"
         className="mb-1 block text-sm font-medium text-norm"
       >
-        {t.settings.backupPassphraseImportPrompt}
+        {t.onboarding.backupPassphraseImportPrompt}
       </label>
       <input
         id="backup-import-passphrase"
@@ -93,7 +93,7 @@ export function BackupImportButton({ onImported, onToast, className, children }:
         className="w-full rounded-lg border border-input bg-input px-3 py-2 text-sm text-norm outline-none focus-visible:ring-2 focus-visible:ring-blurple"
       />
       <p className="mt-1 text-xs leading-relaxed text-faint">
-        {t.settings.backupPassphraseImportHint}
+        {t.onboarding.backupPassphraseImportHint}
       </p>
       <div className="mt-3 flex gap-3">
         <button
@@ -101,7 +101,7 @@ export function BackupImportButton({ onImported, onToast, className, children }:
           disabled={busy}
           className="rounded-lg bg-blurple px-4 py-2 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple disabled:opacity-50"
         >
-          {t.settings.backupConfirm}
+          {t.onboarding.backupConfirm}
         </button>
         <button
           type="button"
@@ -109,7 +109,7 @@ export function BackupImportButton({ onImported, onToast, className, children }:
           onClick={fermer}
           className="rounded-lg bg-rail px-4 py-2 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple disabled:opacity-50"
         >
-          {t.settings.backupCancel}
+          {t.onboarding.backupCancel}
         </button>
       </div>
     </form>

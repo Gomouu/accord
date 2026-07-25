@@ -149,7 +149,7 @@ account — the one moment where the account grants trust.
 1. On the **already-authorised** device: "Add a device" shows a short code
    (and a QR of the same value), valid 5 minutes, single use.
 2. On the **new** device: enter or scan the code. It generates its key pair.
-3. Both derive a channel from the code with a **PAKE** (SPAKE2 or equivalent).
+3. Both derive a channel from the code with a **PAKE** (`spake2`, see §4.1).
    Not a shared secret sent in the clear: the code is short and low-entropy, so
    it must never be usable offline by an eavesdropper.
 4. Both screens show the **same short fingerprint** of the established channel.
@@ -176,6 +176,49 @@ to whoever knows the code. If the code leaks — shoulder-surfed, screenshot in 
 chat — the fingerprint step still requires the attacker to be *in front of the
 authorised device* to confirm. It converts a code leak from a compromise into a
 failed attempt.
+
+### 4.1 Which PAKE — decision
+
+**`spake2` (RustCrypto), pinned to the stable 0.4.0.** Balanced PAKE, both sides
+know the same short code; that is the shape this flow needs. The augmented
+family (OPAQUE) models a client proving a password to a server, which is not
+what two devices of one account are doing.
+
+The candidates, and why the others lost:
+
+| Crate | Licence | Latest | Recent downloads |
+|---|---|---|---|
+| `spake2` (RustCrypto) | MIT OR Apache-2.0 | 0.5.0-pre.0, Jan 2026 | 250 000 |
+| `pake-cpace` (jedisct1) | ISC | 0.1.7, Dec 2023 | 884 |
+| `cpace` (hdevalence) | BSD-3-Clause | 0.1.0, May 2020 | 237 |
+
+All three licences already pass `deny.toml`, so the licence is not what decides
+it. Three things do:
+
+1. **It adds one crate, not a subtree.** Every dependency of `spake2` 0.4.0 —
+   `curve25519-dalek`, `sha2`, `hkdf`, `hmac`, `subtle`, `rand_core`,
+   `getrandom` — is already in the workspace at the *same* version. For a
+   dependency on the trust path, an audit surface that does not grow is worth
+   more than a marginally better protocol.
+2. **It is alive.** 250 000 recent downloads against 884, a release this year
+   against one in 2023 and one in 2020. An unmaintained cryptographic
+   dependency is a liability: a vulnerability in it would have no upstream fix,
+   and we would be forking a PAKE.
+3. **Its specification is frozen.** SPAKE2 is RFC 9382. CPace is still
+   `draft-irtf-cfrg-cpace`, so its wire format can still move — and a pairing
+   protocol has to stay compatible across versions of Accord.
+
+⚠️ **The honest counter-argument.** CPace, not SPAKE2, is what the CFRG PAKE
+selection chose for the balanced case, and it is the better protocol on paper:
+SPAKE2 depends on fixed group elements *M* and *N*, and its base form provides
+no forward secrecy without an explicit key-confirmation step. That step is
+therefore **mandatory** in our flow — which costs nothing here, because the
+fingerprint confirmation of §4 already *is* a key confirmation, performed by a
+human on both screens. Choosing the maintained implementation of a frozen
+specification beats the dormant implementation of a moving one.
+
+Not pinned to `0.5.0-pre.0`: a pre-release has, by definition, an unstable API,
+and it raises the MSRV to 1.85. Revisit when it goes stable.
 
 ---
 

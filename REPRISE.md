@@ -12,7 +12,7 @@ pour le détail du lot en cours.
 | 1.C **phase 1** — savoir résoudre | ✅ publication DHT, résolution, cache, push direct, rattachement appareil → compte |
 | 1.C **phase 2** — présenter la clé d'appareil | 🔨 le socle est posé et vert ; le drapeau `device_key_transport` reste à `false` |
 | 1.D — appairage | ✅ code, canal, échange, écrans des deux côtés, confirmation d'empreinte, inscription, révocation |
-| 1.E — livraison multi-appareils | 🔨 tâche 1 (diffusion) et 2 (boîte par appareil) faites ; 3 à 5 à faire |
+| 1.E — livraison multi-appareils | 🔨 tâches 1, 2, 3 et 5 faites ; **reste la 4** (rattrapage entre ses propres appareils) |
 
 ## Ce que le drapeau `device_key_transport` attend encore
 
@@ -45,13 +45,26 @@ coïncident :
 
 ## Ce qui reste au lot 1.E
 
-3. **Appels** : sonnerie sur tous les appareils, décrochage exclusif, arrêt des
-   autres sonneries.
-4. **Rattrapage** entre ses propres appareils à la reconnexion.
-5. **Accusés de lecture** : convention « lu sur au moins un appareil ».
+**Tâche 4 seule** : le rattrapage entre ses propres appareils à la reconnexion.
+Le patron à suivre est déjà en place — `SelfReadMark` (0x1B) montre comment un
+appareil reconnaît un frère **sans passer par la liste d'amis** (on n'est pas son
+propre ami) ; l'anti-entropie `GroupSync`/`GroupSyncPull` montre la forme
+offre/digest/pull. Trois pièges identifiés et à ne pas rater :
 
-Tâches 1 et 2 faites : `deliver_core` résout le compte en cibles et livre une
-fois par cible ; la file hors-ligne est indexée par cible, donc par appareil.
+- ne **jamais** repasser par `messaging::compose` pour un item de rattrapage : il
+  frappe un `msg_id` neuf, donc un doublon garanti, et `ingest_dm` réécrit
+  `peer`/`author` sur l'émetteur. Les deux sont silencieux ;
+- le digest se borne **par conversation** : deux appareils n'ont pas les mêmes
+  messages sortants, un digest global ne serait jamais égal ;
+- `dm_delivery_state` déduit l'état affiché de l'outbox **locale**. Un de nos
+  messages synchronisé vers l'appareil B n'y a pas de ligne d'outbox : passé
+  sept jours, B l'affiche **en rouge, « échec »**, pour un message parfaitement
+  livré. C'est la première chose que verra l'utilisateur qui rattrape.
+
+Fait : `deliver_core` résout le compte en cibles et livre une fois par cible ; la
+file hors-ligne est indexée par cible, donc par appareil ; l'appel sonne partout
+et s'éteint ailleurs au décrochage ; les marques de lecture circulent entre ses
+propres appareils.
 
 ## 🔴 Question ouverte, toujours pas tranchée
 
@@ -97,6 +110,25 @@ copie la base, qui contient la graine d'appareil : restaurer sur une seconde
 machine y réinstallait la même clé, donc l'éviction mutuelle que ce jalon
 supprime. Effacé à l'import, avec la liste du compte — sans quoi la machine
 restaurée serait absente de sa propre liste.
+
+## Ce qu'une revue de sécurité a trouvé, et ce qui reste ouvert
+
+Corrigé : la révocation ne vidait pas la file hors-ligne. Un appareil volé qui se
+rebranchait recevait tout ce qui lui avait été adressé avant, pendant les **sept
+jours** de rétention de la file — alors que `SECURITY.md` promet vingt-quatre
+heures. La file est maintenant vidée à l'instant où l'on apprend la révocation.
+
+⚠️ **Reste ouvert, et documenté plutôt que corrigé** : un dépôt déjà écrit dans
+la boîte aux lettres DHT ne se rappelle pas. Il est scellé sous la clé de
+l'appareil, à une clé DHT dérivée d'elle, et reste lisible jusqu'à sept jours.
+Raccourcir cette expiration dégraderait la remise différée pour tout le monde
+afin de rétrécir une fenêtre qui ne compte qu'après un vol.
+
+🟠 Fragilité de convention, pas de vulnérabilité : `Node::transport_identity()`
+retombe silencieusement sur l'identité de compte si `set_transport_identity`
+n'est jamais appelée. Deux identités du même type Rust distinguées par une
+discipline d'appel — le compilateur ne rattraperait pas l'oubli. L'ordre de
+démarrage actuel est correct ; c'est un piège pour plus tard.
 
 ## Dette assumée : le budget du chunk initial
 

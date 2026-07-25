@@ -11,8 +11,19 @@ pour le détail du lot en cours.
 | 1.B — identités compte/appareil | ✅ y compris le choix du PAKE (§4.1) |
 | 1.C **phase 1** — savoir résoudre | ✅ publication DHT, résolution, cache, push direct, rattachement appareil → compte |
 | 1.C **phase 2** — présenter la clé d'appareil | ⏳ **bloqué** : attend que le parc ait la phase 1 |
-| 1.D — appairage | 🔨 crypto + machine à états + `pair_start`/`pair_cancel` faits ; routage et écrans à écrire |
-| 1.E — livraison multi-appareils | ⬜ pas commencé |
+| 1.D — appairage | ✅ code, canal, échange, écrans des deux côtés, confirmation d'empreinte, inscription, révocation |
+| 1.E — livraison multi-appareils | 🔨 primitives faites (`delivery_targets`, marques monotones, dédup du rattrapage) ; **rien n'est branché** — voir ci-dessous |
+
+## ⚠️ Ce qui est écrit mais volontairement PAS branché
+
+`device::delivery_targets` sait dire vers quelles clés livrer pour joindre un
+compte. **Il n'est appelé par personne**, et ce n'est pas un oubli : dès qu'un
+pair publie sa liste (ce que fait la 6.4), l'appeler ferait partir les messages
+vers des clés d'appareil pour lesquelles aucune session n'existe — la
+livraison s'arrêterait en silence. Il se branche quand le transport présente
+la clé d'appareil (phase 2 du lot 1.C).
+
+Même discipline que le champ de capacités : écrire la lecture d'abord.
 
 ## La prochaine tâche, précisément
 

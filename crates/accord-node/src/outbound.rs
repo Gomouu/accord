@@ -35,6 +35,14 @@ pub enum Outbound {
         /// Record signé.
         record: Box<accord_proto::types::DhtRecord>,
     },
+    /// Saluer les pairs Accord du réseau local pour un appairage en cours.
+    ///
+    /// Le message PAKE n'est pas porté ici : c'est le nœud qui le rend, **pair
+    /// par pair** ([`crate::node::Node::pairing_hello_for`]), parce que lui
+    /// seul tient le compte de qui a déjà été salué. 🔒 Chaque HELLO consomme
+    /// une des trois tentatives d'en face ; saluer deux fois le même voisin
+    /// brûlerait l'offre qu'un utilisateur regarde à l'écran.
+    PairingBroadcast,
 }
 
 /// Puits d'actions réseau (extrémité émettrice, clonable).

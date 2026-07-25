@@ -73,6 +73,20 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             // `null` tant qu'aucun échange n'a abouti : l'écran affiche alors
             // le code et attend, plutôt que d'inventer une empreinte.
             "fingerprint": node.pairing_fingerprint(),
+            // De quel côté se trouve cette machine : l'écran ne montre pas la
+            // même chose selon qu'on affiche un code ou qu'on en a saisi un.
+            "role": match node.pairing_role() {
+                Some(crate::pairing::PairingRole::Authoriser) => Some("authoriser"),
+                Some(crate::pairing::PairingRole::Joiner) => Some("joiner"),
+                None => None,
+            },
+            // 🔒 Un booléen, et jamais la graine. L'hôte apprend ici que la
+            // racine du compte est arrivée ; il la reprend par
+            // `Node::pairing_take_adopted_seed`, qui ne passe pas par cette
+            // API. Rien de ce qui transite en JSON local ne doit contenir le
+            // compte : ce canal est lisible par tout ce qui tourne sur la
+            // machine et finit dans les traces de qui débogue.
+            "adopted": node.pairing_adopted_ready(),
         })),
         "devices.pair_confirm" => {
             node.pairing_confirm()?;

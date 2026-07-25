@@ -253,6 +253,20 @@ pub struct Node {
     /// confirmée pour autant — le chiffrement dit « il avait le code », pas
     /// « c'est bien la machine que je voulais ».
     pairing_pending: Mutex<Option<accord_proto::device::DeviceEntry>>,
+    /// Clé de transport de la machine avec laquelle le canal a été ouvert.
+    ///
+    /// 🔒 L'appairage ne connaît personne : il n'y a ni amitié ni liste pour
+    /// dire d'où doit venir la suite de l'échange. Retenir la machine du canal
+    /// est ce qui permet d'exiger que l'entrée scellée, puis la racine du
+    /// compte, viennent **de celle-là** — et de savoir où les envoyer.
+    pairing_peer: Mutex<Option<[u8; 32]>>,
+    /// Racine du compte reçue par la machine qui rejoint, en attente d'adoption.
+    ///
+    /// 🔒 **En mémoire seulement.** L'écrire ici serait poser le compte sur le
+    /// disque sous une clé de base qui n'est pas la sienne. C'est l'hôte qui la
+    /// reprend ([`Node::pairing_take_adopted_seed`]) et la scelle dans un coffre
+    /// neuf (`identity::adopt_account_seed`).
+    pairing_adopted: Mutex<Option<accord_crypto::pairing::AccountSeed>>,
     /// Dernier indicateur de frappe accepté par pair (anti-abus, ms murales).
     typing_seen: Mutex<HashMap<[u8; 32], u64>>,
     /// Cadence des `InviteRedeem` entrants par pair : `(début de fenêtre ms,
@@ -305,6 +319,8 @@ impl Node {
             pairing_offer: Mutex::new(None),
             pairing_channel: Mutex::new(None),
             pairing_pending: Mutex::new(None),
+            pairing_peer: Mutex::new(None),
+            pairing_adopted: Mutex::new(None),
             typing_seen: Mutex::new(HashMap::new()),
             redeem_seen: Mutex::new(HashMap::new()),
             soundboard_seen: Mutex::new(HashMap::new()),
@@ -478,22 +494,43 @@ impl Node {
     /// Silencieux quand il n'y a pas d'offre, ou quand elle est morte : un
     /// inconnu qui frappe à une porte fermée n'apprend rien de plus que le
     /// silence.
-    fn ingest_pairing_hello(&self, peer_msg: &[u8]) -> Vec<CoreMsg> {
+    ///
+    /// ⚠️ **Seul le côté déjà autorisé répond.** Le côté qui rejoint a émis le
+    /// premier HELLO ; lui faire répondre à la réponse mettrait les deux
+    /// machines dans une partie de ping-pong qui épuiserait les trois
+    /// tentatives de chacune en trois allers-retours, sans qu'aucun humain
+    /// n'ait rien fait de travers.
+    fn ingest_pairing_hello(&self, device_pubkey: &[u8; 32], peer_msg: &[u8]) -> Vec<CoreMsg> {
         let mut slot = self.pairing_offer.lock().unwrap_or_else(|e| e.into_inner());
         let Some(offer) = slot.as_mut() else {
             return Vec::new();
         };
-        // 🔒 Une fois qu'un appareil a prouvé qu'il avait le code — en scellant
-        // sa clé sous celle du canal — plus aucun HELLO ne peut remplacer le
-        // canal candidat. Sans cette garde, un pair quelconque changerait
+        let role = offer.role();
+        // 🔒 Le canal candidat se **fige** dès qu'il est acquis, et pour la même
+        // raison des deux côtés : sans cette garde, un pair quelconque changerait
         // l'empreinte affichée à l'écran juste avant que l'utilisateur ne la
         // compare, et lui ferait confirmer un appairage qui n'est pas le sien.
-        if self
-            .pairing_pending
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_some()
-        {
+        //
+        // Ce qui vaut « acquis » diffère pourtant selon le rôle, et c'est
+        // délibéré. L'appareil autorisé attend la preuve — l'entrée scellée qui
+        // s'ouvre — parce qu'il doit laisser ses trois tentatives à qui recopie
+        // mal un code. L'appareil qui rejoint, lui, n'attend rien : il a lancé
+        // l'échange, la première réponse bien formée est celle qu'il compare, et
+        // toute autre ne peut être qu'un voisin qui répond à un code qui n'est
+        // pas le sien.
+        let frozen = match role {
+            crate::pairing::PairingRole::Authoriser => self
+                .pairing_pending
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_some(),
+            crate::pairing::PairingRole::Joiner => self
+                .pairing_channel
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_some(),
+        };
+        if frozen {
             tracing::debug!("appairage : canal déjà établi, HELLO tardif ignoré");
             return Vec::new();
         }
@@ -507,14 +544,33 @@ impl Node {
                     .pairing_channel
                     .lock()
                     .unwrap_or_else(|e| e.into_inner()) = Some(channel);
+                *self.pairing_peer.lock().unwrap_or_else(|e| e.into_inner()) = Some(*device_pubkey);
                 tracing::info!("appairage : échange abouti, empreinte à confirmer");
-                vec![CoreMsg::PairingHello { msg: reply }]
+                match role {
+                    crate::pairing::PairingRole::Authoriser => {
+                        vec![CoreMsg::PairingHello { msg: reply }]
+                    }
+                    crate::pairing::PairingRole::Joiner => Vec::new(),
+                }
             }
             Err(refus) => {
                 tracing::debug!(?refus, "appairage : tentative refusée");
                 Vec::new()
             }
         }
+    }
+
+    /// Vrai si `peer` est bien la machine avec laquelle le canal a été ouvert.
+    ///
+    /// 🔒 Rien d'autre ne le dit : à ce stade l'appairage ne s'appuie sur
+    /// aucune amitié, aucune liste, aucune signature. Sans ce contrôle, la
+    /// charge scellée — puis la racine du compte — pourrait arriver d'une
+    /// machine qui n'a pas participé à l'échange.
+    fn pairing_peer_is(&self, peer: &[u8; 32]) -> bool {
+        self.pairing_peer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some_and(|p| p == *peer)
     }
 
     /// Ouvre la charge scellée d'un pair et retient l'appareil qu'il propose.
@@ -527,7 +583,18 @@ impl Node {
     ///
     /// Retenir n'est pas inscrire : c'est la confirmation d'empreinte qui
     /// décide, et elle seule.
-    fn ingest_pairing_sealed(&self, sealed: &[u8]) {
+    ///
+    /// ⚠️ Réservée au côté déjà autorisé : celui qui rejoint n'inscrit
+    /// personne, et une entrée d'appareil qui lui arriverait n'a aucun sens.
+    fn ingest_pairing_sealed(&self, device_pubkey: &[u8; 32], sealed: &[u8]) {
+        if self.pairing_role() != Some(crate::pairing::PairingRole::Authoriser) {
+            tracing::debug!("appairage : entrée d'appareil hors rôle, ignorée");
+            return;
+        }
+        if !self.pairing_peer_is(device_pubkey) {
+            tracing::debug!("appairage : entrée d'appareil d'une autre machine, ignorée");
+            return;
+        }
         let Some(clear) = self
             .pairing_channel
             .lock()
@@ -564,6 +631,73 @@ impl Node {
         tracing::info!("appairage : appareil proposé retenu, en attente de confirmation");
     }
 
+    /// Reçoit la racine du compte sur le canal d'appairage.
+    ///
+    /// 🔒 Quatre refus, et chacun ferme une porte différente :
+    ///
+    /// 1. **Le rôle.** Seule une machine qui a *saisi* un code accepte une
+    ///    racine. L'appareil autorisé, lui, en détient déjà une : accepter la
+    ///    graine d'en face reviendrait à se laisser remplacer son compte par un
+    ///    inconnu qui a deviné un code.
+    /// 2. **La confirmation.** Tant que l'utilisateur n'a pas comparé
+    ///    l'empreinte de ce côté-ci, la racine qui arrive n'a été demandée par
+    ///    personne. C'est le sens de « refuser une graine qu'on n'a pas
+    ///    demandée » : un échange PAKE abouti ne prouve rien (§4.2).
+    /// 3. **La machine.** La graine doit venir de celle avec qui le canal a été
+    ///    ouvert, pas d'une autre qui aurait observé l'échange.
+    /// 4. **Le canal.** La charge doit s'ouvrir sous sa clé et porter
+    ///    l'étiquette d'une racine — c'est le seul échec cryptographique de
+    ///    l'appairage qui prouve quelque chose.
+    ///
+    /// Une seule adoption : une seconde graine, même valide, est ignorée. Rien
+    /// dans le protocole ne justifie qu'un compte en remplace un autre en vol.
+    ///
+    /// ⚠️ Rien n'est écrit sur le disque ici. La graine attend en mémoire que
+    /// l'hôte la reprenne et la scelle dans un coffre neuf : la clé de la base
+    /// dérive de la graine, donc la base ouverte sous l'ancienne ne peut pas
+    /// simplement resservir (voir `identity::adopt_account_seed`).
+    fn ingest_pairing_seed(&self, device_pubkey: &[u8; 32], sealed: &[u8]) {
+        let confirme = self
+            .pairing_offer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .is_some_and(|o| o.role() == crate::pairing::PairingRole::Joiner && o.is_confirmed());
+        if !confirme {
+            tracing::warn!("appairage : racine de compte non sollicitée, refusée");
+            return;
+        }
+        if !self.pairing_peer_is(device_pubkey) {
+            tracing::warn!("appairage : racine de compte d'une autre machine, refusée");
+            return;
+        }
+        let Some(seed) = self
+            .pairing_channel
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .and_then(|c| c.open_account_seed(sealed).ok())
+        else {
+            tracing::debug!("appairage : racine de compte illisible, ignorée");
+            return;
+        };
+        {
+            let mut slot = self
+                .pairing_adopted
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if slot.is_some() {
+                tracing::debug!("appairage : une racine est déjà en attente, seconde ignorée");
+                return;
+            }
+            *slot = Some(seed);
+        }
+        // 🔒 Aucune trace du contenu, ici ni ailleurs : ce sont les octets du
+        // compte, et un journal survit au processus qui l'a écrit.
+        tracing::info!("appairage : racine de compte reçue, adoption en attente");
+        self.emit("event.pairing_adopted", serde_json::json!({}));
+    }
+
     /// Ouvre une offre d'appairage et rend le code à afficher.
     ///
     /// Remplace une offre en cours : demander un nouveau code annule le
@@ -578,6 +712,17 @@ impl Node {
         // Une offre neuve repart d'un état vierge : sans ça, le canal et
         // l'appareil de l'appairage précédent survivraient, et le garde-fou
         // qui fige le canal ferait ignorer le premier HELLO du suivant.
+        self.pairing_reset();
+        *self.pairing_offer.lock().unwrap_or_else(|e| e.into_inner()) = Some(offer);
+        Ok(started)
+    }
+
+    /// Efface tout ce qu'un appairage laisse derrière lui, sauf l'offre.
+    ///
+    /// 🔒 La racine adoptée part avec le reste : une graine qui survivrait à
+    /// l'appairage suivant se ferait adopter par un utilisateur qui a changé
+    /// d'avis entre-temps.
+    fn pairing_reset(&self) {
         *self
             .pairing_channel
             .lock()
@@ -586,8 +731,20 @@ impl Node {
             .pairing_pending
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = None;
-        *self.pairing_offer.lock().unwrap_or_else(|e| e.into_inner()) = Some(offer);
-        Ok(started)
+        *self.pairing_peer.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        *self
+            .pairing_adopted
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
+    /// De quel côté de l'appairage se trouve cette machine, s'il y en a un.
+    pub fn pairing_role(&self) -> Option<crate::pairing::PairingRole> {
+        self.pairing_offer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|o| o.role())
     }
 
     /// Saisit un code d'appairage sur le **nouvel** appareil.
@@ -599,23 +756,51 @@ impl Node {
     /// n'est « le serveur ».
     ///
     /// Rend le message à transmettre : ce module ne connaît pas le transport.
+    ///
+    /// Il part **aussi** de lui-même vers tous les pairs Accord visibles sur le
+    /// réseau local. C'est la seule chose que le nouvel appareil sait faire : il
+    /// a le code et rien d'autre — ni session, ni adresse, et le code ne porte
+    /// ni l'une ni l'autre. Le PAKE échoue en silence chez qui n'a pas le code,
+    /// donc saluer tout le monde ne dit rien à personne.
     pub fn pairing_submit(&self, code: &str) -> Result<Vec<u8>, NodeError> {
         let parsed = accord_crypto::pairing::PairingCode::parse(code)
             .map_err(|_| NodeError::Invalid("code d'appairage invalide"))?;
-        let offer = crate::pairing::PairingOffer::open_with_code(parsed, now_ms());
+        let offer = crate::pairing::PairingOffer::join(parsed, now_ms());
         let outgoing = offer.outgoing().to_vec();
         // Une saisie remplace ce qui était en cours : l'utilisateur qui
         // ressaisit veut repartir de zéro, pas cumuler deux appairages.
-        *self
+        self.pairing_reset();
+        *self.pairing_offer.lock().unwrap_or_else(|e| e.into_inner()) = Some(offer);
+        self.outbound.send(Outbound::PairingBroadcast);
+        Ok(outgoing)
+    }
+
+    /// Le message PAKE à envoyer à `peer`, s'il y a lieu de le saluer.
+    ///
+    /// Rend `Some` **une fois par pair et par offre**, et seulement du côté qui
+    /// rejoint : c'est l'appelant réseau qui balaie le LAN, mais c'est ici que
+    /// se tient le compte de qui a déjà été salué.
+    ///
+    /// 🔒 Ce « une fois » est ce qui rend la diffusion acceptable. Chaque HELLO
+    /// consomme une des trois tentatives de l'appareil d'en face : ressaluer le
+    /// même voisin brûlerait l'offre qu'un utilisateur regarde à l'écran.
+    pub fn pairing_hello_for(&self, peer: &[u8; 32]) -> Option<Vec<u8>> {
+        let mut slot = self.pairing_offer.lock().unwrap_or_else(|e| e.into_inner());
+        let offer = slot.as_mut()?;
+        if offer.role() != crate::pairing::PairingRole::Joiner || offer.is_spent(now_ms()) {
+            return None;
+        }
+        // Le canal est déjà ouvert : l'appareil autorisé a répondu, saluer plus
+        // loin ne ferait que consommer les tentatives des voisins.
+        if self
             .pairing_channel
             .lock()
-            .unwrap_or_else(|e| e.into_inner()) = None;
-        *self
-            .pairing_pending
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = None;
-        *self.pairing_offer.lock().unwrap_or_else(|e| e.into_inner()) = Some(offer);
-        Ok(outgoing)
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
+        {
+            return None;
+        }
+        offer.greet(peer).then(|| offer.outgoing().to_vec())
     }
 
     /// Entrée d'appareil de cette machine, scellée sous la clé du canal.
@@ -653,10 +838,40 @@ impl Node {
         *self.pairing_offer.lock().unwrap_or_else(|e| e.into_inner()) = None;
         // L'empreinte part avec l'offre : sinon l'écran suivant afficherait
         // celle d'un appairage abandonné.
-        *self
-            .pairing_channel
+        self.pairing_reset();
+    }
+
+    /// Vrai si une racine de compte attend d'être adoptée par cette machine.
+    ///
+    /// 🔒 Le booléen, et jamais la graine : cette réponse remonte jusqu'à
+    /// l'API locale, et rien de ce qui passe par là ne doit contenir le compte.
+    pub fn pairing_adopted_ready(&self) -> bool {
+        self.pairing_adopted
             .lock()
-            .unwrap_or_else(|e| e.into_inner()) = None;
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
+    }
+
+    /// Reprend ce qu'il faut pour installer le compte, **une seule fois**.
+    ///
+    /// Réservée à l'hôte, qui le scelle dans un profil neuf
+    /// (`identity::adopt_account_seed`) et redémarre le nœud dessus. Rien de
+    /// tout cela ne transite par l'API JSON locale.
+    ///
+    /// 🔒 La racine part avec la clé d'appareil, jamais seule : l'appareil
+    /// autorisé vient d'inscrire CETTE clé-là dans la liste signée du compte.
+    /// Un profil adopté qui en régénérerait une autre serait listé sous une
+    /// identité qu'il ne détient plus.
+    pub fn pairing_take_adoption(&self) -> Option<crate::pairing::AccountAdoption> {
+        // L'appareil local d'abord : sans lui il n'y a rien à adopter, et la
+        // racine doit rester en attente plutôt que de se consommer pour rien.
+        let device = self.with_db(|db| Ok(db.local_device()?)).ok().flatten()?;
+        let seed = self
+            .pairing_adopted
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()?;
+        Some(crate::pairing::AccountAdoption::new(seed, device))
     }
 
     /// Empreinte du canal candidat, à afficher pour comparaison humaine.
@@ -681,6 +896,24 @@ impl Node {
         if self.pairing_fingerprint().is_none() {
             return Err(NodeError::Invalid("aucune empreinte à confirmer"));
         }
+        let role = self
+            .pairing_role()
+            .ok_or(NodeError::Invalid("aucun appairage en cours"))?;
+        match role {
+            crate::pairing::PairingRole::Authoriser => self.pairing_confirm_authoriser(),
+            crate::pairing::PairingRole::Joiner => self.pairing_confirm_joiner(),
+        }
+    }
+
+    /// Confirmation côté **déjà autorisé** : inscrit l'appareil, publie la
+    /// liste, puis lui remet la racine du compte.
+    ///
+    /// 🔒 L'ordre est l'invariant. La racine ne part qu'après l'inscription
+    /// réussie : si la liste est pleine, ou si la signature ou l'écriture
+    /// échouent, l'appareil d'en face n'a rien à faire du compte — et une
+    /// racine remise à une machine qui n'est même pas dans la liste serait un
+    /// accès qu'aucun écran ne montre et qu'aucune révocation n'atteint.
+    fn pairing_confirm_authoriser(&self) -> Result<(), NodeError> {
         // 🔒 Confirmer sans clé d'appareil ne scellerait rien : l'offre serait
         // consommée et l'utilisateur croirait son appareil ajouté. Refuser
         // plutôt que de réussir à vide.
@@ -700,6 +933,9 @@ impl Node {
                 .map_err(|_| NodeError::Invalid("appairage expiré ou déjà scellé"))?;
         }
         let issue = self.enroll_device(entry);
+        if issue.is_ok() {
+            self.send_account_seed();
+        }
         // Inscrit ou non, l'appareil proposé a joué son rôle : le garder
         // ferait ignorer le premier HELLO de l'appairage suivant.
         *self
@@ -707,6 +943,68 @@ impl Node {
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = None;
         issue
+    }
+
+    /// Confirmation côté **qui rejoint** : scelle l'entrée de cette machine et
+    /// l'envoie à l'appareil autorisé, qui décidera de l'inscrire.
+    ///
+    /// 🔒 C'est aussi ce geste qui autorise cette machine à *accepter* une
+    /// racine ensuite : sans lui, la graine qui arriverait n'aurait été
+    /// demandée par personne (voir [`Node::ingest_pairing_seed`]).
+    fn pairing_confirm_joiner(&self) -> Result<(), NodeError> {
+        let peer = self
+            .pairing_peer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .ok_or(NodeError::Invalid("aucun appareil en face"))?;
+        let sealed = self
+            .pairing_sealed_self()
+            .ok_or(NodeError::Invalid("aucun appareil local à proposer"))?;
+        {
+            let mut slot = self.pairing_offer.lock().unwrap_or_else(|e| e.into_inner());
+            let offer = slot
+                .as_mut()
+                .ok_or(NodeError::Invalid("aucun appairage en cours"))?;
+            offer
+                .confirm(now_ms())
+                .map_err(|_| NodeError::Invalid("appairage expiré ou déjà scellé"))?;
+        }
+        self.outbound.send(Outbound::Core {
+            to: peer,
+            msg: Box::new(CoreMsg::PairingSealed { sealed }),
+        });
+        Ok(())
+    }
+
+    /// Scelle la racine du compte sous la clé du canal et l'envoie à
+    /// l'appareil qui vient d'être inscrit.
+    ///
+    /// 🔒 Appelée **uniquement** depuis [`Node::pairing_confirm_authoriser`],
+    /// après confirmation humaine et inscription réussie. Un échec de
+    /// scellement ou l'absence de canal se journalise sans détail : mieux vaut
+    /// un appareil inscrit mais non promu — l'utilisateur relancera un
+    /// appairage — qu'une racine remise sur un chemin qu'on n'a pas su vérifier.
+    fn send_account_seed(&self) {
+        let Some(peer) = *self.pairing_peer.lock().unwrap_or_else(|e| e.into_inner()) else {
+            tracing::warn!("appairage : aucune machine en face, racine non transmise");
+            return;
+        };
+        let seed = accord_crypto::pairing::AccountSeed::new(*self.identity.seed());
+        let Some(sealed) = self
+            .pairing_channel
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .and_then(|c| c.seal_account_seed(&seed).ok())
+        else {
+            tracing::warn!("appairage : canal indisponible, racine non transmise");
+            return;
+        };
+        self.outbound.send(Outbound::Core {
+            to: peer,
+            msg: Box::new(CoreMsg::PairingSeed { sealed }),
+        });
+        tracing::info!("appairage : racine de compte transmise à l'appareil inscrit");
     }
 
     /// Inscrit un appareil dans la liste du compte et publie la version n+1.
@@ -1497,9 +1795,17 @@ impl Node {
                 )?;
                 Ok(vec![])
             }
-            CoreMsg::PairingHello { msg } => Ok(self.ingest_pairing_hello(&msg)),
+            // 🔒 L'appairage raisonne sur la MACHINE, pas sur la personne : les
+            // deux appareils ne se connaissent pas encore, il n'y a ni amitié
+            // ni liste pour les rattacher à un compte. `device_pubkey` est la
+            // seule identité qui ait un sens ici.
+            CoreMsg::PairingHello { msg } => Ok(self.ingest_pairing_hello(device_pubkey, &msg)),
             CoreMsg::PairingSealed { sealed } => {
-                self.ingest_pairing_sealed(&sealed);
+                self.ingest_pairing_sealed(device_pubkey, &sealed);
+                Ok(vec![])
+            }
+            CoreMsg::PairingSeed { sealed } => {
+                self.ingest_pairing_seed(device_pubkey, &sealed);
                 Ok(vec![])
             }
             CoreMsg::Profile {

@@ -18,6 +18,15 @@ const MAX_PAIRING_MSG: usize = 256;
 /// serait un levier d'allocation offert.
 const MAX_PAIRING_SEALED: usize = 4096;
 
+/// Taille maximale d'une racine de compte scellée ([`CoreMsg::PairingSeed`]).
+///
+/// 🔒 Serrée exprès, et bien plus que [`MAX_PAIRING_SEALED`] : la charge a une
+/// taille **connue d'avance** — nonce XChaCha (24) + étiquette et graine (33) +
+/// authentification Poly1305 (16) = 73 octets. Accorder 4 Kio à un message dont
+/// on sait qu'il en fait 73 offrirait, à un inconnu qui n'a encore rien prouvé,
+/// une allocation soixante fois trop grande pour rien.
+const MAX_PAIRING_SEED: usize = 128;
+
 const MAX_NAME: usize = 256;
 /// Borne stricte du pseudo d'un message `Profile` : 32 caractères × 4 octets
 /// UTF-8 au plus (la validation sémantique 2-32 caractères a lieu à
@@ -1830,6 +1839,22 @@ pub enum CoreMsg {
         /// `nonce ‖ chiffré`, borné au décodage.
         sealed: Vec<u8>,
     },
+    /// 0x1F — La racine du compte, scellée sous la clé du canal d'appairage.
+    ///
+    /// Sens **unique** : de l'appareil déjà autorisé vers celui qui rejoint, et
+    /// seulement après que l'utilisateur a confirmé l'empreinte du côté
+    /// autorisé. Reçue ailleurs, ou par un appareil qui n'a rien demandé, elle
+    /// se jette (`docs/MULTI_DEVICE.md` §4).
+    ///
+    /// 🔒 C'est le message le plus sensible du protocole : son contenu **est**
+    /// le compte. Il n'existe que parce que le produit livre déjà une phrase de
+    /// récupération de douze mots qui fait la même chose sans PAKE ni
+    /// comparaison humaine. Sans lui, un appareil appairé figure dans la liste
+    /// du compte sans pouvoir en signer une seule version.
+    PairingSeed {
+        /// `nonce ‖ chiffré`, borné au décodage — jamais la graine en clair.
+        sealed: Vec<u8>,
+    },
     /// 0x1B — Position de lecture partagée entre les appareils d'UN MÊME
     /// compte (jalon 1, lot 1.E). Adressée à notre propre compte, donc reçue
     /// par nos autres machines et par personne d'autre.
@@ -2196,6 +2221,10 @@ impl WireEncode for CoreMsg {
                 w.put_u8(0x19);
                 w.put_vbytes(sealed);
             }
+            CoreMsg::PairingSeed { sealed } => {
+                w.put_u8(0x1F);
+                w.put_vbytes(sealed);
+            }
             CoreMsg::SelfReadMark { scope, conv, up_to } => {
                 w.put_u8(0x1B);
                 w.put_u8(*scope);
@@ -2441,6 +2470,12 @@ impl WireDecode for CoreMsg {
             }),
             0x19 => Ok(CoreMsg::PairingSealed {
                 sealed: r.vbytes(MAX_PAIRING_SEALED, "pairing.sealed")?,
+            }),
+            0x1F => Ok(CoreMsg::PairingSeed {
+                // 🔒 Borne au décodage, comme partout ailleurs : le message
+                // arrive d'un pair qui n'a encore rien prouvé, et sa taille
+                // utile est connue d'avance (73 octets).
+                sealed: r.vbytes(MAX_PAIRING_SEED, "pairing.seed")?,
             }),
             0x1A => Ok(CoreMsg::CallTaken { call_id: r.arr()? }),
             0x1B => Ok(CoreMsg::SelfReadMark {
@@ -3531,5 +3566,37 @@ mod tests {
         // Et la taille réelle d'un message SPAKE2 passe sans problème.
         let normal = CoreMsg::PairingHello { msg: vec![0; 33] };
         assert!(CoreMsg::from_bytes(&normal.to_bytes()).is_ok());
+    }
+
+    #[test]
+    fn pairing_seed_roundtrips_et_reste_borne_au_decodage() {
+        // La taille réelle : nonce (24) + étiquette et graine (33) + Poly1305
+        // (16). Elle doit passer, et rien de sensiblement plus gros.
+        let reel = CoreMsg::PairingSeed {
+            sealed: vec![9; 24 + 33 + 16],
+        };
+        assert_eq!(CoreMsg::from_bytes(&reel.to_bytes()).unwrap(), reel);
+
+        // 🔒 La borne tombe au DÉCODAGE : la charge arrive d'un pair qui n'a
+        // encore rien prouvé, et sa taille utile est connue d'avance.
+        let trop_gros = CoreMsg::PairingSeed {
+            sealed: vec![0; MAX_PAIRING_SEED + 1],
+        };
+        assert!(CoreMsg::from_bytes(&trop_gros.to_bytes()).is_err());
+    }
+
+    #[test]
+    fn une_racine_scellee_ne_se_confond_pas_avec_une_entree_dappareil() {
+        // Deux genres distincts sur le fil : un appareil qui reçoit 0x19 ne
+        // doit en aucun cas le traiter comme la racine du compte.
+        let racine = CoreMsg::PairingSeed {
+            sealed: vec![1; 73],
+        };
+        let entree = CoreMsg::PairingSealed {
+            sealed: vec![1; 73],
+        };
+        assert_ne!(racine.to_bytes(), entree.to_bytes());
+        assert_eq!(CoreMsg::from_bytes(&racine.to_bytes()).unwrap(), racine);
+        assert_eq!(CoreMsg::from_bytes(&entree.to_bytes()).unwrap(), entree);
     }
 }

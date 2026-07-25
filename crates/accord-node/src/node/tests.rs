@@ -505,6 +505,10 @@ fn deliver(
                 }
             }
             Outbound::DhtPublish { .. } => {}
+            // Le salut LAN n'a pas de destinataire ici : c'est le runtime qui
+            // parcourt le voisinage. Les tests d'appairage acheminent les
+            // messages PAKE explicitement.
+            Outbound::PairingBroadcast => {}
         }
     }
 }
@@ -2259,6 +2263,391 @@ fn un_code_mal_recopie_donne_des_empreintes_differentes() {
     ) {
         assert_ne!(a, b, "un code fautif doit se voir");
     }
+}
+
+// ---- La racine du compte voyage (jalon 1, lot 1.D) ----
+
+/// Nœud muni d'un appareil local, comme après un vrai démarrage.
+fn node_appareille() -> (Node, tokio::sync::mpsc::Receiver<crate::outbound::Outbound>) {
+    let (n, rx) = node_with_channel();
+    n.with_db(|db| {
+        crate::device::ensure_local_device(db)
+            .map(|_| ())
+            .map_err(|_| NodeError::Invalid("appareil local"))
+    })
+    .unwrap();
+    (n, rx)
+}
+
+/// Vide un canal sortant et rend les `CoreMsg` adressés à `dest`.
+fn recolter(
+    rx: &mut tokio::sync::mpsc::Receiver<crate::outbound::Outbound>,
+    dest: &[u8; 32],
+) -> Vec<CoreMsg> {
+    let mut out = Vec::new();
+    while let Ok(action) = rx.try_recv() {
+        if let crate::outbound::Outbound::Core { to, msg } = action {
+            if to == *dest {
+                out.push(*msg);
+            }
+        }
+    }
+    out
+}
+
+/// Vrai si le lot contient une racine de compte.
+fn porte_une_racine(msgs: &[CoreMsg]) -> bool {
+    msgs.iter()
+        .any(|m| matches!(m, CoreMsg::PairingSeed { .. }))
+}
+
+/// Les deux machines d'un appairage, avec leurs canaux sortants capturés.
+struct DeuxCotes {
+    autorise: Node,
+    depuis_autorise: tokio::sync::mpsc::Receiver<crate::outbound::Outbound>,
+    rejoint: Node,
+    depuis_rejoint: tokio::sync::mpsc::Receiver<crate::outbound::Outbound>,
+    cle_autorise: [u8; 32],
+    cle_rejoint: [u8; 32],
+}
+
+impl DeuxCotes {
+    fn nouveau() -> Self {
+        let (autorise, depuis_autorise) = node_appareille();
+        let (rejoint, depuis_rejoint) = node_appareille();
+        let cle_autorise = autorise.transport_key();
+        let cle_rejoint = rejoint.transport_key();
+        Self {
+            autorise,
+            depuis_autorise,
+            rejoint,
+            depuis_rejoint,
+            cle_autorise,
+            cle_rejoint,
+        }
+    }
+
+    /// Joue l'échange PAKE : un code est affiché d'un côté, `saisi` de l'autre,
+    /// et les messages passent d'une machine à l'autre comme le ferait le LAN.
+    fn echanger(&mut self, saisi: &str) {
+        let hello = self.rejoint.pairing_submit(saisi).expect("code bien formé");
+        let reponses = self
+            .autorise
+            .ingest_core(&self.cle_rejoint, CoreMsg::PairingHello { msg: hello })
+            .unwrap();
+        for r in reponses {
+            self.rejoint.ingest_core(&self.cle_autorise, r).unwrap();
+        }
+    }
+
+    /// Achemine ce que le nouvel appareil a produit vers l'appareil autorisé.
+    fn rejoint_vers_autorise(&mut self) -> Vec<CoreMsg> {
+        let msgs = recolter(&mut self.depuis_rejoint, &self.cle_autorise);
+        for m in msgs.clone() {
+            self.autorise.ingest_core(&self.cle_rejoint, m).unwrap();
+        }
+        msgs
+    }
+
+    /// Achemine ce que l'appareil autorisé a produit vers le nouvel appareil.
+    fn autorise_vers_rejoint(&mut self) -> Vec<CoreMsg> {
+        let msgs = recolter(&mut self.depuis_autorise, &self.cle_rejoint);
+        for m in msgs.clone() {
+            self.rejoint.ingest_core(&self.cle_autorise, m).unwrap();
+        }
+        msgs
+    }
+}
+
+#[test]
+fn la_racine_ne_part_quapres_la_confirmation_de_lappareil_autorise() {
+    // 🔒 Le contrôle central du lot. Un échange PAKE abouti ne prouve rien
+    // (§4.2) : ce qui autorise la racine du compte à voyager, c'est un humain
+    // devant la machine qui la détient, et rien d'autre. Le test suit donc le
+    // fil complet et vérifie l'ABSENCE de racine à chaque étape antérieure.
+    let mut d = DeuxCotes::nouveau();
+    let code = d.autorise.pairing_start().unwrap().code;
+    d.echanger(&code);
+    assert_eq!(
+        d.autorise.pairing_fingerprint(),
+        d.rejoint.pairing_fingerprint(),
+        "les deux écrans doivent afficher le même nombre"
+    );
+
+    // Échange abouti, personne n'a rien confirmé : rien ne doit être parti.
+    assert!(!porte_une_racine(&d.autorise_vers_rejoint()));
+    assert!(!d.rejoint.pairing_adopted_ready());
+
+    // Le nouvel appareil confirme : il propose SON entrée, jamais davantage.
+    d.rejoint.pairing_confirm().expect("confirmation acceptée");
+    let propose = d.rejoint_vers_autorise();
+    assert!(
+        matches!(propose.as_slice(), [CoreMsg::PairingSealed { .. }]),
+        "le nouvel appareil ne doit envoyer que son entrée : {propose:?}"
+    );
+
+    // 🔒 L'entrée est arrivée, l'appareil autorisé n'a TOUJOURS pas confirmé :
+    // la racine ne doit pas avoir bougé.
+    assert!(
+        !porte_une_racine(&d.autorise_vers_rejoint()),
+        "la racine est partie sans confirmation humaine"
+    );
+    assert!(!d.rejoint.pairing_adopted_ready());
+
+    // La confirmation humaine, enfin.
+    d.autorise.pairing_confirm().expect("confirmation acceptée");
+    let apres = d.autorise_vers_rejoint();
+    assert_eq!(
+        apres
+            .iter()
+            .filter(|m| matches!(m, CoreMsg::PairingSeed { .. }))
+            .count(),
+        1,
+        "exactement une racine, après la confirmation : {apres:?}"
+    );
+    assert!(
+        d.rejoint.pairing_adopted_ready(),
+        "le nouvel appareil doit avoir adopté le compte"
+    );
+}
+
+/// Joue le côté « appareil autorisé » FACE à un nœud qui rejoint, et rend le
+/// canal tel que la machine d'en face le détiendrait.
+///
+/// Le miroir de `canal_ouvert_avec` : là, le nœud testé affichait le code ; ici
+/// il le saisit, et c'est le test qui tient l'autre moitié.
+fn canal_face_a_qui_rejoint(
+    n: &Node,
+    code: &accord_crypto::pairing::PairingCode,
+    cle_autorise: &[u8; 32],
+) -> accord_crypto::pairing::PairedChannel {
+    let (moitie, vers_le_nouveau) = accord_crypto::pairing::PairingHandshake::start(code);
+    let hello = n.pairing_submit(code.as_str()).expect("code accepté");
+    n.ingest_core(
+        cle_autorise,
+        CoreMsg::PairingHello {
+            msg: vers_le_nouveau,
+        },
+    )
+    .unwrap();
+    moitie.finish(&hello).expect("canal ouvert")
+}
+
+/// Une racine de compte scellée sous `canal`.
+fn racine_scellee(canal: &accord_crypto::pairing::PairedChannel) -> Vec<u8> {
+    canal
+        .seal_account_seed(&accord_crypto::pairing::AccountSeed::new([0x42; 32]))
+        .expect("racine scellée")
+}
+
+#[test]
+fn une_racine_non_sollicitee_est_refusee() {
+    // 🔒 Le sens de la flèche est une règle, pas une convention d'usage. Une
+    // graine qui arrive sans avoir été demandée est soit un appareil autorisé
+    // qui parle trop tôt, soit quelqu'un qui essaie de substituer son compte au
+    // nôtre. Dans les deux cas, la réponse est la même : elle se jette.
+    let cle_autorise = [9u8; 32];
+    let code = accord_crypto::pairing::PairingCode::parse("ABCDEFGH").unwrap();
+
+    // (a) Aucun appairage en cours : la racine tombe dans le vide.
+    let (sans_offre, _rx) = node_appareille();
+    let canal_temoin = {
+        let (jetable, _rx) = node_appareille();
+        canal_face_a_qui_rejoint(&jetable, &code, &cle_autorise)
+    };
+    sans_offre
+        .ingest_core(
+            &cle_autorise,
+            CoreMsg::PairingSeed {
+                sealed: racine_scellee(&canal_temoin),
+            },
+        )
+        .unwrap();
+    assert!(
+        !sans_offre.pairing_adopted_ready(),
+        "sans appairage en cours, aucune racine ne s'adopte"
+    );
+
+    // (b) Canal ouvert, empreinte NON confirmée. C'est le cas qui mord : tout
+    // est en place sauf le geste humain.
+    let (rejoint, _rx) = node_appareille();
+    let canal = canal_face_a_qui_rejoint(&rejoint, &code, &cle_autorise);
+    let scellee = racine_scellee(&canal);
+    rejoint
+        .ingest_core(
+            &cle_autorise,
+            CoreMsg::PairingSeed {
+                sealed: scellee.clone(),
+            },
+        )
+        .unwrap();
+    assert!(
+        !rejoint.pairing_adopted_ready(),
+        "une racine reçue avant la confirmation n'a été demandée par personne"
+    );
+
+    // Et la MÊME charge, une fois l'empreinte confirmée, passe : la seule
+    // différence entre les deux tentatives est le geste de l'utilisateur.
+    rejoint.pairing_confirm().expect("confirmation acceptée");
+    rejoint
+        .ingest_core(&cle_autorise, CoreMsg::PairingSeed { sealed: scellee })
+        .unwrap();
+    assert!(
+        rejoint.pairing_adopted_ready(),
+        "confirmée, la même racine doit être adoptée"
+    );
+}
+
+#[test]
+fn lappareil_autorise_refuse_une_racine_venue_den_face() {
+    // 🔒 Le sens inverse. Cette machine détient déjà le compte : adopter la
+    // graine de celui qui rejoint reviendrait à se faire remplacer son compte
+    // par quiconque a deviné un code — exactement l'attaque que l'appairage
+    // existe pour rendre chère.
+    let (autorise, _rx) = node_appareille();
+    let canal = canal_ouvert_avec(&autorise);
+
+    autorise
+        .ingest_core(
+            &[9u8; 32],
+            CoreMsg::PairingSeed {
+                sealed: racine_scellee(&canal),
+            },
+        )
+        .unwrap();
+    assert!(
+        !autorise.pairing_adopted_ready(),
+        "l'appareil qui autorise n'adopte jamais la racine d'en face"
+    );
+}
+
+#[test]
+fn une_racine_venue_dune_autre_machine_est_refusee() {
+    // 🔒 L'appairage ne s'appuie sur aucune amitié ni aucune liste : la seule
+    // chose qui dit d'où doit venir la suite de l'échange est la machine avec
+    // laquelle le canal a été ouvert.
+    let cle_autorise = [9u8; 32];
+    let code = accord_crypto::pairing::PairingCode::parse("ABCDEFGH").unwrap();
+    let (rejoint, _rx) = node_appareille();
+    let canal = canal_face_a_qui_rejoint(&rejoint, &code, &cle_autorise);
+    rejoint.pairing_confirm().expect("confirmation acceptée");
+
+    // Même charge, même canal — mais présentée par une autre machine.
+    rejoint
+        .ingest_core(
+            &[0xAAu8; 32],
+            CoreMsg::PairingSeed {
+                sealed: racine_scellee(&canal),
+            },
+        )
+        .unwrap();
+    assert!(
+        !rejoint.pairing_adopted_ready(),
+        "la racine doit venir de la machine du canal, pas d'une autre"
+    );
+}
+
+#[test]
+fn un_code_mal_recopie_ne_donne_ni_empreinte_commune_ni_racine() {
+    // 🔒 Bout en bout, avec un code fautif : les deux échanges aboutissent —
+    // SPAKE2 symétrique ne dit rien du code — mais les empreintes divergent,
+    // l'entrée scellée ne s'ouvre pas chez l'appareil autorisé, et la racine
+    // ne part donc jamais. C'est l'enchaînement complet qu'il faut vérifier :
+    // chaque maillon pris seul se laisserait contourner.
+    let mut d = DeuxCotes::nouveau();
+    let code = d.autorise.pairing_start().unwrap().code;
+    // Chaque lettre est remplacée — le tiret de lisibilité reste, il est
+    // ignoré à la saisie. Une lettre déjà « Z » devient « Y », faute de quoi
+    // un code entièrement composé de « Z » se recopierait à l'identique.
+    let faute: String = code
+        .chars()
+        .map(|c| match c {
+            '-' => '-',
+            'Z' => 'Y',
+            _ => 'Z',
+        })
+        .collect();
+    assert_ne!(faute, code, "le code fautif doit différer de l'original");
+    d.echanger(&faute);
+
+    if let (Some(a), Some(b)) = (
+        d.autorise.pairing_fingerprint(),
+        d.rejoint.pairing_fingerprint(),
+    ) {
+        assert_ne!(a, b, "un code fautif doit se voir à l'écran");
+    }
+
+    // L'utilisateur confirme quand même du côté qui rejoint (il n'a pas
+    // comparé) : son entrée part, mais elle ne s'ouvre pas en face.
+    if d.rejoint.pairing_confirm().is_ok() {
+        d.rejoint_vers_autorise();
+    }
+    assert!(
+        d.autorise.pairing_confirm().is_err(),
+        "sans entrée lisible, l'appareil autorisé n'a rien à sceller"
+    );
+    assert!(
+        !porte_une_racine(&d.autorise_vers_rejoint()),
+        "un code fautif ne doit jamais faire voyager la racine"
+    );
+    assert!(!d.rejoint.pairing_adopted_ready());
+}
+
+#[test]
+fn diffuser_sur_le_lan_ne_brule_aucune_offre() {
+    // 🔒 La diffusion est ce qui rend l'appairage utilisable sans configuration,
+    // et c'est aussi ce qui pourrait le rendre inutilisable : chaque HELLO
+    // consomme une des trois tentatives d'en face. Trois choses à tenir.
+    let voisins: Vec<[u8; 32]> = (1..=5u8).map(|i| [i; 32]).collect();
+
+    // 1. Saluer ne coûte rien à CELUI QUI SALUE : son offre reste entière, et
+    //    chaque voisin n'est salué qu'une fois.
+    let (rejoint, _rx) = node_appareille();
+    rejoint.pairing_submit("ABCDEFGH").expect("code accepté");
+    for v in &voisins {
+        assert!(
+            rejoint.pairing_hello_for(v).is_some(),
+            "chaque voisin mérite un salut"
+        );
+        assert!(
+            rejoint.pairing_hello_for(v).is_none(),
+            "et un seul : un second brûlerait une tentative d'en face"
+        );
+    }
+    assert_eq!(rejoint.pairing_fingerprint(), None, "personne n'a répondu");
+
+    // 2. Un voisin SANS offre ouverte ne compte rien et n'apprend rien : le
+    //    salut tombe dans le silence.
+    let (sans_offre, _rx) = node_appareille();
+    for _ in 0..10 {
+        let (_, msg) = moitie_nouvel_appareil("ABCDEFGH");
+        let reponses = sans_offre
+            .ingest_core(&[7u8; 32], CoreMsg::PairingHello { msg })
+            .unwrap();
+        assert!(reponses.is_empty(), "porte fermée, aucune réponse");
+    }
+    assert_eq!(sans_offre.pairing_fingerprint(), None);
+
+    // 3. Un voisin AVEC une offre ouverte compte l'essai — c'est nécessaire,
+    //    réussir ne prouve rien (§4.2) — mais l'offre survit et reste
+    //    confirmable. Sans quoi un unique salut de passage détruirait
+    //    l'appairage que quelqu'un est en train de faire.
+    let mut d = DeuxCotes::nouveau();
+    let code = d.autorise.pairing_start().unwrap().code;
+    let etranger = {
+        let (n, _rx) = node_appareille();
+        n.pairing_submit("ABCDEFGH").expect("code bien formé")
+    };
+    d.autorise
+        .ingest_core(&[0xBBu8; 32], CoreMsg::PairingHello { msg: etranger })
+        .unwrap();
+
+    d.echanger(&code);
+    d.rejoint.pairing_confirm().expect("confirmation acceptée");
+    d.rejoint_vers_autorise();
+    d.autorise
+        .pairing_confirm()
+        .expect("l'offre doit avoir survécu au salut d'un inconnu");
 }
 
 #[test]

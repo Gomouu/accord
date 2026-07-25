@@ -89,6 +89,54 @@ pub fn restore_from_phrase(
     seal_new(paths, identity, passphrase)
 }
 
+/// Installe sur ce profil le compte reçu lors d'un appairage : scelle le coffre
+/// sur la racine, réinstalle la clé d'appareil que l'appareil autorisé a
+/// inscrite, et rend l'état déverrouillé.
+///
+/// Fait pour la racine exactement ce que fait [`restore_from_phrase`], et pour
+/// cause : une racine reçue par appairage et une racine saisie en douze mots
+/// sont la même chose, arrivée par deux chemins.
+///
+/// 🔒 **Profil vierge exigé.** Un coffre déjà présent est refusé
+/// ([`NodeError::AlreadyExists`]), jamais écrasé : il y aurait derrière une
+/// identité, des amitiés, des conversations, et la phrase de récupération de
+/// *cette* identité-là est peut-être la seule chose au monde qui les rouvre.
+/// Un appairage n'est pas une raison de la perdre. L'hôte fait donc rejoindre
+/// un compte depuis un profil neuf, pas depuis un profil habité.
+///
+/// ⚠️ **La base est refaite.** La clé SQLCipher dérive de la graine
+/// ([`derive_db_key`]) : une base écrite sous l'ancienne ne s'ouvrira plus
+/// jamais sous la nouvelle. Sans coffre, elle ne contient de toute façon rien
+/// de récupérable — au mieux le brouillon du nœud qui a mené l'appairage. La
+/// laisser en place ferait échouer l'ouverture au démarrage suivant, sur une
+/// erreur de déchiffrement que rien à l'écran ne saurait expliquer.
+///
+/// 🔒 **La clé d'appareil est réinstallée, pas régénérée.** Elle vient d'être
+/// inscrite dans la liste signée du compte ; en tirer une neuve donnerait une
+/// machine listée sous une identité qu'elle ne détient plus — présente dans
+/// « Mes appareils » et sourde à tout ce qui lui est adressé. C'est la seule
+/// raison pour laquelle ce module, qui ne connaît par ailleurs que des
+/// fichiers, ouvre ici la base : laisser l'appelant faire les deux moitiés
+/// séparément, c'est lui laisser n'en faire qu'une.
+pub fn adopt_account_seed(
+    paths: &Paths,
+    adoption: &crate::pairing::AccountAdoption,
+    passphrase: &str,
+    pow_bits: u32,
+) -> Result<Unlocked, NodeError> {
+    if paths.has_identity() {
+        return Err(NodeError::AlreadyExists);
+    }
+    let db_path = paths.db();
+    if db_path.exists() {
+        std::fs::remove_file(&db_path)?;
+    }
+    let identity = Identity::from_seed_with_pow_bits(*adoption.seed().expose(), pow_bits);
+    let unlocked = seal_new(paths, identity, passphrase)?;
+    accord_core::Db::open(&db_path, &unlocked.db_key)?.set_local_device(adoption.device())?;
+    Ok(unlocked)
+}
+
 /// Scelle une identité neuve sur disque (refuse d'écraser un coffre).
 fn seal_new(paths: &Paths, identity: Identity, passphrase: &str) -> Result<Unlocked, NodeError> {
     if paths.has_identity() {

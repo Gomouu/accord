@@ -13,6 +13,8 @@
 //! paramètre. C'est ce qui rend l'expiration et la cadence testables sans
 //! attendre cinq minutes.
 
+use std::collections::HashSet;
+
 use accord_crypto::pairing::{PairedChannel, PairingCode, PairingHandshake, CODE_TTL_MS};
 
 /// Tentatives d'appairage acceptées par fenêtre.
@@ -20,6 +22,73 @@ use accord_crypto::pairing::{PairedChannel, PairingCode, PairingHandshake, CODE_
 /// Trois essais : de quoi se tromper deux fois en recopiant un code, pas de
 /// quoi explorer un espace de 39 bits.
 pub const MAX_ATTEMPTS: u32 = 3;
+
+/// Pairs du réseau local salués au plus par offre.
+///
+/// ⚠️ Un LAN qui compte plus de trente-deux nœuds Accord n'est pas le salon de
+/// quelqu'un : c'est un campus, un hôtel, un salon professionnel. Y pulvériser
+/// un HELLO par machine ferait de l'appairage un outil de balayage, et la
+/// mémoire de l'offre grossirait au rythme de ce que le voisinage annonce.
+/// Au-delà, on cesse de saluer et l'on attend que l'appareil autorisé soit
+/// joignable autrement (le rendez-vous DHT, prévu pour le cas nomade).
+pub const MAX_LAN_GREETINGS: usize = 32;
+
+/// Ce qu'un appareil emporte d'un appairage réussi, et qui doit survivre au
+/// changement de profil.
+///
+/// 🔒 Les deux morceaux vont **ensemble**, et c'est tout l'intérêt du type.
+/// L'appareil autorisé a inscrit dans la liste signée du compte une clé
+/// d'appareil précise : adopter la racine sans emporter cette clé donnerait une
+/// machine listée sous une identité qu'elle ne détient plus. Elle figurerait
+/// sagement dans « Mes appareils » et ne recevrait jamais un seul message —
+/// une panne dont rien à l'écran ne donnerait la cause.
+pub struct AccountAdoption {
+    seed: accord_crypto::pairing::AccountSeed,
+    device: accord_core::db::LocalDevice,
+}
+
+impl AccountAdoption {
+    /// Assemble ce qu'il faut pour installer le compte sur un profil neuf.
+    pub fn new(
+        seed: accord_crypto::pairing::AccountSeed,
+        device: accord_core::db::LocalDevice,
+    ) -> Self {
+        Self { seed, device }
+    }
+
+    /// La racine du compte.
+    pub fn seed(&self) -> &accord_crypto::pairing::AccountSeed {
+        &self.seed
+    }
+
+    /// L'appareil que l'appareil autorisé a inscrit dans la liste.
+    pub fn device(&self) -> &accord_core::db::LocalDevice {
+        &self.device
+    }
+}
+
+/// 🔒 `Debug` muet : ce type porte la racine du compte **et** la graine de
+/// l'appareil. Un `Debug` dérivé mettrait les deux dans les journaux.
+impl std::fmt::Debug for AccountAdoption {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("AccountAdoption(…)")
+    }
+}
+
+/// De quel côté de l'appairage se trouve cet appareil.
+///
+/// 🔒 Ce n'est pas une commodité d'affichage : **tout** l'asymétrique du
+/// protocole s'y accroche. Qui répond à un HELLO, qui scelle son entrée
+/// d'appareil, qui envoie la racine du compte et qui a le droit de l'accepter —
+/// quatre décisions dont aucune ne peut se déduire du contenu des messages,
+/// puisque SPAKE2 est symétrique et que les deux côtés voient la même chose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PairingRole {
+    /// Cette machine détient déjà le compte et affiche le code.
+    Authoriser,
+    /// Cette machine rejoint le compte et saisit le code.
+    Joiner,
+}
 
 /// Pourquoi une tentative d'appairage a été refusée.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,6 +110,7 @@ pub enum PairingRefusal {
 /// Créée quand l'utilisateur demande « Ajouter un appareil », consommée par la
 /// première tentative qui aboutit, détruite dans tous les autres cas.
 pub struct PairingOffer {
+    role: PairingRole,
     code: PairingCode,
     handshake: Option<PairingHandshake>,
     /// Message PAKE à transmettre au nouvel appareil.
@@ -48,25 +118,68 @@ pub struct PairingOffer {
     created_ms: u64,
     attempts: u32,
     used: bool,
+    /// Pairs du LAN déjà salués pour CETTE offre (côté qui rejoint).
+    greeted: HashSet<[u8; 32]>,
 }
 
 impl PairingOffer {
-    /// Ouvre une offre : tire un code et prépare notre moitié de l'échange.
+    /// Ouvre une offre sur l'appareil **déjà autorisé** : tire un code et
+    /// prépare notre moitié de l'échange.
     pub fn open(now_ms: u64) -> Self {
         Self::open_with_code(PairingCode::generate(), now_ms)
     }
 
     /// [`PairingOffer::open`] avec un code imposé (tests).
     pub fn open_with_code(code: PairingCode, now_ms: u64) -> Self {
+        Self::with_role(PairingRole::Authoriser, code, now_ms)
+    }
+
+    /// Ouvre une offre sur l'appareil qui **rejoint** : le code vient d'être
+    /// saisi par l'utilisateur, il n'est pas tiré ici.
+    pub fn join(code: PairingCode, now_ms: u64) -> Self {
+        Self::with_role(PairingRole::Joiner, code, now_ms)
+    }
+
+    fn with_role(role: PairingRole, code: PairingCode, now_ms: u64) -> Self {
         let (handshake, outgoing) = PairingHandshake::start(&code);
         Self {
+            role,
             code,
             handshake: Some(handshake),
             outgoing,
             created_ms: now_ms,
             attempts: 0,
             used: false,
+            greeted: HashSet::new(),
         }
+    }
+
+    /// De quel côté de l'appairage se trouve cette offre.
+    pub fn role(&self) -> PairingRole {
+        self.role
+    }
+
+    /// Vrai si l'empreinte a été confirmée sur cet appareil.
+    ///
+    /// 🔒 C'est le seul témoin qui autorise le côté qui rejoint à **accepter**
+    /// la racine du compte : sans confirmation, la graine qui arrive n'a été
+    /// demandée par personne.
+    pub fn is_confirmed(&self) -> bool {
+        self.used
+    }
+
+    /// Retient qu'un pair du LAN a été salué pour cette offre ; rend vrai la
+    /// **première** fois seulement.
+    ///
+    /// 🔒 Ce « une fois » n'est pas de l'économie de trafic. Chaque HELLO
+    /// consomme une des trois tentatives de l'appareil d'en face : ressaluer le
+    /// même voisin trois fois brûlerait l'offre que l'utilisateur regarde à
+    /// l'écran, sans qu'aucun attaquant n'ait rien fait.
+    pub fn greet(&mut self, peer: &[u8; 32]) -> bool {
+        if self.greeted.len() >= MAX_LAN_GREETINGS || self.greeted.contains(peer) {
+            return false;
+        }
+        self.greeted.insert(*peer)
     }
 
     /// Le code à afficher (et à encoder en QR).
@@ -161,6 +274,7 @@ impl PairingOffer {
 impl std::fmt::Debug for PairingOffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PairingOffer")
+            .field("role", &self.role)
             .field("attempts", &self.attempts)
             .field("used", &self.used)
             .finish_non_exhaustive()
@@ -340,6 +454,75 @@ mod tests {
         let apres = T0 + CODE_TTL_MS;
         assert_eq!(offre.confirm(apres).err(), Some(PairingRefusal::Expired));
         assert!(offre.is_spent(apres));
+    }
+
+    #[test]
+    fn les_deux_cotes_se_distinguent_par_leur_role() {
+        // 🔒 Rien dans les messages ne dit qui est qui : SPAKE2 est symétrique.
+        // Le rôle est décidé par le GESTE de l'utilisateur — afficher un code
+        // ou en saisir un — et c'est lui qui gouverne ensuite le sens dans
+        // lequel la racine du compte peut voyager.
+        let autorise = PairingOffer::open(T0);
+        assert_eq!(autorise.role(), PairingRole::Authoriser);
+        let rejoint = PairingOffer::join(code("ABCDEFGH"), T0);
+        assert_eq!(rejoint.role(), PairingRole::Joiner);
+    }
+
+    #[test]
+    fn la_confirmation_est_observable_apres_coup() {
+        // Le côté qui rejoint n'accepte la racine que s'il l'a demandée : ce
+        // témoin est ce qui distingue « demandée » de « arrivée ».
+        let mut offre = PairingOffer::join(code("ABCDEFGH"), T0);
+        assert!(!offre.is_confirmed());
+        offre.confirm(T0).expect("confirmation acceptée");
+        assert!(offre.is_confirmed());
+    }
+
+    #[test]
+    fn un_pair_du_lan_nest_salue_quune_fois() {
+        // 🔒 Le contrôle qui compte. Chaque HELLO consomme une des trois
+        // tentatives d'en face : ressaluer trois fois le même voisin brûlerait
+        // l'offre affichée à l'écran sans qu'aucun attaquant n'intervienne.
+        let mut offre = PairingOffer::join(code("ABCDEFGH"), T0);
+        let voisin = [7u8; 32];
+        assert!(offre.greet(&voisin), "premier salut");
+        for _ in 0..5 {
+            assert!(!offre.greet(&voisin), "un voisin déjà salué ne l'est plus");
+        }
+        // Un AUTRE voisin, lui, reste à saluer.
+        assert!(offre.greet(&[8u8; 32]));
+    }
+
+    #[test]
+    fn le_nombre_de_voisins_salues_est_borne() {
+        // ⚠️ Au-delà d'un LAN domestique, on cesse de saluer : sans cette
+        // borne, l'appairage deviendrait un balayage du voisinage et la
+        // mémoire de l'offre grossirait au rythme des annonces reçues.
+        let mut offre = PairingOffer::join(code("ABCDEFGH"), T0);
+        for i in 0..MAX_LAN_GREETINGS {
+            let mut pk = [0u8; 32];
+            pk[0] = i as u8;
+            pk[1] = (i >> 8) as u8;
+            assert!(offre.greet(&pk), "voisin {i} dans la borne");
+        }
+        assert!(
+            !offre.greet(&[0xFF; 32]),
+            "au-delà de la borne, plus aucun salut"
+        );
+    }
+
+    #[test]
+    fn saluer_le_lan_ne_consomme_ni_tentative_ni_offre() {
+        // 🔒 La diffusion sur le LAN est un envoi, pas une tentative : c'est
+        // l'appareil d'en face qui compte les siennes. Si saluer brûlait notre
+        // propre offre, un seul voisin suffirait à tuer l'appairage.
+        let mut offre = PairingOffer::join(code("ABCDEFGH"), T0);
+        for i in 0..10u8 {
+            offre.greet(&[i; 32]);
+        }
+        assert_eq!(offre.attempts, 0);
+        assert!(!offre.is_spent(T0));
+        assert!(!offre.is_confirmed());
     }
 
     #[test]

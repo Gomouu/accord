@@ -71,6 +71,20 @@ impl LanShared {
         self.peers.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 
+    /// Clés publiques des pairs actuellement découverts sur le LAN.
+    ///
+    /// Photographie : l'ensemble bouge au rythme des annonces. L'appairage s'en
+    /// sert pour saluer les voisins déjà visibles, et complète par le rappel
+    /// [`LanSink::on_lan_peer`] pour ceux qui apparaissent ensuite.
+    pub fn peers(&self) -> Vec<[u8; 32]> {
+        self.peers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .copied()
+            .collect()
+    }
+
     /// Ajoute une clé ; rend vrai si elle était absente (transition).
     fn insert(&self, pubkey: [u8; 32]) -> bool {
         self.peers

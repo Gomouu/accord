@@ -1567,6 +1567,46 @@ impl Runtime {
                 let now = crate::node::now_ms();
                 self.dht.put(&*self.rpc, *record, now).await;
             }
+            Outbound::PairingBroadcast => self.greet_lan_for_pairing().await,
+        }
+    }
+
+    /// Salue les pairs Accord déjà visibles sur le LAN pour un appairage.
+    ///
+    /// Le nouvel appareil n'a que le code : ni session, ni adresse, et le code
+    /// ne porte ni l'une ni l'autre. On réemprunte donc la chaîne que le projet
+    /// utilise déjà pour un premier contact — la découverte mDNS — et l'on
+    /// tente sa chance auprès de chaque voisin. Le PAKE échoue en silence chez
+    /// qui n'a pas le code : saluer tout le monde ne révèle rien à personne.
+    ///
+    /// ⚠️ Les voisins découverts **plus tard** sont salués à leur arrivée
+    /// ([`discovery::LanSink::on_lan_peer`]) : la course entre la saisie du
+    /// code et la résolution mDNS n'a pas de gagnant fixe, et un seul balayage
+    /// à la saisie raterait l'appareil autorisé une fois sur deux.
+    async fn greet_lan_for_pairing(&self) {
+        for peer in self.lan.peers() {
+            self.greet_peer_for_pairing(&peer).await;
+        }
+    }
+
+    /// Envoie UN message PAKE d'appairage à `peer`, si le nœud juge qu'il y a
+    /// lieu de le saluer (offre en cours, côté qui rejoint, pair pas encore
+    /// salué). Sans effet dans tous les autres cas.
+    ///
+    /// Envoi direct et sans file : un HELLO d'appairage vaut pour l'offre de
+    /// cinq minutes qui est ouverte maintenant, et rien ne justifierait de le
+    /// représenter à un voisin qui rallume sa machine demain.
+    async fn greet_peer_for_pairing(&self, peer: &[u8; 32]) {
+        let Some(msg) = self.node.pairing_hello_for(peer) else {
+            return;
+        };
+        let Some(addr) = self.addr_of(peer) else {
+            return;
+        };
+        let hello = ChannelMsg::Core(CoreMsg::PairingHello { msg });
+        match self.endpoint.send_to(addr, Some(*peer), &hello).await {
+            Ok(()) => tracing::debug!("appairage : salut envoyé à un pair du LAN"),
+            Err(e) => tracing::debug!(erreur = %e, "appairage : salut LAN non remis"),
         }
     }
 
@@ -2526,6 +2566,11 @@ impl discovery::LanSink for Runtime {
         // FIND_NODE). Aucune panique ni blocage si le pair n'est pas joignable.
         self.register_peer(pubkey, addr);
         self.seed_peer(addr).await;
+        // Appairage en cours sur cette machine : le voisin qui vient
+        // d'apparaître est peut-être l'appareil autorisé. Sans ce salut à la
+        // découverte, un unique balayage à la saisie du code perdrait la course
+        // contre la résolution mDNS une fois sur deux.
+        self.greet_peer_for_pairing(&pubkey).await;
     }
 }
 

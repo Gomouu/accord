@@ -132,7 +132,7 @@ function Lightbox({
         aria-label={t.fichiers.fermerApercu}
         title={t.fichiers.fermerApercu}
         onClick={fermer}
-        className="absolute right-4 top-4 rounded-full p-2 text-white/80 transition-colors duration-fast hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+        className="absolute end-4 top-4 rounded-full p-2 text-white/80 transition-colors duration-fast hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
       >
         <CloseIcon size={22} />
       </button>

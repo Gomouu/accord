@@ -650,7 +650,7 @@ export function MessageList({
                 )}
                 {grouped ? (
                   <div
-                    className="w-10 shrink-0 overflow-hidden whitespace-nowrap pt-1 text-right text-[10px] leading-5 tracking-tight text-faint opacity-0 group-hover:opacity-100"
+                    className="w-10 shrink-0 overflow-hidden whitespace-nowrap pt-1 text-end text-[10px] leading-5 tracking-tight text-faint opacity-0 group-hover:opacity-100"
                     title={formatEventDateTime(m.sent_ms, lang, timeFormat)}
                   >
                     {formatTimestampCompact(m.sent_ms, lang, undefined, timeFormat)}
@@ -880,7 +880,7 @@ export function MessageList({
         <button
           type="button"
           onClick={jumpToUnread}
-          className="glass-strong popover-enter absolute left-1/2 top-2 z-10 -translate-x-1/2 rounded-full px-3 py-1 text-xs font-medium text-red shadow-1 transition-transform duration-fast hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-chat active:scale-95"
+          className="glass-strong popover-enter absolute start-1/2 top-2 z-10 -translate-x-1/2 rounded-full px-3 py-1 text-xs font-medium text-red shadow-1 transition-transform duration-fast hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red focus-visible:ring-offset-2 focus-visible:ring-offset-chat active:scale-95"
         >
           {t.unread.jumpToUnread} ↓
         </button>
@@ -891,7 +891,7 @@ export function MessageList({
           onClick={jumpToBottom}
           aria-label={t.unread.jumpToBottom}
           title={t.unread.jumpToBottom}
-          className="glass-strong popover-enter absolute bottom-4 right-4 z-10 flex h-10 w-10 items-center justify-center rounded-full text-header shadow-2 transition-transform duration-fast hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat active:scale-95"
+          className="glass-strong popover-enter absolute bottom-4 end-4 z-10 flex h-10 w-10 items-center justify-center rounded-full text-header shadow-2 transition-transform duration-fast hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat active:scale-95"
         >
           <svg
             width="20"

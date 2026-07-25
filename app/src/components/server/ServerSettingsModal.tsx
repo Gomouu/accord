@@ -170,7 +170,7 @@ export function ServerSettingsModal({
           ref={navRef}
           aria-label={t.serveur.settingsTitle}
           onKeyDown={(e) => deplacerFocusVertical(e, navRef.current)}
-          className="liquid-settings-nav flex w-[30%] min-w-[180px] shrink-0 justify-end overflow-y-auto border-r pb-8 pl-3 pr-2 pt-12 max-sm:w-[132px] max-sm:min-w-[132px] max-sm:pl-2 max-sm:pt-14"
+          className="liquid-settings-nav flex w-[30%] min-w-[180px] shrink-0 justify-end overflow-y-auto border-e pb-8 ps-3 pe-2 pt-12 max-sm:w-[132px] max-sm:min-w-[132px] max-sm:pl-2 max-sm:pt-14"
         >
           <div className="flex w-[212px] flex-col max-sm:w-full">
             <div className="truncate px-2.5 pb-1.5 text-xs font-medium uppercase tracking-wide text-faint">
@@ -182,7 +182,7 @@ export function ServerSettingsModal({
                 type="button"
                 aria-current={tabId === tab.id ? 'page' : undefined}
                 onClick={() => setTabId(tab.id)}
-                className={`mb-0.5 block min-h-9 w-full truncate rounded-md px-2.5 py-1.5 text-left text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
+                className={`mb-0.5 block min-h-9 w-full truncate rounded-md px-2.5 py-1.5 text-start text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
                   tabId === tab.id
                     ? 'bg-blurple/15 text-header ring-1 ring-inset ring-blurple/20'
                     : 'text-muted hover:bg-chat-hover hover:text-norm'
@@ -214,7 +214,7 @@ export function ServerSettingsModal({
             <h2 className="mb-6 text-xl font-semibold text-header">{active.label(t)}</h2>
             <Content groupId={groupId} />
           </section>
-          <div className="absolute right-3 top-3">
+          <div className="absolute end-3 top-3">
             <button
               type="button"
               aria-label={t.app.close}

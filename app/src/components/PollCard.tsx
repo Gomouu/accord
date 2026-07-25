@@ -60,7 +60,7 @@ export function PollCard({
               aria-pressed={mine}
               aria-label={interpolate(t.groups.pollVoteFor, { option })}
               onClick={() => onVote(index)}
-              className={`relative block w-full overflow-hidden rounded-md border px-3 py-2 text-left text-sm transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-input disabled:cursor-default ${
+              className={`relative block w-full overflow-hidden rounded-md border px-3 py-2 text-start text-sm transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-input disabled:cursor-default ${
                 mine
                   ? 'border-blurple bg-blurple/10'
                   : 'border-transparent bg-chat-hover/70 enabled:hover:border-blurple/40'
@@ -68,7 +68,7 @@ export function PollCard({
             >
               <span
                 aria-hidden
-                className="absolute inset-y-0 left-0 w-full origin-left bg-blurple/10 transition-transform duration-normal ease-expo"
+                className="absolute inset-y-0 start-0 w-full origin-left bg-blurple/10 transition-transform duration-normal ease-expo"
                 style={{ transform: `scaleX(${pct / 100})` }}
               />
               <span className="relative flex items-center justify-between gap-3">

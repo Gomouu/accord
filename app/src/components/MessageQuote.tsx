@@ -27,7 +27,7 @@ export function MessageQuote({ quoted, nameOf, onJump }: MessageQuoteProps) {
     <>
       <span
         aria-hidden
-        className="ml-1 h-2 w-6 shrink-0 rounded-tl-md border-l-2 border-t-2 border-input"
+        className="ms-1 h-2 w-6 shrink-0 rounded-tl-md border-s-2 border-t-2 border-input"
       />
       {quoted !== undefined && (
         <span className="min-w-0 max-w-[35%] truncate font-medium text-header">
@@ -49,7 +49,7 @@ export function MessageQuote({ quoted, nameOf, onJump }: MessageQuoteProps) {
     <button
       type="button"
       onClick={onJump}
-      className={`${className} rounded-sm text-left hover:text-norm focus-visible:outline-none focus-visible:text-norm focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat`}
+      className={`${className} rounded-sm text-start hover:text-norm focus-visible:outline-none focus-visible:text-norm focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat`}
     >
       {inner}
     </button>

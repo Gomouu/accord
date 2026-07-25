@@ -174,7 +174,7 @@ function ReactorsPopover({
                 <button
                   type="button"
                   onClick={(e) => onOpenAuthor(pubkey, e.currentTarget)}
-                  className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none"
+                  className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-start transition-colors duration-fast hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none"
                 >
                   {contenu}
                 </button>

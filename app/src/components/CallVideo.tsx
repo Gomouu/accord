@@ -151,7 +151,7 @@ function RemoteTile({
         aria-pressed={pinned}
         title={pinLabel}
         aria-label={pinLabel}
-        className="absolute right-1.5 top-1.5 rounded-md bg-black/50 p-1.5 text-white opacity-0 transition-opacity duration-fast focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple group-hover:opacity-100 aria-pressed:opacity-100"
+        className="absolute end-1.5 top-1.5 rounded-md bg-black/50 p-1.5 text-white opacity-0 transition-opacity duration-fast focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple group-hover:opacity-100 aria-pressed:opacity-100"
       >
         <PinIcon />
       </button>

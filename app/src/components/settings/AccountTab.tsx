@@ -473,7 +473,7 @@ function BackupSection() {
   return (
     <SettingsSection title={t.settings.backupTitle} hint={t.settings.backupHint}>
       <div className="rounded-lg bg-sidebar p-4">
-        <p className="mb-4 rounded-md border-l-4 border-yellow bg-rail/60 px-3 py-2 text-sm leading-relaxed text-muted">
+        <p className="mb-4 rounded-md border-s-4 border-yellow bg-rail/60 px-3 py-2 text-sm leading-relaxed text-muted">
           {t.settings.backupExportWarning}
         </p>
         {mode === null ? (
@@ -712,7 +712,7 @@ export function AccountTab() {
       </SettingsSection>
 
       <SettingsSection title={t.settings.recoveryNoteTitle}>
-        <p className="rounded-lg border-l-4 border-yellow bg-sidebar px-4 py-3 text-sm leading-relaxed text-muted">
+        <p className="rounded-lg border-s-4 border-yellow bg-sidebar px-4 py-3 text-sm leading-relaxed text-muted">
           {t.settings.recoveryNote}
         </p>
       </SettingsSection>

@@ -253,7 +253,7 @@ function HomeSidebar({
                 <PresenceDot
                   status={status}
                   label={t.profil[status]}
-                  className="absolute -bottom-0.5 -right-0.5 rounded-full ring-2 ring-sidebar"
+                  className="absolute -bottom-0.5 -end-0.5 rounded-full ring-2 ring-sidebar"
                 />
               </span>
               <span className="min-w-0">
@@ -790,7 +790,7 @@ function GroupSidebar({ groupId }: { groupId: string }) {
             aria-expanded={serverMenuOpen}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={() => setServerMenuOpen((open) => !open)}
-            className={`flex h-9 min-w-0 flex-1 items-center gap-1 rounded-md pr-1 text-left transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
+            className={`flex h-9 min-w-0 flex-1 items-center gap-1 rounded-md pe-1 text-start transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
               serverMenuOpen
                 ? hasBanner
                   ? 'bg-black/25'
@@ -854,7 +854,7 @@ function GroupSidebar({ groupId }: { groupId: string }) {
           <span className="flex h-5 w-5 shrink-0 items-center justify-center">
             <CalendarIcon />
           </span>
-          <span className="min-w-0 flex-1 truncate text-left">
+          <span className="min-w-0 flex-1 truncate text-start">
             {t.groups.eventsEntry}
           </span>
           {upcomingCount > 0 && (
@@ -862,7 +862,7 @@ function GroupSidebar({ groupId }: { groupId: string }) {
               aria-label={interpolate(t.groups.eventsBadge, {
                 count: String(upcomingCount),
               })}
-              className="badge-pop ml-auto min-w-4 shrink-0 rounded-full bg-red px-1.5 text-center text-[11px] font-semibold leading-4 text-on-red"
+              className="badge-pop ms-auto min-w-4 shrink-0 rounded-full bg-red px-1.5 text-center text-[11px] font-semibold leading-4 text-on-red"
             >
               {upcomingCount}
             </span>

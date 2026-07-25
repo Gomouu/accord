@@ -50,7 +50,7 @@ function BodyTextInner({
         hint={message.author}
       />
       {message.edited !== null && (
-        <span className="ml-1 text-[10px] text-faint">{t.dm.edited}</span>
+        <span className="ms-1 text-[10px] text-faint">{t.dm.edited}</span>
       )}
     </div>
   );

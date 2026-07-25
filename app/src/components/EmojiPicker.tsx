@@ -70,7 +70,7 @@ export function EmojiPicker({
   groupId,
   onSelect,
   onClose,
-  positionClass = 'bottom-full right-0 mb-2',
+  positionClass = 'bottom-full end-0 mb-2',
   onPickSticker,
 }: EmojiPickerProps) {
   const t = useT();

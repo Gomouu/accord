@@ -334,7 +334,7 @@ export function ServerHeaderMenu({
       aria-label={t.serveur.serverMenu}
       tabIndex={-1}
       onKeyDown={onKeyDown}
-      className="server-menu-surface context-menu-enter absolute left-3 top-[calc(100%+6px)] z-50 w-[min(16.5rem,calc(100vw-6rem))] origin-top overflow-hidden rounded-lg focus:outline-none"
+      className="server-menu-surface context-menu-enter absolute start-3 top-[calc(100%+6px)] z-50 w-[min(16.5rem,calc(100vw-6rem))] origin-top overflow-hidden rounded-lg focus:outline-none"
     >
       <div className="server-menu-scroll max-h-[calc(100dvh-9rem)] overflow-y-auto overscroll-contain p-1.5">
         {items.map((item, index) => (
@@ -358,7 +358,7 @@ export function ServerHeaderMenu({
                   ? openSubmenu(item, event.currentTarget)
                   : activate(item)
               }
-              className={`server-menu-item group flex h-9 w-full items-center gap-3 rounded-md px-2.5 text-left text-sm font-medium transition-colors duration-fast focus-visible:outline-none active:scale-[0.98] ${
+              className={`server-menu-item group flex h-9 w-full items-center gap-3 rounded-md px-2.5 text-start text-sm font-medium transition-colors duration-fast focus-visible:outline-none active:scale-[0.98] ${
                 item.danger === true
                   ? 'server-menu-danger'
                   : item.subtle === true

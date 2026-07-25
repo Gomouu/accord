@@ -272,7 +272,7 @@ export function MemberList({
                     .getState()
                     .openMenu(x, y, buildMemberItems(member.pubkey, e.currentTarget));
                 }}
-                className="flex min-h-9 w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+                className="flex min-h-9 w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-start transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
               >
                 <span className="relative shrink-0">
                   <Avatar
@@ -286,7 +286,7 @@ export function MemberList({
                   <PresenceDot
                     status={status}
                     label={t.profil[status]}
-                    className="absolute -bottom-0.5 -right-0.5 rounded-full ring-2 ring-sidebar"
+                    className="absolute -bottom-0.5 -end-0.5 rounded-full ring-2 ring-sidebar"
                   />
                 </span>
                 <div className="min-w-0">

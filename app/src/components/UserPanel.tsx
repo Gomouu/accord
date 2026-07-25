@@ -305,7 +305,7 @@ export function UserPanel() {
           aria-label={t.profil.userMenu}
           aria-haspopup="dialog"
           aria-expanded={userMenuOpen}
-          className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-md px-1.5 py-1 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-rail active:scale-[0.99]"
+          className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-md px-1.5 py-1 text-start transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-rail active:scale-[0.99]"
         >
           <span className="relative shrink-0 rounded-full">
             <Avatar
@@ -319,7 +319,7 @@ export function UserPanel() {
             <PresenceDot
               status={dotStatus}
               label={t.profil[dotStatus]}
-              className="absolute -bottom-0.5 -right-0.5 rounded-full ring-2 ring-rail"
+              className="absolute -bottom-0.5 -end-0.5 rounded-full ring-2 ring-rail"
             />
           </span>
           <div className="min-w-0 flex-1">

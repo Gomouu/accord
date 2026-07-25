@@ -115,7 +115,7 @@ export function Avatar({
       {cadre}
       <span
         aria-label={online ? 'en ligne' : 'hors ligne'}
-        className={`avatar-presence absolute bottom-0 right-0 rounded-full border-2 border-rail ${
+        className={`avatar-presence absolute bottom-0 end-0 rounded-full border-2 border-rail ${
           online ? 'bg-green' : 'bg-faint'
         }`}
         style={{ width: pastille, height: pastille }}

@@ -523,7 +523,7 @@ function DemoToolbar() {
       >
         Appel vidéo
       </button>
-      <label className="ml-auto flex items-center gap-2 text-xs font-medium text-muted">
+      <label className="ms-auto flex items-center gap-2 text-xs font-medium text-muted">
         Thème
         <select
           aria-label="Thème de démonstration"

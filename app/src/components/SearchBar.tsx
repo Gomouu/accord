@@ -89,7 +89,7 @@ function HitRow({
     <button
       type="button"
       onClick={() => onOpen(hit)}
-      className="block w-full rounded-md px-2 py-1.5 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none"
+      className="block w-full rounded-md px-2 py-1.5 text-start transition-colors duration-fast hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none"
     >
       <div className="flex items-baseline justify-between gap-2">
         <span className="truncate text-xs font-medium text-muted">{label}</span>
@@ -271,13 +271,13 @@ export function SearchBar() {
             {recents.map((q) => (
               <div
                 key={q}
-                className="group flex items-center gap-1 rounded-md pr-1 hover:bg-chat-hover"
+                className="group flex items-center gap-1 rounded-md pe-1 hover:bg-chat-hover"
               >
                 <button
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => runRecent(q)}
-                  className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+                  className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-start text-sm text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
                 >
                   <span aria-hidden className="shrink-0 text-faint">
                     <SearchIcon size={13} />

@@ -35,7 +35,7 @@ export function SecretText({
       onClick={() => setRevealed(true)}
       title={t.settings.streamerReveal}
       aria-label={t.settings.streamerReveal}
-      className={`cursor-pointer rounded-sm text-left tracking-[0.15em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple ${className}`}
+      className={`cursor-pointer rounded-sm text-start tracking-[0.15em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple ${className}`}
     >
       {MASK}
     </button>

@@ -35,7 +35,7 @@ export function EmojiAutocomplete({
     <div
       role="listbox"
       aria-label={t.emoji.autocompleteLabel}
-      className="popover-enter glass-strong absolute bottom-full left-0 z-20 mb-1 max-h-56 w-72 overflow-y-auto rounded-lg p-1"
+      className="popover-enter glass-strong absolute bottom-full start-0 z-20 mb-1 max-h-56 w-72 overflow-y-auto rounded-lg p-1"
     >
       {suggestions.map((suggestion, i) => {
         const selected = i === activeIndex;
@@ -52,7 +52,7 @@ export function EmojiAutocomplete({
               onSelect(suggestion);
             }}
             onMouseEnter={() => onHover(i)}
-            className={`flex h-9 w-full items-center gap-2 rounded-md px-2 text-left transition-colors duration-fast focus-visible:bg-chat-hover focus-visible:outline-none ${
+            className={`flex h-9 w-full items-center gap-2 rounded-md px-2 text-start transition-colors duration-fast focus-visible:bg-chat-hover focus-visible:outline-none ${
               selected ? 'bg-blurple/15 text-header' : 'text-muted'
             }`}
           >

@@ -204,7 +204,7 @@ export function ServerMembersTab({ groupId }: { groupId: string }) {
               )}
             </div>
             {!isSelf && !isFounder && (
-              <div className="flex min-w-0 basis-full flex-wrap items-center justify-end gap-2 pl-11">
+              <div className="flex min-w-0 basis-full flex-wrap items-center justify-end gap-2 ps-11">
                 {canKick && (
                   <MemberTimeout
                     until={until}

@@ -140,7 +140,7 @@ export function ForumView({
       type="button"
       aria-label={interpolate(t.forum.openPost, { name: post.name })}
       onClick={() => setOpenPostId(post.thread_id)}
-      className="group flex w-full items-start gap-3 rounded-lg border border-[color:var(--glass-border)] bg-sidebar px-4 py-3 text-left transition-colors duration-fast hover:border-blurple/40 hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat active:scale-[0.99]"
+      className="group flex w-full items-start gap-3 rounded-lg border border-[color:var(--glass-border)] bg-sidebar px-4 py-3 text-start transition-colors duration-fast hover:border-blurple/40 hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat active:scale-[0.99]"
     >
       <span
         aria-hidden
@@ -187,7 +187,7 @@ export function ForumView({
               type="button"
               aria-expanded={showForm}
               onClick={() => setShowForm((open) => !open)}
-              className="ml-auto shrink-0 rounded-lg bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat active:scale-95"
+              className="ms-auto shrink-0 rounded-lg bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-colors duration-fast hover:bg-blurple-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat active:scale-95"
             >
               {t.forum.newPost}
             </button>

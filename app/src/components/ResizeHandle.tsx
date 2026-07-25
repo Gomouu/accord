@@ -134,7 +134,7 @@ export function ResizeHandle({
        */}
       <span
         aria-hidden
-        className={`pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-norm/20 transition-opacity duration-fast ${
+        className={`pointer-events-none absolute inset-y-0 start-1/2 w-px -translate-x-1/2 bg-norm/20 transition-opacity duration-fast ${
           isDragging ? 'opacity-100' : 'opacity-0'
         }`}
       />

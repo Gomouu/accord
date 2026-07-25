@@ -79,13 +79,13 @@ export function SavedMessages({ onClose }: { onClose: () => void }) {
             items.map((item) => (
               <div
                 key={item.msgId}
-                className="group mb-1 flex items-start gap-1 rounded-md pr-1 transition-colors duration-fast hover:bg-chat-hover"
+                className="group mb-1 flex items-start gap-1 rounded-md pe-1 transition-colors duration-fast hover:bg-chat-hover"
               >
                 <button
                   type="button"
                   aria-label={t.saved.open}
                   onClick={() => open(item.msgId, item.view)}
-                  className="min-w-0 flex-1 rounded-md px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+                  className="min-w-0 flex-1 rounded-md px-3 py-2 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
                 >
                   <div className="flex items-baseline gap-2">
                     <span className="min-w-0 flex-1 truncate text-sm font-medium text-header">

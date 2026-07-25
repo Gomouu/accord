@@ -187,7 +187,7 @@ export function PrivacyTab() {
       </SettingsSection>
 
       <SettingsSection title={t.settings.antiSpamTitle}>
-        <p className="rounded-lg border-l-4 border-blurple bg-sidebar px-4 py-3 text-sm leading-relaxed text-muted">
+        <p className="rounded-lg border-s-4 border-blurple bg-sidebar px-4 py-3 text-sm leading-relaxed text-muted">
           {t.settings.antiSpamHint}
         </p>
       </SettingsSection>

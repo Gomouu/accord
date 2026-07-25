@@ -80,7 +80,7 @@ export function ThreadPanel({
   return (
     <aside
       aria-label={interpolate(t.threads.panelLabel, { name: thread.name })}
-      className="thread-panel flex shrink-0 flex-col border-l border-[color:var(--glass-border)] bg-chat/95"
+      className="thread-panel flex shrink-0 flex-col border-s border-[color:var(--glass-border)] bg-chat/95"
     >
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-[color:var(--glass-border)] px-3 shadow-1">
         <span aria-hidden className="shrink-0 text-base leading-none">
@@ -119,7 +119,7 @@ export function ThreadPanel({
         </button>
       </header>
       {rootMessage !== undefined && rootText !== '' && (
-        <div className="mx-3 mt-3 rounded-md border-l-2 border-blurple bg-sidebar px-3 py-2">
+        <div className="mx-3 mt-3 rounded-md border-s-2 border-blurple bg-sidebar px-3 py-2">
           <div className="mb-0.5 flex items-baseline gap-2">
             <span
               className="truncate text-sm font-semibold text-header"

@@ -143,7 +143,7 @@ export function FriendVerifyModal() {
           {info !== null && info.key_changed && (
             <p
               role="alert"
-              className="rounded-lg border-l-4 border-red bg-red/10 px-3 py-2 text-sm text-norm"
+              className="rounded-lg border-s-4 border-red bg-red/10 px-3 py-2 text-sm text-norm"
             >
               {t.friends.verifyBroken}
             </p>

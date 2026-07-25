@@ -116,7 +116,7 @@ export function ForwardPicker({ text, attachments, onClose }: ForwardPickerProps
               type="button"
               disabled={busy}
               onClick={() => forwardTo(target)}
-              className="block w-full truncate rounded-md px-3 py-1.5 text-left text-sm text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:bg-chat-hover focus-visible:outline-none disabled:opacity-40"
+              className="block w-full truncate rounded-md px-3 py-1.5 text-start text-sm text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:bg-chat-hover focus-visible:outline-none disabled:opacity-40"
             >
               {target.label}
             </button>
@@ -132,7 +132,7 @@ export function ForwardPicker({ text, attachments, onClose }: ForwardPickerProps
                   type="button"
                   disabled={busy}
                   onClick={() => forwardTo(target)}
-                  className="block w-full truncate rounded-md px-3 py-1.5 text-left text-sm text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:bg-chat-hover focus-visible:outline-none disabled:opacity-40"
+                  className="block w-full truncate rounded-md px-3 py-1.5 text-start text-sm text-muted transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:bg-chat-hover focus-visible:outline-none disabled:opacity-40"
                 >
                   {target.label}
                 </button>

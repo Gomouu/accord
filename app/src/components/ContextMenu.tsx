@@ -261,7 +261,7 @@ export function ContextMenu() {
             onMouseEnter={() => setActiveIndex(i)}
             onFocus={() => setActiveIndex(i)}
             onClick={() => activate(item)}
-            className={`flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blurple ${
+            className={`flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-start text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blurple ${
               item.danger === true
                 ? 'text-red hover:bg-red/10 focus-visible:bg-red/10'
                 : 'text-norm hover:bg-chat-hover focus-visible:bg-chat-hover'

@@ -146,7 +146,7 @@ export function MentionInbox({ onClose }: { onClose: () => void }) {
               key={entry.msg_id}
               type="button"
               onClick={() => openEntry(entry)}
-              className="mb-1 block w-full rounded-md px-3 py-2 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none"
+              className="mb-1 block w-full rounded-md px-3 py-2 text-start transition-colors duration-fast hover:bg-chat-hover focus-visible:bg-chat-hover focus-visible:outline-none"
             >
               <div className="flex items-baseline gap-2">
                 {!entry.read && (

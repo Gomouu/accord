@@ -186,7 +186,7 @@ function ParticipantRow({
         )}
       </div>
       {!isSelf && showVolume && (
-        <div className="flex items-center gap-2 pb-1 pl-8 pr-1 pt-1">
+        <div className="flex items-center gap-2 pb-1 ps-8 pe-1 pt-1">
           <input
             type="range"
             min={0}
@@ -197,7 +197,7 @@ function ParticipantRow({
             onChange={(e) => onVolume(Number(e.target.value))}
             className="h-5 w-full accent-blurple"
           />
-          <span className="w-10 shrink-0 text-right text-xs tabular-nums text-faint">
+          <span className="w-10 shrink-0 text-end text-xs tabular-nums text-faint">
             {state.volume}%
           </span>
         </div>
@@ -302,7 +302,7 @@ export function VoiceSection({ groupId }: { groupId: string }) {
         <span className="truncate">{t.voice.defaultChannel}</span>
       </button>
       {connected.length > 0 && (
-        <ul className="voice-roster-enter space-y-0.5 pb-1 pl-6 pr-1 pt-0.5">
+        <ul className="voice-roster-enter space-y-0.5 pb-1 ps-6 pe-1 pt-0.5">
           {connected.map(([pubkey, state]) => {
             const isSelf = self !== null && pubkey === self.pubkey;
             const globalAvatar = isSelf ? self.avatar : avatarOf(contacts, pubkey);

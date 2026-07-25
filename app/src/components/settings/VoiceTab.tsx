@@ -236,7 +236,7 @@ export function VoiceTab() {
             onChange={(e) => onMasterVolume(Number(e.target.value))}
             className="h-5 w-full rounded-full accent-blurple outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
           />
-          <span className="w-12 shrink-0 text-right text-sm tabular-nums text-norm">
+          <span className="w-12 shrink-0 text-end text-sm tabular-nums text-norm">
             {masterVolume}%
           </span>
         </div>

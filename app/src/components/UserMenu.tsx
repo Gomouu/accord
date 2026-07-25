@@ -94,7 +94,7 @@ function BackIcon() {
 }
 
 const ACTION_CLASS =
-  'flex min-h-12 w-full items-center gap-3 rounded-md px-3 text-left text-sm font-medium text-norm transition-[background-color,color,transform] duration-fast hover:bg-chat-hover hover:text-header focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blurple active:scale-[0.985]';
+  'flex min-h-12 w-full items-center gap-3 rounded-md px-3 text-start text-sm font-medium text-norm transition-[background-color,color,transform] duration-fast hover:bg-chat-hover hover:text-header focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blurple active:scale-[0.985]';
 
 const ICON_FRAME_CLASS =
   'flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-input/70 text-muted';
@@ -328,7 +328,7 @@ export function UserMenu({
       }}
       className={`context-menu-enter z-50 focus:outline-none ${
         anchor === undefined
-          ? 'absolute bottom-[calc(100%+10px)] left-2 origin-bottom-left'
+          ? 'absolute bottom-[calc(100%+10px)] start-2 origin-bottom-left'
           : 'origin-top-left'
       }`}
     >
@@ -381,7 +381,7 @@ export function UserMenu({
                         <PresenceDot
                           status={ownDotStatus(ownStatus)}
                           label={currentStatusLabel}
-                          className="absolute bottom-1 right-1 rounded-full ring-[3px] ring-modal"
+                          className="absolute bottom-1 end-1 rounded-full ring-[3px] ring-modal"
                         />
                       </div>
                       <span className="mb-1 flex min-w-0 items-center gap-1.5 rounded-full border border-[color:var(--glass-border)] bg-modal/75 px-2.5 py-1 text-xs font-medium text-muted shadow-1">
@@ -673,7 +673,7 @@ export function UserMenu({
                               setSelectedAccount(selected ? null : account.id);
                               setPassphrase('');
                             }}
-                            className="flex min-h-14 w-full items-center gap-3 px-3 text-left transition-[background-color,opacity] duration-fast hover:bg-chat-hover disabled:cursor-default disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blurple"
+                            className="flex min-h-14 w-full items-center gap-3 px-3 text-start transition-[background-color,opacity] duration-fast hover:bg-chat-hover disabled:cursor-default disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blurple"
                           >
                             <Avatar
                               id={account.id}

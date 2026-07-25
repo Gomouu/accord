@@ -71,7 +71,7 @@ function AccountRow({
         onClick={onToggle}
         aria-expanded={open}
         aria-label={interpolate(t.onboarding.unlockAccountLabel, { name: account.name })}
-        className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-rail"
+        className="flex w-full items-center gap-3 px-3 py-2.5 text-start transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-rail"
       >
         <Avatar id={account.id} name={account.name} size={40} avatarHash={null} />
         <div className="min-w-0 flex-1">
@@ -164,7 +164,7 @@ export function AccountPicker() {
       <p className="mb-5 text-center text-sm text-muted">{t.onboarding.welcomeHint}</p>
       {error !== null && <p className="mb-4 text-center text-sm text-red">{error}</p>}
       {accounts.length > 0 && (
-        <ul className="mb-5 flex max-h-64 flex-col gap-2 overflow-y-auto overscroll-contain pr-1">
+        <ul className="mb-5 flex max-h-64 flex-col gap-2 overflow-y-auto overscroll-contain pe-1">
           {accounts.map((account) => (
             <AccountRow
               key={account.id}

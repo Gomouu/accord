@@ -345,7 +345,7 @@ export function RecoveryPhraseScreen({ phrase }: { phrase: string }) {
             key={`${word}-${i}`}
             className="selectable break-all rounded-md bg-rail px-2 py-1.5 font-mono text-sm text-header"
           >
-            <span className="mr-1.5 text-faint">{i + 1}.</span>
+            <span className="me-1.5 text-faint">{i + 1}.</span>
             {word}
           </li>
         ))}

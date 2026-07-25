@@ -360,7 +360,7 @@ export function GroupView({
               </span>
             </>
           )}
-          <div className="ml-auto flex shrink-0 items-center gap-1">
+          <div className="ms-auto flex shrink-0 items-center gap-1">
             <span className="group-chat-members-toggle">
               <HeaderIconButton
                 label={t.groups.members}
@@ -621,7 +621,7 @@ export function GroupView({
               if (e.key === 'Escape') closeMembers();
               else bouclerTab(e, e.currentTarget);
             }}
-            className="liquid-drawer absolute inset-y-0 right-0 flex max-w-[calc(100vw-48px)] flex-col overflow-hidden border-l"
+            className="liquid-drawer absolute inset-y-0 end-0 flex max-w-[calc(100vw-48px)] flex-col overflow-hidden border-s"
             style={{ width: membersWidth }}
           >
             <div className="flex h-12 shrink-0 items-center justify-between border-b border-[color:var(--glass-border)] px-3">

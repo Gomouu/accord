@@ -54,7 +54,7 @@ export function ToggleRow({
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className="mb-2 flex w-full items-center justify-between gap-4 rounded-lg bg-sidebar px-4 py-3 text-left transition-colors duration-150 hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-sidebar"
+      className="mb-2 flex w-full items-center justify-between gap-4 rounded-lg bg-sidebar px-4 py-3 text-start transition-colors duration-150 hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-sidebar"
     >
       <span className="min-w-0">
         <span className="block text-sm font-medium text-header">{label}</span>
@@ -69,7 +69,7 @@ export function ToggleRow({
         }`}
       >
         <span
-          className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform duration-150 ${
+          className={`absolute start-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform duration-150 ${
             checked ? 'translate-x-4' : ''
           }`}
         />

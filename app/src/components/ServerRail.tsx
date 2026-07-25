@@ -153,7 +153,7 @@ function RailBadge({ badge }: { badge: RailBadgeInfo }) {
   return (
     <span
       aria-hidden
-      className="badge-pop absolute right-1.5 top-0 z-10 flex min-w-[18px] items-center justify-center gap-0.5 rounded-full bg-red px-1 text-[11px] font-semibold leading-[18px] text-on-red ring-2 ring-rail"
+      className="badge-pop absolute end-1.5 top-0 z-10 flex min-w-[18px] items-center justify-center gap-0.5 rounded-full bg-red px-1 text-[11px] font-semibold leading-[18px] text-on-red ring-2 ring-rail"
     >
       {badge.mention && (
         <span aria-hidden className="font-semibold leading-none">
@@ -203,7 +203,7 @@ function RailButton({
        */}
       <span
         aria-hidden
-        className={`absolute left-0 top-1/2 h-10 w-1 -translate-y-1/2 rounded-r bg-header transition-transform duration-normal ease-spring ${
+        className={`absolute start-0 top-1/2 h-10 w-1 -translate-y-1/2 rounded-e bg-header transition-transform duration-normal ease-spring ${
           active ? 'scale-y-100' : 'scale-y-0 group-hover:scale-y-50'
         }`}
       />

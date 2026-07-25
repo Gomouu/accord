@@ -376,7 +376,7 @@ function ChannelKindOption({
       type="button"
       aria-pressed={selected}
       onClick={() => onSelect(kind)}
-      className={`flex flex-1 items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal ${
+      className={`flex flex-1 items-start gap-2.5 rounded-lg border px-3 py-2.5 text-start transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal ${
         selected
           ? 'border-blurple bg-blurple/10'
           : 'border-transparent bg-rail hover:bg-chat-hover'
@@ -930,7 +930,7 @@ function CreatePollModal({ groupId, channelId }: { groupId: string; channelId: s
             onChange={(e) => setQuestion(e.target.value)}
             className="w-full resize-none rounded-md border border-transparent bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
           />
-          <div className="mb-3 mt-1 text-right text-xs text-faint">
+          <div className="mb-3 mt-1 text-end text-xs text-faint">
             {utf8ByteLength(question)}/{POLL_QUESTION_MAX}
           </div>
           <div className="space-y-2">

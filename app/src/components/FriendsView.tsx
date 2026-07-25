@@ -68,7 +68,7 @@ function FriendRow({ contact }: { contact: Contact }) {
           <PresenceDot
             status={status}
             label={t.profil[status]}
-            className="absolute -bottom-0.5 -right-0.5 rounded-full ring-2 ring-chat"
+            className="absolute -bottom-0.5 -end-0.5 rounded-full ring-2 ring-chat"
           />
         )}
       </div>
@@ -91,7 +91,7 @@ function FriendRow({ contact }: { contact: Contact }) {
                   : contact.friend_code}
         </div>
       </div>
-      <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
+      <div className="ms-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
         {isFriend && confirmRemove && (
           <>
             <span className="whitespace-nowrap text-sm text-muted">
@@ -502,7 +502,7 @@ export function FriendsView() {
               {badge !== undefined && badge > 0 && (
                 <span
                   aria-hidden
-                  className="ml-1.5 flex min-w-[18px] items-center justify-center rounded-full bg-red px-1 text-[11px] font-semibold leading-[18px] text-on-red"
+                  className="ms-1.5 flex min-w-[18px] items-center justify-center rounded-full bg-red px-1 text-[11px] font-semibold leading-[18px] text-on-red"
                 >
                   {badge > 99 ? '99+' : badge}
                 </span>

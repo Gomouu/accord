@@ -65,7 +65,7 @@ export function PinnedPanel({
       role="dialog"
       aria-label={t.serveur.pinnedTitle}
       tabIndex={-1}
-      className="glass-strong liquid-floating absolute right-4 top-14 z-20 max-h-96 w-96 max-w-[85vw] overflow-y-auto rounded-lg p-3 focus:outline-none"
+      className="glass-strong liquid-floating absolute end-4 top-14 z-20 max-h-96 w-96 max-w-[85vw] overflow-y-auto rounded-lg p-3 focus:outline-none"
     >
       <div className="flex items-center justify-between pb-2">
         <span className="text-sm font-semibold text-header">{t.serveur.pinnedTitle}</span>
@@ -86,7 +86,7 @@ export function PinnedPanel({
           <button
             type="button"
             onClick={() => onJump(m.msg_id)}
-            className="block w-full rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+            className="block w-full rounded-sm text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
           >
             <div className="flex items-baseline justify-between gap-2">
               <span className="truncate text-sm font-medium text-header">
@@ -155,7 +155,7 @@ export function ThreadsListPanel({
       key={th.thread_id}
       type="button"
       onClick={() => onOpen(th.thread_id)}
-      className="mb-1 flex w-full items-center gap-2 rounded-md bg-sidebar px-3 py-2 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+      className="mb-1 flex w-full items-center gap-2 rounded-md bg-sidebar px-3 py-2 text-start transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
     >
       <span aria-hidden className="shrink-0 text-sm leading-none">
         💬
@@ -170,7 +170,7 @@ export function ThreadsListPanel({
     <div
       role="menu"
       aria-label={t.threads.threadsList}
-      className="glass-strong liquid-floating absolute right-4 top-14 z-20 max-h-96 w-80 max-w-[85vw] overflow-y-auto rounded-lg p-3"
+      className="glass-strong liquid-floating absolute end-4 top-14 z-20 max-h-96 w-80 max-w-[85vw] overflow-y-auto rounded-lg p-3"
     >
       <div className="flex items-center justify-between pb-2">
         <span className="text-sm font-semibold text-header">{t.threads.threadsList}</span>
@@ -234,7 +234,7 @@ export function SelectionBar({
         {interpolate(t.purge.selected, { count: String(count) })}
       </span>
       {tooMany && <span className="text-xs font-medium text-red">{t.purge.tooMany}</span>}
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ms-auto flex items-center gap-2">
         {confirming ? (
           <>
             <span className="text-sm text-norm">

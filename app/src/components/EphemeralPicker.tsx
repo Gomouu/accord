@@ -187,7 +187,7 @@ export function EphemeralPicker({
         <div
           role="menu"
           aria-label={t.dm.ephemeralTitle}
-          className="glass-strong popover-enter absolute right-0 top-9 z-50 w-64 rounded-lg p-2 shadow-3"
+          className="glass-strong popover-enter absolute end-0 top-9 z-50 w-64 rounded-lg p-2 shadow-3"
         >
           <p className="px-2 pb-2 pt-1 text-xs text-muted">{t.dm.ephemeralHint}</p>
           {CHOICES.map((choice) => (
@@ -197,7 +197,7 @@ export function EphemeralPicker({
               role="menuitemradio"
               aria-checked={ttl === choice}
               onClick={() => choose(choice)}
-              className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple ${
+              className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-start text-sm transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple ${
                 ttl === choice ? 'font-medium text-header' : 'text-norm'
               }`}
             >

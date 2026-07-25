@@ -650,7 +650,7 @@ export function QuickSwitcher() {
             <button
               type="button"
               onClick={submitCustomStatus}
-              className="flex min-h-14 w-full items-center gap-3 rounded-xl bg-blurple/15 px-3 text-left text-header ring-1 ring-inset ring-blurple/25 outline-none transition-transform duration-fast active:scale-[0.99] focus-visible:ring-2 focus-visible:ring-blurple"
+              className="flex min-h-14 w-full items-center gap-3 rounded-xl bg-blurple/15 px-3 text-start text-header ring-1 ring-inset ring-blurple/25 outline-none transition-transform duration-fast active:scale-[0.99] focus-visible:ring-2 focus-visible:ring-blurple"
             >
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-input text-blurple">
                 <StatusIcon />

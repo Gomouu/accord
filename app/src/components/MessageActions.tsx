@@ -103,7 +103,7 @@ export function MessageActions({
       // mêmes keyframes/tokens (`scale-fade-in`, durées/courbes de global.css)
       // sur les variantes de survol/focus — hors état `revealed`, pour ne pas
       // rejouer l'animation sur une barre déjà visible (volet ouvert).
-      className={`absolute -top-4 right-4 z-10 focus-within:pointer-events-auto focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 ${
+      className={`absolute -top-4 end-4 z-10 focus-within:pointer-events-auto focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 ${
         revealed
           ? 'pointer-events-auto opacity-100'
           : 'pointer-events-none opacity-0 focus-within:animate-[scale-fade-in_var(--duration-fast)_var(--ease-out)] group-hover:animate-[scale-fade-in_var(--duration-fast)_var(--ease-out)]'
@@ -116,7 +116,7 @@ export function MessageActions({
         <div
           role="menu"
           aria-label={t.dm.addReaction}
-          className="glass-strong popover-enter absolute bottom-full right-0 mb-1.5 flex gap-0.5 rounded-lg p-1"
+          className="glass-strong popover-enter absolute bottom-full end-0 mb-1.5 flex gap-0.5 rounded-lg p-1"
         >
           {quickEmojis.map((emoji) => (
             <button
@@ -165,7 +165,7 @@ export function MessageActions({
       {moreOpen && (
         <EmojiPicker
           groupId={groupId}
-          positionClass="bottom-full right-0 mb-1.5"
+          positionClass="bottom-full end-0 mb-1.5"
           onSelect={(pick) => {
             setMoreOpen(false);
             onReact(valeurReaction(pick));
@@ -177,7 +177,7 @@ export function MessageActions({
         <div
           role="alertdialog"
           aria-label={t.dm.deleteConfirm}
-          className="glass-strong popover-enter absolute bottom-full right-0 mb-1.5 flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2"
+          className="glass-strong popover-enter absolute bottom-full end-0 mb-1.5 flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2"
         >
           <span className="text-sm text-norm">{t.dm.deleteConfirm}</span>
           <button

@@ -196,7 +196,7 @@ export function DmView({ peer }: { peer: string }) {
                 buildContactMenu(t, contact, e.currentTarget),
               );
           }}
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-md px-1 py-0.5 text-left transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-md px-1 py-0.5 text-start transition-colors duration-fast hover:bg-chat-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
         >
           <Avatar
             id={peer}
@@ -221,7 +221,7 @@ export function DmView({ peer }: { peer: string }) {
             </span>
           )}
         </button>
-        <div className="ml-auto flex shrink-0 items-center gap-1">
+        <div className="ms-auto flex shrink-0 items-center gap-1">
           <EphemeralPicker scope={{ kind: 'dm', peer }} variant="header" />
           <HeaderIconButton
             label={t.planning.scheduleOpen}

@@ -248,7 +248,7 @@ function ThemeCard({
       aria-checked={selected}
       tabIndex={selected ? 0 : -1}
       onClick={onSelect}
-      className="group w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-header focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
+      className="group w-full rounded-lg text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-header focus-visible:ring-offset-2 focus-visible:ring-offset-chat"
     >
       <span
         data-theme={id === 'custom' ? previewBase : id}
@@ -318,7 +318,7 @@ function ThemeCard({
           </span>
         </span>
         {selected && (
-          <span className="absolute right-1 top-1 z-[4] flex h-4 w-4 items-center justify-center rounded-full bg-blurple text-white">
+          <span className="absolute end-1 top-1 z-[4] flex h-4 w-4 items-center justify-center rounded-full bg-blurple text-white">
             <ThemeCheckIcon />
           </span>
         )}

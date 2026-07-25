@@ -131,6 +131,41 @@ impl DeviceList {
     }
 }
 
+/// Encodage autonome d'une entrée d'appareil.
+///
+/// Existe pour l'appairage : le nouvel appareil envoie **son** entrée, seule,
+/// scellée sous la clé du canal. Dans une [`DeviceList`] les entrées sont
+/// encodées en ligne par `signable_bytes` — le format est le même, ce qui
+/// évite d'avoir deux façons d'écrire la même chose.
+impl WireEncode for DeviceEntry {
+    fn encode(&self, w: &mut Writer) {
+        w.put_arr(&self.pubkey);
+        w.put_u64(self.pow_nonce);
+        w.put_str(&self.name);
+        w.put_u64(self.added_ms);
+        w.put_u32(self.flags);
+    }
+}
+
+impl WireDecode for DeviceEntry {
+    fn decode(r: &mut Reader<'_>) -> Result<Self, DecodeError> {
+        let pubkey = r.arr()?;
+        let pow_nonce = r.u64()?;
+        // 🔒 Borne appliquée au décodage, comme dans la liste : l'entrée
+        // arrive d'un pair qui n'a encore rien prouvé.
+        let name = r.str(MAX_DEVICE_NAME, "device_entry.name")?;
+        let added_ms = r.u64()?;
+        let flags = r.u32()?;
+        Ok(DeviceEntry {
+            pubkey,
+            pow_nonce,
+            name,
+            added_ms,
+            flags,
+        })
+    }
+}
+
 impl WireEncode for DeviceList {
     fn encode(&self, w: &mut Writer) {
         w.put_raw(&self.signable_bytes());

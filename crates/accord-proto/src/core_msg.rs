@@ -10,6 +10,14 @@ use crate::wire::{DecodeError, Reader, WireDecode, WireEncode, Writer};
 /// allouer : le message arrive d'un pair qui n'a encore rien prouvé.
 const MAX_PAIRING_MSG: usize = 256;
 
+/// Taille maximale d'une charge scellée d'appairage.
+///
+/// 🔒 Assez pour une liste d'appareils complète (8 entrées avec leurs noms)
+/// plus le nonce et l'étiquette d'authentification, et pas davantage : la
+/// charge arrive d'un pair qui n'a encore rien prouvé, et une borne large
+/// serait un levier d'allocation offert.
+const MAX_PAIRING_SEALED: usize = 4096;
+
 const MAX_NAME: usize = 256;
 /// Borne stricte du pseudo d'un message `Profile` : 32 caractères × 4 octets
 /// UTF-8 au plus (la validation sémantique 2-32 caractères a lieu à
@@ -1795,6 +1803,19 @@ pub enum CoreMsg {
         /// Message SPAKE2 de l'émetteur (borné au décodage).
         msg: Vec<u8>,
     },
+    /// 0x19 — Charge scellée sous la clé du canal d'appairage (jalon 1).
+    ///
+    /// Portée après la confirmation d'empreinte : le nouvel appareil y met sa
+    /// clé publique, l'appareil autorisé y renvoie la liste signée.
+    ///
+    /// 🔒 Opaque au protocole, et **authentifiée par le canal** : qui ne peut
+    /// pas l'ouvrir n'avait pas le code. C'est le seul endroit de l'appairage
+    /// où un échec cryptographique prouve quelque chose — le PAKE symétrique,
+    /// lui, aboutit des deux côtés même avec des codes différents.
+    PairingSealed {
+        /// `nonce ‖ chiffré`, borné au décodage.
+        sealed: Vec<u8>,
+    },
 }
 
 /// Raison d'un [`CoreMsg::CallDecline`] : refus explicite de l'utilisateur.
@@ -2037,6 +2058,10 @@ impl WireEncode for CoreMsg {
                 w.put_u8(0x18);
                 w.put_vbytes(msg);
             }
+            CoreMsg::PairingSealed { sealed } => {
+                w.put_u8(0x19);
+                w.put_vbytes(sealed);
+            }
         }
     }
 }
@@ -2227,6 +2252,9 @@ impl WireDecode for CoreMsg {
                 // n'a encore rien prouvé. Un message SPAKE2 sur Ed25519 fait
                 // 33 octets ; 256 laisse de la marge sans offrir de levier.
                 msg: r.vbytes(MAX_PAIRING_MSG, "pairing.msg")?,
+            }),
+            0x19 => Ok(CoreMsg::PairingSealed {
+                sealed: r.vbytes(MAX_PAIRING_SEALED, "pairing.sealed")?,
             }),
             _ => Err(DecodeError::InvalidValue("core kind")),
         }

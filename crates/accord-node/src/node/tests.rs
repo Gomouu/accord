@@ -1763,14 +1763,107 @@ fn confirmer_sans_empreinte_est_refuse() {
 }
 
 #[test]
+fn confirmer_sans_appareil_propose_est_refuse() {
+    // 🔒 Confirmer sans clé d'appareil ne scellerait rien : l'offre serait
+    // consommée et l'utilisateur croirait sa machine ajoutée.
+    let n = node();
+    let code = n.pairing_start().unwrap().code.replace('-', "");
+    let (_, msg) = moitie_nouvel_appareil(&code);
+    n.ingest_core(&[9u8; 32], CoreMsg::PairingHello { msg })
+        .unwrap();
+    assert!(n.pairing_fingerprint().is_some());
+
+    assert!(n.pairing_confirm().is_err());
+}
+
+/// Joue l'appairage jusqu'au canal ouvert et à l'appareil proposé.
+/// Rend le nœud et l'appareil que le pair demande à faire inscrire.
+fn appairage_jusqua_lappareil_propose() -> (Node, accord_crypto::DeviceIdentity) {
+    let n = node();
+    // Le démarrage réel garantit un appareil local (`device::ensure_local_device`) ;
+    // le nœud de test le construit sans, donc on reproduit la migration ici.
+    n.with_db(|db| {
+        crate::device::ensure_local_device(db)
+            .map(|_| ())
+            .map_err(|_| NodeError::Invalid("appareil local"))
+    })
+    .unwrap();
+    let code = n.pairing_start().unwrap().code.replace('-', "");
+    let c = accord_crypto::pairing::PairingCode::parse(&code).unwrap();
+    let (pair, msg) = accord_crypto::pairing::PairingHandshake::start(&c);
+
+    let reponses = n
+        .ingest_core(&[9u8; 32], CoreMsg::PairingHello { msg })
+        .unwrap();
+    let [CoreMsg::PairingHello { msg: reponse }] = &reponses[..] else {
+        panic!("réponse d'appairage attendue");
+    };
+    let canal = pair.finish(reponse).expect("canal ouvert");
+
+    // Le nouvel appareil scelle SON entrée sous la clé du canal.
+    let appareil = accord_crypto::DeviceIdentity::generate();
+    let entree = accord_proto::device::DeviceEntry {
+        pubkey: appareil.public_key(),
+        pow_nonce: appareil.pow_nonce(),
+        name: "Portable".into(),
+        added_ms: crate::node::now_ms(),
+        flags: 0,
+    };
+    let mut w = accord_proto::Writer::new();
+    accord_proto::WireEncode::encode(&entree, &mut w);
+    let scelle = canal.seal(&w.into_bytes()).unwrap();
+
+    n.ingest_core(&[9u8; 32], CoreMsg::PairingSealed { sealed: scelle })
+        .unwrap();
+    (n, appareil)
+}
+
+#[test]
+fn un_appairage_complet_inscrit_lappareil_dans_la_liste() {
+    let (n, appareil) = appairage_jusqua_lappareil_propose();
+
+    n.pairing_confirm().expect("confirmation acceptée");
+
+    let record = n.device_list_record().expect("liste publiable");
+    let mut r = accord_proto::Reader::new(&record.value);
+    let liste = <accord_proto::device::DeviceList as accord_proto::WireDecode>::decode(&mut r)
+        .expect("liste relisible");
+    assert!(
+        liste.authorises(&appareil.public_key()),
+        "l'appareil appairé doit figurer dans la liste"
+    );
+}
+
+#[test]
 fn confirmer_deux_fois_est_refuse() {
+    let (n, _) = appairage_jusqua_lappareil_propose();
+    n.pairing_confirm().expect("première confirmation acceptée");
+    assert!(n.pairing_confirm().is_err());
+}
+
+#[test]
+fn une_charge_scellee_par_un_canal_etranger_est_ignoree() {
+    // 🔒 Le seul endroit de l'appairage où un échec cryptographique prouve
+    // quelque chose : qui ne peut pas sceller sous la clé du canal n'avait pas
+    // le code.
     let n = node();
     let code = n.pairing_start().unwrap().code.replace('-', "");
     let (_, msg) = moitie_nouvel_appareil(&code);
     n.ingest_core(&[9u8; 32], CoreMsg::PairingHello { msg })
         .unwrap();
 
-    n.pairing_confirm().expect("première confirmation acceptée");
+    // Canal issu d'un tout autre appairage.
+    let autre = accord_crypto::pairing::PairingCode::generate();
+    let (a, ma) = accord_crypto::pairing::PairingHandshake::start(&autre);
+    let (_, mb) = accord_crypto::pairing::PairingHandshake::start(&autre);
+    let _ = ma;
+    let etranger = a.finish(&mb).expect("canal étranger");
+    let scelle = etranger.seal(b"n'importe quoi").unwrap();
+
+    n.ingest_core(&[9u8; 32], CoreMsg::PairingSealed { sealed: scelle })
+        .unwrap();
+
+    // Rien n'a été retenu : la confirmation n'a toujours rien à sceller.
     assert!(n.pairing_confirm().is_err());
 }
 
@@ -1786,4 +1879,68 @@ fn annuler_efface_aussi_lempreinte() {
 
     n.pairing_cancel();
     assert_eq!(n.pairing_fingerprint(), None);
+}
+
+#[test]
+fn un_appareil_appaire_survit_a_une_republication() {
+    // 🔒 Le bug que ce test attrape : reconstruire la liste depuis le seul
+    // appareil local à chaque publication effacerait silencieusement tous les
+    // appareils appairés — ils cesseraient d'être joignables sans qu'aucune
+    // erreur ne le signale.
+    let (n, appareil) = appairage_jusqua_lappareil_propose();
+    n.pairing_confirm().expect("confirmation acceptée");
+
+    // Deux publications successives, comme la boucle de maintenance.
+    for _ in 0..2 {
+        let record = n.device_list_record().expect("liste publiable");
+        let mut r = accord_proto::Reader::new(&record.value);
+        let liste = <accord_proto::device::DeviceList as accord_proto::WireDecode>::decode(&mut r)
+            .expect("liste relisible");
+        assert!(
+            liste.authorises(&appareil.public_key()),
+            "l'appareil appairé doit survivre à la republication"
+        );
+        assert_eq!(liste.devices.len(), 2, "l'appareil local et le nouveau");
+    }
+}
+
+#[test]
+fn reappairer_le_meme_appareil_ne_le_duplique_pas() {
+    let (n, appareil) = appairage_jusqua_lappareil_propose();
+    n.pairing_confirm().expect("confirmation acceptée");
+
+    // Un second appairage complet de la MÊME machine.
+    let code = n.pairing_start().unwrap().code.replace('-', "");
+    let c = accord_crypto::pairing::PairingCode::parse(&code).unwrap();
+    let (pair, msg) = accord_crypto::pairing::PairingHandshake::start(&c);
+    let reponses = n
+        .ingest_core(&[9u8; 32], CoreMsg::PairingHello { msg })
+        .unwrap();
+    let [CoreMsg::PairingHello { msg: reponse }] = &reponses[..] else {
+        panic!("réponse d'appairage attendue");
+    };
+    let canal = pair.finish(reponse).unwrap();
+    let entree = accord_proto::device::DeviceEntry {
+        pubkey: appareil.public_key(),
+        pow_nonce: appareil.pow_nonce(),
+        name: "Portable".into(),
+        added_ms: crate::node::now_ms(),
+        flags: 0,
+    };
+    let mut w = accord_proto::Writer::new();
+    accord_proto::WireEncode::encode(&entree, &mut w);
+    n.ingest_core(
+        &[9u8; 32],
+        CoreMsg::PairingSealed {
+            sealed: canal.seal(&w.into_bytes()).unwrap(),
+        },
+    )
+    .unwrap();
+    n.pairing_confirm().expect("second appairage accepté");
+
+    let record = n.device_list_record().unwrap();
+    let mut r = accord_proto::Reader::new(&record.value);
+    let liste =
+        <accord_proto::device::DeviceList as accord_proto::WireDecode>::decode(&mut r).unwrap();
+    assert_eq!(liste.devices.len(), 2, "toujours deux appareils, pas trois");
 }

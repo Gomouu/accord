@@ -19,6 +19,8 @@
 //! base de SPAKE2 n'apporte pas (§4.1).
 
 use crate::error::CryptoError;
+use chacha20poly1305::aead::{Aead, KeyInit};
+use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
@@ -170,10 +172,50 @@ impl PairingHandshake {
     }
 }
 
+/// Taille du nonce XChaCha20-Poly1305, en octets.
+const NONCE_LEN: usize = 24;
+
 impl PairedChannel {
     /// Clé du canal, pour chiffrer l'échange qui suit la confirmation.
     pub fn key(&self) -> &[u8; 32] {
         &self.key
+    }
+
+    /// Chiffre une charge pour l'autre appareil : `nonce ‖ chiffré`.
+    ///
+    /// 🔒 Nonce **aléatoire**, et c'est sûr ici précisément parce que le canal
+    /// est jetable : il porte deux ou trois messages avant de disparaître, là
+    /// où un compteur serait indispensable sur un canal durable. Le nonce
+    /// XChaCha fait 192 bits — la probabilité d'en retirer deux fois le même
+    /// sur si peu de messages est hors de portée.
+    pub fn seal(&self, plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        let mut nonce = [0u8; NONCE_LEN];
+        OsRng.fill_bytes(&mut nonce);
+        let cipher = XChaCha20Poly1305::new((&self.key).into());
+        let mut out = nonce.to_vec();
+        out.extend(
+            cipher
+                .encrypt(XNonce::from_slice(&nonce), plaintext)
+                .map_err(|_| CryptoError::Pairing("chiffrement du canal"))?,
+        );
+        Ok(out)
+    }
+
+    /// Déchiffre une charge reçue sur le canal.
+    ///
+    /// 🔒 Un échec signifie que l'émetteur n'a pas la clé du canal — donc
+    /// qu'il ne connaissait pas le code. C'est le seul endroit du protocole
+    /// d'appairage où un échec cryptographique prouve quelque chose : le PAKE
+    /// lui-même, en forme symétrique, ne dit rien (voir `PairingOffer`).
+    pub fn open(&self, sealed: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        if sealed.len() <= NONCE_LEN {
+            return Err(CryptoError::Pairing("charge du canal tronquée"));
+        }
+        let (nonce, body) = sealed.split_at(NONCE_LEN);
+        let cipher = XChaCha20Poly1305::new((&self.key).into());
+        cipher
+            .decrypt(XNonce::from_slice(nonce), body)
+            .map_err(|_| CryptoError::Pairing("déchiffrement du canal"))
     }
 
     /// Empreinte à afficher **des deux côtés**, à comparer par un humain.
@@ -344,5 +386,65 @@ mod tests {
         let trace = format!("{a:?}");
         let cle_hex: String = a.key().iter().map(|b| format!("{b:02x}")).collect();
         assert!(!trace.contains(&cle_hex), "la clé fuit : {trace}");
+    }
+
+    #[test]
+    fn le_canal_chiffre_et_dechiffre_entre_les_deux_cotes() {
+        let code = PairingCode::generate();
+        let (a, b) = echange(&code, &code);
+
+        let scelle = a.seal(b"clef d'appareil").unwrap();
+        assert_eq!(b.open(&scelle).unwrap(), b"clef d'appareil");
+    }
+
+    #[test]
+    fn un_canal_etranger_ne_peut_pas_ouvrir_la_charge() {
+        // 🔒 C'est le SEUL endroit de l'appairage où un échec cryptographique
+        // prouve quelque chose : celui qui ne peut pas ouvrir n'avait pas le
+        // code. Le PAKE symétrique, lui, ne dit rien (voir `PairingOffer`).
+        let (a, _) = echange(&PairingCode::generate(), &PairingCode::generate());
+        let (etranger, _) = echange(&PairingCode::generate(), &PairingCode::generate());
+
+        let scelle = a.seal(b"clef d'appareil").unwrap();
+        assert!(etranger.open(&scelle).is_err());
+    }
+
+    #[test]
+    fn une_charge_alteree_est_refusee() {
+        let code = PairingCode::generate();
+        let (a, b) = echange(&code, &code);
+        let mut scelle = a.seal(b"clef d'appareil").unwrap();
+
+        // Un octet retourné dans le chiffré, puis dans le nonce.
+        let dernier = scelle.len() - 1;
+        scelle[dernier] ^= 1;
+        assert!(b.open(&scelle).is_err());
+        scelle[dernier] ^= 1;
+        scelle[0] ^= 1;
+        assert!(b.open(&scelle).is_err());
+    }
+
+    #[test]
+    fn une_charge_tronquee_est_refusee_sans_paniquer() {
+        // 🔒 La charge vient du réseau : un découpage naïf sur un tampon plus
+        // court que le nonce paniquerait, et une panique en production est
+        // interdite par le lint anti-panic du dépôt.
+        let code = PairingCode::generate();
+        let (a, _) = echange(&code, &code);
+        for n in 0..=NONCE_LEN {
+            assert!(a.open(&vec![0u8; n]).is_err(), "longueur {n}");
+        }
+    }
+
+    #[test]
+    fn deux_scellements_du_meme_texte_different() {
+        // Nonce aléatoire : deux envois identiques ne doivent pas produire le
+        // même chiffré, sans quoi un observateur les reconnaîtrait.
+        let code = PairingCode::generate();
+        let (a, _) = echange(&code, &code);
+        assert_ne!(
+            a.seal(b"meme texte").unwrap(),
+            a.seal(b"meme texte").unwrap()
+        );
     }
 }

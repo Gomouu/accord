@@ -245,6 +245,13 @@ pub struct Node {
     /// Seule la comparaison d'empreinte par deux humains le transforme en
     /// appairage.
     pairing_channel: Mutex<Option<accord_crypto::pairing::PairedChannel>>,
+    /// Appareil que le pair demande à faire inscrire, une fois le canal ouvert.
+    ///
+    /// Reçu scellé sous la clé du canal : le détenir prouve que le pair
+    /// connaissait le code. Rien n'est inscrit tant que l'empreinte n'est pas
+    /// confirmée pour autant — le chiffrement dit « il avait le code », pas
+    /// « c'est bien la machine que je voulais ».
+    pairing_pending: Mutex<Option<accord_proto::device::DeviceEntry>>,
     /// Dernier indicateur de frappe accepté par pair (anti-abus, ms murales).
     typing_seen: Mutex<HashMap<[u8; 32], u64>>,
     /// Cadence des `InviteRedeem` entrants par pair : `(début de fenêtre ms,
@@ -282,6 +289,7 @@ impl Node {
             peer_status: Mutex::new(HashMap::new()),
             pairing_offer: Mutex::new(None),
             pairing_channel: Mutex::new(None),
+            pairing_pending: Mutex::new(None),
             typing_seen: Mutex::new(HashMap::new()),
             redeem_seen: Mutex::new(HashMap::new()),
             soundboard_seen: Mutex::new(HashMap::new()),
@@ -386,6 +394,53 @@ impl Node {
         }
     }
 
+    /// Ouvre la charge scellée d'un pair et retient l'appareil qu'il propose.
+    ///
+    /// 🔒 Trois contrôles, dans cet ordre : il faut un canal candidat, la
+    /// charge doit s'ouvrir avec sa clé — ce qui prouve que l'émetteur avait
+    /// le code — et l'appareil proposé doit porter une preuve de travail
+    /// valide. Sans ce dernier point, une clé d'appareil se fabriquerait en
+    /// masse pour rien.
+    ///
+    /// Retenir n'est pas inscrire : c'est la confirmation d'empreinte qui
+    /// décide, et elle seule.
+    fn ingest_pairing_sealed(&self, sealed: &[u8]) {
+        let Some(clear) = self
+            .pairing_channel
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .and_then(|c| c.open(sealed).ok())
+        else {
+            tracing::debug!("appairage : charge scellée illisible, ignorée");
+            return;
+        };
+        let mut r = accord_proto::Reader::new(&clear);
+        let Ok(entry) =
+            <accord_proto::device::DeviceEntry as accord_proto::WireDecode>::decode(&mut r)
+        else {
+            tracing::debug!("appairage : appareil proposé illisible");
+            return;
+        };
+        if r.finish().is_err() {
+            tracing::debug!("appairage : octets excédentaires après l'appareil");
+            return;
+        }
+        if !accord_crypto::verify_pow(
+            &entry.pubkey,
+            entry.pow_nonce,
+            accord_proto::limits::IDENTITY_POW_BITS,
+        ) {
+            tracing::debug!("appairage : appareil proposé sans preuve de travail");
+            return;
+        }
+        *self
+            .pairing_pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(entry);
+        tracing::info!("appairage : appareil proposé retenu, en attente de confirmation");
+    }
+
     /// Ouvre une offre d'appairage et rend le code à afficher.
     ///
     /// Remplace une offre en cours : demander un nouveau code annule le
@@ -434,14 +489,111 @@ impl Node {
         if self.pairing_fingerprint().is_none() {
             return Err(NodeError::Invalid("aucune empreinte à confirmer"));
         }
-        let mut slot = self.pairing_offer.lock().unwrap_or_else(|e| e.into_inner());
-        let offer = slot
-            .as_mut()
-            .ok_or(NodeError::Invalid("aucun appairage en cours"))?;
-        offer
-            .confirm(now_ms())
-            .map_err(|_| NodeError::Invalid("appairage expiré ou déjà scellé"))?;
+        // 🔒 Confirmer sans clé d'appareil ne scellerait rien : l'offre serait
+        // consommée et l'utilisateur croirait son appareil ajouté. Refuser
+        // plutôt que de réussir à vide.
+        let entry = self
+            .pairing_pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .ok_or(NodeError::Invalid("aucun appareil proposé"))?;
+        {
+            let mut slot = self.pairing_offer.lock().unwrap_or_else(|e| e.into_inner());
+            let offer = slot
+                .as_mut()
+                .ok_or(NodeError::Invalid("aucun appairage en cours"))?;
+            offer
+                .confirm(now_ms())
+                .map_err(|_| NodeError::Invalid("appairage expiré ou déjà scellé"))?;
+        }
+        self.enroll_device(entry)
+    }
+
+    /// Inscrit un appareil dans la liste du compte et publie la version n+1.
+    ///
+    /// ⚠️ La version vient de l'horodatage, jamais d'un compteur stocké : après
+    /// une restauration depuis la phrase de récupération, un compteur repartant
+    /// à 1 ferait ignorer la liste par tous les pairs qui en détiennent une
+    /// plus récente, et l'utilisateur resterait enfermé dehors de son compte.
+    fn enroll_device(&self, entry: accord_proto::device::DeviceEntry) -> Result<(), NodeError> {
+        let mut list = self.current_device_list()?;
+        if list.devices.iter().any(|d| d.pubkey == entry.pubkey) {
+            // Déjà inscrit : un second appairage du même appareil ne doit pas
+            // le faire figurer deux fois, ni faire échouer la confirmation.
+            return Ok(());
+        }
+        if list.devices.len() >= accord_proto::device::MAX_DEVICES {
+            return Err(NodeError::Invalid("trop d'appareils sur ce compte"));
+        }
+        list.devices.push(entry);
+        list.version = accord_crypto::version_for(now_ms());
+        accord_crypto::sign_device_list_with_root(&self.identity, &mut list);
+        self.store_device_list(&list)?;
+        self.publish_device_list(&list);
         Ok(())
+    }
+
+    /// Liste d'appareils courante du compte : celle qui est persistée, ou une
+    /// liste neuve à un seul appareil si aucune ne l'est encore.
+    ///
+    /// 🔒 Lire le stockage plutôt que reconstruire est ce qui rend
+    /// l'appairage durable. Rebâtir depuis le seul appareil local à chaque
+    /// appel effacerait silencieusement tous les appareils appairés — la liste
+    /// publiée les perdrait, et ils cesseraient d'être joignables.
+    fn current_device_list(&self) -> Result<accord_proto::device::DeviceList, NodeError> {
+        let account = self.public_key();
+        if let Some(cached) = self.with_db(|db| Ok(db.device_list(&account)?))? {
+            let mut r = accord_proto::Reader::new(&cached.encoded);
+            if let Ok(list) =
+                <accord_proto::device::DeviceList as accord_proto::WireDecode>::decode(&mut r)
+            {
+                return Ok(list);
+            }
+            tracing::warn!("liste d'appareils locale illisible, reconstruite");
+        }
+        let stored = self
+            .with_db(|db| Ok(db.local_device()?))?
+            .ok_or(NodeError::Invalid("aucun appareil local"))?;
+        let local = accord_crypto::DeviceIdentity::from_seed(stored.seed);
+        Ok(crate::device::build_device_list_with_root(
+            &self.identity,
+            &local,
+            &stored.name,
+            now_ms(),
+        ))
+    }
+
+    /// Persiste la liste d'appareils du compte.
+    fn store_device_list(&self, list: &accord_proto::device::DeviceList) -> Result<(), NodeError> {
+        let mut w = accord_proto::Writer::new();
+        accord_proto::WireEncode::encode(list, &mut w);
+        let account = self.public_key();
+        self.with_db(|db| {
+            db.cache_device_list(&accord_core::db::CachedDeviceList {
+                account,
+                version: list.version,
+                encoded: w.into_bytes(),
+                fetched_ms: now_ms(),
+            })?;
+            Ok(())
+        })
+    }
+
+    /// Diffuse une liste d'appareils fraîchement signée aux amis connectés.
+    ///
+    /// Best-effort et volontairement silencieux : la republication DHT
+    /// périodique rattrape ce qui n'est pas passé, et faire échouer un
+    /// appairage réussi parce qu'un ami est hors ligne n'aurait aucun sens.
+    fn publish_device_list(&self, list: &accord_proto::device::DeviceList) {
+        let msg = CoreMsg::DeviceListAnnounce { list: list.clone() };
+        let friends = self.friend_pubkeys().unwrap_or_default();
+        for friend in friends {
+            self.outbound.send(Outbound::Core {
+                to: friend,
+                msg: Box::new(msg.clone()),
+            });
+        }
     }
 
     /// Appareils du compte, tels que l'écran « Mes appareils » les montre.
@@ -477,15 +629,8 @@ impl Node {
     /// Double emploi assumé avec la DHT : un ami déjà connecté n'a alors aucun
     /// lookup à attendre. Rend `None` tant qu'aucun appareil local n'existe.
     pub fn own_device_list_msg(&self) -> Option<CoreMsg> {
-        let stored = self.with_db(|db| Ok(db.local_device()?)).ok().flatten()?;
-        let device = accord_crypto::DeviceIdentity::from_seed(stored.seed);
         Some(CoreMsg::DeviceListAnnounce {
-            list: crate::device::build_device_list_with_root(
-                &self.identity,
-                &device,
-                &stored.name,
-                now_ms(),
-            ),
+            list: self.current_device_list().ok()?,
         })
     }
 
@@ -497,15 +642,11 @@ impl Node {
     /// distincte. Rend `None` tant qu'aucun appareil local n'est persisté —
     /// une base ouverte hors du chemin de démarrage normal, dans les tests.
     pub fn device_list_record(&self) -> Option<accord_proto::types::DhtRecord> {
-        let stored = self.with_db(|db| Ok(db.local_device()?)).ok().flatten()?;
-        let device = accord_crypto::DeviceIdentity::from_seed(stored.seed);
-        let now = now_ms();
-        let list =
-            crate::device::build_device_list_with_root(&self.identity, &device, &stored.name, now);
+        let list = self.current_device_list().ok()?;
         Some(crate::device::device_list_record_with_root(
             &self.identity,
             &list,
-            now,
+            now_ms(),
         ))
     }
 
@@ -895,6 +1036,10 @@ impl Node {
                 Ok(vec![])
             }
             CoreMsg::PairingHello { msg } => Ok(self.ingest_pairing_hello(&msg)),
+            CoreMsg::PairingSealed { sealed } => {
+                self.ingest_pairing_sealed(&sealed);
+                Ok(vec![])
+            }
             CoreMsg::Profile {
                 display_name,
                 bio,

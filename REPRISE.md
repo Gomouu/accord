@@ -41,6 +41,24 @@ Tests exigés par la feuille de route (§6.4, lot 1.D) : appairage nominal ; cod
 expiré ; code réutilisé ; empreinte non confirmée ; **tentative d'appairage par
 un tiers qui a intercepté le code** — doit échouer sans la confirmation.
 
+## 🔴 Question ouverte, apparue à l'implémentation
+
+**Comment le nouvel appareil joint-il celui qui est autorisé ?** Il n'a ni
+session, ni adresse, et le code n'en porte aucune. `docs/MULTI_DEVICE.md` §4
+décrit tout le protocole cryptographique et reste muet là-dessus.
+
+`devices.pair_submit` rend donc le message PAKE au lieu de l'envoyer, et son
+acheminement reste à concevoir. Trois pistes, aucune tranchée :
+
+- **découverte LAN** (le mécanisme mDNS existe déjà) — couvre le cas courant
+  « mes deux machines sont chez moi », pas le cas nomade ;
+- **rendez-vous dérivé du code**, publié dans la DHT — marche partout, mais
+  expose qu'un appairage est en cours à qui surveille la clé dérivée ;
+- **le QR porte l'adresse** en plus du code — simple, mais inutile quand on
+  recopie le code à la main.
+
+À trancher avant de finir le lot 1.D.
+
 ## Deux pièges déjà rencontrés, à ne pas refaire
 
 🔒 **L'ordre du lot 1.C était faux dans la feuille de route.** Commencer par

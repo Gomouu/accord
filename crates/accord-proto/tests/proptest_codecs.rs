@@ -27,6 +27,11 @@ fn hello_strategy() -> impl Strategy<Value = Hello> {
     )
         .prop_map(
             |(eph_pub, static_pub, pow_nonce, timestamp_ms, nonce, cookie, sig, capabilities)| {
+                // Le matériel post-quantique suit le bit CAP_PQ_HYBRID : la
+                // stratégie doit rester cohérente, sinon elle génère des
+                // structures que le protocole n'autorise pas à exister.
+                let pq =
+                    capabilities.is_some_and(|c: u32| c & accord_proto::limits::CAP_PQ_HYBRID != 0);
                 Hello {
                     eph_pub,
                     static_pub,
@@ -36,6 +41,7 @@ fn hello_strategy() -> impl Strategy<Value = Hello> {
                     cookie,
                     sig,
                     capabilities,
+                    pq_ek: pq.then(|| Box::new([0x5Au8; accord_proto::limits::MLKEM512_EK_BYTES])),
                 }
             },
         )

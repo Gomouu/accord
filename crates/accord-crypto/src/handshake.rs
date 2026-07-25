@@ -3,12 +3,26 @@
 //! HELLO/WELCOME avec DH éphémère X25519, authentification par signatures
 //! Ed25519 sur un transcript hash couvrant l'intégralité de l'échange, et
 //! protections anti-rejeu (fenêtre ±90 s + cache de nonces).
+//!
+//! # Hybride post-quantique (ROADMAP §7)
+//!
+//! Quand les deux pairs annoncent [`CAP_PQ_HYBRID`], une encapsulation
+//! ML-KEM-512 s'ajoute **à côté** du X25519 et la clé de session dérive des
+//! deux secrets (voir [`crate::pq`] pour le choix du jeu de paramètres).
+//!
+//! 🔒 **Anti-repli.** Le transcript couvre les capacités *et* le matériel PQ.
+//! Un attaquant qui efface le bit `PQ_HYBRID` en vol, ou qui touche à un seul
+//! octet de matériel, change le transcript calculé par le destinataire : la
+//! signature ne vérifie plus et le handshake est **rejeté**. Il peut interdire
+//! la connexion — c'est un déni de service, pas une session dégradée qu'il
+//! archiverait pour la déchiffrer plus tard.
 
 use crate::error::CryptoError;
 use crate::identity::{verify_pow, verify_signature, Identity};
+use crate::pq::{self, PqInitiator, PqSharedSecret};
 use crate::session::SessionKeys;
 use accord_proto::envelope::{Hello, Welcome};
-use accord_proto::limits::HANDSHAKE_MAX_SKEW_MS;
+use accord_proto::limits::{CAP_PQ_HYBRID, HANDSHAKE_MAX_SKEW_MS};
 use hkdf::Hkdf;
 use rand::rngs::OsRng;
 use rand::RngCore;
@@ -33,6 +47,9 @@ pub struct Established {
     /// Capacités annoncées par le pair, authentifiées par le transcript. Vaut
     /// 0 pour un pair qui n'annonce rien (version antérieure au champ).
     pub peer_capabilities: u32,
+    /// Vrai si la clé de session dérive **aussi** d'un secret ML-KEM, et pas
+    /// du seul X25519. Faux en session classique.
+    pub is_post_quantum: bool,
     /// Vrai côté initiateur.
     pub is_initiator: bool,
 }
@@ -42,6 +59,7 @@ impl std::fmt::Debug for Established {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Established")
             .field("session_id", &self.session_id)
+            .field("is_post_quantum", &self.is_post_quantum)
             .field("is_initiator", &self.is_initiator)
             .finish_non_exhaustive()
     }
@@ -63,6 +81,26 @@ fn absorb_capabilities(d: &mut Sha256, capabilities: Option<u32>) {
     }
 }
 
+/// Absorbe le matériel post-quantique dans un transcript.
+///
+/// 🔒 **Anti-repli, second verrou.** Comme pour les capacités, l'absence
+/// n'ajoute **rien** : le transcript d'un handshake classique reste bit pour
+/// bit celui des versions antérieures. Présent, le matériel est haché intégral,
+/// derrière un marqueur `0x02` distinct de celui des capacités — un octet de
+/// clé d'encapsulation ne peut donc jamais être confondu avec un octet de
+/// capacités, quelle que soit la longueur des champs.
+///
+/// Les deux verrous sont indépendants : effacer le bit change la valeur absorbée
+/// par [`absorb_capabilities`], effacer le matériel change celle absorbée ici.
+/// Une attaque doit défaire les deux, et se heurte à la signature dans les deux
+/// cas.
+fn absorb_pq_material(d: &mut Sha256, material: Option<&[u8]>) {
+    if let Some(bytes) = material {
+        d.update([0x02]);
+        d.update(bytes);
+    }
+}
+
 fn transcript_1(h: &Hello) -> [u8; 32] {
     let mut d = Sha256::new();
     d.update(HS_DOMAIN);
@@ -73,6 +111,7 @@ fn transcript_1(h: &Hello) -> [u8; 32] {
     d.update(h.timestamp_ms.to_be_bytes());
     d.update(h.nonce);
     absorb_capabilities(&mut d, h.capabilities);
+    absorb_pq_material(&mut d, h.pq_ek.as_ref().map(|k| &k[..]));
     d.finalize().into()
 }
 
@@ -87,16 +126,42 @@ fn transcript_2(t1: &[u8; 32], w: &Welcome) -> [u8; 32] {
     d.update(w.nonce);
     d.update(w.session_id);
     absorb_capabilities(&mut d, w.capabilities);
+    absorb_pq_material(&mut d, w.pq_ct.as_ref().map(|c| &c[..]));
     d.finalize().into()
 }
 
-fn derive_keys(shared: &[u8; 32], t2: &[u8; 32]) -> SessionKeys {
-    let hk = Hkdf::<Sha256>::new(Some(t2), shared);
+/// Dérive les clés directionnelles depuis le ou les secrets partagés.
+///
+/// 🔒 **Hybride.** `IKM = ECDH(X25519) ‖ Encaps(ML-KEM)`. Les deux moitiés font
+/// exactement 32 octets, la concaténation est donc sans ambiguïté : aucune
+/// répartition d'octets ne peut être lue de deux façons. Casser la session exige
+/// de casser les **deux** — c'est tout l'objet de l'hybride.
+///
+/// 🔒 Sans moitié post-quantique, l'IKM vaut exactement le secret X25519 seul :
+/// la dérivation est alors identique, octet pour octet, à celle d'avant ce
+/// jalon. C'est ce qui permet à un pair 8.0 de parler à un pair 7.0.
+fn derive_keys(x25519: &[u8; 32], pq: Option<&PqSharedSecret>, t2: &[u8; 32]) -> SessionKeys {
+    let mut ikm = Zeroizing::new([0u8; 64]);
+    ikm[..32].copy_from_slice(x25519);
+    let ikm_len = match pq {
+        Some(secret) => {
+            ikm[32..].copy_from_slice(&secret[..]);
+            64
+        }
+        None => 32,
+    };
+    let hk = Hkdf::<Sha256>::new(Some(t2), &ikm[..ikm_len]);
     let mut k_i2r = Zeroizing::new([0u8; 32]);
     let mut k_r2i = Zeroizing::new([0u8; 32]);
     crate::hkdf_expand_fixe(&hk, b"accord-i2r", k_i2r.as_mut());
     crate::hkdf_expand_fixe(&hk, b"accord-r2i", k_r2i.as_mut());
     SessionKeys::new(*k_i2r, *k_r2i)
+}
+
+/// Vrai si des capacités annoncent l'hybride post-quantique. Source unique de
+/// la décision, côté initiateur comme côté répondeur.
+fn wants_pq(capabilities: Option<u32>) -> bool {
+    capabilities.is_some_and(|caps| caps & CAP_PQ_HYBRID != 0)
 }
 
 fn check_freshness(timestamp_ms: u64, now_ms: u64) -> Result<(), CryptoError> {
@@ -136,6 +201,9 @@ impl NonceCache {
 /// État de l'initiateur entre l'envoi du HELLO et la réception du WELCOME.
 pub struct Initiator {
     eph_secret: x25519_dalek::StaticSecret,
+    /// Matériel ML-KEM éphémère, présent si le HELLO a annoncé l'hybride. La
+    /// clé de décapsulation ne sort jamais d'ici.
+    pq: Option<PqInitiator>,
     t1: [u8; 32],
     hello: Hello,
     pow_bits: u32,
@@ -153,6 +221,11 @@ impl Initiator {
     /// 🔒 `capabilities` n'est émis que si l'appelant sait le pair capable de
     /// le décoder : un HELLO plus long qu'attendu est indécodable pour une
     /// version antérieure au champ. La décision appartient au transport.
+    ///
+    /// 🔒 Le bit [`CAP_PQ_HYBRID`] de `capabilities` **engage** l'émetteur : le
+    /// matériel ML-KEM est joint au HELLO si et seulement si le bit est posé.
+    /// C'est cet accouplement, et non un préfixe de longueur, qui rend le
+    /// paquet décodable ; il vaut aussi bien à l'encodage qu'au décodage.
     pub fn start(
         identity: &Identity,
         now_ms: u64,
@@ -165,6 +238,8 @@ impl Initiator {
         let eph_pub = x25519_dalek::PublicKey::from(&eph_secret).to_bytes();
         let mut nonce = [0u8; 16];
         OsRng.fill_bytes(&mut nonce);
+        let pq = wants_pq(capabilities).then(PqInitiator::generate);
+        let pq_ek = pq.as_ref().map(|p| Box::new(*p.encapsulation_key()));
         let mut hello = Hello {
             eph_pub,
             static_pub: identity.public_key(),
@@ -174,11 +249,13 @@ impl Initiator {
             cookie,
             sig: [0; 64],
             capabilities,
+            pq_ek,
         };
         let t1 = transcript_1(&hello);
         hello.sig = identity.sign(&t1);
         Self {
             eph_secret,
+            pq,
             t1,
             hello,
             pow_bits,
@@ -208,18 +285,36 @@ impl Initiator {
         }
         let t2 = transcript_2(&self.t1, w);
         verify_signature(&w.static_pub, &t2, &w.sig)?;
+        // 🔒 Toute altération du bit de capacité ou du matériel PQ a déjà fait
+        // échouer la ligne ci-dessus : le transcript les couvre tous les deux.
+        // Ce qui suit travaille donc sur des valeurs authentifiées.
+        let pq_secret = match (&self.pq, &w.pq_ct) {
+            // Les deux pairs ont joué l'hybride.
+            (Some(pq), Some(ct)) => Some(pq.decapsulate(ct)?),
+            // Le répondeur a décliné : repli propre en classique. Il ne s'agit
+            // pas d'un repli forcé — un attaquant qui retirerait le chiffré
+            // n'aurait pas pu resigner le WELCOME.
+            (Some(_), None) => None,
+            // Aucune clé d'encapsulation n'a été émise : un chiffré n'a alors
+            // rien à déchiffrer. Le pair est authentifié mais viole le
+            // protocole ; on refuse plutôt que de dériver une clé bancale que
+            // lui seul comprendrait.
+            (None, Some(_)) => return Err(CryptoError::InvalidPqMaterial),
+            (None, None) => None,
+        };
         let peer_eph = x25519_dalek::PublicKey::from(w.eph_pub);
         let shared = self.eph_secret.diffie_hellman(&peer_eph);
         if !shared.was_contributory() {
             return Err(CryptoError::InvalidPublicKey);
         }
-        let keys = derive_keys(shared.as_bytes(), &t2);
+        let keys = derive_keys(shared.as_bytes(), pq_secret.as_ref(), &t2);
         Ok(Established {
             keys,
             session_id: w.session_id,
             peer_static: w.static_pub,
             peer_pow_nonce: w.pow_nonce,
             peer_capabilities: w.capabilities.unwrap_or(0),
+            is_post_quantum: pq_secret.is_some(),
             is_initiator: true,
         })
     }
@@ -232,6 +327,13 @@ impl Initiator {
 /// 🔒 `capabilities` n'est repris dans le WELCOME que si le HELLO en portait
 /// lui-même : un initiateur trop ancien pour émettre le champ l'est aussi pour
 /// le décoder, et un WELCOME plus long lui serait indécodable.
+///
+/// 🔒 Le bit [`CAP_PQ_HYBRID`] du WELCOME dit ce que le répondeur a **fait**,
+/// pas ce qu'il sait faire : il n'est posé que si le chiffré ML-KEM accompagne
+/// effectivement la réponse. C'est l'invariant filaire — bit ⇔ matériel — sans
+/// lequel le WELCOME serait indécodable. Un répondeur capable à qui l'on envoie
+/// un HELLO classique répond donc sans le bit, et la session est classique :
+/// c'est l'initiateur qui ouvre l'hybride, jamais le répondeur seul.
 pub fn respond(
     identity: &Identity,
     hello: &Hello,
@@ -255,6 +357,28 @@ pub fn respond(
     let mut session_id = [0u8; 8];
     OsRng.fill_bytes(&mut session_id);
 
+    // L'hybride demande un accord des deux côtés : la clé d'encapsulation de
+    // l'initiateur ET l'autorisation locale. Il suffit qu'un des deux manque
+    // pour rester en classique.
+    let (pq_ct, pq_secret) = match (wants_pq(capabilities), &hello.pq_ek) {
+        (true, Some(ek)) => {
+            let (ct, secret) = pq::encapsulate(ek)?;
+            (Some(ct), Some(secret))
+        }
+        _ => (None, None),
+    };
+    // Le bit annoncé est aligné sur ce qui est réellement joint (voir la note
+    // de la fonction) : posé quand le chiffré part, effacé sinon.
+    let welcome_capabilities = capabilities
+        .filter(|_| hello.capabilities.is_some())
+        .map(|caps| {
+            if pq_ct.is_some() {
+                caps | CAP_PQ_HYBRID
+            } else {
+                caps & !CAP_PQ_HYBRID
+            }
+        });
+
     let mut welcome = Welcome {
         eph_pub,
         static_pub: identity.public_key(),
@@ -263,7 +387,8 @@ pub fn respond(
         nonce,
         session_id,
         sig: [0; 64],
-        capabilities: capabilities.filter(|_| hello.capabilities.is_some()),
+        capabilities: welcome_capabilities,
+        pq_ct,
     };
     let t2 = transcript_2(&t1, &welcome);
     welcome.sig = identity.sign(&t2);
@@ -273,7 +398,7 @@ pub fn respond(
     if !shared.was_contributory() {
         return Err(CryptoError::InvalidPublicKey);
     }
-    let keys = derive_keys(shared.as_bytes(), &t2);
+    let keys = derive_keys(shared.as_bytes(), pq_secret.as_ref(), &t2);
     Ok((
         welcome,
         Established {
@@ -282,6 +407,7 @@ pub fn respond(
             peer_static: hello.static_pub,
             peer_pow_nonce: hello.pow_nonce,
             peer_capabilities: hello.capabilities.unwrap_or(0),
+            is_post_quantum: pq_secret.is_some(),
             is_initiator: false,
         },
     ))
@@ -502,15 +628,38 @@ mod tests {
     fn capabilities_are_exchanged_in_both_directions() {
         let (alice, bob) = pair();
         let now = 1_000_000;
-        let init = Initiator::start(&alice, now, vec![], POW, None, Some(0b101));
+        // Aucun de ces bits n'est CAP_PQ_HYBRID : ils traversent tels quels.
+        let de_alice = accord_proto::limits::CAP_DEVICE_KEYS;
+        let de_bob = accord_proto::limits::CAP_GROUP_VIDEO_N;
+        let init = Initiator::start(&alice, now, vec![], POW, None, Some(de_alice));
         let mut cache = NonceCache::new();
         let (welcome, est_b) =
-            respond(&bob, init.hello(), now, &mut cache, POW, Some(0b011)).unwrap();
-        assert_eq!(welcome.capabilities, Some(0b011));
+            respond(&bob, init.hello(), now, &mut cache, POW, Some(de_bob)).unwrap();
+        assert_eq!(welcome.capabilities, Some(de_bob));
         let est_a = init.finish(&welcome, now).unwrap();
-        assert_eq!(est_b.peer_capabilities, 0b101);
-        assert_eq!(est_a.peer_capabilities, 0b011);
+        assert_eq!(est_b.peer_capabilities, de_alice);
+        assert_eq!(est_a.peer_capabilities, de_bob);
         assert!(est_a.keys.same_keys(&est_b.keys));
+    }
+
+    #[test]
+    fn the_welcome_pq_bit_reports_what_was_done_not_what_is_supported() {
+        // Le bit PQ_HYBRID du WELCOME est le seul dont la valeur ne traverse
+        // pas telle quelle : il décrit le contenu du paquet (invariant filaire
+        // bit ⇔ matériel), pas les aptitudes du répondeur. Les autres bits
+        // annoncés à côté, eux, passent intacts.
+        let (alice, bob) = pair();
+        let now = 1_000_000;
+        let init = Initiator::start(&alice, now, vec![], POW, None, Some(0));
+        let mut cache = NonceCache::new();
+        let annonce = PQ | accord_proto::limits::CAP_DEVICE_KEYS;
+        let (welcome, _) =
+            respond(&bob, init.hello(), now, &mut cache, POW, Some(annonce)).unwrap();
+        assert_eq!(
+            welcome.capabilities,
+            Some(accord_proto::limits::CAP_DEVICE_KEYS)
+        );
+        assert_eq!(welcome.pq_ct, None);
     }
 
     #[test]
@@ -580,6 +729,241 @@ mod tests {
         assert_eq!(
             init.finish(&welcome, now).unwrap_err(),
             CryptoError::InvalidSignature
+        );
+    }
+
+    // ---- Handshake hybride post-quantique (ROADMAP §7.5, lot 2.B) ----
+
+    const PQ: u32 = accord_proto::limits::CAP_PQ_HYBRID;
+
+    #[test]
+    fn hybrid_handshake_derives_a_key_from_both_secrets() {
+        let (alice, bob) = pair();
+        let now = 1_000_000;
+        let init = Initiator::start(&alice, now, vec![], POW, None, Some(PQ));
+        assert!(
+            init.hello().pq_ek.is_some(),
+            "le HELLO doit porter la clé ML-KEM"
+        );
+        let mut cache = NonceCache::new();
+        let (welcome, est_b) = respond(&bob, init.hello(), now, &mut cache, POW, Some(PQ)).unwrap();
+        assert!(welcome.pq_ct.is_some(), "le WELCOME doit porter le chiffré");
+        let est_a = init.finish(&welcome, now).unwrap();
+
+        assert!(est_a.is_post_quantum && est_b.is_post_quantum);
+        assert!(est_a.keys.same_keys(&est_b.keys));
+
+        // La clé doit vraiment dépendre de la moitié PQ : le même X25519 et le
+        // même transcript, dérivés SANS la moitié ML-KEM, donnent autre chose.
+        let x25519_seul = {
+            let eph = x25519_dalek::StaticSecret::random_from_rng(OsRng);
+            let peer = x25519_dalek::PublicKey::from(&eph);
+            let partage = eph.diffie_hellman(&peer);
+            let t2 = [7u8; 32];
+            let secret = Zeroizing::new([9u8; 32]);
+            let avec = derive_keys(partage.as_bytes(), Some(&secret), &t2);
+            let sans = derive_keys(partage.as_bytes(), None, &t2);
+            !avec.same_keys(&sans)
+        };
+        assert!(x25519_seul, "la moitié ML-KEM doit changer la clé dérivée");
+    }
+
+    #[test]
+    fn hybrid_initiator_falls_back_cleanly_to_a_classic_responder() {
+        // Un 8.0 parle à un 8.0 dont l'hybride est éteint : session établie,
+        // classique, sans friction (ROADMAP §7.6).
+        let (alice, bob) = pair();
+        let now = 1_000_000;
+        let init = Initiator::start(&alice, now, vec![], POW, None, Some(PQ));
+        let mut cache = NonceCache::new();
+        let (welcome, est_b) = respond(&bob, init.hello(), now, &mut cache, POW, Some(0)).unwrap();
+        assert_eq!(welcome.pq_ct, None);
+        assert_eq!(welcome.capabilities, Some(0));
+        let est_a = init.finish(&welcome, now).unwrap();
+        assert!(!est_a.is_post_quantum && !est_b.is_post_quantum);
+        assert!(est_a.keys.same_keys(&est_b.keys));
+    }
+
+    #[test]
+    fn classic_initiator_falls_back_cleanly_to_a_hybrid_responder() {
+        // Le sens inverse : le répondeur sait faire, mais sans clé
+        // d'encapsulation il n'a rien à encapsuler. Il efface donc le bit.
+        let (alice, bob) = pair();
+        let now = 1_000_000;
+        let init = Initiator::start(&alice, now, vec![], POW, None, Some(0));
+        assert_eq!(init.hello().pq_ek, None);
+        let mut cache = NonceCache::new();
+        let (welcome, est_b) = respond(&bob, init.hello(), now, &mut cache, POW, Some(PQ)).unwrap();
+        assert_eq!(welcome.pq_ct, None);
+        assert_eq!(
+            welcome.capabilities,
+            Some(0),
+            "bit effacé faute de matériel"
+        );
+        let est_a = init.finish(&welcome, now).unwrap();
+        assert!(!est_a.is_post_quantum && !est_b.is_post_quantum);
+        assert!(est_a.keys.same_keys(&est_b.keys));
+    }
+
+    #[test]
+    fn peer_predating_capabilities_still_handshakes_against_a_hybrid_node() {
+        // Un pair 7.0 n'émet aucune capacité. Un nœud 8.0 configuré en hybride
+        // doit lui répondre exactement comme avant ce jalon.
+        let (alice, bob) = pair();
+        let now = 1_000_000;
+        let init = Initiator::start(&alice, now, vec![], POW, None, None);
+        let mut cache = NonceCache::new();
+        let (welcome, est_b) = respond(&bob, init.hello(), now, &mut cache, POW, Some(PQ)).unwrap();
+        assert_eq!(welcome.capabilities, None);
+        assert_eq!(welcome.pq_ct, None);
+        let est_a = init.finish(&welcome, now).unwrap();
+        assert!(!est_a.is_post_quantum && !est_b.is_post_quantum);
+        assert!(est_a.keys.same_keys(&est_b.keys));
+    }
+
+    #[test]
+    fn stripping_the_pq_capability_bit_breaks_the_handshake() {
+        // 🔒 L'ATTAQUE. Un attaquant en vol efface le bit PQ_HYBRID du HELLO
+        // pour forcer une session classique qu'il archiverait en attendant un
+        // ordinateur quantique. Le transcript couvre les capacités : sa
+        // réécriture invalide la signature. Il empêche la connexion, il
+        // n'obtient PAS de session dégradée.
+        let (alice, bob) = pair();
+        let now = 1_000_000;
+        let init = Initiator::start(&alice, now, vec![], POW, None, Some(PQ));
+        let mut hello = init.hello().clone();
+        hello.capabilities = Some(0);
+        let mut cache = NonceCache::new();
+        assert_eq!(
+            respond(&bob, &hello, now, &mut cache, POW, Some(PQ)).unwrap_err(),
+            CryptoError::InvalidSignature
+        );
+    }
+
+    #[test]
+    fn stripping_bit_and_material_together_still_breaks_the_handshake() {
+        // Variante réaliste : l'attaquant efface le bit ET le matériel, pour
+        // que le paquet reste décodable. Le transcript le rattrape deux fois.
+        let (alice, bob) = pair();
+        let now = 1_000_000;
+        let init = Initiator::start(&alice, now, vec![], POW, None, Some(PQ));
+        let mut hello = init.hello().clone();
+        hello.capabilities = Some(0);
+        hello.pq_ek = None;
+        let mut cache = NonceCache::new();
+        assert_eq!(
+            respond(&bob, &hello, now, &mut cache, POW, Some(PQ)).unwrap_err(),
+            CryptoError::InvalidSignature
+        );
+    }
+
+    #[test]
+    fn rewriting_the_pq_material_breaks_the_handshake() {
+        // 🔒 L'ATTAQUE, second angle. L'attaquant substitue SA clé
+        // d'encapsulation pour connaître le secret ML-KEM. Le matériel est dans
+        // le transcript : un seul octet changé et la signature ne vérifie plus.
+        let (alice, bob) = pair();
+        let now = 1_000_000;
+        let init = Initiator::start(&alice, now, vec![], POW, None, Some(PQ));
+        let mut hello = init.hello().clone();
+        if let Some(ek) = hello.pq_ek.as_mut() {
+            ek[0] ^= 1;
+        }
+        let mut cache = NonceCache::new();
+        assert_eq!(
+            respond(&bob, &hello, now, &mut cache, POW, Some(PQ)).unwrap_err(),
+            CryptoError::InvalidSignature
+        );
+    }
+
+    #[test]
+    fn rewriting_the_welcome_pq_ciphertext_breaks_the_handshake() {
+        let (alice, bob) = pair();
+        let now = 1_000_000;
+        let init = Initiator::start(&alice, now, vec![], POW, None, Some(PQ));
+        let mut cache = NonceCache::new();
+        let (mut welcome, _) = respond(&bob, init.hello(), now, &mut cache, POW, Some(PQ)).unwrap();
+        if let Some(ct) = welcome.pq_ct.as_mut() {
+            ct[0] ^= 1;
+        }
+        assert_eq!(
+            init.finish(&welcome, now).unwrap_err(),
+            CryptoError::InvalidSignature
+        );
+    }
+
+    #[test]
+    fn stripping_the_welcome_pq_ciphertext_breaks_the_handshake() {
+        // Repli forcé tenté sur la réponse : même verdict.
+        let (alice, bob) = pair();
+        let now = 1_000_000;
+        let init = Initiator::start(&alice, now, vec![], POW, None, Some(PQ));
+        let mut cache = NonceCache::new();
+        let (mut welcome, _) = respond(&bob, init.hello(), now, &mut cache, POW, Some(PQ)).unwrap();
+        welcome.capabilities = Some(0);
+        welcome.pq_ct = None;
+        assert_eq!(
+            init.finish(&welcome, now).unwrap_err(),
+            CryptoError::InvalidSignature
+        );
+    }
+
+    #[test]
+    fn unsolicited_pq_ciphertext_is_refused() {
+        // Un répondeur qui joint un chiffré sans avoir reçu de clé viole le
+        // protocole : on refuse au lieu de dériver une clé que lui seul aurait.
+        let (alice, bob) = pair();
+        let now = 1_000_000;
+        let init = Initiator::start(&alice, now, vec![], POW, None, Some(0));
+        let mut cache = NonceCache::new();
+        let (mut welcome, _) = respond(&bob, init.hello(), now, &mut cache, POW, Some(0)).unwrap();
+        welcome.capabilities = Some(PQ);
+        welcome.pq_ct = Some(Box::new([0u8; accord_proto::limits::MLKEM512_CT_BYTES]));
+        // Resigné par un répondeur malveillant : la signature est valide, seule
+        // la cohérence protocolaire le démasque.
+        let t1 = transcript_1(init.hello());
+        let t2 = transcript_2(&t1, &welcome);
+        welcome.sig = bob.sign(&t2);
+        assert_eq!(
+            init.finish(&welcome, now).unwrap_err(),
+            CryptoError::InvalidPqMaterial
+        );
+    }
+
+    #[test]
+    fn classic_transcript_is_unchanged_by_this_milestone() {
+        // 🔒 Compatibilité filaire (principe 2.1). Sans matériel PQ, le
+        // transcript ne doit RIEN absorber de neuf : un pair 7.0 calcule le
+        // même condensat, sinon plus personne ne s'authentifie.
+        let mut avec_absorption = Sha256::new();
+        avec_absorption.update(b"temoin");
+        absorb_pq_material(&mut avec_absorption, None);
+        let mut sans = Sha256::new();
+        sans.update(b"temoin");
+        assert_eq!(
+            avec_absorption.finalize().as_slice(),
+            sans.finalize().as_slice()
+        );
+    }
+
+    #[test]
+    fn hybrid_hello_and_welcome_stay_under_the_udp_mtu() {
+        // Non-régression de taille, mesurée sur les octets réellement encodés
+        // par le protocole — pas sur une projection.
+        use accord_proto::envelope::Packet;
+        use accord_proto::wire::WireEncode;
+        let (alice, bob) = pair();
+        let now = 1_000_000;
+        let init = Initiator::start(&alice, now, vec![0u8; 16], POW, None, Some(PQ));
+        let mut cache = NonceCache::new();
+        let (welcome, _) = respond(&bob, init.hello(), now, &mut cache, POW, Some(PQ)).unwrap();
+        let hello_len = Packet::Hello(init.hello().clone()).to_bytes().len();
+        let welcome_len = Packet::Welcome(welcome).to_bytes().len();
+        let mtu = accord_proto::limits::UDP_MTU;
+        assert!(hello_len <= mtu, "HELLO hybride {hello_len} o > MTU {mtu}");
+        assert!(
+            welcome_len <= mtu,
+            "WELCOME hybride {welcome_len} o > MTU {mtu}"
         );
     }
 

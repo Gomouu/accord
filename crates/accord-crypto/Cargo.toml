@@ -21,6 +21,13 @@ rand = { workspace = true }
 zeroize = { workspace = true }
 subtle = { workspace = true }
 bip39 = "2"
+# ML-KEM-512 du handshake hybride (jalon 2, lot 2.A) — voir la tête de
+# `src/pq.rs` pour les mesures qui départagent les candidats et les jeux de
+# paramètres. Zéro `unsafe`, même famille RustCrypto que sha2/hkdf/hmac.
+ml-kem = { version = "0.3", features = ["zeroize"] }
+# Génération d'aléa attendue par ml-kem. Version distincte de celle de rand 0.8 :
+# le pont de `pq.rs` relie les deux sans introduire de seconde source d'entropie.
+rand_core = "0.10"
 
 [dev-dependencies]
 hex = "0.4"

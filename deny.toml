@@ -5,6 +5,11 @@
 # (binaire absent sur la machine de dev) — elle est volontairement large ;
 # resserrer à la première exécution CI si une entrée s'avère inutile, ou
 # ajouter la licence manquante si une dépendance légitime est rejetée.
+#
+# Point de situation (jalon 2) : `cargo deny check` a été exécuté localement à
+# l'intégration de ML-KEM et passe (advisories, bans, licenses, sources). La
+# famille RustCrypto arrivée avec `ml-kem` (kem, hybrid-array, module-lattice,
+# sha3, keccak, cmov, ctutils) est en Apache-2.0 OR MIT, déjà couverte.
 
 [advisories]
 # Vulnérabilités connues (RUSTSEC) et code `unsound` restent des ERREURS qui
@@ -47,3 +52,20 @@ allow = [
 # Les versions multiples d'un même crate gonflent le binaire mais ne sont pas
 # une erreur : avertissement seulement.
 multiple-versions = "warn"
+
+# 🔒 Post-quantique : une seule implémentation ML-KEM entre dans l'arbre, et
+# c'est `ml-kem` (RustCrypto, zéro `unsafe`) — voir la tête de
+# `crates/accord-crypto/src/pq.rs` pour les mesures qui l'ont départagée.
+#
+# Les entrées ci-dessous ne sont pas décoratives : `pqc_kyber` porte
+# RUSTSEC-2023-0079 (« KyberSlash », récupération de clé par canal auxiliaire
+# temporel) et n'est plus maintenu. Il reste le premier résultat quand on
+# cherche « kyber rust », donc le garde-fou vise moins l'aujourd'hui que le
+# contributeur pressé de demain. `safe_pqc_kyber` en est un fork correctif,
+# mais implémente Kyber d'avant la normalisation, pas ML-KEM de FIPS 203 :
+# l'admettre reviendrait à faire cohabiter deux définitions du même échange.
+[[bans.deny]]
+name = "pqc_kyber"
+
+[[bans.deny]]
+name = "safe_pqc_kyber"

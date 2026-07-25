@@ -57,4 +57,8 @@ pub enum CryptoError {
     /// Boîte scellée mal formée.
     #[error("boîte scellée invalide")]
     BadSealedBox,
+    /// Matériel post-quantique mal formé : clé d'encapsulation non canonique
+    /// (FIPS 203 §7.2) ou chiffré de taille inattendue.
+    #[error("matériel post-quantique invalide")]
+    InvalidPqMaterial,
 }

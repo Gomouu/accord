@@ -50,6 +50,21 @@ pub const CAP_GROUP_VIDEO_N: u32 = 1 << 2;
 /// capacités sans casser les pairs plus anciens.
 pub const CAP_KNOWN: u32 = CAP_DEVICE_KEYS | CAP_PQ_HYBRID | CAP_GROUP_VIDEO_N;
 
+/// Taille d'une clé d'encapsulation ML-KEM-512 (FIPS 203, §8, jeu de
+/// paramètres de catégorie 1). Portée par le HELLO d'un initiateur hybride.
+///
+/// 🔒 **Borne de décodage, pas d'usage.** La taille est fixée par le jeu de
+/// paramètres du protocole : le décodeur lit exactement ce nombre d'octets et
+/// n'alloue jamais d'après une longueur venue du réseau. Le handshake précède
+/// l'établissement de session — il n'est donc pas authentifié — et un préfixe
+/// de longueur choisi par l'émetteur y ouvrirait une voie d'épuisement mémoire.
+/// Un autre jeu de paramètres prendra un bit de capacité neuf, jamais celui-ci.
+pub const MLKEM512_EK_BYTES: usize = 800;
+
+/// Taille d'un chiffré d'encapsulation ML-KEM-512. Porté par le WELCOME d'un
+/// répondeur hybride. Même règle de bornage que [`MLKEM512_EK_BYTES`].
+pub const MLKEM512_CT_BYTES: usize = 768;
+
 /// Nombre de trames avant re-keying obligatoire d'une session.
 pub const REKEY_FRAME_LIMIT: u64 = 1_000_000;
 

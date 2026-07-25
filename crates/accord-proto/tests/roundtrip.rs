@@ -28,6 +28,7 @@ fn sample_hello() -> Hello {
         cookie: vec![],
         sig: [4; 64],
         capabilities: None,
+        pq_ek: None,
     }
 }
 
@@ -70,6 +71,7 @@ fn packet_welcome_and_cookie_roundtrip() {
         session_id: [10; 8],
         sig: [11; 64],
         capabilities: None,
+        pq_ct: None,
     }));
     roundtrip_packet(&Packet::Cookie(CookiePacket {
         cookie: vec![1, 2, 3],
@@ -119,6 +121,7 @@ fn trailing_bytes_rejected() {
         session_id: [10; 8],
         sig: [11; 64],
         capabilities: None,
+        pq_ct: None,
     })
     .to_bytes();
     // HELLO/WELCOME réservent 4 octets de fin au champ additif `capabilities` :

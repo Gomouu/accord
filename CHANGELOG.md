@@ -41,6 +41,50 @@ All notable changes to Accord. This project follows [semantic versioning](https:
   All three now derive from `LANGS`, and the native names moved into the
   dictionaries themselves, where the parity test already enforces them.
 
+- **Multi-device: a direct message now fans out to every device of the
+  recipient.** Delivery resolves the recipient *account* into the set of
+  transport keys that can actually receive, and delivers once per key. The
+  offline queue is indexed by that key, so the per-device mailbox falls out for
+  free: a device that was down catches up on its own reconnection without
+  holding up the others, and without a message delivered here being filed again
+  over there.
+
+  The delicate part is not the loop, it is the target set. A device is listed in
+  its account long before its transport presents its own key, so the list alone
+  cannot say *where* to write. Each entry now carries a flag saying which of the
+  two regimes that device applies right now — set from the key its transport
+  really presents, and re-signed if the stored entry ever disagrees with
+  reality. Without that, the update that flips the transport would leave every
+  correspondent writing to a key nobody listens on, and the list would never say
+  otherwise.
+
+  So: no list, or no entry flagged, means the account key alone — bit for bit
+  what every node does today. All flagged means one target per device. A *mixed*
+  list means the flagged devices plus the account key, and that is the state
+  that will exist in the wild for weeks. Keeping only the flagged ones cuts off
+  whoever has not updated; always adding the account key files a message forever
+  for a listener that no longer exists.
+
+- **Multi-device: the network layer now speaks devices, the application layer
+  speaks people.** Presence, the offline mailbox, the local DHT identity and the
+  mDNS announcement are all anchored on the transport key rather than the
+  account key. Two machines of one account used to compute the same presence key
+  and the same mDNS service name: they overwrote each other's addresses every
+  five minutes and each discarded the other's LAN announcement as its own.
+  Resolution, hole punching and relay circuits iterate delivery targets, since
+  punching toward an account key ends in an identity mismatch — which drops the
+  pending session's whole queue on the way out.
+
+  And the missing half of the previous release: a peer's device list can now be
+  picked up *from* the DHT, not only accepted when pushed over an already-open
+  session. That was the circular part — a switched account publishes no presence
+  under its root key, so without its list you would not even know which other
+  key to look for. It resolves because the list's DHT key is computed from the
+  account key alone, which a friend code already gives you.
+
+  The transport still presents the account key. This is all still the reading
+  half.
+
 - **Multi-device, phase one: accounts now publish their device list.** The
   list is signed by the account root, published to the DHT under a key derived
   from the account, and refreshed on the same cadence as the identity record.
@@ -71,6 +115,15 @@ All notable changes to Accord. This project follows [semantic versioning](https:
   it is already in place when it is needed.
 
 ### Fixed
+
+- **A restored backup no longer clones the device key.** The archive copies the
+  whole profile, database included, and the database holds this machine's device
+  seed. Restoring on a second machine installed the same device key there — and
+  the transport keeps at most one session per key, so the two machines would
+  have knocked each other offline from every friend, permanently, with nothing
+  on screen explaining why. The device identity is now regenerated at import,
+  along with the account's own cached device list; the account key, the history
+  and the profile are restored untouched.
 
 - **"Mark as read" is back in the server menu.** It was lost in the 4.5.0 menu
   redesign and shipped missing. The end-to-end test covering it had been failing

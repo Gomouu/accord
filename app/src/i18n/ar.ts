@@ -938,6 +938,12 @@ export const ar: Dict = {
     pairFingerprintMismatch: 'إذا اختلف الرقمان فألغِ العملية: الجهاز المقابل ليس جهازك.',
     pairConfirm: 'الرقمان متطابقان',
     pairConfirmed: 'تم اقتران الجهاز!',
+    pairJoinHint: 'هل يعرض جهازك الآخر رمزًا؟ أدخله هنا لإضافة هذا الجهاز إلى الحساب.',
+    pairJoinLabel: 'الرمز الظاهر على الجهاز الآخر',
+    pairJoinSubmit: 'أرسل الرمز',
+    pairJoinWaiting: 'أُرسل الرمز. التبادل جارٍ مع الجهاز الآخر…',
+    pairJoinRejected:
+      'رُفض الرمز. انسخه كما يظهر تمامًا: لا يحتوي أبدًا على 0 أو O أو 1 أو I أو L.',
     devicesTitle: 'أجهزة الصوت',
     inputDevice: 'الدخل (الميكروفون)',
     outputDevice: 'الخرج (السماعات)',

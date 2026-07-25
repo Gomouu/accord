@@ -958,6 +958,13 @@ export const de: Dict = {
       'Wenn die beiden Zahlen sich unterscheiden, brich ab: Das Gerät auf der anderen Seite ist nicht deins.',
     pairConfirm: 'Die Zahlen sind gleich',
     pairConfirmed: 'Gerät gekoppelt!',
+    pairJoinHint:
+      'Zeigt dein anderes Gerät einen Code an? Gib ihn hier ein, um dieses Gerät zum Konto hinzuzufügen.',
+    pairJoinLabel: 'Auf dem anderen Gerät angezeigter Code',
+    pairJoinSubmit: 'Code bestätigen',
+    pairJoinWaiting: 'Code gesendet. Austausch mit dem anderen Gerät läuft…',
+    pairJoinRejected:
+      'Code abgelehnt. Übertrage ihn genau so, wie er angezeigt wird: Er enthält nie 0, O, 1, I oder L.',
     devicesTitle: 'Audiogeräte',
     inputDevice: 'Eingang (Mikrofon)',
     outputDevice: 'Ausgang (Kopfhörer, Lautsprecher)',

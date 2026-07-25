@@ -987,6 +987,13 @@ export const fr = {
       'Si les deux nombres diffèrent, annule : l’appareil en face n’est pas le tien.',
     pairConfirm: 'Les nombres sont identiques',
     pairConfirmed: 'Appareil appairé !',
+    pairJoinHint:
+      'Ton autre appareil affiche un code ? Saisis-le ici pour ajouter celui-ci au compte.',
+    pairJoinLabel: 'Code affiché sur l’autre appareil',
+    pairJoinSubmit: 'Valider le code',
+    pairJoinWaiting: 'Code envoyé. Échange en cours avec l’autre appareil…',
+    pairJoinRejected:
+      'Code refusé. Recopie-le tel qu’il s’affiche : il ne contient jamais 0, O, 1, I ni L.',
     // Voix.
     devicesTitle: 'Périphériques audio',
     inputDevice: 'Entrée (micro)',

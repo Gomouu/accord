@@ -11,6 +11,7 @@ import { api } from '../../lib/client';
 import { type AccountDevice } from '../../lib/api';
 import { useT, useUi } from '../../stores/ui';
 import { SettingsSection } from './controls';
+import { JoinDeviceForm } from './JoinDeviceForm';
 import { PairDeviceButton } from './PairDeviceButton';
 
 /**
@@ -104,7 +105,11 @@ export function DevicesSection() {
         </ul>
       )}
 
+      {/* Les deux côtés de l'appairage, dans l'ordre où on les rencontre :
+          on ouvre un code depuis l'appareil déjà autorisé, on le saisit
+          depuis celui qu'on ajoute. */}
       <PairDeviceButton />
+      <JoinDeviceForm />
 
       {current !== null && (
         <div className="mt-4 flex flex-wrap items-center gap-2">

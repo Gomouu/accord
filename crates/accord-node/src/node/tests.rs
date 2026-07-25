@@ -2046,3 +2046,111 @@ fn un_code_mal_recopie_donne_des_empreintes_differentes() {
         assert_ne!(a, b, "un code fautif doit se voir");
     }
 }
+
+#[test]
+fn revoquer_un_appareil_le_retire_et_le_consigne() {
+    let (n, appareil) = appairage_jusqua_lappareil_propose();
+    n.pairing_confirm().unwrap();
+
+    n.revoke_device(&appareil.public_key())
+        .expect("révocation acceptée");
+
+    let record = n.device_list_record().unwrap();
+    let mut r = accord_proto::Reader::new(&record.value);
+    let liste =
+        <accord_proto::device::DeviceList as accord_proto::WireDecode>::decode(&mut r).unwrap();
+    assert!(!liste.authorises(&appareil.public_key()));
+    assert!(
+        liste
+            .revoked
+            .iter()
+            .any(|e| e.pubkey == appareil.public_key()),
+        "la révocation est consignée, pas seulement l'absence"
+    );
+}
+
+#[test]
+fn revoquer_lappareil_courant_est_refuse() {
+    // 🔒 Se couper soi-même laisserait le compte sans aucune machine capable
+    // de signer la liste suivante : irrécupérable sans la phrase de secours.
+    let (n, _) = appairage_jusqua_lappareil_propose();
+    n.pairing_confirm().unwrap();
+
+    let courant = n
+        .account_devices()
+        .unwrap()
+        .into_iter()
+        .find(|d| d.is_current)
+        .expect("appareil courant");
+
+    assert!(n.revoke_device(&courant.pubkey).is_err());
+}
+
+#[test]
+fn revoquer_un_appareil_inconnu_est_refuse() {
+    let (n, _) = appairage_jusqua_lappareil_propose();
+    n.pairing_confirm().unwrap();
+    assert!(n.revoke_device(&[7u8; 32]).is_err());
+}
+
+#[test]
+fn une_liste_revoquee_ne_rattache_plus_lappareil_a_son_compte() {
+    // Le bout qui compte pour la sécurité : après révocation, la résolution
+    // appareil → compte ne doit plus reconnaître la clé retirée.
+    let (n, appareil) = appairage_jusqua_lappareil_propose();
+    n.pairing_confirm().unwrap();
+    let compte = n.public_key();
+
+    let avant = n.device_list_record().unwrap();
+    n.revoke_device(&appareil.public_key()).unwrap();
+    let apres = n.device_list_record().unwrap();
+
+    let lire = |record: &accord_proto::types::DhtRecord| {
+        let mut r = accord_proto::Reader::new(&record.value);
+        <accord_proto::device::DeviceList as accord_proto::WireDecode>::decode(&mut r).unwrap()
+    };
+    assert!(lire(&avant).authorises(&appareil.public_key()));
+    assert!(!lire(&apres).authorises(&appareil.public_key()));
+    assert_eq!(lire(&apres).account, compte);
+    assert!(
+        lire(&apres).version > lire(&avant).version,
+        "la version doit croître, sinon les pairs ignoreraient la révocation"
+    );
+}
+
+#[test]
+fn un_appareil_appaire_apparait_dans_la_liste_de_lecran() {
+    // 🔒 Sans ça, une machine ajoutée au compte serait invisible : personne ne
+    // pourrait constater sa présence, ni la révoquer.
+    let (n, appareil) = appairage_jusqua_lappareil_propose();
+    n.pairing_confirm().unwrap();
+
+    let vus = n.account_devices().unwrap();
+    assert_eq!(
+        vus.len(),
+        2,
+        "l'appareil local et celui qu'on vient d'ajouter"
+    );
+    assert!(vus.iter().any(|d| d.pubkey == appareil.public_key()));
+    assert_eq!(
+        vus.iter().filter(|d| d.is_current).count(),
+        1,
+        "un seul appareil courant"
+    );
+    assert!(
+        !vus.iter()
+            .any(|d| d.pubkey == appareil.public_key() && d.is_current),
+        "l'appareil appairé n'est pas celui-ci"
+    );
+}
+
+#[test]
+fn un_appareil_revoque_disparait_de_lecran() {
+    let (n, appareil) = appairage_jusqua_lappareil_propose();
+    n.pairing_confirm().unwrap();
+    n.revoke_device(&appareil.public_key()).unwrap();
+
+    let vus = n.account_devices().unwrap();
+    assert_eq!(vus.len(), 1);
+    assert!(vus[0].is_current);
+}

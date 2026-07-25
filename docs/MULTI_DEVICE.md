@@ -1,6 +1,9 @@
 # Multi-device — design document
 
-**Status**: design, no production code yet. This is lot 1.A of milestone 1.
+**Status**: design of lot 1.A. §4 has been brought back in step with the pairing
+code that shipped in lot 1.D — where the implementation contradicted the design,
+the design text was corrected, not the code. The rest still runs ahead of the
+code.
 **Target**: 7.0.
 **Rule**: nothing is implemented before this document answers the questions it
 raises. That rule exists because two hours of reading `install_session` once
@@ -171,32 +174,63 @@ know it is not instantaneous.
 This is where an attacker would try to slip their device into someone's
 account — the one moment where the account grants trust.
 
-**Flow: out-of-band code, mutual fingerprint confirmation.**
+**Flow: out-of-band code, mutual fingerprint confirmation.** The channel lives
+in `accord-crypto/src/pairing.rs`; the rules around it — single use, expiry,
+attempt limit — in `accord-node/src/pairing.rs`.
 
-1. On the **already-authorised** device: "Add a device" shows a short code
-   (and a QR of the same value), valid 5 minutes, single use.
-2. On the **new** device: enter or scan the code. It generates its key pair.
-3. Both derive a channel from the code with a **PAKE** (`spake2`, see §4.1).
-   Not a shared secret sent in the clear: the code is short and low-entropy, so
-   it must never be usable offline by an eavesdropper.
-4. Both screens show the **same short fingerprint** of the established channel.
-   The user confirms on **both** sides.
-5. The authorised device adds the new key, signs version *n+1*, publishes it.
-6. The new device receives the list. **The root key never moves.**
+1. On the **already-authorised** device: "Add a device" shows a short code,
+   valid 5 minutes. **8 characters over a 31-symbol alphabet, ≈ 39 bits.** The
+   alphabet excludes `0`/`O` and `1`/`I`/`L`: a code is read off one screen and
+   typed into another, sometimes read aloud, and two characters that look alike
+   turn into a pairing that fails with nobody understanding why. A wrong
+   character is rejected, never silently corrected — "0" for "O" is a plausible
+   fix and the start of a code you believe you typed.
+2. On the **new** device: enter the code. It generates its device key pair.
+3. Both derive a channel from the code with a **symmetric PAKE** (`spake2`, see
+   §4.1) and send each other one `PairingHello` (0x18). Not a shared secret sent
+   in the clear: the code is short and low-entropy, so it must never be usable
+   offline by an eavesdropper.
+4. Both screens show the **same 6-digit fingerprint** of the channel key, in two
+   groups of three, and each user confirms on their own side.
+5. Confirming on the **new** device sends its `DeviceEntry` — device public key,
+   PoW nonce, name — **sealed under the channel key** (`PairingSealed`, 0x19).
+   The authorised device retains it only if the payload opens *and* the proposed
+   key carries a valid identity proof of work. Retaining is not enrolling.
+6. Confirming on the **authorised** device is what seals the pairing: it adds
+   the entry, signs version *n+1*, stores it and publishes it. It refuses when
+   no sealed entry has arrived, rather than consuming the offer for nothing.
+   **The root key never moves.**
 
-🔒 **Constraints**
+🔒 **Constraints, as implemented**
 
-- The code is single-use and expires after 5 minutes.
-- A fingerprint mismatch **cancels** the pairing. There is no "continue anyway".
-- The account root key never travels, not even encrypted.
-- Pairing attempts are rate-limited: a short code is brute-forceable if you may
-  keep guessing.
+- **One offer at a time, in memory only.** A code that survived a restart would
+  be a code nobody is watching a screen for. Asking for a new one cancels the
+  previous.
+- **Five minutes.** Expiry and single use are checked *before* the attempt
+  counter is touched: a dead offer does not move its counter, so what the screen
+  shows cannot be steered from outside.
+- **Three attempts, counted whether they complete or not** (§4.2). Past that the
+  offer is burnt and even the correct code stops working: you have to walk back
+  to the authorised device and open a new one.
+- **The offer is consumed by the fingerprint confirmation, not by a completed
+  exchange** (§4.2).
+- A fingerprint mismatch **cancels** the pairing. There is no "continue anyway":
+  confirmation is a separate explicit call, and it refuses when there is no
+  channel or no proposed device to seal.
+- **Every attempt restarts from a fresh SPAKE2 state.** Replaying one state
+  across attempts would hand an attacker several observations of the same
+  secret.
+- The account root key never travels, not even encrypted. Pairing grants
+  membership in the signed list; it never grants the ability to sign one.
+- Neither the code nor the channel key can reach a log: both types have a mute
+  `Debug`, and it is tested.
 
 **Why the PAKE and not a plain code.** With a plain shared secret, anyone who
 observes the exchange can derive the channel offline and impersonate the new
-device. A PAKE makes each guess cost one *online* interaction, which the rate
-limit then bounds. This is the difference between a 6-digit code being fine and
-being a hole.
+device. A PAKE makes each guess cost one *online* interaction, which the attempt
+limit then bounds. This is the difference between a short code being fine and
+being a hole. It is also why the code could be lengthened to 39 bits for free:
+length is not what makes guessing expensive, the online round-trip is.
 
 **Why the fingerprint confirmation on top.** The PAKE authenticates the channel
 to whoever knows the code. If the code leaks — shoulder-surfed, screenshot in a
@@ -239,13 +273,60 @@ it. Three things do:
 selection chose for the balanced case, and it is the better protocol on paper:
 SPAKE2 depends on fixed group elements *M* and *N*, and its base form provides
 no forward secrecy without an explicit key-confirmation step. That step is
-therefore **mandatory** in our flow — which costs nothing here, because the
-fingerprint confirmation of §4 already *is* a key confirmation, performed by a
-human on both screens. Choosing the maintained implementation of a frozen
-specification beats the dormant implementation of a moving one.
+therefore **mandatory** in our flow, and it costs nothing here because the flow
+already performs it twice: the fingerprint comparison of §4, by a human on both
+screens, and — this one the machine can check — the opening of the sealed
+`DeviceEntry` under the channel key. Choosing the maintained implementation of a
+frozen specification beats the dormant implementation of a moving one.
 
 Not pinned to `0.5.0-pre.0`: a pre-release has, by definition, an unstable API,
 and it raises the MSRV to 1.85. Revisit when it goes stable.
+
+### 4.2 What the symmetric PAKE proves — and what it does not
+
+Written **after** the implementation, because the implementation contradicted an
+assumption this document carried without ever stating it.
+
+**A completed exchange proves nothing.** In its symmetric form
+(`Spake2::start_symmetric`, the right shape for two devices of one account where
+neither is "the server"), SPAKE2 derives a key on **both** sides even when the
+two codes differ — the keys are simply different. `finish()` returns an error
+only when the peer's message is malformed; it never means "wrong code". There is
+no oracle to read here, and none we could offer.
+
+Three consequences, all of them load-bearing in the code:
+
+1. **The offer is consumed at the fingerprint confirmation, never at a completed
+   exchange.** Marking it used as soon as an exchange completes would let anyone
+   destroy a pairing in progress with a single well-formed datagram, and the
+   legitimate user would have to start over without ever learning why.
+2. **The one cryptographic failure that proves anything is opening the sealed
+   payload** under the channel key: whoever cannot open it did not have the
+   code. That is why the new device's `DeviceEntry` travels sealed, and why the
+   authorised device retains nothing before that payload opens.
+3. **Three attempts, counted whether they complete or not.** A counter that only
+   charged for failures would charge for almost nothing, since completing is not
+   success. What makes a 39-bit code acceptable is bounding the number of
+   *interactions*; the PAKE only makes each interaction necessary.
+
+⚠️ **The candidate channel is a single slot, and the last completed exchange
+wins.** A stranger who can reach the node while an offer is open therefore
+changes the fingerprint shown on the authorised screen. They cannot pair — the
+two screens stop agreeing, and the human comparison is exactly what catches that
+— but they can make a legitimate attempt fail, and three of them burn the offer.
+This is a denial of pairing, not a way in, and it is bounded by the five-minute
+window and by the user simply asking for a new code.
+
+**Revocation.** `Node::revoke_device` drops the entry from `devices`, records a
+`RevokedEntry`, signs version *n+1* and publishes. The record is kept rather
+than the mere absence: a peer holding an older list where the device still
+appears must be able to see that it was *removed*, not merely fail to find it.
+`DeviceList::authorises` treats a key present in both `devices` and `revoked` as
+revoked — on an inconsistent list, refusal is the only safe answer.
+
+Revoking the device you are on is refused. It would cut the account off from
+itself: no machine left to sign the next list, and no way back without the
+recovery phrase. §3.3 describes how the revocation then propagates.
 
 ---
 
@@ -333,13 +414,23 @@ ordering.
 | | Claim a person has a device they do not | Same — requires the root signature |
 | Stranger on the DHT | Store a huge device list to exhaust memory | `MAX_DEVICES = 8`, `MAX_REVOKED = 32`, `MAX_DHT_VALUE = 8 KiB`, all enforced at decode |
 | | Brute-force a pairing code | PAKE makes each guess an online interaction; rate limit bounds them; the code expires in 5 min |
+| | Burn a pairing offer with well-formed hellos | Nothing does — three attempts, counted whether they complete or not (§4.2). It is a denial of pairing, not a way in |
 | Someone who steals a device | Read that device's history | Out of scope — the local database is already encrypted at rest by the vault. Revoking the device stops *future* delivery, not past storage |
 
 **What this design does not protect against**, stated plainly:
 
+- **Someone physically in front of an unlocked authorised device can pair their
+  own.** They open the offer, read the code off the screen and confirm the
+  fingerprint on both sides. The flow is *built* to require that presence; it
+  cannot tell the account's owner from anyone else who is standing there. No
+  cryptography addresses this.
 - A compromised authorised device can pair another device. It holds the ability
-  to sign as the account (via the pairing flow). Revocation is the remedy, after
-  the fact.
+  to sign as the account (via the pairing flow). Revocation would be the remedy,
+  after the fact — once it exists (§4.2).
+- **The device list is public.** It is published in the DHT, signed and readable
+  by anyone who can derive its key from the account public key, which is what
+  lets a contact find you. It exposes how many devices an account has, their
+  user-chosen names and when each was added.
 - Losing the recovery phrase *and* all devices means losing the account. There
   is no recovery authority, by construction.
 
@@ -399,6 +490,6 @@ The roadmap left four open. Deciding them here is the point of this document.
 - [x] Migration plan for an existing account, with the trap called out.
 - [x] The four open questions decided.
 
-**Remaining before code**: pick the concrete PAKE implementation (SPAKE2 vs
-CPace), check its licence against `deny.toml`, and confirm the crate is
-maintained. That is the first task of lot 1.B, not a design question.
+**Settled since**: the PAKE choice (SPAKE2 vs CPace), its licence against
+`deny.toml` and the state of the crate — §4.1. §4.2 records what only writing
+the code could reveal.

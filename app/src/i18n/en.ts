@@ -977,6 +977,13 @@ export const en: Dict = {
       'If the two numbers differ, cancel: the device at the other end is not yours.',
     pairConfirm: 'The numbers match',
     pairConfirmed: 'Device paired!',
+    pairJoinHint:
+      'Is your other device showing a code? Enter it here to add this one to the account.',
+    pairJoinLabel: 'Code shown on the other device',
+    pairJoinSubmit: 'Submit code',
+    pairJoinWaiting: 'Code sent. Exchange under way with the other device…',
+    pairJoinRejected:
+      'Code refused. Copy it exactly as shown: it never contains 0, O, 1, I or L.',
     // Voice.
     devicesTitle: 'Audio devices',
     inputDevice: 'Input (microphone)',

@@ -5,7 +5,7 @@
 > repository (crates `accord-crypto`, `accord-transport`, `accord-dht`,
 > `accord-core`, `accord-node`) and in the `SPEC.md` / `ARCHITECTURE.md`
 > contracts.
-> Last reviewed: 2026-07-21. **No external audit has been performed.**
+> Last reviewed: 2026-07-25. **No external audit has been performed.**
 > The security trade-offs deliberately accepted for v0 are detailed in
 > [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md).
 
@@ -32,6 +32,7 @@
 | Key derivation | HKDF-SHA-256 | `hkdf`, `sha2` |
 | Identity vault | Argon2id (m = 64 MiB, t = 3, p = 4) | `argon2` |
 | Anti-Sybil | 16-bit proof of work over `SHA-256(pubkey ‖ nonce)` | `accord-crypto::identity` |
+| Device pairing | Symmetric SPAKE2 (Ed25519 group, RFC 9382) + XChaCha20-Poly1305 channel | `spake2` 0.4, `accord-crypto::pairing` |
 | Local database | SQLCipher (full-file encryption) | `rusqlite` + embedded SQLCipher (D-013) |
 | Search index | HMAC-SHA-256 tokens (blind) | `accord-core::search` (D-011) |
 | Recovery phrase | English BIP39, 12 words (128 bits + checksum) | `bip39` |
@@ -134,7 +135,61 @@ arbitrary input; in-memory secrets are wiped via `zeroize`.
 - **Secrets never logged**: the API token, passphrases, keys and message
   contents appear in no log (`tracing` only logs counters and states).
 
-### 3.5 Local surface (UI ↔ node)
+### 3.5 Device pairing and the device list
+
+An Accord identity is an **account** (root key) that authorises several
+**devices**, each with its own key; the signed device list says which
+([docs/MULTI_DEVICE.md](docs/MULTI_DEVICE.md)). Pairing is the one moment where
+an account grants trust, so it is described here in full — including where it
+stops.
+
+- **Out-of-band code, human-confirmed fingerprint.** The already-authorised
+  device shows an 8-character code over a 31-symbol alphabet (≈ 39 bits;
+  `0/O` and `1/I/L` are excluded so the code survives being read aloud or copied
+  between screens), valid 5 minutes. Both sides derive a one-shot channel from
+  it with a **symmetric SPAKE2**, both screens then show the same 6-digit
+  fingerprint of the channel key, and a human compares them. Nothing is signed
+  before that comparison.
+- **What the PAKE buys**: an observer who records the exchange cannot derive the
+  channel offline, so every guess costs one *online* interaction. Combined with
+  the attempt limit below, that is what makes a short code acceptable rather
+  than a hole.
+- **What actually proves knowledge of the code — and it is not the PAKE.** In
+  its symmetric form, SPAKE2 derives a key on both sides even when the two codes
+  differ; the keys are simply different. A failure there means the message was
+  malformed, never "wrong code". The only cryptographic failure that proves
+  anything is the **opening of the sealed payload** under the channel key:
+  whoever cannot open it did not have the code. The new device's public key
+  therefore travels sealed under that channel, and it is kept only if it also
+  carries a valid identity proof of work.
+- **The pairing offer is consumed by the fingerprint confirmation, never by a
+  completed exchange.** Since completing proves nothing, consuming the offer on
+  a completed exchange would let anyone destroy a pairing in progress with one
+  well-formed datagram.
+- **Three attempts, counted whether they complete or not**, then the offer is
+  burnt and even the correct code stops working. Plus: a single offer at a time,
+  held **in memory only** (a code does not survive a restart), expiring after 5
+  minutes, replaced whenever a new one is requested, and restarting from a fresh
+  SPAKE2 state at every attempt. The code and the channel key have a mute
+  `Debug` and reach no log.
+- **The account root key never travels**, not even encrypted. Pairing grants
+  membership in the signed device list; it never grants the ability to issue
+  one.
+- **The device list is signed by the account root key** over its whole content,
+  version included, so an old list cannot be replayed with a bumped version. A
+  version lower than or equal to one already held is ignored, bounds are
+  enforced at decode (8 devices, 32 revocations, 8 KiB record), and the list
+  carries an explicit 24 h lifetime past which a holder must refresh before
+  trusting it — a stale list authorises nobody.
+
+**Denial of pairing.** The candidate channel is a single slot and the last
+completed exchange wins, so anyone who can reach the node while an offer is open
+can change the fingerprint shown on the authorised screen, and three well-formed
+messages burn the offer. They cannot pair — the two screens stop agreeing, which
+is precisely what the human comparison catches — but they can force the user to
+start over. Bounded by the 5-minute window.
+
+### 3.6 Local surface (UI ↔ node)
 
 - The JSON-RPC API listens **only on 127.0.0.1**, requires a session token on
   the first request (constant-time comparison via `subtle`), and closes the
@@ -241,6 +296,26 @@ Read before recommending Accord to people whose safety depends on anonymity.
     optional default, the current implementation always seals the vault under
     the **user passphrase** (no random secret in the system keychain): a weak
     phrase weakens the vault.
+12. **Physical presence at an authorised device is enough to pair.** Anyone
+    standing in front of your unlocked, already-authorised machine can open a
+    pairing offer, read the code off the screen and confirm the fingerprint on
+    both sides. The flow is *designed* to require exactly that presence, and it
+    cannot tell the account's owner from anyone else who is standing there. No
+    cryptography protects against this — physical control of your machines
+    does.
+13. **Device revocation is eventually consistent.** A peer that has not
+    refreshed its copy of your device list keeps treating a revoked device as
+    valid until that copy expires — at most 24 hours, usually less, since every
+    connection refreshes it. There is no server to push a revocation through; a
+    user deciding to revoke must know it is not instantaneous, and the screen
+    has to say so. Revoking the device you are currently on is refused: it
+    would leave the account with no machine able to sign the next list.
+14. **The device list is public.** It is published in the DHT, signed by the
+    account key, under a key derived from that same account key — which is what
+    lets a contact learn where to reach you without a server. It therefore
+    exposes, to anyone who can resolve your friend code, **how many devices your
+    account has, the names you gave them ("Work laptop") and when each was
+    added**. Name devices accordingly.
 
 ## 6. Accepted v0 trade-offs
 
@@ -286,6 +361,17 @@ Recommended entry points for an auditor, from most critical to least critical:
   `cargo-fuzz` harness (`fuzz/fuzz_targets/`: `proto_decode`, `core_msg`,
   `handshake_decode`, `dht_record`, `group_op_body`, `group_state`,
   `file_manifest`, `backup_archive`).
+- [ ] **Device pairing** (`crates/accord-crypto/src/pairing.rs`,
+  `crates/accord-node/src/pairing.rs`): what a completed symmetric SPAKE2
+  exchange does and does not prove, the sealed payload as the only
+  machine-checkable key confirmation, single use tied to the fingerprint
+  confirmation rather than to the exchange, attempt counter, expiry, fresh state
+  per attempt, absence of the code and the channel key from `Debug` and logs.
+- [ ] **Device list** (`crates/accord-proto/src/device.rs`,
+  `crates/accord-crypto/src/device.rs`, `crates/accord-node/src/device.rs`):
+  root signature coverage including the version, version monotonicity, decode
+  bounds, freshness window, and a key present in both `devices` and `revoked`
+  counting as revoked.
 - [ ] **DHT record validation** (`crates/accord-dht/src/store.rs`): signature,
   key/nature consistency, expiration, quotas.
 - [ ] **Disjoint paths** (`crates/accord-dht/src/lookup.rs`): real disjunction

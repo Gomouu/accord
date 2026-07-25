@@ -957,6 +957,27 @@ export class Api {
     return this.rpc.call('devices.pair_status');
   }
 
+  /**
+   * Saisit, côté **nouvel appareil**, le code affiché par l'appareil autorisé.
+   *
+   * Le code part tel que l'utilisateur l'a recopié : c'est le nœud qui ignore
+   * espaces et tirets et qui relève la casse. Échoue si le code est mal formé
+   * ou refusé — sans distinguer les deux, pour ne rien apprendre à qui
+   * essaierait des codes au hasard.
+   *
+   * Un envoi accepté n'appaire rien encore : il ouvre l'échange, dont
+   * `devices.pair_status` rendra l'empreinte à confirmer.
+   *
+   * ⚠️ Rend `hello`, le message PAKE en hexadécimal. **Il n'est acheminé par
+   * personne aujourd'hui** : rien ne dit encore comment le nouvel appareil
+   * joint celui qui est autorisé (voir `REPRISE.md`). Le type l'expose plutôt
+   * que de le cacher — un appelant futur en aura besoin, et un `{}` menteur
+   * lui ferait croire qu'il n'y a rien à router.
+   */
+  devicesPairSubmit(code: string): Promise<{ hello: string }> {
+    return this.rpc.call('devices.pair_submit', { code });
+  }
+
   /** Valide l'empreinte affichée et achève l'appairage. */
   devicesPairConfirm(): Promise<Record<string, never>> {
     return this.rpc.call('devices.pair_confirm');

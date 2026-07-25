@@ -585,6 +585,54 @@ impl Node {
         Ok(())
     }
 
+    /// Révoque un appareil du compte et publie la version n+1.
+    ///
+    /// 🔒 **On ne révoque pas l'appareil sur lequel on est.** Ce serait se
+    /// couper soi-même, et il ne resterait aucune machine capable de signer la
+    /// liste suivante — le compte deviendrait irrécupérable sans la phrase de
+    /// récupération.
+    ///
+    /// ⚠️ La révocation est à **cohérence finale** : un pair qui ne rafraîchit
+    /// pas sa liste continue de tenir l'appareil pour valide jusqu'à
+    /// expiration (24 h). C'est le prix de l'absence de serveur, et l'écran
+    /// doit le dire à qui révoque.
+    pub fn revoke_device(&self, pubkey: &[u8; 32]) -> Result<(), NodeError> {
+        let local = self
+            .with_db(|db| Ok(db.local_device()?))?
+            .ok_or(NodeError::Invalid("aucun appareil local"))?;
+        if accord_crypto::DeviceIdentity::from_seed(local.seed).public_key() == *pubkey {
+            return Err(NodeError::Invalid(
+                "impossible de révoquer l'appareil courant",
+            ));
+        }
+        let mut list = self.current_device_list()?;
+        let avant = list.devices.len();
+        list.devices.retain(|d| d.pubkey != *pubkey);
+        if list.devices.len() == avant {
+            return Err(NodeError::NotFound("appareil inconnu"));
+        }
+        let now = now_ms();
+        // La révocation est CONSERVÉE, pas seulement l'absence : un pair qui
+        // détient une liste ancienne où l'appareil figure encore doit pouvoir
+        // constater qu'il a été retiré, et pas seulement ne plus le voir.
+        list.revoked.push(accord_proto::device::RevokedEntry {
+            pubkey: *pubkey,
+            revoked_ms: now,
+        });
+        if list.revoked.len() > accord_proto::device::MAX_REVOKED {
+            // Les plus anciennes sortent : un appareil révoqué depuis
+            // longtemps est de toute façon inconnu des pairs récents, et la
+            // liste ne doit pas croître sans fin.
+            let trop = list.revoked.len() - accord_proto::device::MAX_REVOKED;
+            list.revoked.drain(..trop);
+        }
+        list.version = accord_crypto::version_for(now);
+        accord_crypto::sign_device_list_with_root(&self.identity, &mut list);
+        self.store_device_list(&list)?;
+        self.publish_device_list(&list);
+        Ok(())
+    }
+
     /// Liste d'appareils courante du compte : celle qui est persistée, ou une
     /// liste neuve à un seul appareil si aucune ne l'est encore.
     ///
@@ -655,16 +703,25 @@ impl Node {
         let Some(stored) = self.with_db(|db| Ok(db.local_device()?))? else {
             return Ok(Vec::new());
         };
-        let device = accord_crypto::DeviceIdentity::from_seed(stored.seed);
-        Ok(vec![AccountDevice {
-            pubkey: device.public_key(),
-            name: stored.name,
-            // L'appareil local n'a pas de date d'ajout persistée : il existe
-            // depuis la migration. Zéro plutôt qu'une date inventée — l'écran
-            // sait l'interpréter, une fausse date induirait en erreur.
-            added_ms: 0,
-            is_current: true,
-        }])
+        let local = accord_crypto::DeviceIdentity::from_seed(stored.seed).public_key();
+        // 🔒 Lire la liste plutôt que rendre le seul appareil local : sans
+        // ça, un appareil appairé n'apparaîtrait jamais à l'écran, et
+        // l'utilisateur n'aurait aucun moyen de constater — ni de révoquer —
+        // une machine ajoutée à son compte.
+        Ok(self
+            .current_device_list()?
+            .devices
+            .into_iter()
+            .map(|d| AccountDevice {
+                pubkey: d.pubkey,
+                name: d.name,
+                // Zéro pour l'appareil issu de la migration, qui n'a pas de
+                // date d'ajout : l'écran sait l'interpréter, une date inventée
+                // induirait en erreur.
+                added_ms: d.added_ms,
+                is_current: d.pubkey == local,
+            })
+            .collect())
     }
 
     /// Renomme l'appareil de cette machine.

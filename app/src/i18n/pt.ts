@@ -962,6 +962,13 @@ export const pt: Dict = {
       'Se os dois números forem diferentes, cancela: o dispositivo do outro lado não é o teu.',
     pairConfirm: 'Os números são iguais',
     pairConfirmed: 'Dispositivo emparelhado!',
+    pairJoinHint:
+      'O teu outro dispositivo mostra um código? Escreve-o aqui para adicionar este à conta.',
+    pairJoinLabel: 'Código mostrado no outro dispositivo',
+    pairJoinSubmit: 'Validar o código',
+    pairJoinWaiting: 'Código enviado. Troca em curso com o outro dispositivo…',
+    pairJoinRejected:
+      'Código recusado. Copia-o tal como aparece: nunca contém 0, O, 1, I nem L.',
     devicesTitle: 'Dispositivos áudio',
     inputDevice: 'Entrada (microfone)',
     outputDevice: 'Saída (auscultadores, colunas)',

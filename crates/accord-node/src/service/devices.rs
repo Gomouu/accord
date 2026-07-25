@@ -14,7 +14,7 @@ use crate::error::NodeError;
 use crate::hex;
 use crate::node::Node;
 
-use super::helpers::param_str;
+use super::helpers::{param_pubkey, param_str};
 
 /// Longueur maximale d'un nom d'appareil, **en octets UTF-8**.
 ///
@@ -76,6 +76,11 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
         })),
         "devices.pair_confirm" => {
             node.pairing_confirm()?;
+            Ok(json!({}))
+        }
+        "devices.revoke" => {
+            let pubkey = param_pubkey(params, "pubkey")?;
+            node.revoke_device(&pubkey)?;
             Ok(json!({}))
         }
         _ => Err(NodeError::Invalid("méthode devices inconnue")),

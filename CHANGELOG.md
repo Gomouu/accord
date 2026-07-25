@@ -4,6 +4,8 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ## [Unreleased]
 
+## [6.3.0] — 2026-07-25
+
 ### Added
 
 - **Automatic lock.** The vault can close itself after a chosen period without
@@ -22,6 +24,16 @@ All notable changes to Accord. This project follows [semantic versioning](https:
   rail, the channel list and the member list move to the other side, and text
   aligns from the right. The direction lives on the document root, so menus and
   dialogs rendered through portals follow it too.
+
+- **Pairing is written and tested end to end, and deliberately not shown yet.**
+  The node handles the whole protocol, up to handing the account root to the
+  joining machine over the confirmed channel. What is missing is the adoption
+  itself: reopening the vault needs the passphrase the node does not hold, and
+  the database key derives from the seed, so the open database cannot be reused.
+  Showing the buttons now would tell someone "device paired" while their machine
+  stayed its own account — a success message for something that did not happen,
+  which is worse than no button. Nothing regresses: this screen has never
+  shipped.
 
 - **"Add a device"** opens a pairing code with a live countdown. The code is
   single-use, expires after five minutes, and three wrong attempts burn it —

@@ -28,6 +28,14 @@ function octets(value: string): number {
   return new TextEncoder().encode(value).length;
 }
 
+/**
+ * L'appairage est-il utilisable de bout en bout ?
+ *
+ * `false` tant que l'adoption du compte n'est pas câblée côté hôte : sans elle,
+ * la machine qui rejoint termine le protocole et reste son propre compte.
+ */
+const APPAIRAGE_UTILISABLE = false;
+
 export function DevicesSection() {
   const t = useT();
   const ts = useSettingsT();
@@ -106,11 +114,27 @@ export function DevicesSection() {
         </ul>
       )}
 
-      {/* Les deux côtés de l'appairage, dans l'ordre où on les rencontre :
-          on ouvre un code depuis l'appareil déjà autorisé, on le saisit
-          depuis celui qu'on ajoute. */}
-      <PairDeviceButton />
-      <JoinDeviceForm />
+      {/* 🔒 Les deux côtés de l'appairage sont écrits, testés, et volontairement
+          PAS montrés. Le nœud sait tout faire jusqu'à remettre la racine du
+          compte à la machine qui rejoint ; ce qui manque est l'adoption
+          elle-même — rouvrir le coffre demande la phrase de passe que le nœud
+          ne détient pas, et la clé de base dérive de la graine, donc la base
+          ouverte ne peut pas être réutilisée. Il faut une commande hôte puis un
+          redémarrage du nœud.
+
+          Les montrer maintenant afficherait « appareil appairé » à quelqu'un
+          dont la machine est restée son propre compte : un message de succès
+          pour quelque chose qui n'a pas eu lieu, ce qui est pire que l'absence
+          du bouton. Rien ne régresse — cet écran n'a jamais été publié.
+
+          À rétablir avec le câblage hôte (`identity::adopt_account_seed`,
+          `Node::pairing_take_adoption`). */}
+      {APPAIRAGE_UTILISABLE && (
+        <>
+          <PairDeviceButton />
+          <JoinDeviceForm />
+        </>
+      )}
 
       {current !== null && (
         <div className="mt-4 flex flex-wrap items-center gap-2">

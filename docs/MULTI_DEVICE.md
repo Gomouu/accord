@@ -117,6 +117,33 @@ list with a bumped version number and resurrects a revoked device.
 - Cached locally per contact with its `valid_for_s`; refreshed on connection and
   when stale.
 
+### 3.2.1 🔴 The switch has to be deployed in two phases
+
+Found while reading the transport, and it changes the order of the work.
+
+Today a peer's transport **static key is its account public key**, and the node
+uses it as the identity directly: `is_friend(&static_pub)`, message routing,
+profile re-announcement. So "the transport uses the device key" cannot be the
+first task:
+
+- our outgoing sessions would present a key no peer recognises — we would become
+  a stranger to every one of our friends, on every released version;
+- and symmetrically we could not map an incoming device key back to an account,
+  because the resolution is a *later* task in the same lot.
+
+Same discipline as the handshake capability field and `RecordKind::Unknown`:
+**deploy the ability to read one version before you start to write.**
+
+| Phase | Ships in | What changes on the wire |
+|---|---|---|
+| 1 — resolve | 6.4 | Publish our device list; resolve and cache a friend's; **accept** a session whose static key is a device in a friend's signed list. We still *present* the account key. Older peers see one new record kind, which they already ignore cleanly (`Unknown(u8)`, 6.3). |
+| 2 — switch | 7.0 | **Present** the device key. This is the flag day, and what actually lifts B1. |
+
+💡 **`install_session` needs no change at all.** "At most one direct session per
+identity" is already written against `peer_static`. Give the transport
+per-device keys and it becomes "per device" for free. B1 was never the eviction
+rule — it is the identity fed to it.
+
 ### 3.3 Revocation is eventually consistent, and that is not a bug
 
 A friend who is offline when you revoke a device keeps accepting that device

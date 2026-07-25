@@ -9,6 +9,7 @@ const LOCALES: Record<Lang, string> = {
   es: 'es-ES',
   pt: 'pt-PT',
   de: 'de-DE',
+  ru: 'ru-RU',
 };
 
 /**
@@ -133,6 +134,7 @@ const UNITES_TAILLE: Record<Lang, readonly string[]> = {
   es: ['B', 'KB', 'MB', 'GB'],
   pt: ['B', 'KB', 'MB', 'GB'],
   de: ['B', 'KB', 'MB', 'GB'],
+  ru: ['Б', 'КБ', 'МБ', 'ГБ'],
 };
 
 /** Taille de fichier lisible (base 1024, une décimale au plus). */

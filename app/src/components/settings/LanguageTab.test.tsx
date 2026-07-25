@@ -1,5 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { LANGS, type Lang } from '../../i18n';
+import { dictionaries } from '../../i18n/all';
 import { useUi } from '../../stores/ui';
 import { LanguageTab } from './LanguageTab';
 
@@ -8,43 +10,32 @@ beforeEach(() => {
   useUi.setState({ lang: 'fr', timeFormat: 'auto' });
 });
 
+/** Nom natif d'une langue, tel que l'onglet doit l'afficher. */
+function nativeName(lang: Lang): string {
+  const names: Record<Lang, string> = dictionaries.fr.settings.languageNames;
+  return names[lang];
+}
+
 describe('LanguageTab', () => {
-  it('propose les trois langues supportées', () => {
+  it('propose toutes les langues déclarées, sous leur nom natif', () => {
     render(<LanguageTab />);
 
-    for (const label of ['Français', 'English', 'Español']) {
-      expect(screen.getByText(label)).toBeInTheDocument();
+    for (const lang of LANGS) {
+      expect(screen.getByText(nativeName(lang))).toBeInTheDocument();
     }
   });
 
-  it('bascule l’interface en espagnol et affiche les libellés traduits', () => {
+  // Une langue ajoutée est couverte sans toucher au test : c'est le
+  // dictionnaire lui-même qui fournit les libellés attendus, plutôt qu'une
+  // traduction recopiée ici — laquelle finirait par mentir sur la vraie.
+  it.each(LANGS)('bascule l’interface en « %s » et rend son dictionnaire', (lang) => {
     render(<LanguageTab />);
 
-    fireEvent.click(screen.getByText('Español'));
+    fireEvent.click(screen.getByText(nativeName(lang)));
 
-    expect(useUi.getState().lang).toBe('es');
-    // Titres de sections rendus par le dictionnaire actif.
-    expect(screen.getByText('Idioma')).toBeInTheDocument();
-    expect(screen.getByText('Formato de hora')).toBeInTheDocument();
-  });
-
-  it('bascule l’interface en portugais et affiche les libellés traduits', () => {
-    render(<LanguageTab />);
-
-    fireEvent.click(screen.getByText('Português'));
-
-    expect(useUi.getState().lang).toBe('pt');
-    expect(screen.getByText('Idioma')).toBeInTheDocument();
-    expect(screen.getByText('Formato da hora')).toBeInTheDocument();
-  });
-
-  it('bascule l’interface en allemand et affiche les libellés traduits', () => {
-    render(<LanguageTab />);
-
-    fireEvent.click(screen.getByText('Deutsch'));
-
-    expect(useUi.getState().lang).toBe('de');
-    expect(screen.getByText('Sprache')).toBeInTheDocument();
-    expect(screen.getByText('Format der Uhrzeit')).toBeInTheDocument();
+    expect(useUi.getState().lang).toBe(lang);
+    const attendu = dictionaries[lang].settings;
+    expect(screen.getByText(attendu.language)).toBeInTheDocument();
+    expect(screen.getByText(attendu.timeFormatTitle)).toBeInTheDocument();
   });
 });

@@ -19,10 +19,20 @@ import { fr } from './fr';
 type Widen<T> = { [K in keyof T]: T[K] extends string ? string : Widen<T[K]> };
 
 export type Dict = Widen<typeof fr>;
-export type Lang = 'fr' | 'en' | 'es' | 'pt' | 'de';
+
+/**
+ * Clés d'une section de dictionnaire dont la valeur est un texte.
+ *
+ * Une section peut contenir des sous-objets (`settings.languageNames`,
+ * `decorations.labels`) ; un index dynamique typé `keyof` rendrait alors
+ * `string | objet`, et l'appelant qui attend un libellé ne compilerait plus.
+ * Ce type restreint l'index aux seules clés utilisables comme libellé.
+ */
+export type TextKey<T> = { [K in keyof T]: T[K] extends string ? K : never }[keyof T];
+export type Lang = 'fr' | 'en' | 'es' | 'pt' | 'de' | 'ru';
 
 /** Langues proposées, dans l'ordre d'affichage. */
-export const LANGS: readonly Lang[] = ['fr', 'en', 'es', 'pt', 'de'];
+export const LANGS: readonly Lang[] = ['fr', 'en', 'es', 'pt', 'de', 'ru'];
 
 export { fr };
 
@@ -33,6 +43,7 @@ const LOADERS: Record<LazyLang, () => Promise<Record<string, unknown>>> = {
   es: () => import('./es'),
   pt: () => import('./pt'),
   de: () => import('./de'),
+  ru: () => import('./ru'),
 };
 
 /** Dictionnaires déjà résolus. Le français y est d'emblée. */

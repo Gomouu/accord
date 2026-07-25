@@ -14,11 +14,19 @@ All notable changes to Accord. This project follows [semantic versioning](https:
   screenshot or a live stream, not against access to your machine.
 - **Subtext with `-# `** — the quiet counterpart of a heading, for a caption or
   an aside under a message.
-- **Portuguese and German.** The full interface in both, 1300 strings each.
-  Each loads as its own chunk, so a language costs nothing to anyone who does
-  not read it: the initial download is unchanged at 138.8 kB gzipped.
+- **Portuguese, German and Russian.** The full interface in all three, 1300
+  strings each. Each loads as its own chunk, so a language costs nothing to
+  anyone who does not read it: the initial download is unchanged at 138.9 kB
+  gzipped.
 
 ### Internal
+
+- **Adding a language no longer means editing a list in six places.** The
+  BCP-47 detection, the language picker and their tests each enumerated the
+  supported languages by hand, so every new dictionary had to remember to join
+  each list — and one of those lists silently claimed German was unsupported.
+  All three now derive from `LANGS`, and the native names moved into the
+  dictionaries themselves, where the parity test already enforces them.
 
 - **Groundwork for multi-device** (`docs/MULTI_DEVICE.md`): account and device
   identities as distinct types, the signed device-list wire structure with its

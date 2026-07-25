@@ -286,16 +286,18 @@ function initialFontScale(): FontScale {
  */
 /**
  * Langue déduite d'une étiquette BCP-47 (`navigator.language`) parmi celles
- * supportées : français si l'étiquette commence par `fr`, espagnol si elle
- * commence par `es`, anglais sinon (défaut sûr). Pure et testable ; étendre ici à l'ajout d'une langue.
+ * supportées : `fr-CA` donne le français, `es-MX` l'espagnol, une étiquette
+ * inconnue l'anglais (défaut sûr).
+ *
+ * Dérivé de [`LANGS`] plutôt qu'énuméré : la liste était recopiée ici à la
+ * main, et chaque langue ajoutée devait penser à s'y greffer — une omission
+ * silencieuse, qu'aucun test ne signalait. La recherche est sûre parce que les
+ * codes ISO 639-1 font tous exactement deux lettres : aucun n'est le préfixe
+ * d'un autre, donc l'ordre de [`LANGS`] n'influe pas sur le résultat.
  */
 export function pickLang(tag: string): Lang {
   const etiquette = tag.toLowerCase();
-  if (etiquette.startsWith('fr')) return 'fr';
-  if (etiquette.startsWith('es')) return 'es';
-  if (etiquette.startsWith('pt')) return 'pt';
-  if (etiquette.startsWith('de')) return 'de';
-  return 'en';
+  return LANGS.find((lang) => etiquette.startsWith(lang)) ?? 'en';
 }
 
 function initialLang(): Lang {

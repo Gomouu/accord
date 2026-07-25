@@ -887,11 +887,19 @@ export const fr = {
     timeFormat12: '12 h',
     timeFormat24: '24 h',
     languageHint: 'La langue de l’interface change immédiatement.',
-    french: 'Français',
-    english: 'English',
-    spanish: 'Español',
-    portuguese: 'Português',
-    german: 'Deutsch',
+    /**
+     * Nom natif de chaque langue, indexé par son code. L'onglet Langue itère
+     * sur `LANGS` : ces noms restent donc identiques dans tous les
+     * dictionnaires, et le test de parité signale celui qui manque.
+     */
+    languageNames: {
+      fr: 'Français',
+      en: 'English',
+      es: 'Español',
+      pt: 'Português',
+      de: 'Deutsch',
+      ru: 'Русский',
+    },
     blockedUsers: 'Utilisateurs bloqués',
     antiSpamTitle: 'Anti-spam',
     antiSpamHint:

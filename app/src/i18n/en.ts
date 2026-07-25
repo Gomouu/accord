@@ -877,11 +877,19 @@ export const en: Dict = {
     timeFormat12: '12-hour',
     timeFormat24: '24-hour',
     languageHint: 'The interface language changes immediately.',
-    french: 'Français',
-    english: 'English',
-    spanish: 'Español',
-    portuguese: 'Português',
-    german: 'Deutsch',
+    /**
+     * Nom natif de chaque langue, indexé par son code. L'onglet Langue itère
+     * sur `LANGS` : ces noms restent donc identiques dans tous les
+     * dictionnaires, et le test de parité signale celui qui manque.
+     */
+    languageNames: {
+      fr: 'Français',
+      en: 'English',
+      es: 'Español',
+      pt: 'Português',
+      de: 'Deutsch',
+      ru: 'Русский',
+    },
     blockedUsers: 'Blocked users',
     antiSpamTitle: 'Anti-spam',
     antiSpamHint:

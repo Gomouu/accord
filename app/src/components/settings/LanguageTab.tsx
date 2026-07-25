@@ -1,10 +1,10 @@
 /**
- * Onglet Langue et heure : sélecteur FR/EN/ES (application immédiate,
+ * Onglet Langue et heure : sélecteur de langue (application immédiate,
  * persistée) et format des heures affichées (horodatages de messages —
  * `lib/format.ts`).
  */
 
-import type { Lang } from '../../i18n';
+import { LANGS, type Lang } from '../../i18n';
 import { useUi, useT, type TimeFormat } from '../../stores/ui';
 import { OptionPill, SettingsSection } from './controls';
 
@@ -15,13 +15,10 @@ export function LanguageTab() {
   const timeFormat = useUi((s) => s.timeFormat);
   const setTimeFormat = useUi((s) => s.setTimeFormat);
 
-  const langs: { id: Lang; label: string }[] = [
-    { id: 'fr', label: t.settings.french },
-    { id: 'en', label: t.settings.english },
-    { id: 'es', label: t.settings.spanish },
-    { id: 'pt', label: t.settings.portuguese },
-    { id: 'de', label: t.settings.german },
-  ];
+  // Le type `Record<Lang, string>` est ce qui rend l'ajout d'une langue sûr :
+  // une langue déclarée dans `LANGS` mais sans nom natif dans `fr.ts` casse la
+  // compilation ici, au lieu d'afficher une pastille vide.
+  const names: Record<Lang, string> = t.settings.languageNames;
 
   const timeFormats: { id: TimeFormat; label: string }[] = [
     { id: 'auto', label: t.settings.timeFormatAuto },
@@ -33,9 +30,9 @@ export function LanguageTab() {
     <div>
       <SettingsSection title={t.settings.language} hint={t.settings.languageHint}>
         <div className="flex flex-wrap gap-2">
-          {langs.map(({ id, label }) => (
+          {LANGS.map((id) => (
             <OptionPill key={id} selected={lang === id} onSelect={() => setLang(id)}>
-              {label}
+              {names[id]}
             </OptionPill>
           ))}
         </div>

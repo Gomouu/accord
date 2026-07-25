@@ -18,6 +18,7 @@ import {
   MEMBERS_WIDTH_MIN,
   MEMBERS_WIDTH_MAX,
 } from './ui';
+import { LANGS } from '../i18n';
 
 const root = document.documentElement;
 
@@ -164,26 +165,16 @@ describe('useUi — langue', () => {
 });
 
 describe('pickLang', () => {
-  it('choisit le français pour une étiquette francophone', () => {
-    expect(pickLang('fr')).toBe('fr');
-    expect(pickLang('fr-FR')).toBe('fr');
-    expect(pickLang('FR-ca')).toBe('fr');
-  });
-
-  it('choisit l’espagnol pour une étiquette hispanophone', () => {
-    expect(pickLang('es')).toBe('es');
-    expect(pickLang('es-MX')).toBe('es');
-    expect(pickLang('ES-419')).toBe('es');
-  });
-
-  it('choisit l’allemand pour une étiquette germanophone', () => {
-    expect(pickLang('de')).toBe('de');
-    expect(pickLang('de-AT')).toBe('de');
-    expect(pickLang('DE-ch')).toBe('de');
+  // Table dérivée de LANGS, et non recopiée : une langue ajoutée est couverte
+  // d'office. La version précédente nommait chaque langue à la main — elle
+  // laissait donc passer exactement l'oubli qu'elle prétendait couvrir.
+  it.each(LANGS)('reconnaît « %s » et ses variantes régionales', (lang) => {
+    expect(pickLang(lang)).toBe(lang);
+    expect(pickLang(`${lang}-XY`)).toBe(lang);
+    expect(pickLang(lang.toUpperCase())).toBe(lang);
   });
 
   it('retombe sur l’anglais pour toute autre étiquette', () => {
-    expect(pickLang('en-US')).toBe('en');
     // `zz` n'est pas attribuable par l'ISO 639-1 : contrairement à une langue
     // réelle, l'étiquette ne deviendra jamais reconnue, et ce test ne se
     // remettra pas à échouer au prochain dictionnaire ajouté.

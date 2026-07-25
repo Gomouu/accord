@@ -15,7 +15,7 @@ import {
 } from '../../lib/customTheme';
 import { copyToClipboard } from '../../lib/clipboard';
 import { useUi, useT, THEME_IDS, type Theme } from '../../stores/ui';
-import { interpolate, type Dict } from '../../i18n';
+import { interpolate, type Dict, type TextKey } from '../../i18n';
 import { ThemeAtmosphere } from '../ThemeAtmosphere';
 import { OptionPill, SettingsSection } from './controls';
 import './appearance-theme-gallery.css';
@@ -126,7 +126,7 @@ function CustomThemeEditor({
 }
 
 /** Clé i18n du libellé de chaque thème (voir `settings.theme*` dans fr.ts/en.ts). */
-export const THEME_LABEL_KEYS: Record<Theme, keyof Dict['settings']> = {
+export const THEME_LABEL_KEYS: Record<Theme, TextKey<Dict['settings']>> = {
   dark: 'themeDark',
   light: 'themeLight',
   midnight: 'themeMidnight',

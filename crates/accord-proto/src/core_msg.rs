@@ -3,6 +3,13 @@
 use crate::limits;
 use crate::wire::{DecodeError, Reader, WireDecode, WireEncode, Writer};
 
+/// Taille maximale d'un message d'appairage SPAKE2.
+///
+/// 🔒 Un message SPAKE2 sur Ed25519 fait 33 octets. 256 laisse de la marge
+/// pour une évolution du groupe sans offrir de levier à qui voudrait faire
+/// allouer : le message arrive d'un pair qui n'a encore rien prouvé.
+const MAX_PAIRING_MSG: usize = 256;
+
 const MAX_NAME: usize = 256;
 /// Borne stricte du pseudo d'un message `Profile` : 32 caractères × 4 octets
 /// UTF-8 au plus (la validation sémantique 2-32 caractères a lieu à
@@ -1775,6 +1782,19 @@ pub enum CoreMsg {
         /// Liste signée par la clé racine du compte émetteur.
         list: crate::device::DeviceList,
     },
+    /// 0x18 — Un message de l'échange PAKE d'appairage (jalon 1, lot 1.D).
+    ///
+    /// Les deux côtés en envoient un ; l'échange est symétrique, aucun n'est
+    /// « le serveur ». Le contenu est opaque au protocole : c'est SPAKE2 qui
+    /// le produit et le consomme.
+    ///
+    /// 🔒 Rien n'est signé ici, et c'est voulu : à ce stade les deux appareils
+    /// ne se connaissent pas encore. Ce qui authentifie l'échange, c'est la
+    /// connaissance du code — puis la confirmation d'empreinte par un humain.
+    PairingHello {
+        /// Message SPAKE2 de l'émetteur (borné au décodage).
+        msg: Vec<u8>,
+    },
 }
 
 /// Raison d'un [`CoreMsg::CallDecline`] : refus explicite de l'utilisateur.
@@ -2013,6 +2033,10 @@ impl WireEncode for CoreMsg {
                 w.put_u8(0x17);
                 list.encode(w);
             }
+            CoreMsg::PairingHello { msg } => {
+                w.put_u8(0x18);
+                w.put_vbytes(msg);
+            }
         }
     }
 }
@@ -2197,6 +2221,12 @@ impl WireDecode for CoreMsg {
                 // ≤ 32 o) sont appliquées par son propre décodage : elle
                 // arrive d'un pair, donc d'une source à ne pas croire.
                 list: crate::device::DeviceList::decode(r)?,
+            }),
+            0x18 => Ok(CoreMsg::PairingHello {
+                // 🔒 Borne au décodage : le message arrive d'un inconnu qui
+                // n'a encore rien prouvé. Un message SPAKE2 sur Ed25519 fait
+                // 33 octets ; 256 laisse de la marge sans offrir de levier.
+                msg: r.vbytes(MAX_PAIRING_MSG, "pairing.msg")?,
             }),
             _ => Err(DecodeError::InvalidValue("core kind")),
         }
@@ -3083,5 +3113,25 @@ mod tests {
         // et la session continue. Contrairement à `RecordKind`, rien ne voyage
         // ici dans une liste qu'un genre inconnu emporterait avec lui.
         assert!(CoreMsg::from_bytes(&[0xFE]).is_err());
+    }
+
+    #[test]
+    fn pairing_hello_roundtrips() {
+        let msg = CoreMsg::PairingHello { msg: vec![7; 33] };
+        assert_eq!(CoreMsg::from_bytes(&msg.to_bytes()).unwrap(), msg);
+    }
+
+    #[test]
+    fn un_message_dappairage_surdimensionne_est_refuse_au_decodage() {
+        // 🔒 Le message arrive d'un inconnu qui n'a encore rien prouvé : la
+        // borne doit tomber au DÉCODAGE, avant toute allocation utile.
+        let trop_gros = CoreMsg::PairingHello {
+            msg: vec![0; MAX_PAIRING_MSG + 1],
+        };
+        assert!(CoreMsg::from_bytes(&trop_gros.to_bytes()).is_err());
+
+        // Et la taille réelle d'un message SPAKE2 passe sans problème.
+        let normal = CoreMsg::PairingHello { msg: vec![0; 33] };
+        assert!(CoreMsg::from_bytes(&normal.to_bytes()).is_ok());
     }
 }

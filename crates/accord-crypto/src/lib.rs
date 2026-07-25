@@ -32,8 +32,9 @@ pub mod session;
 pub mod vault;
 
 pub use device::{
-    device_list_key, verify_device_list, verify_device_list_with_pow_bits, version_for,
-    AccountIdentity, DeviceIdentity, DeviceListError,
+    device_list_key, sign_device_list_with_root, verify_device_list,
+    verify_device_list_with_pow_bits, version_for, AccountIdentity, DeviceIdentity,
+    DeviceListError,
 };
 pub use error::CryptoError;
 pub use friendcode::{FriendCode, FRIENDCODE_PAYLOAD_LEN};

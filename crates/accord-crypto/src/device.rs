@@ -56,8 +56,7 @@ impl AccountIdentity {
     /// Signe une liste d'appareils. Le champ `sig` fourni est ignoré et
     /// remplacé.
     pub fn sign_device_list(&self, list: &mut DeviceList) {
-        list.account = self.public_key();
-        list.sig = self.0.sign(&list.signable_bytes());
+        sign_device_list_with_root(&self.0, list);
     }
 
     /// Génère un appareil neuf **pour ce compte**, distinct de la racine.
@@ -106,6 +105,21 @@ impl DeviceIdentity {
     pub fn identity(&self) -> &Identity {
         &self.0
     }
+}
+
+/// Signe une liste d'appareils avec la clé racine `root`.
+///
+/// ⚠️ Point d'entrée pour les appelants qui ne **possèdent** pas leur identité
+/// — typiquement un `Arc<Identity>` partagé, `Identity` n'étant pas `Clone`
+/// (c'est une clé secrète). Préférer [`AccountIdentity::sign_device_list`]
+/// partout où c'est possible : le type y dit lequel des deux rôles on tient.
+///
+/// 🔒 Ici, c'est l'appelant qui affirme que `root` est bien la racine du
+/// compte. Lui passer une clé d'appareil produirait une liste que personne ne
+/// pourra vérifier — la signature ne correspondrait pas au compte annoncé.
+pub fn sign_device_list_with_root(root: &Identity, list: &mut DeviceList) {
+    list.account = root.public_key();
+    list.sig = root.sign(&list.signable_bytes());
 }
 
 /// Pourquoi une liste d'appareils a été refusée.

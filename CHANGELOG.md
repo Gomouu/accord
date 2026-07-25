@@ -32,6 +32,17 @@ All notable changes to Accord. This project follows [semantic versioning](https:
   All three now derive from `LANGS`, and the native names moved into the
   dictionaries themselves, where the parity test already enforces them.
 
+- **Multi-device, phase one: accounts now publish their device list.** The
+  list is signed by the account root, published to the DHT under a key derived
+  from the account, and refreshed on the same cadence as the identity record.
+  A contact's list is verified, cached, and expires rather than being trusted
+  indefinitely — a stale list would keep a revoked device alive for exactly as
+  long as it lived.
+
+  Nothing changes on the wire for anyone yet: the transport still presents the
+  account key. This is deliberately the *reading* half. Presenting a device key
+  before the fleet can resolve one would make the first to switch a stranger to
+  everyone who had not — see `docs/MULTI_DEVICE.md` §3.2.1.
 - **Groundwork for multi-device** (`docs/MULTI_DEVICE.md`): account and device
   identities as distinct types, the signed device-list wire structure with its
   decode-time bounds, local storage, and a startup migration that gives this

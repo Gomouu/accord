@@ -272,6 +272,26 @@ impl Node {
         friends::identity_record(&self.identity, now_ms())
     }
 
+    /// Record de liste d'appareils à (re)publier dans la DHT (lot 1.C).
+    ///
+    /// `self.identity` **est** la racine du compte : c'est ce qu'établit la
+    /// migration au démarrage (`device::ensure_local_device`), qui conserve la
+    /// graine existante comme racine et génère à côté une clé d'appareil
+    /// distincte. Rend `None` tant qu'aucun appareil local n'est persisté —
+    /// une base ouverte hors du chemin de démarrage normal, dans les tests.
+    pub fn device_list_record(&self) -> Option<accord_proto::types::DhtRecord> {
+        let stored = self.with_db(|db| Ok(db.local_device()?)).ok().flatten()?;
+        let device = accord_crypto::DeviceIdentity::from_seed(stored.seed);
+        let now = now_ms();
+        let list =
+            crate::device::build_device_list_with_root(&self.identity, &device, &stored.name, now);
+        Some(crate::device::device_list_record_with_root(
+            &self.identity,
+            &list,
+            now,
+        ))
+    }
+
     // ---- Présence des amis (D-034, best-effort) ----
 
     /// Vrai si `peer` est un ami confirmé.

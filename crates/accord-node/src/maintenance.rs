@@ -417,6 +417,11 @@ pub(crate) fn spawn_loops(rt: &Arc<Runtime>) {
     spawn_periodic(Arc::clone(rt), cfg.event_check, |r, c| {
         Box::pin(event_check_tick(r, c))
     });
+    // Liste d'appareils du compte (lot 1.C) : même cadence que l'identité,
+    // pour la même raison — les deux records disent qui est ce compte.
+    spawn_periodic(Arc::clone(rt), cfg.identity_republish, |r, c| {
+        Box::pin(device_list_tick(r, c))
+    });
     // Ré-annonce périodique du profil (D-027) : même cadence que la
     // republication d'identité, pas de bouton de réglage supplémentaire.
     spawn_periodic(Arc::clone(rt), cfg.identity_republish, |r, c| {
@@ -488,6 +493,21 @@ async fn identity_tick(rt: &Runtime, _cfg: &MaintenanceConfig) {
     let replicas = rt.dht().put(rt.dht_rpc(), record, now).await;
     let expires = rt.dht().expire_records(now);
     tracing::debug!(replicas, expires, "identité : record republié");
+}
+
+/// Republie la liste d'appareils du compte (lot 1.C, phase 1).
+///
+/// Même cadence que l'identité : les deux records disent « voici qui je suis »
+/// et meurent du même churn. Best-effort — un compte dont la liste n'atteint
+/// personne reste joignable par sa clé de compte, qui est encore ce que le
+/// transport présente.
+async fn device_list_tick(rt: &Runtime, _cfg: &MaintenanceConfig) {
+    let Some(record) = rt.node().device_list_record() else {
+        return;
+    };
+    let now = now_ms();
+    let replicas = rt.dht().put(rt.dht_rpc(), record, now).await;
+    tracing::debug!(replicas, "appareils : liste republiée");
 }
 
 /// Republie vers leurs k plus proches les records DHT que ce nœud détient

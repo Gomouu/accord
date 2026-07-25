@@ -76,8 +76,19 @@ pub fn build_device_list(
     name: &str,
     now_ms: u64,
 ) -> DeviceList {
+    build_device_list_with_root(account.identity(), device, name, now_ms)
+}
+
+/// [`build_device_list`] pour un appelant qui ne possède pas son identité
+/// (`Arc<Identity>` partagé) — voir `accord_crypto::sign_device_list_with_root`.
+pub fn build_device_list_with_root(
+    root: &accord_crypto::Identity,
+    device: &DeviceIdentity,
+    name: &str,
+    now_ms: u64,
+) -> DeviceList {
     let mut list = DeviceList {
-        account: account.public_key(),
+        account: root.public_key(),
         version: version_for(now_ms),
         issued_ms: now_ms,
         valid_for_s: DEVICE_LIST_VALID_S,
@@ -91,7 +102,7 @@ pub fn build_device_list(
         revoked: Vec::new(),
         sig: [0u8; 64],
     };
-    account.sign_device_list(&mut list);
+    accord_crypto::sign_device_list_with_root(root, &mut list);
     list
 }
 
@@ -101,18 +112,27 @@ pub fn build_device_list(
 /// double ancrage que `RecordStore::validate` vérifie, et qui empêche de
 /// publier sa propre liste à l'adresse de quelqu'un d'autre.
 pub fn device_list_record(account: &AccountIdentity, list: &DeviceList, now_ms: u64) -> DhtRecord {
+    device_list_record_with_root(account.identity(), list, now_ms)
+}
+
+/// [`device_list_record`] pour un appelant qui ne possède pas son identité.
+pub fn device_list_record_with_root(
+    root: &accord_crypto::Identity,
+    list: &DeviceList,
+    now_ms: u64,
+) -> DhtRecord {
     let mut w = accord_proto::Writer::new();
     list.encode(&mut w);
     let mut record = DhtRecord {
-        key: device_list_key(&account.public_key()),
+        key: device_list_key(&root.public_key()),
         kind: RecordKind::DeviceList,
         value: w.into_bytes(),
-        publisher: account.public_key(),
+        publisher: root.public_key(),
         timestamp_ms: now_ms,
         expiry_s: DEVICE_LIST_VALID_S,
         sig: [0u8; 64],
     };
-    record.sig = account.identity().sign(&record.signable_bytes());
+    record.sig = root.sign(&record.signable_bytes());
     record
 }
 
@@ -530,5 +550,30 @@ mod tests {
             account_for_static(&db, &[], &device.public_key(), now),
             None
         );
+    }
+
+    #[test]
+    fn le_noeud_ne_publie_rien_tant_quaucun_appareil_nest_persiste() {
+        // Une base ouverte hors du chemin de démarrage normal : pas d'appareil,
+        // donc pas de liste. Mieux vaut ne rien publier qu'une liste vide, qui
+        // ferait croire à un compte sans aucun appareil joignable.
+        let db = db();
+        assert!(db.local_device().unwrap().is_none());
+    }
+
+    #[test]
+    fn la_liste_construite_depuis_la_racine_partagee_est_identique() {
+        // `build_device_list_with_root` existe parce qu'`Identity` n'est pas
+        // `Clone` : il doit produire exactement la même liste que la voie
+        // typée, sans quoi les deux chemins divergeraient en silence.
+        let root = Identity::generate_with_pow_bits(1);
+        let device = DeviceIdentity::generate_with_pow_bits(1);
+        let now = 1_700_000_000_000;
+        let par_reference = build_device_list_with_root(&root, &device, "Portable", now);
+
+        let account = AccountIdentity::from_identity(root);
+        let par_valeur = build_device_list(&account, &device, "Portable", now);
+
+        assert_eq!(par_reference, par_valeur);
     }
 }

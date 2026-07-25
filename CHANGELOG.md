@@ -34,12 +34,47 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ### Internal
 
+- **The settings vocabulary left the first load.** French is still the only
+  dictionary in the initial download, but it is now two files: the core, and a
+  settings extension that only comes down when the settings modal opens. The
+  entry chunk drops from 139.8 kB to 134.2 kB gzipped and the ceiling goes back
+  to 140 kB, so it means something again.
+
+  It also uncovered a bug worth naming, introduced by the split itself: throwing
+  a promise at React is only a suspend signal, so a rejection wakes the render
+  exactly like a resolution and never becomes a catchable error. A missing chunk
+  therefore retried forever — measured at 15,175 requests in one second, behind
+  an empty fallback, so pegged CPU and nothing on screen. The failure is now
+  latched and rethrown, and the three lazy screens sit under an error boundary.
+
 - **Adding a language no longer means editing a list in six places.** The
   BCP-47 detection, the language picker and their tests each enumerated the
   supported languages by hand, so every new dictionary had to remember to join
   each list — and one of those lists silently claimed German was unsupported.
   All three now derive from `LANGS`, and the native names moved into the
   dictionaries themselves, where the parity test already enforces them.
+
+- **A conversation read on one machine stops being unread on the others.** The
+  convention is "read on at least one device", which is the only one that does
+  not require the devices to agree with each other. The position is merged as a
+  maximum, so reading different messages on two machines converges on the more
+  advanced one rather than fighting.
+
+  It is deliberately not tied to the read-receipt setting: that setting governs
+  what your correspondent learns, and conflating the two would have a privacy
+  toggle quietly break something unrelated.
+
+- **A device that was off catches up with your other machines when it returns.**
+  It asks its siblings what it missed, per conversation, and compares a digest
+  before transferring anything, so two machines that already agree exchange
+  nothing. Messages keep their original identity across the transfer, which is
+  what makes a repeated catch-up produce no duplicates.
+
+  Serving that request is the direction that hands over history, so it is the
+  strictest check in the feature: the asking device must be in the account's
+  current signed list, re-read from disk each time, and the bare account key is
+  refused. That last point is what matters — the account seed is shared between
+  a person's machines, so a stolen laptop still holds it.
 
 - **A call rings on every device, and the others stop when you answer one.**
   The invite already reached each device through the delivery fan-out; what was
@@ -143,6 +178,32 @@ All notable changes to Accord. This project follows [semantic versioning](https:
   it is already in place when it is needed.
 
 ### Fixed
+
+- **A device of your account could erase the others from it.** Every machine
+  holds the account key, so every machine signs and publishes the account's
+  device list — and the newest write won. A freshly paired machine, whose
+  database holds no list yet, would build one containing only itself and wipe
+  every other device at every correspondent; a machine that had been switched
+  off during an enrolment would republish its older view with the same effect.
+  Nothing reported an error. The device simply stopped being reachable.
+
+  Lists are now merged rather than replaced. Devices and revocations only ever
+  grow, so a union converges where a replacement does not, and a merged list is
+  always a superset of both — adopting it can never lose a device. Revocation
+  still wins, so removal keeps working.
+
+- **The device list expired a day after the account first started, with no way
+  back.** The issue date was written once, at construction, and enrolment,
+  revocation and republication all left it alone. Past twenty-four hours, our
+  own list stopped counting as fresh and delivery fell back to the account key;
+  at a correspondent it was worse, since their expired copy could never be
+  refreshed — the republished record carried the same version, which
+  verification rejects as stale. Reissuing now refreshes both the date and the
+  version.
+
+- **The unread badge could climb back up on its own after you had read.** The
+  friends list applied whatever response came back, so with several refreshes in
+  flight the oldest could land last and put a stale count back on screen.
 
 - **Revoking a device now also drops what was already queued for it.** The
   offline queue is indexed by transport key, and emptying it when a peer

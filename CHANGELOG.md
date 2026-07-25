@@ -23,6 +23,10 @@ All notable changes to Accord. This project follows [semantic versioning](https:
   aligns from the right. The direction lives on the document root, so menus and
   dialogs rendered through portals follow it too.
 
+- **"Add a device"** opens a pairing code with a live countdown. The code is
+  single-use, expires after five minutes, and three wrong attempts burn it —
+  what makes a short code acceptable is not its length but the fact that each
+  guess costs one online interaction, and that there are only three.
 - **A "My devices" screen** in account settings: the devices authorised on
   this account, which one you are on, and a rename field. One device for now —
   pairing will add others without the list changing shape, and it is pairing

@@ -972,6 +972,14 @@ export const fr = {
     deviceCurrent: 'Cet appareil',
     deviceNameLabel: "Nom de l'appareil",
     deviceRenamed: 'Appareil renommé !',
+    pairAdd: 'Ajouter un appareil',
+    pairHint:
+      'Ouvre Accord sur l’autre appareil et saisis ce code. Il ne sert qu’une fois et expire au bout de cinq minutes.',
+    pairCodeLabel: 'Code d’appairage',
+    pairExpiresIn: 'Expire dans {time}',
+    pairExpired: 'Code expiré',
+    pairCancel: 'Annuler',
+    pairNewCode: 'Nouveau code',
     // Voix.
     devicesTitle: 'Périphériques audio',
     inputDevice: 'Entrée (micro)',

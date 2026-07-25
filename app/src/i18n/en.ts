@@ -962,6 +962,14 @@ export const en: Dict = {
     deviceCurrent: 'This device',
     deviceNameLabel: 'Device name',
     deviceRenamed: 'Device renamed!',
+    pairAdd: 'Add a device',
+    pairHint:
+      'Open Accord on the other device and enter this code. It works once and expires after five minutes.',
+    pairCodeLabel: 'Pairing code',
+    pairExpiresIn: 'Expires in {time}',
+    pairExpired: 'Code expired',
+    pairCancel: 'Cancel',
+    pairNewCode: 'New code',
     // Voice.
     devicesTitle: 'Audio devices',
     inputDevice: 'Input (microphone)',

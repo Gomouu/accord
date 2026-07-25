@@ -929,9 +929,25 @@ export class Api {
     return this.rpc.call('devices.list');
   }
 
-  /** Renomme l'appareil de cette machine (1 à 32 caractères). */
+  /** Renomme l'appareil de cette machine (1 à 32 octets UTF-8). */
   devicesRename(name: string): Promise<{ name: string }> {
     return this.rpc.call('devices.rename', { name });
+  }
+
+  /**
+   * Ouvre une offre d'appairage et rend le code à afficher.
+   *
+   * Redemander annule l'offre précédente : deux codes valides en même temps
+   * seraient deux portes ouvertes là où l'utilisateur croit n'en avoir ouvert
+   * qu'une.
+   */
+  devicesPairStart(): Promise<{ code: string; expires_ms: number }> {
+    return this.rpc.call('devices.pair_start');
+  }
+
+  /** Annule l'offre d'appairage en cours. */
+  devicesPairCancel(): Promise<Record<string, never>> {
+    return this.rpc.call('devices.pair_cancel');
   }
 
   /**

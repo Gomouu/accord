@@ -11,6 +11,7 @@ import { api } from '../../lib/client';
 import { type AccountDevice } from '../../lib/api';
 import { useT, useUi } from '../../stores/ui';
 import { SettingsSection } from './controls';
+import { PairDeviceButton } from './PairDeviceButton';
 
 /**
  * Longueur maximale d'un nom d'appareil, **en octets UTF-8**.
@@ -102,6 +103,8 @@ export function DevicesSection() {
           ))}
         </ul>
       )}
+
+      <PairDeviceButton />
 
       {current !== null && (
         <div className="mt-4 flex flex-wrap items-center gap-2">

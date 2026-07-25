@@ -971,6 +971,14 @@ export const es: Dict = {
     deviceCurrent: 'Este dispositivo',
     deviceNameLabel: 'Nombre del dispositivo',
     deviceRenamed: '¡Dispositivo renombrado!',
+    pairAdd: 'Añadir un dispositivo',
+    pairHint:
+      'Abre Accord en el otro dispositivo e introduce este código. Sirve una sola vez y caduca a los cinco minutos.',
+    pairCodeLabel: 'Código de vinculación',
+    pairExpiresIn: 'Caduca en {time}',
+    pairExpired: 'Código caducado',
+    pairCancel: 'Cancelar',
+    pairNewCode: 'Código nuevo',
     // Voice.
     devicesTitle: 'Dispositivos de audio',
     inputDevice: 'Entrada (micrófono)',

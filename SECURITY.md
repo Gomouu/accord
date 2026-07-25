@@ -311,6 +311,18 @@ Read before recommending Accord to people whose safety depends on anonymity.
     user deciding to revoke must know it is not instantaneous, and the screen
     has to say so. Revoking the device you are currently on is refused: it
     would leave the account with no machine able to sign the next list.
+
+    Two consequences of that delay are worth stating rather than leaving to be
+    discovered. Messages **already queued** for the revoked device are dropped
+    as soon as the sender learns of the revocation, so they stay inside the
+    24-hour bound — but until then they are still deliverable, and the queue
+    itself does not re-check authorisation when a peer reconnects. Messages
+    **already deposited in the DHT mailbox** for that device cannot be recalled
+    at all: they are sealed to its key, sitting at a key derived from it, and
+    they remain readable by whoever holds that device for up to their 7-day
+    expiry. Revoking a stolen device stops what comes next; it does not reach
+    back for what was already in flight. Anyone who needs that guarantee should
+    treat the messages sent in the hours before a theft as compromised.
 14. **The device list is public.** It is published in the DHT, signed by the
     account key, under a key derived from that same account key — which is what
     lets a contact learn where to reach you without a server. It therefore

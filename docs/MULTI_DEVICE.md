@@ -197,6 +197,20 @@ What bounds the damage:
 - **The revoked device cannot suppress the update.** The new list travels
   through the DHT and through every other friend; blocking one path does not
   block the others.
+- **Learning a revocation empties the queue.** The offline queue is indexed by
+  transport key and, by design, re-checks nothing when a peer reconnects — that
+  is what makes reconnection fast. Anything already queued for a device would
+  otherwise have outlived the revocation by the queue's own retention, seven
+  days, not `valid_for_s`. It is dropped the moment a newly ingested list
+  revokes the key.
+
+⚠️ **What revocation does not reach: a mailbox deposit already written.** It is
+sealed to the device's key and sits at a DHT key derived from it. There is no
+recall — whoever holds the device can read it until it expires, up to seven
+days. Shortening that expiry would degrade offline delivery for everyone to
+narrow a window that only matters after a theft, so the bound is documented
+instead. Revoking stops what comes next; it does not reach back for what was
+already in flight.
 
 🔒 This property must be written in `SECURITY.md` in plain words. It is a
 consequence of having no server, and a user deciding whether to revoke needs to

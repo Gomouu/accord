@@ -367,6 +367,31 @@ function useNodeEvents() {
           }
           break;
         }
+        case 'event.dm_self_read':
+          /*
+           * Un AUTRE appareil du compte a lu ce MP. Le nœud local a déjà
+           * avancé sa propre marque avant d'émettre : relire la liste d'amis
+           * suffit donc à faire retomber la pastille ici.
+           * On relit tout plutôt que d'appliquer `lamport` au contact :
+           * `unread` compte les messages du pair au-delà de la marque, or
+           * cette machine-ci peut n'avoir jamais chargé ce fil — c'est
+           * précisément le cas multi-appareil — et afficherait alors un
+           * compte inventé. Le prix est un aller-retour et une liste entière
+           * relue, contre zéro requête pour un calcul local ; le gain est que
+           * le nœud reste seul juge du compteur.
+           * 🔒 La marque ne recule jamais côté nœud : un événement en retard
+           * ou répété relit la même vérité et ne peut donc pas faire REMONTER
+           * la pastille, ce qui ne serait plus garanti d'un compteur dérivé du
+           * `lamport` reçu.
+           * 🔒 Ni notification ni son : rien n'est arrivé, l'utilisateur a
+           * seulement lu sur son autre machine — le réveiller pour sa propre
+           * action serait absurde. Et aucun `dm.mark_read` n'est renvoyé : la
+           * conversation ouverte, qui se marque elle-même à l'arrivée d'un
+           * message (`chat/DmView.tsx`), ne peut pas boucler avec cet
+           * événement.
+           */
+          void useFriends.getState().load();
+          break;
         case 'event.dm_typing':
           useTyping
             .getState()

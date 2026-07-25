@@ -879,6 +879,15 @@ export type AccordEvent =
     }
   | { method: 'event.friend_removed'; params: { peer: string } }
   | { method: 'event.dm_read'; params: { peer: string; lamport: number } }
+  /**
+   * 🔒 Lecture INVERSE de `event.dm_read` ci-dessus, à ne jamais confondre ni
+   * fusionner avec lui : là, le pair a lu NOS messages (indicateur de lecture,
+   * `stores/dms.ts`) ; ici, un autre appareil de NOTRE compte a lu les siens
+   * jusqu'à `lamport`, et ce nœud vient d'avancer sa propre marque en
+   * conséquence. Jamais émis sur l'appareil qui a lu — celui-là s'est déjà mis
+   * à jour localement.
+   */
+  | { method: 'event.dm_self_read'; params: { peer: string; lamport: number } }
   | { method: 'event.dm_ack'; params: { peer: string; msg_id: string } }
   | { method: 'event.dm_pins'; params: { peer: string } }
   | {

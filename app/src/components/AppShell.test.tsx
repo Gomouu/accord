@@ -10,7 +10,8 @@
  *
  * Couvre aussi le câblage de `event.call_ended`, dont l'aiguillage vers le
  * badge d'appel manqué n'existe qu'ici (la traduction en toast est testée
- * dans `lib/callToast.test.ts`).
+ * dans `lib/callToast.test.ts`), et celui de `event.dm_self_read` (marque de
+ * lecture venue d'un autre appareil du compte), qui n'existe qu'ici aussi.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -74,6 +75,7 @@ import { AppShell } from './AppShell';
 
 const voiceStatusMock = api.voiceStatus as unknown as Mock;
 const callsStatusMock = api.callsStatus as unknown as Mock;
+const friendsListMock = api.friendsList as unknown as Mock;
 const onEventMock = rpc.onEvent as unknown as Mock;
 
 const SELF: SelfProfile = {
@@ -92,7 +94,7 @@ const SELF: SelfProfile = {
   profile_frame: null,
 };
 
-function contact(pubkey: string): Contact {
+function contact(pubkey: string, over: Partial<Contact> = {}): Contact {
   return {
     node_id: `n-${pubkey}`,
     pubkey,
@@ -103,6 +105,7 @@ function contact(pubkey: string): Contact {
     banner: null,
     state: 'friend',
     last_seen_ms: 0,
+    ...over,
   };
 }
 
@@ -373,5 +376,97 @@ describe('AppShell — fin d’appel et badge d’appel manqué', () => {
     await sonnerPuisTerminer('missed');
 
     expect(useCalls.getState().missedPeers.has('alice')).toBe(true);
+  });
+});
+
+/**
+ * Monte la coquille sur une liste d'amis donnée, puis rejoue un
+ * `event.dm_self_read`. La liste initiale est portée par la réponse simulée du
+ * nœud : le chargement au montage écraserait sinon un `useFriends.setState`
+ * posé avant le rendu (même raison que pour `calls.status` plus haut).
+ * `rechargee` est ce que rendra le `friends.list` déclenché par l'événement ;
+ * `null` signifie « aucun rechargement attendu » — une réponse laissée en trop
+ * fuirait vers le test suivant.
+ */
+async function lireSurUnAutreAppareil(
+  initiale: Contact[],
+  rechargee: Contact[] | null,
+  params: { peer: string; lamport: number },
+): Promise<void> {
+  friendsListMock.mockResolvedValueOnce({ contacts: initiale });
+  if (rechargee !== null) friendsListMock.mockResolvedValueOnce({ contacts: rechargee });
+  // Ne garder que les abonnements pris par ce rendu : les stores s'abonnent
+  // aussi au chargement du module, bien avant le premier test.
+  onEventMock.mockClear();
+  render(<AppShell />);
+  await waitFor(() => expect(useFriends.getState().contacts).toEqual(initiale));
+  // Le chargement au montage est consommé : ce qui suit compte les appels
+  // imputables au seul événement.
+  friendsListMock.mockClear();
+
+  await act(async () => {
+    for (const [handler] of onEventMock.mock.calls) {
+      (handler as (method: string, params: unknown) => void)(
+        'event.dm_self_read',
+        params,
+      );
+    }
+  });
+}
+
+/** Non-lus connus d'un contact, tels que la barre latérale les affiche. */
+function nonLus(pubkey: string): number | undefined {
+  return useFriends.getState().contacts.find((c) => c.pubkey === pubkey)?.unread;
+}
+
+/** Position de lecture locale d'un contact (séparateur « nouveaux messages »). */
+function marqueLue(pubkey: string): number | undefined {
+  return useFriends.getState().contacts.find((c) => c.pubkey === pubkey)?.read_lamport;
+}
+
+describe('AppShell — marque de lecture d’un autre appareil (event.dm_self_read)', () => {
+  it('fait retomber la pastille de la conversation lue ailleurs', async () => {
+    await lireSurUnAutreAppareil(
+      [contact('alice', { unread: 3, read_lamport: 2 })],
+      [contact('alice', { unread: 0, read_lamport: 5 })],
+      { peer: 'alice', lamport: 5 },
+    );
+
+    expect(friendsListMock).toHaveBeenCalledTimes(1);
+    expect(nonLus('alice')).toBe(0);
+    expect(marqueLue('alice')).toBe(5);
+  });
+
+  it('un événement en retard ne fait jamais remonter la pastille', async () => {
+    // 🔒 L'invariant : la marque ne recule pas côté nœud, donc un événement
+    // tardif (lamport 3 alors que la conversation est lue jusqu'à 7) doit
+    // laisser le compteur du nœud faire foi. Dériver l'affichage du `lamport`
+    // reçu ferait reculer la position — et remonter la pastille.
+    await lireSurUnAutreAppareil(
+      [contact('alice', { unread: 0, read_lamport: 7 })],
+      [contact('alice', { unread: 0, read_lamport: 7 })],
+      { peer: 'alice', lamport: 3 },
+    );
+
+    expect(nonLus('alice')).toBe(0);
+    expect(marqueLue('alice')).toBe(7);
+  });
+
+  it('un événement pour une autre conversation laisse celle-ci intacte', async () => {
+    await lireSurUnAutreAppareil(
+      [
+        contact('alice', { unread: 3, read_lamport: 2 }),
+        contact('bob', { unread: 1, read_lamport: 0 }),
+      ],
+      [
+        contact('alice', { unread: 3, read_lamport: 2 }),
+        contact('bob', { unread: 0, read_lamport: 4 }),
+      ],
+      { peer: 'bob', lamport: 4 },
+    );
+
+    expect(nonLus('bob')).toBe(0);
+    expect(nonLus('alice')).toBe(3);
+    expect(marqueLue('alice')).toBe(2);
   });
 });

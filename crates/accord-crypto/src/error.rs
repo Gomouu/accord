@@ -36,6 +36,9 @@ pub enum CryptoError {
     /// Le compteur d'émission a atteint sa limite : re-keying requis.
     #[error("re-keying requis")]
     RekeyRequired,
+    /// Appairage refusé : code mal formé, ou échange PAKE qui n'aboutit pas.
+    #[error("appairage refusé : {0}")]
+    Pairing(&'static str),
     /// Coffre d'identité corrompu ou format inconnu.
     #[error("coffre d'identité corrompu")]
     VaultCorrupt,

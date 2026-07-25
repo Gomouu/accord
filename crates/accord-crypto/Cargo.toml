@@ -14,6 +14,7 @@ x25519-dalek = { workspace = true }
 chacha20poly1305 = { workspace = true }
 argon2 = { workspace = true }
 sha2 = { workspace = true }
+spake2 = { workspace = true }
 hkdf = { workspace = true }
 hmac = { workspace = true }
 rand = { workspace = true }

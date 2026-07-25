@@ -31,6 +31,9 @@ x25519-dalek = { version = "2", features = ["static_secrets"] }
 chacha20poly1305 = "0.10"
 argon2 = "0.5"
 sha2 = "0.10"
+# PAKE d appairage (jalon 1, lot 1.D) — voir docs/MULTI_DEVICE.md 4.1 pour le
+# choix de spake2 plutot que CPace, et pourquoi la 0.4 stable plutot que la pre.
+spake2 = "0.4"
 hkdf = "0.12"
 hmac = "0.12"
 rand = "0.8"

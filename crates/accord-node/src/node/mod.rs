@@ -342,6 +342,38 @@ impl Node {
         Ok(())
     }
 
+    /// Traite le message PAKE d'un appareil qui tente de s'appairer.
+    ///
+    /// ⚠️ **Le message de réponse est celui de CET échange.** `accept` consomme
+    /// l'état SPAKE2 et en repose un neuf pour l'essai suivant : lire
+    /// `outgoing()` après coup enverrait au pair le message d'un échange
+    /// auquel il ne participe pas, et les deux côtés dériveraient des clés
+    /// différentes sans raison apparente.
+    ///
+    /// Silencieux quand il n'y a pas d'offre, ou quand elle est morte : un
+    /// inconnu qui frappe à une porte fermée n'apprend rien de plus que le
+    /// silence.
+    fn ingest_pairing_hello(&self, peer_msg: &[u8]) -> Vec<CoreMsg> {
+        let mut slot = self.pairing_offer.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(offer) = slot.as_mut() else {
+            return Vec::new();
+        };
+        let reply = offer.outgoing().to_vec();
+        match offer.accept(peer_msg, now_ms()) {
+            Ok(_channel) => {
+                // 🔒 Le canal est un CANDIDAT, pas un appairage. Rien n'est
+                // signé tant que deux humains n'ont pas comparé l'empreinte —
+                // voir `PairingOffer::accept`.
+                tracing::info!("appairage : échange abouti, empreinte à confirmer");
+                vec![CoreMsg::PairingHello { msg: reply }]
+            }
+            Err(refus) => {
+                tracing::debug!(?refus, "appairage : tentative refusée");
+                Vec::new()
+            }
+        }
+    }
+
     /// Ouvre une offre d'appairage et rend le code à afficher.
     ///
     /// Remplace une offre en cours : demander un nouveau code annule le
@@ -812,6 +844,7 @@ impl Node {
                 self.ingest_device_list(peer_pubkey, &list)?;
                 Ok(vec![])
             }
+            CoreMsg::PairingHello { msg } => Ok(self.ingest_pairing_hello(&msg)),
             CoreMsg::Profile {
                 display_name,
                 bio,

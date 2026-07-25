@@ -1685,3 +1685,56 @@ fn le_code_dappairage_evite_les_caracteres_ambigus() {
         }
     }
 }
+
+/// Joue la moitié « nouvel appareil » d'un appairage avec `code`.
+fn moitie_nouvel_appareil(code: &str) -> (accord_crypto::pairing::PairingHandshake, Vec<u8>) {
+    let c = accord_crypto::pairing::PairingCode::parse(code).expect("code valide");
+    accord_crypto::pairing::PairingHandshake::start(&c)
+}
+
+#[test]
+fn un_hello_dappairage_sans_offre_reste_silencieux() {
+    // 🔒 Un inconnu qui frappe à une porte fermée n'apprend rien de plus que
+    // le silence — surtout pas qu'il n'y a personne derrière.
+    let n = node();
+    let (_, msg) = moitie_nouvel_appareil("ABCDEFGH");
+    let reponses = n
+        .ingest_core(&[9u8; 32], CoreMsg::PairingHello { msg })
+        .unwrap();
+    assert!(reponses.is_empty());
+}
+
+#[test]
+fn un_hello_dappairage_recoit_le_message_de_cet_echange() {
+    // ⚠️ Le piège : `accept` repose un état SPAKE2 neuf pour l'essai suivant.
+    // Répondre avec `outgoing()` lu APRÈS enverrait le message d'un échange
+    // auquel le pair ne participe pas, et les deux clés divergeraient sans
+    // raison visible.
+    let n = node();
+    let code = n.pairing_start().unwrap().code.replace('-', "");
+    let (nouveau, msg) = moitie_nouvel_appareil(&code);
+
+    let reponses = n
+        .ingest_core(&[9u8; 32], CoreMsg::PairingHello { msg })
+        .unwrap();
+
+    let [CoreMsg::PairingHello { msg: reponse }] = &reponses[..] else {
+        panic!("une réponse d'appairage était attendue, reçu {reponses:?}");
+    };
+    // La preuve : le nouvel appareil dérive la MÊME clé avec cette réponse.
+    let canal = nouveau.finish(reponse).expect("échange abouti");
+    assert!(!canal.fingerprint().is_empty());
+}
+
+#[test]
+fn un_hello_dappairage_apres_annulation_reste_silencieux() {
+    let n = node();
+    let code = n.pairing_start().unwrap().code.replace('-', "");
+    n.pairing_cancel();
+
+    let (_, msg) = moitie_nouvel_appareil(&code);
+    let reponses = n
+        .ingest_core(&[9u8; 32], CoreMsg::PairingHello { msg })
+        .unwrap();
+    assert!(reponses.is_empty());
+}

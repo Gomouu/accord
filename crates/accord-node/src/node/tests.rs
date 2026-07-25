@@ -1738,3 +1738,52 @@ fn un_hello_dappairage_apres_annulation_reste_silencieux() {
         .unwrap();
     assert!(reponses.is_empty());
 }
+
+#[test]
+fn lempreinte_napparait_quapres_un_echange_abouti() {
+    let n = node();
+    let code = n.pairing_start().unwrap().code.replace('-', "");
+    assert_eq!(n.pairing_fingerprint(), None);
+
+    let (_, msg) = moitie_nouvel_appareil(&code);
+    n.ingest_core(&[9u8; 32], CoreMsg::PairingHello { msg })
+        .unwrap();
+
+    let empreinte = n.pairing_fingerprint().expect("empreinte disponible");
+    assert_eq!(empreinte.chars().filter(char::is_ascii_digit).count(), 6);
+}
+
+#[test]
+fn confirmer_sans_empreinte_est_refuse() {
+    // 🔒 Sceller un appairage sans que personne n'ait rien comparé, ce serait
+    // exactement le trou que la confirmation existe pour boucher.
+    let n = node();
+    n.pairing_start().unwrap();
+    assert!(n.pairing_confirm().is_err());
+}
+
+#[test]
+fn confirmer_deux_fois_est_refuse() {
+    let n = node();
+    let code = n.pairing_start().unwrap().code.replace('-', "");
+    let (_, msg) = moitie_nouvel_appareil(&code);
+    n.ingest_core(&[9u8; 32], CoreMsg::PairingHello { msg })
+        .unwrap();
+
+    n.pairing_confirm().expect("première confirmation acceptée");
+    assert!(n.pairing_confirm().is_err());
+}
+
+#[test]
+fn annuler_efface_aussi_lempreinte() {
+    // Sinon l'écran suivant afficherait l'empreinte d'un appairage abandonné.
+    let n = node();
+    let code = n.pairing_start().unwrap().code.replace('-', "");
+    let (_, msg) = moitie_nouvel_appareil(&code);
+    n.ingest_core(&[9u8; 32], CoreMsg::PairingHello { msg })
+        .unwrap();
+    assert!(n.pairing_fingerprint().is_some());
+
+    n.pairing_cancel();
+    assert_eq!(n.pairing_fingerprint(), None);
+}

@@ -238,6 +238,13 @@ pub struct Node {
     /// survivrait à un redémarrage serait un code dont personne ne surveille
     /// plus l'écran.
     pairing_offer: Mutex<Option<crate::pairing::PairingOffer>>,
+    /// Canal candidat d'un échange abouti, en attente de confirmation.
+    ///
+    /// 🔒 « Candidat » est le mot juste : un échange SPAKE2 abouti ne prouve
+    /// pas que l'autre connaissait le code (voir `pairing::PairingOffer`).
+    /// Seule la comparaison d'empreinte par deux humains le transforme en
+    /// appairage.
+    pairing_channel: Mutex<Option<accord_crypto::pairing::PairedChannel>>,
     /// Dernier indicateur de frappe accepté par pair (anti-abus, ms murales).
     typing_seen: Mutex<HashMap<[u8; 32], u64>>,
     /// Cadence des `InviteRedeem` entrants par pair : `(début de fenêtre ms,
@@ -274,6 +281,7 @@ impl Node {
             online: Mutex::new(HashSet::new()),
             peer_status: Mutex::new(HashMap::new()),
             pairing_offer: Mutex::new(None),
+            pairing_channel: Mutex::new(None),
             typing_seen: Mutex::new(HashMap::new()),
             redeem_seen: Mutex::new(HashMap::new()),
             soundboard_seen: Mutex::new(HashMap::new()),
@@ -360,10 +368,14 @@ impl Node {
         };
         let reply = offer.outgoing().to_vec();
         match offer.accept(peer_msg, now_ms()) {
-            Ok(_channel) => {
+            Ok(channel) => {
                 // 🔒 Le canal est un CANDIDAT, pas un appairage. Rien n'est
                 // signé tant que deux humains n'ont pas comparé l'empreinte —
                 // voir `PairingOffer::accept`.
+                *self
+                    .pairing_channel
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()) = Some(channel);
                 tracing::info!("appairage : échange abouti, empreinte à confirmer");
                 vec![CoreMsg::PairingHello { msg: reply }]
             }
@@ -392,6 +404,44 @@ impl Node {
     /// Annule l'offre en cours, s'il y en a une.
     pub fn pairing_cancel(&self) {
         *self.pairing_offer.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        // L'empreinte part avec l'offre : sinon l'écran suivant afficherait
+        // celle d'un appairage abandonné.
+        *self
+            .pairing_channel
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
+    /// Empreinte du canal candidat, à afficher pour comparaison humaine.
+    ///
+    /// `None` tant qu'aucun échange n'a abouti — l'écran affiche alors le code
+    /// et attend.
+    pub fn pairing_fingerprint(&self) -> Option<String> {
+        self.pairing_channel
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|c| c.fingerprint().to_string())
+    }
+
+    /// Confirme l'empreinte et scelle l'appairage.
+    ///
+    /// 🔒 À n'appeler qu'après confirmation **explicite** de l'utilisateur.
+    /// Sans canal candidat il n'y a rien à confirmer : refuser, plutôt que
+    /// consommer l'offre pour rien — ce serait exactement le trou que la
+    /// confirmation existe pour boucher.
+    pub fn pairing_confirm(&self) -> Result<(), NodeError> {
+        if self.pairing_fingerprint().is_none() {
+            return Err(NodeError::Invalid("aucune empreinte à confirmer"));
+        }
+        let mut slot = self.pairing_offer.lock().unwrap_or_else(|e| e.into_inner());
+        let offer = slot
+            .as_mut()
+            .ok_or(NodeError::Invalid("aucun appairage en cours"))?;
+        offer
+            .confirm(now_ms())
+            .map_err(|_| NodeError::Invalid("appairage expiré ou déjà scellé"))?;
+        Ok(())
     }
 
     /// Appareils du compte, tels que l'écran « Mes appareils » les montre.

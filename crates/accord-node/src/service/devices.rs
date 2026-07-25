@@ -62,6 +62,15 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             node.pairing_cancel();
             Ok(json!({}))
         }
+        "devices.pair_status" => Ok(json!({
+            // `null` tant qu'aucun échange n'a abouti : l'écran affiche alors
+            // le code et attend, plutôt que d'inventer une empreinte.
+            "fingerprint": node.pairing_fingerprint(),
+        })),
+        "devices.pair_confirm" => {
+            node.pairing_confirm()?;
+            Ok(json!({}))
+        }
         _ => Err(NodeError::Invalid("méthode devices inconnue")),
     }
 }

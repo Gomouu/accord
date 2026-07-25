@@ -649,6 +649,51 @@ impl Db {
         )?)
     }
 
+    /// Conversations directes portant au moins un message, de la plus
+    /// récemment active à la plus ancienne, bornées à `limit`.
+    ///
+    /// Sert à cadencer l'anti-entropie entre appareils : offrir une empreinte
+    /// par ami connu coûterait un message par ami à chaque reconnexion, alors
+    /// que les conversations sans le moindre message n'ont rien à rattraper.
+    pub fn dm_conversations(&self, limit: usize) -> Result<Vec<[u8; 32]>, CoreError> {
+        let mut stmt = self.conn().prepare(
+            "SELECT peer, MAX(lamport) AS derniere FROM dm_messages
+             GROUP BY peer ORDER BY derniere DESC LIMIT ?1",
+        )?;
+        let rows = stmt
+            .query_map([limit as i64], |row| row.get::<_, Vec<u8>>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter().map(blob).collect()
+    }
+
+    /// Note qu'un message a été **rattrapé** depuis un autre appareil du compte
+    /// plutôt que composé ici (idempotent).
+    ///
+    /// 🔒 Ce fait ne voyage pas : il ne dit rien du message, seulement de la
+    /// façon dont CETTE base l'a obtenu. C'est ce qui autorise l'affichage à ne
+    /// jamais conclure « échec de livraison » sur une machine qui n'a jamais eu
+    /// la charge de livrer.
+    pub fn mark_dm_synced(&self, msg_id: &[u8; 16]) -> Result<(), CoreError> {
+        self.conn().execute(
+            "INSERT OR IGNORE INTO dm_synced (msg_id) VALUES (?1)",
+            params![msg_id],
+        )?;
+        Ok(())
+    }
+
+    /// Messages d'une conversation obtenus par rattrapage ([`Db::mark_dm_synced`]).
+    pub fn dm_synced_set(&self, peer: &[u8; 32]) -> Result<HashSet<[u8; 16]>, CoreError> {
+        let mut stmt = self.conn().prepare(
+            "SELECT s.msg_id FROM dm_synced s
+             JOIN dm_messages m ON m.msg_id = s.msg_id
+             WHERE m.peer = ?1",
+        )?;
+        let rows = stmt
+            .query_map([peer.as_slice()], |row| row.get::<_, Vec<u8>>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter().map(blob).collect()
+    }
+
     // ---- Messages de groupe ----
 
     /// Insère un message de groupe (idempotent).

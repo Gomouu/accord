@@ -1342,6 +1342,15 @@ impl Runtime {
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
                         .remove(&account);
+                    // Un de NOS appareils qui réapparaît : on lui offre
+                    // aussitôt ce que l'on détient, conversation par
+                    // conversation. C'est le déclencheur du rattrapage — la
+                    // passe périodique n'est que le filet, et attendre cinq
+                    // minutes après un démarrage laisserait l'utilisateur
+                    // devant une conversation trouée.
+                    if account == self.node.public_key() {
+                        self.offer_self_sync(&static_pub).await;
+                    }
                     if self.is_friend(&account) {
                         // Liste d'appareils poussée sur la session (lot 1.C) :
                         // l'ami connecté n'attend aucun lookup DHT. Avant le
@@ -1561,6 +1570,37 @@ impl Runtime {
         }
     }
 
+    /// Offre à UN de nos appareils l'empreinte de nos conversations actives
+    /// (rattrapage, lot 1.E tâche 4).
+    ///
+    /// Best-effort et silencieux : une offre perdue ne coûte qu'une passe de
+    /// retard, et faire échouer l'établissement d'une session parce que la base
+    /// est momentanément illisible n'aurait aucun sens.
+    pub(crate) async fn offer_self_sync(&self, device: &[u8; 32]) {
+        let offres = match self.node.self_sync_offers() {
+            Ok(o) => o,
+            Err(e) => {
+                tracing::debug!(erreur = %e, "rattrapage : conversations illisibles");
+                return;
+            }
+        };
+        let mut envoyees = 0usize;
+        for offre in offres {
+            if self
+                .send_via_best_link(device, &ChannelMsg::Core(offre))
+                .await
+            {
+                envoyees += 1;
+            }
+        }
+        if envoyees > 0 {
+            tracing::debug!(
+                offres = envoyees,
+                "rattrapage : offres émises à un appareil"
+            );
+        }
+    }
+
     /// Livre un `CoreMsg` au COMPTE `to_account` : une remise par appareil
     /// joignable (lot 1.E).
     ///
@@ -1678,7 +1718,7 @@ impl Runtime {
         let account = self.node.account_of_transport_key(&static_pub);
         match msg {
             ChannelMsg::Dht(dht_msg) => self.route_dht(addr, static_pub, dht_msg).await,
-            ChannelMsg::Core(core_msg) => self.route_core(&account, core_msg).await,
+            ChannelMsg::Core(core_msg) => self.route_core(&static_pub, &account, core_msg).await,
             // Trames et pings voix : routés vers le moteur voix (D-025). Le
             // moteur tient son roster par personne — l'appel est avec un ami,
             // pas avec une de ses machines.
@@ -1718,7 +1758,19 @@ impl Runtime {
         }
     }
 
-    pub(crate) async fn route_core(&self, static_pub: &[u8; 32], core_msg: CoreMsg) {
+    /// Route un `CoreMsg` déjà déchiffré.
+    ///
+    /// 🔒 Deux clés, deux usages, comme partout depuis le lot 1.C : `device_pub`
+    /// est la MACHINE qui a scellé le datagramme, `account` la PERSONNE à qui
+    /// elle appartient. Tout raisonne sur la personne — sauf ce qui doit
+    /// distinguer nos propres machines les unes des autres, puisque la
+    /// traduction les confond toutes sous notre unique clé de compte.
+    pub(crate) async fn route_core(
+        &self,
+        device_pub: &[u8; 32],
+        account: &[u8; 32],
+        core_msg: CoreMsg,
+    ) {
         // Signalisation vocale : éphémère, routée vers le moteur voix sans
         // passer par la base (l'adhésion au groupe y est re-validée).
         if let CoreMsg::VoiceSignal {
@@ -1731,7 +1783,7 @@ impl Runtime {
         {
             if let Some(voice) = self.voice.get() {
                 voice.peer_signal(
-                    *static_pub,
+                    *account,
                     *group_id,
                     *channel_id,
                     *action,
@@ -1753,7 +1805,7 @@ impl Runtime {
                 | CoreMsg::CallTaken { .. }
         ) {
             if let Some(voice) = self.voice.get() {
-                voice.peer_call(*static_pub, core_msg);
+                voice.peer_call(*account, core_msg);
             }
             return;
         }
@@ -1788,7 +1840,7 @@ impl Runtime {
         }
         // Un accusé applicatif solde l'élément d'outbox correspondant.
         if let CoreMsg::MsgAck { msg_id } = &core_msg {
-            if let Err(e) = self.node.outbox_ack(static_pub, msg_id) {
+            if let Err(e) = self.node.outbox_ack(account, msg_id) {
                 tracing::debug!(erreur = %e, "core : purge d'outbox sur accusé impossible");
             }
         }
@@ -1798,7 +1850,7 @@ impl Runtime {
             CoreMsg::GroupOpMsg { op } => Some(op.group_id),
             _ => None,
         };
-        match self.node.ingest_core(static_pub, core_msg) {
+        match self.node.ingest_core_from(device_pub, account, core_msg) {
             Ok(replies) => {
                 if let Some(group_id) = voice_refresh {
                     if let Some(voice) = self.voice.get() {
@@ -1806,7 +1858,18 @@ impl Runtime {
                     }
                 }
                 for reply in replies {
-                    self.deliver_core(static_pub, reply).await;
+                    // Une réponse de rattrapage revient à la MACHINE qui l'a
+                    // demandée. La ventiler sur le compte enverrait
+                    // l'historique à des appareils qui n'ont rien demandé — et
+                    // pour lesquels notre curseur, lui, n'aurait pas avancé.
+                    if matches!(
+                        reply,
+                        CoreMsg::SelfSyncPull { .. } | CoreMsg::SelfSyncItem { .. }
+                    ) {
+                        self.deliver_core_to_device(device_pub, reply).await;
+                    } else {
+                        self.deliver_core(account, reply).await;
+                    }
                 }
             }
             Err(e) => tracing::debug!(erreur = %e, "core: ingestion refusée"),

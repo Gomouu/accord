@@ -80,6 +80,7 @@ pub(crate) mod backup_schedule;
 pub(crate) mod diagnostics;
 pub(crate) mod discovery;
 mod dm;
+mod dm_sync;
 mod ephemeral;
 mod files;
 mod groups;
@@ -743,12 +744,20 @@ impl Node {
     /// appartiennent à une personne, pas à une machine. Traduire ailleurs, ou
     /// à moitié, ferait apparaître le même ami sous deux identités selon le
     /// chemin emprunté.
+    ///
+    /// 🔒 Les comptes éligibles sont nos amis **et le nôtre**. On n'est pas son
+    /// propre ami : une liste bornée aux amitiés ferait de notre propre
+    /// portable un inconnu, avec lequel rien ne se rattache — ni l'adresse au
+    /// carnet, ni la session vivante, ni le rattrapage d'historique. Le
+    /// paramètre de `account_for_static` s'appelle `accounts`, et non « amis »,
+    /// exactement pour ce cas.
     pub fn account_of_transport_key(&self, static_pub: &[u8; 32]) -> [u8; 32] {
-        let friends = self.friend_pubkeys().unwrap_or_default();
+        let mut accounts = self.friend_pubkeys().unwrap_or_default();
+        accounts.push(self.public_key());
         self.with_db(|db| {
             Ok(crate::device::account_for_static(
                 db,
-                &friends,
+                &accounts,
                 static_pub,
                 now_ms(),
             ))
@@ -1205,8 +1214,30 @@ impl Node {
     /// Rend les `CoreMsg` de réponse à renvoyer au pair (zéro, un ou
     /// plusieurs — la synchronisation d'op-log peut en produire un lot), et
     /// émet les événements API correspondants.
+    ///
+    /// Forme à une clé : la machine et la personne s'y confondent. Le routeur,
+    /// lui, connaît les deux et passe par [`Node::ingest_core_from`].
     pub fn ingest_core(
         &self,
+        peer_pubkey: &[u8; 32],
+        msg: CoreMsg,
+    ) -> Result<Vec<CoreMsg>, NodeError> {
+        self.ingest_core_from(peer_pubkey, peer_pubkey, msg)
+    }
+
+    /// [`Node::ingest_core`] en distinguant la **machine** émettrice de la
+    /// **personne** à laquelle elle appartient.
+    ///
+    /// 🔒 Presque tout raisonne sur `peer_pubkey`, la personne : une amitié, un
+    /// profil, un op-log appartiennent à quelqu'un, pas à une machine. Le
+    /// rattrapage entre nos propres appareils est l'exception, et il n'a pas le
+    /// choix : le routeur traduit appareil → compte à son bord
+    /// (`docs/MULTI_DEVICE.md` §5.1), si bien que nos trois machines arrivent
+    /// ici sous une seule et même clé de compte. Un curseur par appareil frère
+    /// serait impossible à tenir sans savoir laquelle a parlé.
+    pub fn ingest_core_from(
+        &self,
+        device_pubkey: &[u8; 32],
         peer_pubkey: &[u8; 32],
         msg: CoreMsg,
     ) -> Result<Vec<CoreMsg>, NodeError> {
@@ -1362,12 +1393,63 @@ impl Node {
                 Ok(vec![])
             }
             CoreMsg::SelfReadMark { scope, conv, up_to } => {
-                // `peer_pubkey` est ici la clé de transport de l'émetteur, non
-                // traduite : `account_of_transport_key` ne remonte au compte
-                // que pour un AMI, et l'on n'est pas son propre ami. C'est
-                // exactement ce dont l'autorisation a besoin — elle compare à
-                // nos propres clés, pas à un compte.
-                self.ingest_self_read_mark(peer_pubkey, scope, &conv, &up_to)?;
+                // Autorisé sur la clé de la MACHINE, pas sur la personne : que
+                // le routeur ait su ou non remonter au compte, c'est la clé que
+                // la session a authentifiée qui décide, et `is_own_device`
+                // accepte les deux formes du parc mixte.
+                self.ingest_self_read_mark(device_pubkey, scope, &conv, &up_to)?;
+                Ok(vec![])
+            }
+            CoreMsg::SelfSyncOffer {
+                conv,
+                count,
+                max_lamport,
+                digest,
+            } => self.ingest_self_sync_offer(
+                device_pubkey,
+                accord_core::dm_sync::SyncOffer {
+                    conv,
+                    count,
+                    max_lamport,
+                    digest,
+                },
+            ),
+            CoreMsg::SelfSyncPull {
+                conv,
+                since_lamport,
+                max_items,
+            } => self.ingest_self_sync_pull(device_pubkey, &conv, since_lamport, max_items),
+            CoreMsg::SelfSyncItem {
+                conv,
+                msg_id,
+                author,
+                lamport,
+                sent_ms,
+                kind,
+                body,
+                acked,
+                deleted,
+                edited,
+            } => {
+                // ⚠️ `sent_ms` est repris tel quel : c'est l'heure d'ENVOI du
+                // message, pas celle de sa recopie. La recalculer ferait
+                // apparaître, sur la machine qui rattrape, une conversation
+                // entière datée d'aujourd'hui.
+                self.ingest_self_sync_item(
+                    device_pubkey,
+                    &accord_core::db::DmRecord {
+                        msg_id,
+                        peer: conv,
+                        author,
+                        lamport,
+                        sent_ms,
+                        kind,
+                        body,
+                        acked,
+                        deleted,
+                        edited,
+                    },
+                )?;
                 Ok(vec![])
             }
             CoreMsg::PairingHello { msg } => Ok(self.ingest_pairing_hello(&msg)),

@@ -1,7 +1,7 @@
 //! Méthodes `dm.*` : messagerie directe (envoi, historique, fenêtre autour d'un
 //! message, épingles, éditions, suppression, réactions, nouvelle tentative).
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use accord_core::db::DmRecord;
 use serde_json::{json, Value};
@@ -24,6 +24,7 @@ fn dm_messages_json(
     msgs: &[DmRecord],
     pinned: &BTreeSet<[u8; 16]>,
     outbox: &HashMap<[u8; 16], (u32, bool)>,
+    synced: &HashSet<[u8; 16]>,
 ) -> Result<Vec<Value>, NodeError> {
     let ids: Vec<[u8; 16]> = msgs.iter().map(|m| m.msg_id).collect();
     let annotations = node.annotations_of(&ids)?;
@@ -34,7 +35,7 @@ fn dm_messages_json(
                 annotations.reactions_of(&m.msg_id),
                 annotations.attachments_of(&m.msg_id),
                 pinned.contains(&m.msg_id),
-                node.dm_delivery(m, outbox),
+                node.dm_delivery(m, outbox, synced),
                 annotations.mentions_me(&m.msg_id),
             ))
         })
@@ -61,7 +62,8 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             let msgs = node.dm_history(&peer, before, param_limit(params))?;
             let pinned = node.dm_pinned_set(&peer)?;
             let outbox = node.dm_outbox_states(&peer)?;
-            let messages = dm_messages_json(node, &msgs, &pinned, &outbox)?;
+            let synced = node.dm_synced_states(&peer)?;
+            let messages = dm_messages_json(node, &msgs, &pinned, &outbox, &synced)?;
             // Peer's read position (read receipts), `null` if unknown.
             Ok(json!({
                 "messages": messages,
@@ -74,7 +76,8 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             let (msgs, found) = node.dm_history_around(&peer, &msg_id, param_limit(params))?;
             let pinned = node.dm_pinned_set(&peer)?;
             let outbox = node.dm_outbox_states(&peer)?;
-            let messages = dm_messages_json(node, &msgs, &pinned, &outbox)?;
+            let synced = node.dm_synced_states(&peer)?;
+            let messages = dm_messages_json(node, &msgs, &pinned, &outbox, &synced)?;
             Ok(json!({
                 "messages": messages,
                 "found": found,

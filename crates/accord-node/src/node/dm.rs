@@ -1,7 +1,7 @@
 //! Messagerie directe : composition et routage des messages, éditions,
 //! suppressions et réactions (bloc `impl Node` du domaine `dm.*`).
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use accord_core::db::DmRecord;
 use accord_core::messaging;
@@ -33,10 +33,20 @@ const DM_QUEUE_EXPIRY_MS: u64 = 7 * 24 * 3600 * 1000;
 ///   (`attempts >= DM_FAILED_ATTEMPTS`) or which is unacked, no longer queued
 ///   and older than the queue expiry;
 /// - `pending`: our unacked message still in flight or being retried.
+///
+/// 🔒 `synced` porte les messages **rattrapés** depuis un autre de nos
+/// appareils. Ils sont de nous, donc `author == me`, mais cette machine ne les
+/// a jamais composés : elle n'a aucune ligne d'outbox pour eux, n'en aura
+/// jamais, et n'a donc rien à dire de leur livraison. Sans cette distinction,
+/// la seule absence de ligne suffirait à les déclarer **échoués** passé la
+/// rétention de la file — un message parfaitement livré depuis le bureau
+/// s'afficherait en rouge sur le portable une semaine plus tard, et c'est la
+/// première chose que verrait l'utilisateur sur la machine qui a rattrapé.
 fn dm_delivery_state(
     rec: &DmRecord,
     me: &[u8; 32],
     outbox: &HashMap<[u8; 16], (u32, bool)>,
+    synced: &HashSet<[u8; 16]>,
     now: u64,
 ) -> &'static str {
     if rec.acked || rec.author != *me {
@@ -45,6 +55,11 @@ fn dm_delivery_state(
     match outbox.get(&rec.msg_id) {
         Some((attempts, _)) if *attempts >= DM_FAILED_ATTEMPTS => "failed",
         Some(_) => "pending",
+        // Rattrapé et non acquitté : l'appareil qui l'a composé savait, au
+        // moment de nous le passer, qu'il n'était pas encore livré. C'est tout
+        // ce que nous saurons jamais — d'où « en cours », qui ne promet rien,
+        // plutôt qu'« échec », qui accuse à tort.
+        None if synced.contains(&rec.msg_id) => "pending",
         None if now.saturating_sub(rec.sent_ms) > DM_QUEUE_EXPIRY_MS => "failed",
         None => "pending",
     }
@@ -548,14 +563,22 @@ impl Node {
         })
     }
 
+    /// Messages d'une conversation obtenus par rattrapage depuis un autre de
+    /// nos appareils (annotation locale, cf. [`Node::dm_delivery`]).
+    pub fn dm_synced_states(&self, peer_pubkey: &[u8; 32]) -> Result<HashSet<[u8; 16]>, NodeError> {
+        self.with_db(|db| Ok(db.dm_synced_set(peer_pubkey)?))
+    }
+
     /// État de livraison d'un message (`"sent"` | `"pending"` | `"failed"`),
-    /// dérivé de l'accusé et de la file d'attente (`dm_outbox_states`).
+    /// dérivé de l'accusé, de la file d'attente (`dm_outbox_states`) et de
+    /// l'origine locale de la ligne (`dm_synced_states`).
     pub fn dm_delivery(
         &self,
         rec: &DmRecord,
         outbox: &HashMap<[u8; 16], (u32, bool)>,
+        synced: &HashSet<[u8; 16]>,
     ) -> &'static str {
-        dm_delivery_state(rec, &self.public_key(), outbox, now_ms())
+        dm_delivery_state(rec, &self.public_key(), outbox, synced, now_ms())
     }
 
     /// Relance l'envoi d'un de nos messages directs non acquitté (jump-to-retry
@@ -820,11 +843,15 @@ mod tests {
         };
         // Not queued, fresh ⇒ pending.
         let empty: HashMap<[u8; 16], (u32, bool)> = HashMap::new();
-        assert_eq!(node.dm_delivery(&rec(), &empty), "pending");
+        let jamais_rattrape: HashSet<[u8; 16]> = HashSet::new();
+        assert_eq!(
+            node.dm_delivery(&rec(), &empty, &jamais_rattrape),
+            "pending"
+        );
         // Exhausted direct retries ⇒ failed.
         let mut map = HashMap::new();
         map.insert(mid, (DM_FAILED_ATTEMPTS, false));
-        assert_eq!(node.dm_delivery(&rec(), &map), "failed");
+        assert_eq!(node.dm_delivery(&rec(), &map, &jamais_rattrape), "failed");
 
         // Retry re-emits the same DirectMsg (kind 0 = Text).
         node.dm_retry(&peer, &mid).unwrap();
@@ -836,7 +863,7 @@ mod tests {
         // Acked ⇒ sent; retrying a delivered message is refused.
         node.ingest_core(&peer, CoreMsg::MsgAck { msg_id: mid })
             .unwrap();
-        assert_eq!(node.dm_delivery(&rec(), &map), "sent");
+        assert_eq!(node.dm_delivery(&rec(), &map, &jamais_rattrape), "sent");
         assert!(node.dm_retry(&peer, &mid).is_err());
     }
 

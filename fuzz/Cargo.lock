@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "accord-core"
-version = "3.5.0"
+version = "6.2.0"
 dependencies = [
  "accord-crypto",
  "accord-proto",
@@ -21,7 +21,7 @@ dependencies = [
 
 [[package]]
 name = "accord-crypto"
-version = "3.5.0"
+version = "6.2.0"
 dependencies = [
  "accord-proto",
  "argon2",
@@ -32,6 +32,7 @@ dependencies = [
  "hmac",
  "rand",
  "sha2",
+ "spake2",
  "subtle",
  "thiserror",
  "x25519-dalek",
@@ -50,7 +51,7 @@ dependencies = [
 
 [[package]]
 name = "accord-proto"
-version = "3.5.0"
+version = "6.2.0"
 dependencies = [
  "thiserror",
 ]
@@ -258,6 +259,7 @@ dependencies = [
  "curve25519-dalek-derive",
  "digest",
  "fiat-crypto",
+ "rand_core",
  "rustc_version",
  "subtle",
  "zeroize",
@@ -796,6 +798,18 @@ name = "smallvec"
 version = "1.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
+
+[[package]]
+name = "spake2"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c5482afe85a0b6ce956c945401598dbc527593c77ba51d0a87a586938b1b893a"
+dependencies = [
+ "curve25519-dalek",
+ "hkdf",
+ "rand_core",
+ "sha2",
+]
 
 [[package]]
 name = "spin"

@@ -38,7 +38,7 @@ use std::path::Path;
 /// la version suffit pour créer les nouvelles tables sur une base existante.
 /// Modifier des colonnes existantes exige en revanche une vraie migration —
 /// voir [`MIGRATIONS`].
-const SCHEMA_VERSION: i64 = 13;
+const SCHEMA_VERSION: i64 = 14;
 
 /// Version au-delà de laquelle les évolutions passent par [`MIGRATIONS`].
 ///
@@ -70,36 +70,61 @@ struct Migration {
 ///
 /// 🔒 Une étape publiée ne se modifie plus : des bases l'ont déjà appliquée.
 /// Une correction se fait par une étape suivante.
-const MIGRATIONS: &[Migration] = &[Migration {
-    to: 13,
-    label: "compte et appareils (multi-appareil)",
-    apply: |conn| {
-        // `local_device` : notre appareil sur cette machine. `id` est figé à 1
-        // et contraint : deux lignes signifieraient deux identités de
-        // transport sur la même machine, ce que le jalon existe pour empêcher.
-        //
-        // `IF NOT EXISTS` : une étape ré-exécutable sans dommage coûte trois
-        // mots et couvre le cas où la version enregistrée redescendrait —
-        // restauration d'une sauvegarde, base recopiée à la main. Une étape
-        // qui explose dans ce cas transforme une bizarrerie en application
-        // qui ne démarre plus.
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS local_device (
-               id        INTEGER PRIMARY KEY CHECK (id = 1),
-               seed      BLOB    NOT NULL,
-               pow_nonce INTEGER NOT NULL,
-               name      TEXT    NOT NULL DEFAULT ''
-             );
-             CREATE TABLE IF NOT EXISTS device_lists (
-               account    BLOB PRIMARY KEY,
-               version    INTEGER NOT NULL,
-               encoded    BLOB    NOT NULL,
-               fetched_ms INTEGER NOT NULL
-             );",
-        )?;
-        Ok(())
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        to: 13,
+        label: "compte et appareils (multi-appareil)",
+        apply: |conn| {
+            // `local_device` : notre appareil sur cette machine. `id` est figé
+            // à 1 et contraint : deux lignes signifieraient deux identités de
+            // transport sur la même machine, ce que le jalon existe pour
+            // empêcher.
+            //
+            // `IF NOT EXISTS` : une étape ré-exécutable sans dommage coûte
+            // trois mots et couvre le cas où la version enregistrée
+            // redescendrait — restauration d'une sauvegarde, base recopiée à
+            // la main. Une étape qui explose dans ce cas transforme une
+            // bizarrerie en application qui ne démarre plus.
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS local_device (
+                   id        INTEGER PRIMARY KEY CHECK (id = 1),
+                   seed      BLOB    NOT NULL,
+                   pow_nonce INTEGER NOT NULL,
+                   name      TEXT    NOT NULL DEFAULT ''
+                 );
+                 CREATE TABLE IF NOT EXISTS device_lists (
+                   account    BLOB PRIMARY KEY,
+                   version    INTEGER NOT NULL,
+                   encoded    BLOB    NOT NULL,
+                   fetched_ms INTEGER NOT NULL
+                 );",
+            )?;
+            Ok(())
+        },
     },
-}];
+    Migration {
+        to: 14,
+        label: "origine des messages rattrapés entre appareils",
+        apply: |conn| {
+            // Un message de NOUS qui arrive par rattrapage n'a pas été composé
+            // ici : cette machine ne l'a jamais mis en file, ne le réémettra
+            // jamais, et n'a donc rien à dire de sa livraison. Sans cette
+            // trace, `dm_delivery_state` conclut « échec » sur la seule absence
+            // de ligne d'outbox, et affiche en rouge, une semaine plus tard, un
+            // message parfaitement livré depuis l'autre machine.
+            //
+            // Table annexe plutôt que colonne : c'est un fait LOCAL sur la
+            // provenance d'une ligne, au même titre que `dm_pins`, pas une
+            // propriété du message que les deux appareils partageraient.
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS dm_synced (
+                   msg_id BLOB PRIMARY KEY
+                 );",
+            )?;
+            Ok(())
+        },
+    },
+];
 
 /// Copie la base avant une migration, et purge les copies les plus anciennes.
 ///

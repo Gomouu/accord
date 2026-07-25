@@ -404,6 +404,12 @@ pub(crate) fn spawn_loops(rt: &Arc<Runtime>) {
     spawn_periodic(Arc::clone(rt), cfg.group_sync, |r, c| {
         Box::pin(group_sync_tick(r, c))
     });
+    // Rattrapage entre nos propres appareils : même cadence que
+    // l'anti-entropie des op-logs, dont il est le pendant pour les
+    // conversations directes.
+    spawn_periodic(Arc::clone(rt), cfg.group_sync, |r, c| {
+        Box::pin(self_sync_tick(r, c))
+    });
     // Republication Kademlia des records détenus POUR AUTRUI (identités,
     // présences, boîtes aux lettres déposées chez nous) : sans elle, un
     // record ne vit que sur les k nœuds du put initial et le churn du soir
@@ -970,7 +976,11 @@ async fn mailbox_tick(rt: &Runtime, cfg: &MaintenanceConfig) {
                                 // 🔒 Ingéré au nom de la PERSONNE, pas de la
                                 // machine : le dépôt vient d'un appareil, mais
                                 // le message vient de l'ami.
-                                Ok(msg) => rt.route_core(&friend, msg).await,
+                                // La machine qui a déposé (`expediteur`) et la
+                                // personne (`friend`) : le routeur a besoin des
+                                // deux, et elles diffèrent dès qu'un ami a
+                                // basculé ses appareils.
+                                Ok(msg) => rt.route_core(&expediteur, &friend, msg).await,
                                 Err(_) => tracing::debug!("boîtes : message illisible ignoré"),
                             }
                         }
@@ -1063,6 +1073,27 @@ async fn group_sync_tick(rt: &Runtime, _cfg: &MaintenanceConfig) {
     }
     if offers > 0 {
         tracing::debug!(offres = offers, "anti-entropie : offres GroupSync émises");
+    }
+}
+
+/// Émet une offre de rattrapage par conversation vers CHACUN de nos autres
+/// appareils joignables (lot 1.E, tâche 4).
+///
+/// Filet de la reconnexion, qui reste le déclencheur principal : une offre
+/// perdue, une session établie avant que la base ne soit prête, un appareil
+/// resté connecté pendant qu'un autre recevait des messages — tout cela se
+/// rattrape à la passe suivante sans code spécifique.
+async fn self_sync_tick(rt: &Runtime, _cfg: &MaintenanceConfig) {
+    let moi = rt.node().public_key();
+    // Nos propres appareils, moins celui-ci : exactement la même expansion que
+    // la livraison, donc les mêmes cibles.
+    let freres =
+        crate::device::without_self(rt.node().delivery_targets(&moi), &rt.node().transport_key());
+    for frere in freres {
+        if rt.addr_of(&frere).is_none() {
+            continue; // appareil sans lien connu : rien à offrir cette passe
+        }
+        rt.offer_self_sync(&frere).await;
     }
 }
 

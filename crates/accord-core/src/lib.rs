@@ -8,6 +8,7 @@
 #![deny(missing_docs)]
 
 pub mod db;
+pub mod dm_sync;
 pub mod error;
 pub mod files;
 pub mod friends;

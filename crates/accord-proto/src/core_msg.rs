@@ -1864,11 +1864,89 @@ pub enum CoreMsg {
         /// connaît, et ignore une marque qui ne lui dit rien.
         up_to: [u8; 16],
     },
+    /// 0x1C — Offre d'anti-entropie entre les appareils d'UN MÊME compte, pour
+    /// UNE conversation directe (jalon 1, lot 1.E, tâche 4). Même forme que
+    /// [`CoreMsg::GroupSync`] : « voici ce que je détiens, dis-moi si tu es en
+    /// retard ».
+    ///
+    /// 🔒 L'empreinte est bornée à **une conversation**, jamais à la base
+    /// entière. Deux appareils d'un compte n'ont pas les mêmes messages
+    /// SORTANTS tant qu'ils n'ont pas convergé — une empreinte globale ne
+    /// tomberait donc jamais juste et déclencherait un rattrapage complet à
+    /// chaque passe, pour toujours.
+    SelfSyncOffer {
+        /// Conversation visée : clé de compte du pair, comme
+        /// [`CoreMsg::SelfReadMark::conv`].
+        conv: [u8; 32],
+        /// Nombre de messages couverts par l'empreinte (taille de la fenêtre).
+        count: u32,
+        /// Position maximale couverte (lamport le plus élevé de la fenêtre).
+        max_lamport: u64,
+        /// SHA-256 des `msg_id` de la fenêtre, dans l'ordre canonique
+        /// `(lamport, msg_id)` croissant.
+        digest: [u8; 32],
+    },
+    /// 0x1D — Demande des messages manquants après une [`CoreMsg::SelfSyncOffer`].
+    SelfSyncPull {
+        /// Conversation visée.
+        conv: [u8; 32],
+        /// Ne renvoyer que les messages de position strictement supérieure.
+        since_lamport: u64,
+        /// Nombre de messages demandés au plus.
+        ///
+        /// 🔒 Borné **au décodage** à [`MAX_SELF_SYNC_ITEMS`], et zéro y est
+        /// refusé. Le répondeur n'a donc jamais à se méfier de ce champ : une
+        /// demande de dix mille messages n'existe pas, elle est jetée avec le
+        /// datagramme. Laisser la borne au moment de servir en ferait un
+        /// contrôle que le prochain appelant pourrait oublier.
+        max_items: u16,
+    },
+    /// 0x1E — UN message d'historique renvoyé en réponse à une
+    /// [`CoreMsg::SelfSyncPull`].
+    ///
+    /// 🔴 Porte l'`msg_id` **d'origine** et l'auteur réel, et non une nouvelle
+    /// enveloppe [`CoreMsg::DirectMsg`]. Réémettre un `DirectMsg` aurait deux
+    /// conséquences silencieuses, chacune suffisante à détruire l'historique :
+    /// la composition frappe un `msg_id` neuf, donc l'insertion idempotente ne
+    /// reconnaît plus rien et chaque passe duplique la conversation ; et
+    /// l'ingestion d'un message direct réécrit `peer` et `author` avec la clé
+    /// de l'émetteur, si bien qu'un message de P relayé par notre portable
+    /// serait classé comme un message DU PORTABLE.
+    SelfSyncItem {
+        /// Conversation à laquelle le message appartient.
+        conv: [u8; 32],
+        /// Identifiant d'origine du message. C'est lui qui rend le rattrapage
+        /// idempotent (`INSERT OR IGNORE` côté base).
+        msg_id: [u8; 16],
+        /// Auteur réel : le compte du pair, ou le nôtre.
+        author: [u8; 32],
+        /// Horloge de Lamport telle que le message la porte.
+        lamport: u64,
+        /// Horloge murale d'envoi (ms).
+        sent_ms: u64,
+        /// Discriminant du corps.
+        kind: u8,
+        /// Corps encodé, tel quel.
+        body: Vec<u8>,
+        /// Accusé de réception connu de l'appareil qui répond.
+        acked: bool,
+        /// Tombstone de suppression.
+        deleted: bool,
+        /// Nouveau corps si le message a été édité.
+        edited: Option<Vec<u8>>,
+    },
 }
 
 /// Portée d'une [`CoreMsg::SelfReadMark`] : conversation directe. `conv` porte
 /// alors la clé de compte du pair.
 pub const SELF_READ_SCOPE_DM: u8 = 0;
+
+/// Messages d'historique qu'une [`CoreMsg::SelfSyncPull`] peut demander.
+///
+/// 🔒 Borne filaire, appliquée au décodage. Elle plafonne aussi, de fait, ce
+/// qu'un rattrapage transfère par conversation et par passe : le répondeur ne
+/// sert jamais au-delà de sa propre fenêtre, qui a la même taille.
+pub const MAX_SELF_SYNC_ITEMS: u16 = 64;
 
 /// Raison d'un [`CoreMsg::CallDecline`] : refus explicite de l'utilisateur.
 pub const CALL_DECLINE_REJECTED: u8 = 0;
@@ -2124,6 +2202,52 @@ impl WireEncode for CoreMsg {
                 w.put_arr(conv);
                 w.put_arr(up_to);
             }
+            CoreMsg::SelfSyncOffer {
+                conv,
+                count,
+                max_lamport,
+                digest,
+            } => {
+                w.put_u8(0x1C);
+                w.put_arr(conv);
+                w.put_u32(*count);
+                w.put_u64(*max_lamport);
+                w.put_arr(digest);
+            }
+            CoreMsg::SelfSyncPull {
+                conv,
+                since_lamport,
+                max_items,
+            } => {
+                w.put_u8(0x1D);
+                w.put_arr(conv);
+                w.put_u64(*since_lamport);
+                w.put_u16(*max_items);
+            }
+            CoreMsg::SelfSyncItem {
+                conv,
+                msg_id,
+                author,
+                lamport,
+                sent_ms,
+                kind,
+                body,
+                acked,
+                deleted,
+                edited,
+            } => {
+                w.put_u8(0x1E);
+                w.put_arr(conv);
+                w.put_arr(msg_id);
+                w.put_arr(author);
+                w.put_u64(*lamport);
+                w.put_u64(*sent_ms);
+                w.put_u8(*kind);
+                w.put_lbytes(body);
+                w.put_u8(u8::from(*acked));
+                w.put_u8(u8::from(*deleted));
+                w.put_opt(edited.as_ref(), |w, e| w.put_lbytes(e));
+            }
         }
     }
 }
@@ -2337,6 +2461,36 @@ impl WireDecode for CoreMsg {
                 conv: r.arr()?,
                 up_to: r.arr()?,
             }),
+            0x1C => Ok(CoreMsg::SelfSyncOffer {
+                conv: r.arr()?,
+                count: r.u32()?,
+                max_lamport: r.u64()?,
+                digest: r.arr()?,
+            }),
+            0x1D => Ok(CoreMsg::SelfSyncPull {
+                conv: r.arr()?,
+                since_lamport: r.u64()?,
+                // 🔒 La borne du nombre d'éléments vit ICI, pas dans le code
+                // qui sert la demande. Zéro est refusé au même titre qu'un
+                // dépassement : une demande qui ne demande rien n'a aucun sens
+                // et n'existe que pour sonder le comportement du répondeur.
+                max_items: match r.u16()? {
+                    n if (1..=MAX_SELF_SYNC_ITEMS).contains(&n) => n,
+                    _ => return Err(DecodeError::InvalidValue("self_sync.max_items")),
+                },
+            }),
+            0x1E => Ok(CoreMsg::SelfSyncItem {
+                conv: r.arr()?,
+                msg_id: r.arr()?,
+                author: r.arr()?,
+                lamport: r.u64()?,
+                sent_ms: r.u64()?,
+                kind: r.u8()?,
+                body: r.lbytes(MAX_BODY, "self_sync.body")?,
+                acked: decode_bool(r, "self_sync.acked")?,
+                deleted: decode_bool(r, "self_sync.deleted")?,
+                edited: r.opt(|r| r.lbytes(MAX_BODY, "self_sync.edited"))?,
+            }),
             _ => Err(DecodeError::InvalidValue("core kind")),
         }
     }
@@ -2490,6 +2644,109 @@ mod tests {
         // Message tronqué : refusé sans panique (entrée entièrement contrôlée
         // par l'émetteur).
         let mut r = Reader::new(&bytes[..bytes.len() - 1]);
+        assert!(CoreMsg::decode(&mut r).is_err());
+    }
+
+    /// Encode puis décode un `CoreMsg`, en vérifiant son opcode au passage.
+    fn roundtrip_with_opcode(msg: &CoreMsg, opcode: u8) -> Vec<u8> {
+        let mut w = Writer::new();
+        msg.encode(&mut w);
+        let bytes = w.into_bytes();
+        assert_eq!(bytes.first(), Some(&opcode), "opcode gelé");
+        let mut r = Reader::new(&bytes);
+        assert_eq!(&CoreMsg::decode(&mut r).unwrap(), msg);
+        bytes
+    }
+
+    #[test]
+    fn self_sync_offer_and_pull_roundtrip_and_bound_the_item_count() {
+        let offer = CoreMsg::SelfSyncOffer {
+            conv: [0xA7; 32],
+            count: 12,
+            max_lamport: 999,
+            digest: [0x5C; 32],
+        };
+        roundtrip_with_opcode(&offer, 0x1C);
+
+        let pull = CoreMsg::SelfSyncPull {
+            conv: [0xA7; 32],
+            since_lamport: 40,
+            max_items: MAX_SELF_SYNC_ITEMS,
+        };
+        let bytes = roundtrip_with_opcode(&pull, 0x1D);
+
+        // 🔒 La borne est au DÉCODAGE : le répondeur ne voit jamais passer une
+        // demande hors gabarit, elle meurt avec son datagramme. Le compte est
+        // le u16 de queue, donc les deux derniers octets.
+        let hostile = |n: u16| {
+            let mut b = bytes.clone();
+            let len = b.len();
+            b[len - 2..].copy_from_slice(&n.to_be_bytes());
+            b
+        };
+        for refuse in [0u16, MAX_SELF_SYNC_ITEMS + 1, u16::MAX] {
+            let b = hostile(refuse);
+            let mut r = Reader::new(&b);
+            assert!(
+                CoreMsg::decode(&mut r).is_err(),
+                "max_items={refuse} doit être refusé au décodage"
+            );
+        }
+        let b = hostile(1);
+        let mut r = Reader::new(&b);
+        assert!(
+            CoreMsg::decode(&mut r).is_ok(),
+            "une seule demande est licite"
+        );
+    }
+
+    #[test]
+    fn self_sync_item_carries_the_record_and_rejects_malformed_flags() {
+        let item = CoreMsg::SelfSyncItem {
+            conv: [0xA7; 32],
+            msg_id: [0x11; 16],
+            author: [0x22; 32],
+            lamport: 77,
+            sent_ms: 1_700_000_000_000,
+            kind: 0,
+            body: vec![1, 2, 3],
+            acked: true,
+            deleted: false,
+            edited: Some(vec![4, 5]),
+        };
+        let bytes = roundtrip_with_opcode(&item, 0x1E);
+
+        // Sans édition : le champ optionnel est absent, pas vide.
+        roundtrip_with_opcode(
+            &CoreMsg::SelfSyncItem {
+                conv: [0xA7; 32],
+                msg_id: [0x11; 16],
+                author: [0x22; 32],
+                lamport: 77,
+                sent_ms: 1_700_000_000_000,
+                kind: 0,
+                body: vec![1, 2, 3],
+                acked: false,
+                deleted: true,
+                edited: None,
+            },
+            0x1E,
+        );
+
+        // Tout préfixe strict est refusé sans panique : l'émetteur contrôle
+        // entièrement ces octets.
+        for cut in 0..bytes.len() {
+            let mut r = Reader::new(&bytes[..cut]);
+            assert!(CoreMsg::decode(&mut r).is_err(), "cut={cut}");
+        }
+
+        // Booléens filaires stricts : `acked` est l'octet qui suit le corps.
+        // Queue = acked(1) ‖ deleted(1) ‖ opt(1) ‖ longueur u32(4) ‖ 2 octets.
+        let position_acked = bytes.len() - 9;
+        assert_eq!(bytes[position_acked], 1, "repère du drapeau `acked`");
+        let mut hostile = bytes.clone();
+        hostile[position_acked] = 2;
+        let mut r = Reader::new(&hostile);
         assert!(CoreMsg::decode(&mut r).is_err());
     }
 

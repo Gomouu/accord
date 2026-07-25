@@ -2407,6 +2407,31 @@ fn la_cle_dun_appareil_dami_remonte_a_son_compte() {
 }
 
 #[test]
+fn la_cle_dun_de_nos_appareils_remonte_a_notre_propre_compte() {
+    // 🔒 On n'est pas son propre ami. Tant que la liste d'éligibles se limitait
+    // aux amitiés, notre PROPRE portable arrivait au routeur en parfait
+    // inconnu : aucune adresse rattachée à notre compte, aucune session
+    // reconnue comme la nôtre, et le rattrapage d'historique entre nos machines
+    // n'avait littéralement personne à qui parler.
+    let n = node();
+    let appareil = accord_crypto::DeviceIdentity::generate_with_pow_bits(1);
+    let liste = crate::device::build_device_list_with_root(
+        &n.identity,
+        &appareil,
+        "Portable",
+        crate::node::now_ms(),
+        accord_proto::device::DEVICE_FLAG_TRANSPORT_KEY,
+    );
+    n.store_device_list(&liste).unwrap();
+
+    assert_eq!(
+        n.account_of_transport_key(&appareil.public_key()),
+        n.public_key(),
+        "notre propre appareil doit remonter à notre propre compte"
+    );
+}
+
+#[test]
 fn lappareil_dun_non_ami_ne_remonte_a_aucun_compte() {
     // Une liste peut être parfaitement signée sans que son compte soit un ami.
     // Être signé n'est pas être invité.

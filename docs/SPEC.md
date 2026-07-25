@@ -479,17 +479,28 @@ are reserved and constitute the message's versioning path.
 
 ## 7. Offline: queues and mailboxes
 
-- Persistent local queue per recipient; backoff 5 s ×2 → cap 15 min;
+- Persistent local queue per **transport key**, i.e. per device: a CORE message
+  is addressed to an account, which delivery resolves into one target key per
+  reachable device before anything is queued. An offline device catches up on
+  reconnect without the others waiting on it, and without a message already
+  delivered here being deposited there. Backoff 5 s ×2 → cap 15 min;
   expiration 7 days.
 - **Mailbox**: `mailbox_key(dest, day, sender, frag) = SHA-256("accord-mb"
   ‖ dest_node_id ‖ day_unix:u64be ‖ sender_node_id ‖ frag_no:u32be)` — one key per
   sender and per fragment, since the DHT keeps a single record per key (D-016).
+  **Both node ids are device node ids**, derived from the key each machine
+  presents at transport. On the recipient side that is what makes the mailbox
+  per-device. The *sender* side is load-bearing for the same reason and is
+  easier to miss: the key mixes recipient, day and sender, so two machines of
+  one account depositing for the same person on the same day would land on a
+  single DHT key and the later STORE would erase the earlier deposit.
   The message is sealed for the recipient (same sealing as §6.4, the sender
   signs on the inside), stored via STORE (kind MAILBOX_HINT, ≤ 8 KiB per fragment)
   on the k closest to the key. On connection, the recipient queries the keys
-  (contact × {day, previous day} × ascending frag until absent), decrypts, ACKs to
-  the sender, then the records expire. Storage nodes can neither read nor correlate
-  the sender (opaque keys, unknown preimage).
+  (contact × each of that contact's device keys × {day, previous day} × ascending
+  frag until absent), decrypts, ACKs to the sender, then the records expire.
+  Storage nodes can neither read nor correlate the sender (opaque keys, unknown
+  preimage).
 
 ## 8. Voice (channel 0x03)
 

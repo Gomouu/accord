@@ -230,13 +230,14 @@ fn cached_list_for(db: &Db, account: &[u8; 32], now_ms: u64) -> Option<DeviceLis
     list.is_fresh(now_ms).then_some(list)
 }
 
-/// Compte auquel appartient la clé de transport `static_pub`, s'il en est un
-/// que l'on connaît.
+/// Compte auquel appartient la clé de transport `static_pub`, parmi les
+/// `accounts` que l'appelant juge éligibles.
 ///
 /// Deux cas se confondent volontairement pour l'appelant :
-/// - la clé **est** celle d'un compte ami — c'est le cas de tout le parc
+/// - la clé **est** celle d'un compte éligible — c'est le cas de tout le parc
 ///   actuel, où l'identité de transport est encore l'identité de compte ;
-/// - la clé est celle d'un **appareil** listé dans la liste fraîche d'un ami.
+/// - la clé est celle d'un **appareil** listé dans la liste fraîche d'un compte
+///   éligible.
 ///
 /// C'est la moitié « savoir lire » du basculement (voir `docs/MULTI_DEVICE.md`
 /// §3.2.1). Tant que le parc présente sa clé de compte, seul le premier cas se
@@ -244,17 +245,23 @@ fn cached_list_for(db: &Db, account: &[u8; 32], now_ms: u64) -> Option<DeviceLis
 /// commence à présenter une clé d'appareil, sinon les premiers à basculer
 /// deviendraient des inconnus pour tous les autres.
 ///
+/// 🔒 C'est **l'appelant** qui décide de l'éligibilité, et le paramètre ne
+/// s'appelle pas « amis » pour cette raison. Ses amis, évidemment ; mais aussi
+/// son **propre compte** dès qu'il s'agit de reconnaître une de ses autres
+/// machines — on n'est pas son propre ami, et une liste limitée aux amitiés
+/// ferait de son propre portable un inconnu.
+///
 /// Une liste périmée ne rattache rien : voir [`cached_devices_for`].
 pub fn account_for_static(
     db: &Db,
-    friends: &[[u8; 32]],
+    accounts: &[[u8; 32]],
     static_pub: &[u8; 32],
     now_ms: u64,
 ) -> Option<[u8; 32]> {
-    if friends.contains(static_pub) {
+    if accounts.contains(static_pub) {
         return Some(*static_pub);
     }
-    friends
+    accounts
         .iter()
         .find(|account| cached_devices_for(db, account, now_ms).contains(static_pub))
         .copied()
@@ -625,6 +632,28 @@ mod tests {
         assert_eq!(
             account_for_static(&db, &[ami], &device.public_key(), expire),
             None
+        );
+    }
+
+    #[test]
+    fn son_propre_appareil_se_rattache_a_son_propre_compte() {
+        // 🔒 On n'est pas son propre ami : une liste d'éligibles limitée aux
+        // amitiés ferait de son propre portable un inconnu, et le rattrapage
+        // entre ses machines n'aurait jamais lieu. Le rattachement lui-même
+        // marche déjà — il suffit que l'appelant s'inclue.
+        let now = 1_700_000_000_000;
+        let db = db();
+        let (moi, portable, record) = published(now);
+        en_cache(&db, &moi, &record, now);
+
+        assert_eq!(
+            account_for_static(&db, &[], &portable.public_key(), now),
+            None,
+            "sans se compter soi-même, sa propre machine reste un inconnu"
+        );
+        assert_eq!(
+            account_for_static(&db, &[moi.public_key()], &portable.public_key(), now),
+            Some(moi.public_key())
         );
     }
 

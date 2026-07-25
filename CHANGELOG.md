@@ -41,6 +41,34 @@ All notable changes to Accord. This project follows [semantic versioning](https:
   All three now derive from `LANGS`, and the native names moved into the
   dictionaries themselves, where the parity test already enforces them.
 
+- **A call rings on every device, and the others stop when you answer one.**
+  The invite already reached each device through the delivery fan-out; what was
+  missing was the other half. When the caller honours an answer it tells the
+  callee's account the call is taken, and the devices that were still ringing
+  fall silent.
+
+  That message is a shortcut, not a guarantee — it travels over UDP and can be
+  lost outright. Correctness comes from something that depends on no message
+  arriving at all: the caller stops repeating its invite the moment it answers,
+  and a device still ringing without fresh invites concludes on its own after a
+  few seconds. Without that net, losing the message would leave the other
+  machines ringing for a full three quarters of a minute and then report a
+  *missed* call for a call that was answered — worse than never ringing.
+
+  One race remains open and is worth naming: two devices answering within the
+  same round trip. The caller keeps the first and ignores the second, but cannot
+  tell the two apart, because both answers carry the same account key. The
+  second device converges within about ten seconds through audio-loss detection.
+
+  Found while writing that down: losing audio used to send a hangup, and the
+  caller could not tell that hangup from the winner's — so the device that lost
+  the race tore down the call the caller was actually holding, ten seconds in.
+  Losing audio is now silent. It costs nothing on a single device, since audio
+  is lost precisely when the peer has gone and the hangup was landing nowhere;
+  if both are alive behind a network cut, each concludes on its own at the same
+  delay. The message only ever helped when it was useless, and hurt when it
+  mattered.
+
 - **Multi-device: a direct message now fans out to every device of the
   recipient.** Delivery resolves the recipient *account* into the set of
   transport keys that can actually receive, and delivers once per key. The

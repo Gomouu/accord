@@ -1,9 +1,9 @@
 # Multi-device — design document
 
 **Status**: design of lot 1.A. §4 has been brought back in step with the pairing
-code that shipped in lot 1.D — where the implementation contradicted the design,
-the design text was corrected, not the code. The rest still runs ahead of the
-code.
+code that shipped in lot 1.D, and §5 with the delivery fan-out that shipped in
+lot 1.E — where the implementation contradicted the design, the design text was
+corrected, not the code. The rest still runs ahead of the code.
 **Target**: 7.0.
 **Rule**: nothing is implemented before this document answers the questions it
 raises. That rule exists because two hours of reading `install_session` once
@@ -172,6 +172,12 @@ has not updated; always adding the account key files a message forever for a
 listener that no longer exists. Unflagged devices collapse into a single target
 because they all present the same key — and evict each other from the transport,
 which is precisely the blocker this milestone lifts.
+
+A fifth case falls out of the same reading and is worth naming, because the
+table's shape invites the opposite answer: a fresh list whose every entry is
+revoked yields **the account key**, not the empty set. "No authorised device" is
+not the same claim as "unreachable", and an empty target list would silently
+drop every message to an account that is merely mid-rotation.
 
 The flag is inside `signable_bytes`, so it cannot be stripped in flight to
 redirect a conversation.
@@ -380,14 +386,82 @@ an account, which is N devices.
   device.** It is the only convention that does not require devices to agree
   with each other, and it matches what a sender means by the word.
 
+🔒 **The fan-out happens at exactly one place**, on the way into the network
+layer: an account is resolved into transport keys (§3.2.1) and the message is
+handed to the per-key delivery path once per target. Everything upstream — the
+op-log, friendships, the application queue — keeps reasoning about *people*;
+everything downstream reasons about *machines*. Two translation points would be
+one too many: sooner or later something writes to a device under an account's
+name, or the reverse. It also means the per-device mailbox is not a second
+mechanism — the offline queue is keyed by the same transport key, so it follows
+for free, and an account with no switched device resolves to exactly one target
+and behaves byte-for-byte as before.
+
+⚠️ **The sender's own device key matters too, and this is the part that reads as
+a detail and is not.** The mailbox DHT key mixes recipient, day *and sender*
+(SPEC §7). If two machines of one account deposited under the account key, they
+would compute the same key when writing to the same person on the same day, and
+the second STORE would erase the first one's deposit — messages lost with no
+error anywhere, the same failure mode as §1 and for the same reason. Deposits
+are therefore made under the depositing machine's key, and the recipient polls
+one mailbox per device of each contact.
+
 ⚠️ **Cost.** N devices means N times the traffic for a direct message.
 Negligible for text; **unacceptable for voice and video** — three devices would
 triple an already-heavy media stream for no benefit, since a person can only
-watch one screen.
+watch one screen. Note the split: call *signalling* is CORE traffic and does fan
+out, which is what makes every device ring; only the media stream does not.
 
 **Decision: real-time media stays single-device.** A call rings on every device;
 the moment it is answered on one, the others stop ringing and receive no media.
 This is also what users expect from every other platform.
+
+### 5.1 How the other devices actually stop ringing
+
+Shipped in lot 1.E. The wire contract and the constants are in
+`VOICE_CALLS.md` §1.5; what belongs here is the shape of the guarantee, because
+it is the first place in this design where a multi-device behaviour had to be
+made correct **without** relying on a message arriving.
+
+The tempting design is one message: the caller tells the callee's account "taken"
+and the losing devices stop. That message exists (`CallTaken`, 0x1A, sent to the
+account so it reaches every device including the winner, which ignores it), but
+it is a **latency shortcut and nothing more**. It travels over UDP, it is never
+queued offline, and it can be lost in full.
+
+Correctness comes from a second, independent property that depends on no received
+message at all: the caller resends its offer while ringing and **stops the instant
+it honours an answer**, so a device that is still ringing and has stopped hearing
+offers concludes on its own. The ordering is deliberate. Had correctness been hung
+on `CallTaken`, losing it would leave the other devices ringing for the full 45 s
+and then reporting a **missed call** for a call that was in fact taken — a false
+notification, which is strictly worse than a ring that stops a few seconds late.
+A device cut off from the caller has exactly one thing left to reason from, the
+silence itself; that is what the guarantee is built on, and `CallTaken` only makes
+the common case fast.
+
+⚠️ **The race this does not close: two devices answering within one round trip.**
+The caller honours the first answer and ignores the second, but it cannot tell
+*which* device lost. Inbound traffic is translated device → account at the router's
+edge — the mirror of the outbound resolution in §3.2.1, and for the same reason:
+one translation point, not two — so by the time the voice engine sees the two
+answers they carry the same account key. The loser sits in an active call receiving
+no media and only exits ~10 s later through audio-loss detection.
+
+That exit used to be actively harmful: losing audio emitted a best-effort hangup,
+which correlated on the caller exactly like the winner's would and tore down the
+call that was actually established. Losing audio is now **silent**. The message
+only ever helped when it was useless — audio is lost precisely when the peer has
+gone, so the hangup was landing nowhere — and hurt in the one case where it
+arrived. What remains of the race is therefore ten seconds of a second device
+showing an active call it cannot hear, which is a display fault rather than a
+lost call.
+
+Closing it fully means carrying the **transport key** up to the voice engine
+rather than collapsing it to an account at the boundary. That is not done, and it
+is not a small change: the roster, the per-peer rate limiting and the call state
+machine all key on the account today. It would also fix the jitter buffers, which
+currently merge two devices' frames into one sequence.
 
 ---
 
@@ -422,8 +496,8 @@ milestone of its own, not a sub-task.
 
 **Doing**, in delivery order, each useful on its own:
 
-1. **New messages reach every connected device.** Free once §5 is done. A device
-   that is switched on receives everything.
+1. **New messages reach every connected device.** Free once §5 is done — landed
+   in lot 1.E. A device that is switched on receives everything.
 2. **Catch-up on reconnect.** A returning device asks *its own other devices*
    what it missed since its last timestamp. Direct, encrypted, device-to-device;
    no third party involved.

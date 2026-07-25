@@ -64,7 +64,8 @@ relatives, pas comme un temps mural. `null` au repos.
 | `"busy"` | l'appelé est déjà en appel |
 | `"timeout"` | notre sonnerie sortante a expiré (45 s) sans réponse |
 | `"missed"` | la sonnerie entrante a expiré (45 s) sans que l'on réponde — « appel manqué » |
-| `"canceled"` | l'appelant a annulé pendant que ça sonnait chez nous |
+| `"canceled"` | la sonnerie entrante s'arrête avant son échéance : l'appelant a annulé, **ou** ses réémissions d'offre se sont taries (§1.5) |
+| `"answered_elsewhere"` | un autre appareil du même compte a décroché ; la sonnerie s'arrête et ce n'est **pas** un appel manqué (§1.5) |
 | `"lost"` | la liaison audio avec le pair a été perdue en plein appel (~10 s de silence réseau) |
 | `"superseded"` | appels croisés : notre appel sortant est remplacé par celui du pair (immédiatement suivi de `event.call_accepted` sur l'appel retenu) |
 
@@ -92,6 +93,8 @@ muted, deafened }`, et `event.voice_joined` / `event.voice_left` avec
                 event.call_incoming          │
                                              │ calls.decline / expiration (missed)
                                              │ / CallHangup de l'appelant (canceled)
+                                             │ / plus d'offre reçue (canceled, §1.5)
+                                             │ / CallTaken (answered_elsewhere, §1.5)
                                              ▼
                                            idle
 ```
@@ -102,8 +105,11 @@ Règles complémentaires :
   quelle phase, autre pair) déclenche un refus automatique `busy` chez
   l'appelant. `calls.start` pendant un appel rend une erreur.
 - **Sonnerie et perte de paquets** : l'appelant réémet son offre toutes les
-  2 s pendant la sonnerie ; l'appelé déduplique par `call_id` (une seule
-  sonnerie, l'échéance n'est jamais prolongée par les réémissions).
+  2 s pendant la sonnerie, et **cesse net dès qu'il décroche** ; l'appelé
+  déduplique par `call_id` (une seule sonnerie, l'échéance n'est jamais
+  prolongée par les réémissions). L'arrêt des réémissions n'est pas un détail
+  d'optimisation : c'est le signal sur lequel repose l'extinction des autres
+  appareils (§1.5).
 - **Timeout de sonnerie** : 45 s des deux côtés.
 - **Appels croisés** (chacun appelle l'autre en même temps) : convergence
   déterministe vers l'appel de la plus petite clé publique ; le perdant émet
@@ -135,6 +141,68 @@ Règles complémentaires :
 
 `is_call` (booléen, additif) distingue une session d'appel d'un salon de
 groupe. Champ présent aussi pour les salons de groupe (`false`).
+
+### 1.5 Multi-appareil : tous les appareils sonnent, un seul décroche
+
+Un `CallOffer` est adressé au **compte** de l'appelé, et la couche de livraison
+l'éclate sur chacun de ses appareils joignables (`MULTI_DEVICE.md` §3.2.1,
+§5.1). Tous sonnent donc, et il faut éteindre les autres dès que l'un décroche.
+Deux mécanismes s'en chargent, et **un seul des deux garantit la correction**.
+
+**1. `CallTaken` (0x1A) — le raccourci de latence.** Dès que l'appelant honore
+une réponse, il émet `CallTaken` vers le **compte** de l'appelé : trois
+émissions espacées de 2 s, pour absorber quelques pertes. Le message part donc
+vers *tous* les appareils de l'appelé, **y compris le gagnant**, qui l'ignore
+parce qu'il ne sonne plus. Chez un appareil qui sonne encore et qui corrèle
+exactement (même pair, même `call_id`), il termine la sonnerie avec
+`reason: "answered_elsewhere"`.
+
+**2. Le tarissement des offres — le filet.** Il ne dépend d'**aucun** message
+reçu. L'appelant réémet son offre toutes les 2 s tant que ça sonne et cesse net
+dès qu'il décroche ; un appareil qui sonne sans plus rien recevoir pendant 8 s
+(quatre périodes de réémission) en conclut de lui-même et termine avec
+`reason: "canceled"`.
+
+L'ordre entre les deux est délibéré. `CallTaken` voyage en UDP et n'est jamais
+mis en file hors-ligne — livré une heure plus tard, il éteindrait une sonnerie
+sans rapport — donc les trois datagrammes peuvent se perdre en entier. Si la
+correction en dépendait, les autres appareils sonneraient les 45 s complètes
+puis afficheraient un **appel manqué** pour un appel qui a été pris : une
+notification fausse, qui est pire qu'une sonnerie qui s'arrête quelques secondes
+trop tard. `CallTaken` n'achète donc que de la latence — sans lui, la sonnerie
+résiduelle dure jusqu'à 8 s au lieu d'un aller-retour.
+
+Le filet ne doit pas casser l'invariant de la sonnerie : **une offre rejouée
+n'allonge jamais l'échéance des 45 s**. Deux dates sont suivies séparément —
+celle de la première offre, qui fixe l'échéance et ne bouge pas, et celle de la
+dernière offre reçue, qui seule alimente le filet.
+
+**L'annonce est à sens unique.** L'appareil qui décroche n'émet rien : seul
+l'appelant sait quelle réponse il a honorée, et une annonce émise par l'appelé
+partirait vers le compte de l'**appelant**, dont les appareils ne sonnent pas —
+du bruit sans effet, et la fausse impression que le cas est couvert.
+
+**Limite connue : deux appareils qui décrochent dans le même aller-retour.**
+L'appelant ignore la seconde réponse (sa machine n'est plus en sonnerie
+sortante), mais il ne peut pas *désigner* le perdant : la signalisation d'appel
+est traduite en compte à l'entrée du routeur, si bien que les deux réponses
+portent exactement la même clé. Le perdant reste donc dans un appel actif dont
+il ne reçoit aucun média et n'en sort qu'au bout de ~10 s, par la détection de
+perte audio (`reason: "lost"`).
+
+🔒 Cette sortie était bien pire que gênante : la perte audio émettait un
+raccrochage best-effort, qui corrélait chez l'appelant exactement comme celui du
+gagnant et **interrompait l'appel réellement établi**. La perte audio est
+désormais **silencieuse**. Le message ne servait que là où il était inutile — on
+perd l'audio précisément quand le pair a disparu, donc le raccrochage
+n'atteignait déjà personne — et nuisait dans le seul cas où il arrivait. Il ne
+reste de la course que dix secondes d'un second appareil affichant un appel
+qu'il n'entend pas : un défaut d'affichage, plus une perte d'appel.
+
+Fermer la course entièrement demande de faire remonter la **clé de transport**
+jusqu'au moteur voix, ce qui n'est pas fait — et réglerait du même coup les
+tampons de gigue, qui mêlent aujourd'hui les trames de deux appareils dans une
+seule suite de numéros de séquence.
 
 ---
 
@@ -268,7 +336,12 @@ transportés dans les sessions chiffrées authentifiées existantes :
 0x12 CALL_ANSWER  { call_id: bytes<16> }
 0x13 CALL_DECLINE { call_id: bytes<16>, reason: u8 (0=refusé, 1=occupé) }
 0x14 CALL_HANGUP  { call_id: bytes<16> }
+0x1A CALL_TAKEN   { call_id: bytes<16> }
 ```
+
+`CALL_TAKEN` (§1.5) est émis par l'**appelant** vers le **compte** de l'appelé
+quand il honore une réponse ; les opcodes 0x15–0x19 appartiennent aux
+invitations et à l'appairage.
 
 Nouvelle op de groupe :
 
@@ -287,8 +360,12 @@ Garde-fous (P2P public, chaque octet est contrôlé par un attaquant) :
   déclenche **aucune** réponse (zéro amplification) ;
 - cadence par pair : au plus une nouvelle sonnerie / 3 s et une réponse
   « occupé » / 2 s par pair, suivi par pair borné (256 entrées) ;
-- anti-rejeu : `CallAnswer`/`CallDecline`/`CallHangup` ne sont honorés que
-  s'ils corrèlent exactement le pair ET le `call_id` de l'appel courant ;
-  une offre rejouée ne prolonge jamais une sonnerie ;
+- anti-rejeu : `CallAnswer`/`CallDecline`/`CallHangup`/`CallTaken` ne sont
+  honorés que s'ils corrèlent exactement le pair ET le `call_id` de l'appel
+  courant ; une offre rejouée ne prolonge jamais une sonnerie ;
+- `CallTaken` n'agit **que** sur une sonnerie entrante, jamais sur un appel
+  actif : forgé ou rejoué, il ne peut au pire qu'éteindre une sonnerie que son
+  propre appelant a déjà quittée — ce qu'un `CallHangup` du même pair ferait de
+  toute façon ;
 - les trames VOICE d'un pair hors du salon actif (ou d'un membre
   server-muted) sont jetées.

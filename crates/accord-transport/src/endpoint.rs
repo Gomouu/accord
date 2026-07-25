@@ -194,6 +194,8 @@ struct Session {
     peer_node: NodeId,
     /// Capacités authentifiées annoncées par le pair (0 s'il n'annonce rien).
     peer_capabilities: u32,
+    /// Vrai si la clé de session dérive aussi d'un secret ML-KEM (hybride).
+    is_post_quantum: bool,
     last_recv_ms: u64,
     last_send_ms: u64,
     /// Identifiant du prochain message fragmenté émis dans cette session.
@@ -255,6 +257,9 @@ pub struct SessionView {
     /// Capacités authentifiées du pair, telles que liées au transcript du
     /// handshake. 0 si le pair n'en annonce aucune.
     pub peer_capabilities: u32,
+    /// Vrai si la session a été négociée en hybride post-quantique : sa clé
+    /// dérive du X25519 **et** d'un secret ML-KEM. Faux en session classique.
+    pub is_post_quantum: bool,
 }
 
 /// Préfixe hexadécimal court (4 octets) d'une clé publique, pour les logs.
@@ -855,6 +860,7 @@ impl Endpoint {
                 last_recv_ms: s.last_recv_ms,
                 last_rtt_ms: s.last_rtt_ms,
                 peer_capabilities: s.peer_capabilities,
+                is_post_quantum: s.is_post_quantum,
             })
             .collect()
     }
@@ -1075,6 +1081,7 @@ impl Endpoint {
                     peer_static: established.peer_static,
                     peer_node,
                     peer_capabilities: established.peer_capabilities,
+                    is_post_quantum: established.is_post_quantum,
                     last_recv_ms: now,
                     last_send_ms: now,
                     next_frag_id: 0,
@@ -1207,6 +1214,7 @@ impl Endpoint {
                 peer_static: established.peer_static,
                 peer_node,
                 peer_capabilities: established.peer_capabilities,
+                is_post_quantum: established.is_post_quantum,
                 last_recv_ms: now,
                 last_send_ms: now,
                 next_frag_id: 0,

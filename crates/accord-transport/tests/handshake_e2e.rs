@@ -784,16 +784,121 @@ async fn nouveau_et_ancien_noeud_sinterconnectent() {
 
 /// Deux nœuds qui annoncent tous les deux échangent bien leurs capacités,
 /// dans les deux sens, à travers le transport complet.
+///
+/// Les bits choisis excluent `CAP_PQ_HYBRID` : c'est le seul dont la valeur
+/// dans le WELCOME décrit le contenu du paquet plutôt que les aptitudes de
+/// l'émetteur (voir `handshake::respond`). Le cas hybride a ses propres tests
+/// plus bas.
 #[tokio::test]
 async fn deux_noeuds_capables_echangent_leurs_capacites() {
+    const DE_A: u32 = accord_proto::limits::CAP_DEVICE_KEYS;
+    const DE_B: u32 = accord_proto::limits::CAP_GROUP_VIDEO_N;
     let clock = ManualClock::new(1_000_000);
     let net = SimNet::new(4243, NetConditions::default());
-    let a = spawn_node_avec_capacites(&net, &clock, "10.0.6.1:4000", Some(0b101));
-    let b = spawn_node_avec_capacites(&net, &clock, "10.0.6.2:4000", Some(0b010));
+    let a = spawn_node_avec_capacites(&net, &clock, "10.0.6.1:4000", Some(DE_A));
+    let b = spawn_node_avec_capacites(&net, &clock, "10.0.6.2:4000", Some(DE_B));
     a.ep.send(b.addr, &ChannelMsg::Control(ControlMsg::Ping { token: 3 }))
         .await
         .unwrap();
     attendre_sessions(&a, &b).await;
-    assert_eq!(capacites_vues(&b), 0b101);
-    assert_eq!(capacites_vues(&a), 0b010);
+    assert_eq!(capacites_vues(&b), DE_A);
+    assert_eq!(capacites_vues(&a), DE_B);
+}
+
+fn session_hybride(node: &Node) -> bool {
+    node.ep
+        .session_views()
+        .first()
+        .expect("une session")
+        .is_post_quantum
+}
+
+/// Jalon 2 — Deux nœuds 8.0 négocient l'hybride de bout en bout, à travers le
+/// vrai chemin datagramme : encodage, MTU, décodage, transcript, dérivation.
+/// Le HELLO hybride pèse ~970 o ; s'il passait au-dessus de `UDP_MTU`, ce test
+/// tomberait avant toute assertion sur les clés.
+#[tokio::test]
+async fn deux_noeuds_negocient_lhybride_post_quantique() {
+    const PQ: u32 = accord_proto::limits::CAP_PQ_HYBRID;
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(4244, NetConditions::default());
+    let a = spawn_node_avec_capacites(&net, &clock, "10.0.7.1:4000", Some(PQ));
+    let b = spawn_node_avec_capacites(&net, &clock, "10.0.7.2:4000", Some(PQ));
+    a.ep.send(b.addr, &ChannelMsg::Control(ControlMsg::Ping { token: 4 }))
+        .await
+        .unwrap();
+    attendre_sessions(&a, &b).await;
+    assert!(
+        session_hybride(&a),
+        "l'initiateur doit voir une session hybride"
+    );
+    assert!(
+        session_hybride(&b),
+        "le répondeur doit voir une session hybride"
+    );
+    assert_eq!(capacites_vues(&a), PQ);
+    assert_eq!(capacites_vues(&b), PQ);
+}
+
+/// Jalon 2 — Un nœud hybride et un nœud antérieur au champ de capacités
+/// (un 7.0, qui n'annonce rien) se parlent en classique, sans friction, dans
+/// les deux sens d'initiation.
+#[tokio::test]
+async fn noeud_hybride_et_noeud_7_0_se_parlent_en_classique() {
+    const PQ: u32 = accord_proto::limits::CAP_PQ_HYBRID;
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(4245, NetConditions::default());
+
+    // Sens 1 : l'hybride initie.
+    let hybride = spawn_node_avec_capacites(&net, &clock, "10.0.8.1:4000", Some(PQ));
+    let ancien = spawn_node_avec_capacites(&net, &clock, "10.0.8.2:4000", None);
+    hybride
+        .ep
+        .send(
+            ancien.addr,
+            &ChannelMsg::Control(ControlMsg::Ping { token: 5 }),
+        )
+        .await
+        .unwrap();
+    attendre_sessions(&hybride, &ancien).await;
+    assert!(!session_hybride(&hybride) && !session_hybride(&ancien));
+
+    // Sens 2 : c'est l'ancien qui initie.
+    let hybride2 = spawn_node_avec_capacites(&net, &clock, "10.0.8.3:4000", Some(PQ));
+    let ancien2 = spawn_node_avec_capacites(&net, &clock, "10.0.8.4:4000", None);
+    ancien2
+        .ep
+        .send(
+            hybride2.addr,
+            &ChannelMsg::Control(ControlMsg::Ping { token: 6 }),
+        )
+        .await
+        .unwrap();
+    attendre_sessions(&ancien2, &hybride2).await;
+    assert!(!session_hybride(&hybride2) && !session_hybride(&ancien2));
+}
+
+/// Jalon 2 — Un nœud hybride et un nœud 8.0 dont l'hybride est éteint
+/// s'entendent en classique : le repli est propre, pas une panne.
+#[tokio::test]
+async fn hybride_et_classique_replient_proprement() {
+    const PQ: u32 = accord_proto::limits::CAP_PQ_HYBRID;
+    const SANS_PQ: u32 = accord_proto::limits::CAP_DEVICE_KEYS;
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(4246, NetConditions::default());
+    let hybride = spawn_node_avec_capacites(&net, &clock, "10.0.9.1:4000", Some(PQ));
+    let classique = spawn_node_avec_capacites(&net, &clock, "10.0.9.2:4000", Some(SANS_PQ));
+    hybride
+        .ep
+        .send(
+            classique.addr,
+            &ChannelMsg::Control(ControlMsg::Ping { token: 7 }),
+        )
+        .await
+        .unwrap();
+    attendre_sessions(&hybride, &classique).await;
+    assert!(!session_hybride(&hybride) && !session_hybride(&classique));
+    // L'initiateur a bien annoncé l'hybride ; c'est le répondeur qui décline.
+    assert_eq!(capacites_vues(&classique), PQ);
+    assert_eq!(capacites_vues(&hybride), SANS_PQ);
 }

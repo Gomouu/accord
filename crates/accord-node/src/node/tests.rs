@@ -1651,3 +1651,37 @@ fn la_liste_dun_inconnu_est_ignoree() {
         .unwrap()
         .is_none());
 }
+
+#[test]
+fn une_offre_dappairage_rend_un_code_affichable_et_une_echeance() {
+    let n = node();
+    let a = n.pairing_start().unwrap();
+
+    // Découpé pour la lecture, et daté d'une échéance dans le futur.
+    assert_eq!(a.code.len(), 9, "ABCD-EFGH");
+    assert!(a.code.contains('-'));
+    assert!(a.expires_ms > crate::node::now_ms());
+}
+
+#[test]
+fn redemander_un_code_annule_le_precedent() {
+    // 🔒 Deux codes valides en même temps, ce serait deux portes ouvertes là
+    // où l'utilisateur croit n'en avoir ouvert qu'une.
+    let n = node();
+    let premier = n.pairing_start().unwrap();
+    let second = n.pairing_start().unwrap();
+    assert_ne!(premier.code, second.code);
+}
+
+#[test]
+fn le_code_dappairage_evite_les_caracteres_ambigus() {
+    // Le code se recopie d'un écran à l'autre : « 0 » pour « O » est une
+    // erreur de saisie qui ne pardonne pas.
+    let n = node();
+    for _ in 0..20 {
+        let code = n.pairing_start().unwrap().code;
+        for ambigu in ['0', 'O', '1', 'I', 'L'] {
+            assert!(!code.contains(ambigu), "{code} contient {ambigu}");
+        }
+    }
+}

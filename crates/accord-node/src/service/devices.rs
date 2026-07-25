@@ -51,6 +51,17 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             node.rename_local_device(trimmed)?;
             Ok(json!({ "name": trimmed }))
         }
+        "devices.pair_start" => {
+            let started = node.pairing_start()?;
+            Ok(json!({
+                "code": started.code,
+                "expires_ms": started.expires_ms,
+            }))
+        }
+        "devices.pair_cancel" => {
+            node.pairing_cancel();
+            Ok(json!({}))
+        }
         _ => Err(NodeError::Invalid("méthode devices inconnue")),
     }
 }

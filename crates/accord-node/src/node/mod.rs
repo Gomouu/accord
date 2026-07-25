@@ -185,6 +185,15 @@ fn soundboard_play_broadcastable(
     state.is_member(peer) && is_voice && is_registered_sound
 }
 
+/// Une offre d'appairage fraîchement ouverte, telle que l'écran l'affiche.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PairingStarted {
+    /// Le code, déjà découpé pour la lecture (`ABCD-EFGH`).
+    pub code: String,
+    /// Instant d'expiration (ms epoch) — l'écran en fait un compte à rebours.
+    pub expires_ms: u64,
+}
+
 /// Un appareil du compte, tel que l'API le montre.
 ///
 /// 🔒 Pas de graine, pas de nonce : de quoi reconnaître un appareil, jamais
@@ -223,6 +232,12 @@ pub struct Node {
     /// wire status 0-2 plus optional custom text. Best-effort, in memory,
     /// friends only (anti-abuse); an offline announcement clears the entry.
     peer_status: Mutex<HashMap<[u8; 32], RichPresence>>,
+    /// Offre d'appairage en cours sur cet appareil (lot 1.D), s'il y en a une.
+    ///
+    /// 🔒 Une seule à la fois, et **en mémoire seulement** : un code qui
+    /// survivrait à un redémarrage serait un code dont personne ne surveille
+    /// plus l'écran.
+    pairing_offer: Mutex<Option<crate::pairing::PairingOffer>>,
     /// Dernier indicateur de frappe accepté par pair (anti-abus, ms murales).
     typing_seen: Mutex<HashMap<[u8; 32], u64>>,
     /// Cadence des `InviteRedeem` entrants par pair : `(début de fenêtre ms,
@@ -258,6 +273,7 @@ impl Node {
             network: Mutex::new(None),
             online: Mutex::new(HashSet::new()),
             peer_status: Mutex::new(HashMap::new()),
+            pairing_offer: Mutex::new(None),
             typing_seen: Mutex::new(HashMap::new()),
             redeem_seen: Mutex::new(HashMap::new()),
             soundboard_seen: Mutex::new(HashMap::new()),
@@ -324,6 +340,26 @@ impl Node {
             Ok(())
         })?;
         Ok(())
+    }
+
+    /// Ouvre une offre d'appairage et rend le code à afficher.
+    ///
+    /// Remplace une offre en cours : demander un nouveau code annule le
+    /// précédent, ce qui est le comportement attendu — l'utilisateur qui
+    /// reclique veut repartir de zéro, pas cumuler deux codes valides.
+    pub fn pairing_start(&self) -> Result<PairingStarted, NodeError> {
+        let offer = crate::pairing::PairingOffer::open(now_ms());
+        let started = PairingStarted {
+            code: offer.code().display(),
+            expires_ms: offer.expires_ms(),
+        };
+        *self.pairing_offer.lock().unwrap_or_else(|e| e.into_inner()) = Some(offer);
+        Ok(started)
+    }
+
+    /// Annule l'offre en cours, s'il y en a une.
+    pub fn pairing_cancel(&self) {
+        *self.pairing_offer.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 
     /// Appareils du compte, tels que l'écran « Mes appareils » les montre.

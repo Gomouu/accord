@@ -13,6 +13,7 @@ pub mod identity;
 pub mod maintenance;
 pub mod node;
 pub mod outbound;
+pub mod pairing;
 pub mod registry;
 pub mod runtime;
 pub mod service;

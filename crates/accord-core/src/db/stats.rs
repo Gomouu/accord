@@ -70,6 +70,22 @@ impl Db {
             db_bytes,
         })
     }
+
+    /// Nombre de lignes de l'index de recherche aveugle (un couple
+    /// `(jeton, message)` par mot distinct de chaque message).
+    ///
+    /// Hors [`StorageStats`] à dessein : c'est une mesure d'ingénierie, pas un
+    /// chiffre à montrer dans le tableau de bord de confidentialité. À gros
+    /// historique, cette table pèse plus lourd que les messages eux-mêmes —
+    /// sans ce compteur, la taille de la base n'est pas explicable.
+    pub fn search_index_rows(&self) -> Result<u64, CoreError> {
+        Ok(self
+            .conn()
+            .query_row("SELECT count(*) FROM search_index", [], |r| {
+                r.get::<_, i64>(0)
+            })?
+            .max(0) as u64)
+    }
 }
 
 #[cfg(test)]

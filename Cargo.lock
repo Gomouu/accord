@@ -120,6 +120,7 @@ dependencies = [
  "accord-transport",
  "accord-voice",
  "async-trait",
+ "criterion",
  "futures-util",
  "igd-next",
  "mdns-sd",

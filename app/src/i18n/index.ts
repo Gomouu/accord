@@ -29,10 +29,11 @@ export type Dict = Widen<typeof fr>;
  * Ce type restreint l'index aux seules clés utilisables comme libellé.
  */
 export type TextKey<T> = { [K in keyof T]: T[K] extends string ? K : never }[keyof T];
-export type Lang = 'fr' | 'en' | 'es' | 'pt' | 'de' | 'ru';
+
+export type Lang = 'fr' | 'en' | 'es' | 'pt' | 'de' | 'ru' | 'zh';
 
 /** Langues proposées, dans l'ordre d'affichage. */
-export const LANGS: readonly Lang[] = ['fr', 'en', 'es', 'pt', 'de', 'ru'];
+export const LANGS: readonly Lang[] = ['fr', 'en', 'es', 'pt', 'de', 'ru', 'zh'];
 
 export { fr };
 
@@ -44,6 +45,7 @@ const LOADERS: Record<LazyLang, () => Promise<Record<string, unknown>>> = {
   pt: () => import('./pt'),
   de: () => import('./de'),
   ru: () => import('./ru'),
+  zh: () => import('./zh'),
 };
 
 /** Dictionnaires déjà résolus. Le français y est d'emblée. */

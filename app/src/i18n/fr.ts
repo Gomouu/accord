@@ -899,6 +899,7 @@ export const fr = {
       pt: 'Português',
       de: 'Deutsch',
       ru: 'Русский',
+      zh: '中文',
     },
     blockedUsers: 'Utilisateurs bloqués',
     antiSpamTitle: 'Anti-spam',

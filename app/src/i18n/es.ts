@@ -898,6 +898,7 @@ export const es: Dict = {
       pt: 'Português',
       de: 'Deutsch',
       ru: 'Русский',
+      zh: '中文',
     },
     blockedUsers: 'Usuarios bloqueados',
     antiSpamTitle: 'Antispam',

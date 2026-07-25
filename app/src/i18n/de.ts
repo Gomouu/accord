@@ -872,6 +872,7 @@ export const de: Dict = {
       pt: 'Português',
       de: 'Deutsch',
       ru: 'Русский',
+      zh: '中文',
     },
     blockedUsers: 'Blockierte Personen',
     antiSpamTitle: 'Spamschutz',

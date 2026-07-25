@@ -294,6 +294,7 @@ export function pickLang(tag: string): Lang {
   if (etiquette.startsWith('fr')) return 'fr';
   if (etiquette.startsWith('es')) return 'es';
   if (etiquette.startsWith('pt')) return 'pt';
+  if (etiquette.startsWith('de')) return 'de';
   return 'en';
 }
 

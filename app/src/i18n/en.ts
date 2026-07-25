@@ -881,6 +881,7 @@ export const en: Dict = {
     english: 'English',
     spanish: 'Español',
     portuguese: 'Português',
+    german: 'Deutsch',
     blockedUsers: 'Blocked users',
     antiSpamTitle: 'Anti-spam',
     antiSpamHint:

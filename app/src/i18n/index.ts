@@ -19,10 +19,10 @@ import { fr } from './fr';
 type Widen<T> = { [K in keyof T]: T[K] extends string ? string : Widen<T[K]> };
 
 export type Dict = Widen<typeof fr>;
-export type Lang = 'fr' | 'en' | 'es' | 'pt';
+export type Lang = 'fr' | 'en' | 'es' | 'pt' | 'de';
 
 /** Langues proposées, dans l'ordre d'affichage. */
-export const LANGS: readonly Lang[] = ['fr', 'en', 'es', 'pt'];
+export const LANGS: readonly Lang[] = ['fr', 'en', 'es', 'pt', 'de'];
 
 export { fr };
 
@@ -32,6 +32,7 @@ const LOADERS: Record<LazyLang, () => Promise<Record<string, unknown>>> = {
   en: () => import('./en'),
   es: () => import('./es'),
   pt: () => import('./pt'),
+  de: () => import('./de'),
 };
 
 /** Dictionnaires déjà résolus. Le français y est d'emblée. */

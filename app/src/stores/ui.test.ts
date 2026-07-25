@@ -176,9 +176,18 @@ describe('pickLang', () => {
     expect(pickLang('ES-419')).toBe('es');
   });
 
+  it('choisit l’allemand pour une étiquette germanophone', () => {
+    expect(pickLang('de')).toBe('de');
+    expect(pickLang('de-AT')).toBe('de');
+    expect(pickLang('DE-ch')).toBe('de');
+  });
+
   it('retombe sur l’anglais pour toute autre étiquette', () => {
     expect(pickLang('en-US')).toBe('en');
-    expect(pickLang('de')).toBe('en');
+    // `zz` n'est pas attribuable par l'ISO 639-1 : contrairement à une langue
+    // réelle, l'étiquette ne deviendra jamais reconnue, et ce test ne se
+    // remettra pas à échouer au prochain dictionnaire ajouté.
+    expect(pickLang('zz-ZZ')).toBe('en');
     expect(pickLang('')).toBe('en');
   });
 });

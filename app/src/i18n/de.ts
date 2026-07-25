@@ -936,6 +936,13 @@ export const de: Dict = {
     recoveryNoteTitle: 'Wiederherstellungsphrase',
     recoveryNote:
       'Deine Wiederherstellungsphrase wurde ein einziges Mal angezeigt, beim Anlegen des Kontos. Sie lässt sich nicht erneut anzeigen: bewahr die Papierkopie gut auf, die du dir notiert hast.',
+    devicesListTitle: 'Meine Geräte',
+    devicesListHint:
+      'Die auf diesem Konto zugelassenen Geräte. Jedes hat seinen eigenen Schlüssel; der Kontoschlüssel verlässt nie das Gerät, das ihn erzeugt hat.',
+    devicesEmpty: 'Kein Gerät registriert.',
+    deviceCurrent: 'Dieses Gerät',
+    deviceNameLabel: 'Gerätename',
+    deviceRenamed: 'Gerät umbenannt!',
     devicesTitle: 'Audiogeräte',
     inputDevice: 'Eingang (Mikrofon)',
     outputDevice: 'Ausgang (Kopfhörer, Lautsprecher)',

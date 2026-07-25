@@ -20,6 +20,7 @@ import { lireFichier } from '../../lib/files';
 import { AvatarCropper } from '../AvatarCropper';
 import { Avatar } from '../Avatar';
 import { SettingsSection } from './controls';
+import { DevicesSection } from './DevicesSection';
 import { ProfilePersonalization } from './ProfilePersonalization';
 
 const COPY_FEEDBACK_MS = 1500;
@@ -716,6 +717,8 @@ export function AccountTab() {
           {t.settings.recoveryNote}
         </p>
       </SettingsSection>
+
+      <DevicesSection />
 
       <BackupSection />
 

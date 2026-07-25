@@ -185,6 +185,22 @@ fn soundboard_play_broadcastable(
     state.is_member(peer) && is_voice && is_registered_sound
 }
 
+/// Un appareil du compte, tel que l'API le montre.
+///
+/// 🔒 Pas de graine, pas de nonce : de quoi reconnaître un appareil, jamais
+/// de quoi en usurper un.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountDevice {
+    /// Clé publique de l'appareil.
+    pub pubkey: [u8; 32],
+    /// Nom lisible choisi par l'utilisateur.
+    pub name: String,
+    /// Date d'ajout (ms epoch), `0` pour l'appareil issu de la migration.
+    pub added_ms: u64,
+    /// Vrai pour l'appareil sur lequel tourne cette application.
+    pub is_current: bool,
+}
+
 /// Nœud Accord déverrouillé.
 pub struct Node {
     identity: Arc<Identity>,
@@ -308,6 +324,34 @@ impl Node {
             Ok(())
         })?;
         Ok(())
+    }
+
+    /// Appareils du compte, tels que l'écran « Mes appareils » les montre.
+    ///
+    /// 🔒 Ne rend jamais la graine — seulement de quoi reconnaître un
+    /// appareil dans une liste.
+    pub fn account_devices(&self) -> Result<Vec<AccountDevice>, NodeError> {
+        let Some(stored) = self.with_db(|db| Ok(db.local_device()?))? else {
+            return Ok(Vec::new());
+        };
+        let device = accord_crypto::DeviceIdentity::from_seed(stored.seed);
+        Ok(vec![AccountDevice {
+            pubkey: device.public_key(),
+            name: stored.name,
+            // L'appareil local n'a pas de date d'ajout persistée : il existe
+            // depuis la migration. Zéro plutôt qu'une date inventée — l'écran
+            // sait l'interpréter, une fausse date induirait en erreur.
+            added_ms: 0,
+            is_current: true,
+        }])
+    }
+
+    /// Renomme l'appareil de cette machine.
+    pub fn rename_local_device(&self, name: &str) -> Result<(), NodeError> {
+        self.with_db(|db| {
+            db.rename_local_device(name)?;
+            Ok(())
+        })
     }
 
     /// Liste d'appareils à annoncer à un pair sur sa session (lot 1.C).

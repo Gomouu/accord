@@ -964,6 +964,13 @@ export const es: Dict = {
     recoveryNoteTitle: 'Frase de recuperación',
     recoveryNote:
       'Tu frase de recuperación se mostró una sola vez, al crear la cuenta. No se puede volver a mostrar: guarda en un lugar seguro la copia en papel que anotaste.',
+    devicesListTitle: 'Mis dispositivos',
+    devicesListHint:
+      'Los dispositivos autorizados en esta cuenta. Cada uno tiene su propia clave; la clave raíz nunca sale del dispositivo que la creó.',
+    devicesEmpty: 'Ningún dispositivo registrado.',
+    deviceCurrent: 'Este dispositivo',
+    deviceNameLabel: 'Nombre del dispositivo',
+    deviceRenamed: '¡Dispositivo renombrado!',
     // Voice.
     devicesTitle: 'Dispositivos de audio',
     inputDevice: 'Entrada (micrófono)',

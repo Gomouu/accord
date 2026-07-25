@@ -965,6 +965,13 @@ export const fr = {
     recoveryNoteTitle: 'Phrase de récupération',
     recoveryNote:
       'Votre phrase de récupération a été affichée une seule fois, à la création du compte. Elle ne peut pas être ré-affichée : conservez précieusement la copie papier que vous avez notée.',
+    devicesListTitle: 'Mes appareils',
+    devicesListHint:
+      "Les appareils autorisés sur ce compte. Chacun a sa propre clé ; la clé racine, elle, ne quitte jamais l'appareil qui l'a créée.",
+    devicesEmpty: 'Aucun appareil enregistré.',
+    deviceCurrent: 'Cet appareil',
+    deviceNameLabel: "Nom de l'appareil",
+    deviceRenamed: 'Appareil renommé !',
     // Voix.
     devicesTitle: 'Périphériques audio',
     inputDevice: 'Entrée (micro)',

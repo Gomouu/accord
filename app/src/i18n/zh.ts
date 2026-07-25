@@ -910,6 +910,13 @@ export const zh: Dict = {
     recoveryNoteTitle: '恢复短语',
     recoveryNote:
       '你的恢复短语只在创建账户时显示过一次，无法再次显示：请妥善保管你抄下的那份纸质副本。',
+    devicesListTitle: '我的设备',
+    devicesListHint:
+      '本账户已授权的设备。每台都有自己的密钥；账户根密钥永远不会离开创建它的那台设备。',
+    devicesEmpty: '没有已注册的设备。',
+    deviceCurrent: '这台设备',
+    deviceNameLabel: '设备名称',
+    deviceRenamed: '设备已重命名！',
     devicesTitle: '音频设备',
     inputDevice: '输入（麦克风）',
     outputDevice: '输出（耳机、音箱）',

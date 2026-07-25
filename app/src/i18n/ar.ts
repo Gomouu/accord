@@ -917,6 +917,13 @@ export const ar: Dict = {
     recoveryNoteTitle: 'عبارة الاسترجاع',
     recoveryNote:
       'عُرضت عبارة الاسترجاع مرة واحدة فقط، عند إنشاء الحساب. لا يمكن عرضها مجددًا: احتفظ جيدًا بالنسخة الورقية التي دوّنتها.',
+    devicesListTitle: 'أجهزتي',
+    devicesListHint:
+      'الأجهزة المصرّح لها على هذا الحساب. لكلٍّ مفتاحه؛ ومفتاح الحساب الجذري لا يغادر أبدًا الجهاز الذي أنشأه.',
+    devicesEmpty: 'لا جهاز مسجّل.',
+    deviceCurrent: 'هذا الجهاز',
+    deviceNameLabel: 'اسم الجهاز',
+    deviceRenamed: 'أُعيدت تسمية الجهاز!',
     devicesTitle: 'أجهزة الصوت',
     inputDevice: 'الدخل (الميكروفون)',
     outputDevice: 'الخرج (السماعات)',

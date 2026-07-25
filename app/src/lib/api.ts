@@ -48,6 +48,18 @@ export type PresenceStatus = 'online' | 'idle' | 'dnd' | 'offline';
 /** Own presence status (`friends.set_status`): invisible shows as offline. */
 export type OwnPresenceStatus = 'online' | 'idle' | 'dnd' | 'invisible';
 
+/** Un appareil du compte, tel que l'écran « Mes appareils » l'affiche. */
+export interface AccountDevice {
+  /** Clé publique de l'appareil (hex 64). */
+  pubkey: string;
+  /** Nom lisible choisi par l'utilisateur. */
+  name: string;
+  /** Date d'ajout (ms epoch) ; `0` pour l'appareil issu de la migration. */
+  added_ms: number;
+  /** Vrai pour l'appareil sur lequel tourne cette application. */
+  is_current: boolean;
+}
+
 export interface Contact {
   node_id: string;
   pubkey: string;
@@ -904,6 +916,22 @@ export class Api {
     profile_frame: string | null;
   }> {
     return this.rpc.call('profile.get');
+  }
+
+  /**
+   * Appareils du compte (multi-appareil, jalon 1).
+   *
+   * Un seul pour l'instant, celui de cette machine ; l'appairage en ajoutera
+   * d'autres sans que la forme change. `added_ms` vaut `0` pour l'appareil
+   * issu de la migration, qui n'a pas de date d'ajout — l'écran l'interprète.
+   */
+  devicesList(): Promise<{ devices: AccountDevice[] }> {
+    return this.rpc.call('devices.list');
+  }
+
+  /** Renomme l'appareil de cette machine (1 à 32 caractères). */
+  devicesRename(name: string): Promise<{ name: string }> {
+    return this.rpc.call('devices.rename', { name });
   }
 
   /**

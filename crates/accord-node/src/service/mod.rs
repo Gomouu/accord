@@ -21,6 +21,7 @@ use crate::node::Node;
 use crate::voice::VoiceHandle;
 
 mod backup_schedule;
+mod devices;
 mod dm;
 mod files;
 mod friends;
@@ -176,6 +177,9 @@ fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Value, NodeErro
     }
     if method.starts_with("friends.") || method == "search.query" {
         return friends::dispatch(node, method, params);
+    }
+    if method.starts_with("devices.") {
+        return devices::dispatch(node, method, params);
     }
     if method.starts_with("dm.") {
         return dm::dispatch(node, method, params);

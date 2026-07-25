@@ -23,6 +23,11 @@ All notable changes to Accord. This project follows [semantic versioning](https:
   aligns from the right. The direction lives on the document root, so menus and
   dialogs rendered through portals follow it too.
 
+- **A "My devices" screen** in account settings: the devices authorised on
+  this account, which one you are on, and a rename field. One device for now —
+  pairing will add others without the list changing shape, and it is pairing
+  that will bring revocation.
+
 ### Internal
 
 - **Adding a language no longer means editing a list in six places.** The

@@ -24,18 +24,33 @@ export interface ResizeHandleProps {
   onChange: (value: number) => void;
   ariaLabel: string;
   /**
-   * Côté de la poignée où vit le panneau redimensionné : `'left'` quand le
-   * panneau précède la poignée (ex. barre latérale — glisser vers la droite
-   * l'agrandit), `'right'` quand il la suit (ex. liste des membres — glisser
-   * vers la droite la réduit).
+   * Côté de la poignée où vit le panneau redimensionné, **dans le sens de
+   * lecture** : `'start'` quand le panneau précède la poignée (ex. barre
+   * latérale), `'end'` quand il la suit (ex. liste des membres).
+   *
+   * Logique et non physique, parce qu'en écriture de droite à gauche le
+   * navigateur inverse déjà les colonnes : la barre latérale reste « avant »
+   * la poignée alors qu'elle est passée à droite de l'écran.
    */
-  panelSide: 'left' | 'right';
+  panelSide: 'start' | 'end';
   /** Classe `ring-offset-*` assortie à la surface sous la poignée. */
   ringOffsetClassName?: string;
 }
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+/**
+ * Signe reliant un déplacement en pixels **écran** au sens de lecture.
+ *
+ * Le glissé arrive en `clientX`, une coordonnée physique qu'aucune propriété
+ * CSS ne peut refléter : en RTL, tirer vers la gauche agrandit le panneau de
+ * début. Lu à chaud plutôt que mémorisé — la langue peut basculer sans que la
+ * poignée soit remontée.
+ */
+function readingSign(): number {
+  return document.documentElement.dir === 'rtl' ? -1 : 1;
 }
 
 export function ResizeHandle({
@@ -57,7 +72,8 @@ export function ResizeHandle({
   /** Convertit un déplacement horizontal en nouvelle largeur bornée. */
   const applyDelta = useCallback(
     (deltaPx: number, fromValue: number) => {
-      const signedDelta = panelSide === 'left' ? deltaPx : -deltaPx;
+      const towardsPanel = panelSide === 'start' ? 1 : -1;
+      const signedDelta = deltaPx * towardsPanel * readingSign();
       onChange(clamp(fromValue + signedDelta, min, max));
     },
     [onChange, min, max, panelSide],

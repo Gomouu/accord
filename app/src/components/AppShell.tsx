@@ -654,7 +654,7 @@ export function AppShell() {
         defaultValue={SIDEBAR_WIDTH_DEFAULT}
         onChange={setSidebarWidth}
         ariaLabel={t.layout.resizeSidebar}
-        panelSide="left"
+        panelSide="start"
         ringOffsetClassName="ring-offset-sidebar"
       />
       <main

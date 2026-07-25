@@ -10,6 +10,7 @@ import { create } from 'zustand';
 import {
   dictionary,
   dictionaryLoaded,
+  direction,
   loadDictionary,
   LANGS,
   type Dict,
@@ -485,6 +486,20 @@ function initialFontUi(): FontUi {
   return isFontUi(stored) ? stored : 'system';
 }
 
+/**
+ * Reporte la langue active sur `<html>` : `lang` pour les lecteurs d'écran et
+ * la césure, `dir` pour le sens d'écriture.
+ *
+ * 🔒 `dir` doit rester sur la racine, pas sur un conteneur : le navigateur en
+ * dérive l'alignement du texte, l'ordre visuel des `flex`/`grid` et le sens des
+ * propriétés logiques (`ms-`/`me-`, `start-`/`end-`). Le poser plus bas
+ * laisserait les portails — menus contextuels, modales — hors du miroir.
+ */
+function applyLangDirection(lang: Lang): void {
+  document.documentElement.lang = lang;
+  document.documentElement.dir = direction(lang);
+}
+
 function applyDensity(density: Density): void {
   document.documentElement.dataset.density = density;
 }
@@ -743,6 +758,7 @@ const TOAST_EXIT_MS = 180;
 let nextToastId = 1;
 
 export const useUi = create<UiState>((set, get) => {
+  const lang = initialLang();
   const theme = initialTheme();
   const customTheme = initialCustomTheme();
   const density = initialDensity();
@@ -752,6 +768,7 @@ export const useUi = create<UiState>((set, get) => {
   const saturation = initialSaturation();
   const keepInTray = initialBool(STORAGE_KEYS.keepInTray, false);
   applyTheme(theme, customTheme);
+  applyLangDirection(lang);
   applyDensity(density);
   applyFontScale(fontScale);
   applyFontUi(fontUi);
@@ -778,7 +795,7 @@ export const useUi = create<UiState>((set, get) => {
     reminderTarget: null,
     mentionInsert: null,
     toasts: [],
-    lang: initialLang(),
+    lang,
     dictReady: 0,
     theme,
     customTheme,
@@ -872,6 +889,7 @@ export const useUi = create<UiState>((set, get) => {
 
     setLang: (lang) => {
       writeStored(STORAGE_KEYS.lang, lang);
+      applyLangDirection(lang);
       // La langue bascule dès que son dictionnaire est là. Il est presque
       // toujours déjà en cache (l'écran de langue précharge au survol) ; sinon
       // l'interface reste dans la langue précédente le temps du chargement,

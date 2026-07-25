@@ -14,6 +14,17 @@ import { ResizeHandle } from './ResizeHandle';
 
 const LABEL = 'Redimensionner la barre latérale';
 
+/** Rend la poignée sous un sens d'écriture donné, puis le rétablit. */
+function avecSens(dir: 'ltr' | 'rtl', corps: () => void): void {
+  const precedent = document.documentElement.dir;
+  document.documentElement.dir = dir;
+  try {
+    corps();
+  } finally {
+    document.documentElement.dir = precedent;
+  }
+}
+
 describe('ResizeHandle', () => {
   it('expose un séparateur vertical avec les bornes ARIA courantes', () => {
     render(
@@ -24,7 +35,7 @@ describe('ResizeHandle', () => {
         defaultValue={240}
         onChange={vi.fn()}
         ariaLabel={LABEL}
-        panelSide="left"
+        panelSide="start"
       />,
     );
 
@@ -46,7 +57,7 @@ describe('ResizeHandle', () => {
         defaultValue={240}
         onChange={onChange}
         ariaLabel={LABEL}
-        panelSide="left"
+        panelSide="start"
       />,
     );
 
@@ -67,7 +78,7 @@ describe('ResizeHandle', () => {
         defaultValue={240}
         onChange={onChange}
         ariaLabel={LABEL}
-        panelSide="left"
+        panelSide="start"
       />,
     );
 
@@ -88,7 +99,7 @@ describe('ResizeHandle', () => {
         defaultValue={240}
         onChange={onChange}
         ariaLabel="Redimensionner la liste des membres"
-        panelSide="right"
+        panelSide="end"
       />,
     );
 
@@ -110,7 +121,7 @@ describe('ResizeHandle', () => {
         defaultValue={240}
         onChange={onChangeAtMin}
         ariaLabel={LABEL}
-        panelSide="left"
+        panelSide="start"
       />,
     );
     fireEvent.keyDown(screen.getByRole('separator', { name: LABEL }), {
@@ -127,7 +138,7 @@ describe('ResizeHandle', () => {
         defaultValue={240}
         onChange={onChangeAtMax}
         ariaLabel={LABEL}
-        panelSide="left"
+        panelSide="start"
       />,
     );
     fireEvent.keyDown(screen.getByRole('separator', { name: LABEL }), {
@@ -146,7 +157,7 @@ describe('ResizeHandle', () => {
         defaultValue={240}
         onChange={onChange}
         ariaLabel={LABEL}
-        panelSide="left"
+        panelSide="start"
       />,
     );
     const handle = screen.getByRole('separator', { name: LABEL });
@@ -168,12 +179,38 @@ describe('ResizeHandle', () => {
         defaultValue={240}
         onChange={onChange}
         ariaLabel={LABEL}
-        panelSide="left"
+        panelSide="start"
       />,
     );
 
     fireEvent.doubleClick(screen.getByRole('separator', { name: LABEL }));
 
     expect(onChange).toHaveBeenCalledWith(240);
+  });
+  // Les déplacements arrivent en pixels *écran* — flèches comme glissé — et
+  // aucune propriété CSS ne peut les refléter : c'est au composant de tenir
+  // compte du sens de lecture. En RTL la barre latérale est passée à droite,
+  // donc pousser la poignée vers la droite entre dans le panneau et le réduit.
+  it('inverse le sens du redimensionnement en écriture de droite à gauche', () => {
+    const onChange = vi.fn();
+    avecSens('rtl', () => {
+      render(
+        <ResizeHandle
+          value={260}
+          min={200}
+          max={420}
+          defaultValue={240}
+          onChange={onChange}
+          ariaLabel={LABEL}
+          panelSide="start"
+        />,
+      );
+
+      fireEvent.keyDown(screen.getByRole('separator', { name: LABEL }), {
+        key: 'ArrowRight',
+      });
+    });
+
+    expect(onChange).toHaveBeenCalledWith(252);
   });
 });

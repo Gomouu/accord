@@ -852,6 +852,7 @@ export const zh: Dict = {
       zh: '中文',
       hi: 'हिन्दी',
       bn: 'বাংলা',
+      ar: 'العربية',
     },
     blockedUsers: '已屏蔽的用户',
     antiSpamTitle: '反骚扰',

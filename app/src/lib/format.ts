@@ -13,6 +13,7 @@ const LOCALES: Record<Lang, string> = {
   zh: 'zh-CN',
   hi: 'hi-IN',
   bn: 'bn-BD',
+  ar: 'ar-SA',
 };
 
 /**
@@ -141,6 +142,7 @@ const UNITES_TAILLE: Record<Lang, readonly string[]> = {
   zh: ['B', 'KB', 'MB', 'GB'],
   hi: ['B', 'KB', 'MB', 'GB'],
   bn: ['B', 'KB', 'MB', 'GB'],
+  ar: ['B', 'KB', 'MB', 'GB'],
 };
 
 /** Taille de fichier lisible (base 1024, une décimale au plus). */

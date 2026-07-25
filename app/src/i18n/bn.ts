@@ -860,6 +860,7 @@ export const bn: Dict = {
       zh: '中文',
       hi: 'हिन्दी',
       bn: 'বাংলা',
+      ar: 'العربية',
     },
     blockedUsers: 'ব্লক করা মানুষ',
     antiSpamTitle: 'স্প্যাম ঠেকানো',

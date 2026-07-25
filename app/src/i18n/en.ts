@@ -892,6 +892,7 @@ export const en: Dict = {
       zh: '中文',
       hi: 'हिन्दी',
       bn: 'বাংলা',
+      ar: 'العربية',
     },
     blockedUsers: 'Blocked users',
     antiSpamTitle: 'Anti-spam',

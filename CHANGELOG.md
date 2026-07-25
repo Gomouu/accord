@@ -14,10 +14,14 @@ All notable changes to Accord. This project follows [semantic versioning](https:
   screenshot or a live stream, not against access to your machine.
 - **Subtext with `-# `** — the quiet counterpart of a heading, for a caption or
   an aside under a message.
-- **Six new languages: Portuguese, German, Russian, Chinese, Hindi and
-  Bengali.** The full interface in each, 1300 strings apiece. Every language
-  loads as its own chunk, so it costs nothing to anyone who does not read it:
-  the initial download is unchanged at 139.1 kB gzipped.
+- **Seven new languages: Portuguese, German, Russian, Chinese, Hindi, Bengali
+  and Arabic.** The full interface in each, 1300 strings apiece — ten languages
+  in all. Every language loads as its own chunk, so it costs nothing to anyone
+  who does not read it: the initial download is unchanged at 139.2 kB gzipped.
+- **Right-to-left layout.** Arabic mirrors the whole interface — the server
+  rail, the channel list and the member list move to the other side, and text
+  aligns from the right. The direction lives on the document root, so menus and
+  dialogs rendered through portals follow it too.
 
 ### Internal
 

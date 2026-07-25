@@ -902,6 +902,7 @@ export const fr = {
       zh: '中文',
       hi: 'हिन्दी',
       bn: 'বাংলা',
+      ar: 'العربية',
     },
     blockedUsers: 'Utilisateurs bloqués',
     antiSpamTitle: 'Anti-spam',

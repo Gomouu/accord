@@ -862,6 +862,7 @@ export const hi: Dict = {
       zh: '中文',
       hi: 'हिन्दी',
       bn: 'বাংলা',
+      ar: 'العربية',
     },
     blockedUsers: 'ब्लॉक किए गए लोग',
     antiSpamTitle: 'स्पैम से बचाव',

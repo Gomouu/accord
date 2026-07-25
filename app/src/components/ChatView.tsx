@@ -599,7 +599,7 @@ export function GroupView({
           defaultValue={MEMBERS_WIDTH_DEFAULT}
           onChange={setMembersWidth}
           ariaLabel={t.layout.resizeMembers}
-          panelSide="right"
+          panelSide="end"
           ringOffsetClassName="ring-offset-sidebar"
         />
         <MemberList groupId={groupId} />

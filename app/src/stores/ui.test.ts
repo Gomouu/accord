@@ -584,3 +584,21 @@ describe('useUi — police d’interface', () => {
     }
   });
 });
+
+describe('sens d’écriture appliqué au document', () => {
+  // `dir` doit vivre sur la racine : les menus et modales sont montés dans des
+  // portails, hors de l'arbre React de l'application, et n'hériteraient pas
+  // d'un attribut posé plus bas.
+  it('bascule <html> en rtl pour l’arabe et revient en ltr ensuite', async () => {
+    await new Promise<void>((resolve) => {
+      useUi.getState().setLang('ar');
+      resolve();
+    });
+    expect(root.dir).toBe('rtl');
+    expect(root.lang).toBe('ar');
+
+    useUi.getState().setLang('fr');
+    expect(root.dir).toBe('ltr');
+    expect(root.lang).toBe('fr');
+  });
+});

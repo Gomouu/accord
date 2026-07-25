@@ -1,7 +1,7 @@
 /** Tests i18n : interpolation et parité des clés fr/en/es. */
 
 import { describe, expect, it } from 'vitest';
-import { interpolate, LANGS } from './index';
+import { LANGS, direction, interpolate } from './index';
 import { dictionaries } from './all';
 import { fr } from './fr';
 import { en } from './en';
@@ -64,6 +64,15 @@ describe('parité des dictionnaires', () => {
           .reduce<unknown>((node, key) => (node as Record<string, unknown>)[key], dict);
         expect(leaf, `clé vide : ${path}`).not.toBe('');
       }
+    }
+  });
+});
+
+describe('direction', () => {
+  it('rend « rtl » pour l’arabe et « ltr » pour toutes les autres', () => {
+    expect(direction('ar')).toBe('rtl');
+    for (const lang of LANGS.filter((l) => l !== 'ar')) {
+      expect(direction(lang)).toBe('ltr');
     }
   });
 });

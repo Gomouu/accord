@@ -30,7 +30,7 @@ export type Dict = Widen<typeof fr>;
  */
 export type TextKey<T> = { [K in keyof T]: T[K] extends string ? K : never }[keyof T];
 
-export type Lang = 'fr' | 'en' | 'es' | 'pt' | 'de' | 'ru' | 'zh' | 'hi' | 'bn';
+export type Lang = 'fr' | 'en' | 'es' | 'pt' | 'de' | 'ru' | 'zh' | 'hi' | 'bn' | 'ar';
 
 /** Langues proposées, dans l'ordre d'affichage. */
 export const LANGS: readonly Lang[] = [
@@ -43,7 +43,26 @@ export const LANGS: readonly Lang[] = [
   'zh',
   'hi',
   'bn',
+  'ar',
 ];
+
+/** Sens d'écriture d'une langue. */
+export type Direction = 'ltr' | 'rtl';
+
+/**
+ * Langues écrites de droite à gauche.
+ *
+ * Liste des exceptions plutôt que table complète : une langue ajoutée s'écrit
+ * de gauche à droite sauf mention contraire, ce qui est vrai de la quasi
+ * totalité d'entre elles. Oublier d'inscrire une langue LTR ici ne casse donc
+ * rien, alors qu'une table exhaustive laisserait passer un trou silencieux.
+ */
+const RTL_LANGS: readonly Lang[] = ['ar'];
+
+/** Sens d'écriture d'une langue — `'ltr'` par défaut. */
+export function direction(lang: Lang): Direction {
+  return RTL_LANGS.includes(lang) ? 'rtl' : 'ltr';
+}
 
 export { fr };
 
@@ -58,6 +77,7 @@ const LOADERS: Record<LazyLang, () => Promise<Record<string, unknown>>> = {
   zh: () => import('./zh'),
   hi: () => import('./hi'),
   bn: () => import('./bn'),
+  ar: () => import('./ar'),
 };
 
 /** Dictionnaires déjà résolus. Le français y est d'emblée. */

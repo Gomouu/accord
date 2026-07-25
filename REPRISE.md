@@ -88,6 +88,24 @@ distance avec un datagramme bien formé.
 déjà sur `peer_static`. Des clés par appareil la rendent « par appareil »
 gratuitement.
 
+## Dette assumée : le budget du chunk initial
+
+Relevé de 140 à 150 ko le 2026-07-25, avec la raison écrite dans
+`scripts/check-bundle-budget.mjs`. **Le vrai correctif n'est pas fait.**
+
+Le français est le seul dictionnaire chargé d'emblée : les neuf autres sont des
+morceaux paresseux, donc gratuits, mais chaque chaîne française ajoutée
+n'importe où tombe dans le chargement initial.
+
+Or `settings` et `decorations.labels` ne sont lus **que** dans la modale de
+réglages, qui est déjà un morceau paresseux. Les sortir du dictionnaire
+français chargé d'emblée ramènerait le chargement initial vers le bas et
+rendrait le plafond de nouveau significatif.
+
+⚠️ La difficulté : `Dict` dérive de `typeof fr`, donc découper `fr` casse le
+type de référence. Il faut vraisemblablement deux dictionnaires typés — un
+noyau et une extension de réglages — et non un simple `import()`.
+
 ## Réflexes de cette base de code
 
 - **Une borne de longueur se compte en octets**, jamais en caractères, dès

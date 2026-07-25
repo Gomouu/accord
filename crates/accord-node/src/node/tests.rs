@@ -2012,12 +2012,28 @@ fn un_code_mal_recopie_donne_des_empreintes_differentes() {
     let nouveau = node();
 
     let code = autorise.pairing_start().unwrap().code;
-    // Une lettre changée, comme une faute de recopie.
+    // Une lettre changée, comme une faute de recopie. Deux remplaçants, pour
+    // que la mutation aboutisse quelle que soit la lettre tirée.
     let faute: String = code
         .chars()
         .enumerate()
-        .map(|(i, c)| if i == 0 && c != 'Z' { 'Z' } else { c })
+        .map(|(i, c)| {
+            if i != 0 {
+                c
+            } else if c == 'Z' {
+                'Y'
+            } else {
+                'Z'
+            }
+        })
         .collect();
+    // 🔒 Le garde-fou que la première version n'avait pas : elle remplaçait la
+    // première lettre par « Z » sauf si c'était déjà « Z », et rendait alors le
+    // code INCHANGÉ. Une fois sur trente et un, le test comparait un code à
+    // lui-même et échouait — vert en local, rouge en intégration. Une mutation
+    // doit prouver qu'elle a muté.
+    assert_ne!(faute, code, "le code fautif doit différer de l'original");
+
     let vers_autorise = nouveau.pairing_submit(&faute).expect("code bien formé");
 
     let reponses = autorise

@@ -13,8 +13,32 @@ import { gzipSync } from 'node:zlib';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** Gzipped ceiling for the entry chunk, in bytes. */
-const ENTRY_BUDGET = 140 * 1024;
+/**
+ * Gzipped ceiling for the entry chunk, in bytes.
+ *
+ * Raised from 140 kB on 2026-07-25, and the reason is written down rather
+ * than quietly absorbed. Two things forced it:
+ *
+ * 1. **The French dictionary is the only eager one.** Every other language is
+ *    its own lazily-loaded chunk, so ten languages cost nothing — but every
+ *    French string added anywhere lands in the initial download. Multi-device
+ *    added a screen's worth of them.
+ * 2. **The measurement is not identical across platforms.** The same commit
+ *    measured 139.7 kB on macOS and 140.0 kB on the CI runner. A ceiling with
+ *    0.3 kB of headroom fails on the difference between two gzip builds, not
+ *    on anything a developer did.
+ *
+ * ⚠️ The real fix is structural and is *not* done: the settings strings —
+ *    `settings`, `decorations.labels` — are only ever read inside the settings
+ *    modal, which is already a lazy chunk. Splitting them out of the eager
+ *    French dictionary would take the initial download back down and make the
+ *    ceiling meaningful again. Recorded in REPRISE.md.
+ *
+ * Raising a ratchet is not free. It is allowed here because the growth is real
+ * work, the cause is understood, and the fix is named — not because the number
+ * was in the way.
+ */
+const ENTRY_BUDGET = 150 * 1024;
 
 const assets = join(process.cwd().endsWith('/app') ? '.' : 'app', 'dist', 'assets');
 

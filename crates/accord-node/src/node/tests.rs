@@ -1777,6 +1777,69 @@ fn confirmer_sans_appareil_propose_est_refuse() {
     assert!(n.pairing_confirm().is_err());
 }
 
+/// Ouvre un canal d'appairage sur `n` et rend le canal du pair d'en face.
+fn canal_ouvert_avec(n: &Node) -> accord_crypto::pairing::PairedChannel {
+    let code = n.pairing_start().unwrap().code.replace('-', "");
+    let c = accord_crypto::pairing::PairingCode::parse(&code).unwrap();
+    let (pair, msg) = accord_crypto::pairing::PairingHandshake::start(&c);
+    let reponses = n
+        .ingest_core(&[9u8; 32], CoreMsg::PairingHello { msg })
+        .unwrap();
+    let [CoreMsg::PairingHello { msg: reponse }] = &reponses[..] else {
+        panic!("réponse d'appairage attendue");
+    };
+    pair.finish(reponse).expect("canal ouvert")
+}
+
+/// Décode l'entrée que `n` scelle pour se faire inscrire.
+fn entree_scellee_de(n: &Node) -> accord_proto::device::DeviceEntry {
+    let canal = canal_ouvert_avec(n);
+    let scelle = n.pairing_sealed_self().expect("entrée scellée");
+    let clair = canal.open(&scelle).expect("charge ouverte");
+    let mut r = accord_proto::Reader::new(&clair);
+    <accord_proto::device::DeviceEntry as accord_proto::WireDecode>::decode(&mut r)
+        .expect("entrée lisible")
+}
+
+#[test]
+fn lappareil_qui_rejoint_annonce_la_cle_quil_presente() {
+    // 🔒 L'entrée scellée ne dit pas seulement QUI rejoint, elle dit par OÙ le
+    // joindre. Un drapeau à zéro en dur ferait inscrire tout appareil appairé
+    // comme joignable par la clé de COMPTE : il ne recevrait jamais un seul
+    // message, tout en figurant sagement dans « Mes appareils » — une panne
+    // dont rien à l'écran ne donnerait la cause. Et lui seul le sait : celui
+    // qui autorise ne peut que le croire sur parole.
+    let transport_du_compte = node();
+    transport_du_compte
+        .with_db(|db| {
+            crate::device::ensure_local_device(db)
+                .map(|_| ())
+                .map_err(|_| NodeError::Invalid("appareil local"))
+        })
+        .unwrap();
+    assert!(
+        !entree_scellee_de(&transport_du_compte).presents_own_key(),
+        "transport encore sur la clé de compte : on se joint par le compte"
+    );
+
+    // La même machine, une fois le transport basculé sur sa clé d'appareil.
+    let bascule = node();
+    let graine = bascule
+        .with_db(|db| {
+            crate::device::ensure_local_device(db)
+                .map(|d| *d.seed())
+                .map_err(|_| NodeError::Invalid("appareil local"))
+        })
+        .unwrap();
+    bascule.set_transport_identity(std::sync::Arc::new(
+        accord_crypto::Identity::from_seed_with_pow_bits(graine, 1),
+    ));
+    assert!(
+        entree_scellee_de(&bascule).presents_own_key(),
+        "transport sur la clé d'appareil : on se joint par l'appareil"
+    );
+}
+
 /// Joue l'appairage jusqu'au canal ouvert et à l'appareil proposé.
 /// Rend le nœud et l'appareil que le pair demande à faire inscrire.
 fn appairage_jusqua_lappareil_propose() -> (Node, accord_crypto::DeviceIdentity) {

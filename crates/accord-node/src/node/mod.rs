@@ -611,7 +611,14 @@ impl Node {
             pow_nonce: device.pow_nonce(),
             name: stored.name,
             added_ms: now_ms(),
-            flags: 0,
+            // 🔒 L'entrée dit par où joindre CETTE machine, donc elle doit dire
+            // laquelle de ses deux clés son transport présente. Un zéro en dur
+            // ferait inscrire tout appareil appairé comme joignable par la clé
+            // de compte : il n'aurait jamais reçu un seul message, et rien à
+            // l'écran n'aurait suggéré pourquoi — il figurerait bien dans
+            // « Mes appareils ». C'est l'appareil qui rejoint qui sait, et lui
+            // seul : celui qui autorise ne peut que le croire sur parole.
+            flags: crate::device::local_device_flags(&self.transport_key(), &device.public_key()),
         };
         let mut w = accord_proto::Writer::new();
         accord_proto::WireEncode::encode(&entry, &mut w);

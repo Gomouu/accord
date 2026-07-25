@@ -1579,6 +1579,12 @@ impl Runtime {
     }
 
     async fn route(&self, addr: SocketAddr, static_pub: [u8; 32], msg: ChannelMsg) {
+        // 🔒 Traduction appareil → compte, en un seul point. Tout ce qui suit
+        // travaille sur des comptes : une amitié, un profil, un op-log
+        // appartiennent à une personne, pas à une machine. Sans clé
+        // d'appareil en jeu — le cas de tout le parc aujourd'hui — c'est
+        // l'identité.
+        let static_pub = self.node.account_of_transport_key(&static_pub);
         match msg {
             ChannelMsg::Dht(dht_msg) => self.route_dht(addr, static_pub, dht_msg).await,
             ChannelMsg::Core(core_msg) => self.route_core(&static_pub, core_msg).await,

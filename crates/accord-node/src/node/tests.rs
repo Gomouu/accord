@@ -2223,3 +2223,76 @@ fn le_meme_message_ingere_deux_fois_nest_stocke_quune_fois() {
         "trois ingestions du même identifiant ne font qu'un message"
     );
 }
+
+#[test]
+fn une_cle_de_compte_se_traduit_en_elle_meme() {
+    // Le cas de tout le parc aujourd'hui : la clé statique de transport EST
+    // la clé de compte. La traduction doit être l'identité, sans détour.
+    let (n, peer) = node_with_friend();
+    assert_eq!(
+        n.account_of_transport_key(&peer.public_key()),
+        peer.public_key()
+    );
+}
+
+#[test]
+fn une_cle_inconnue_se_traduit_en_elle_meme() {
+    // Un inconnu reste un inconnu : la traduction ne doit rien inventer, sinon
+    // elle rattacherait un étranger à un compte ami.
+    let n = node();
+    let inconnu = [4u8; 32];
+    assert_eq!(n.account_of_transport_key(&inconnu), inconnu);
+}
+
+#[test]
+fn la_cle_dun_appareil_dami_remonte_a_son_compte() {
+    // 🔒 Le cœur de la phase 2 : quand un ami présentera sa clé d'appareil,
+    // le routage doit le reconnaître comme LUI, pas comme un inconnu.
+    let (n, peer) = node_with_friend();
+    let appareil = accord_crypto::DeviceIdentity::generate();
+
+    // L'ami annonce sa liste, qui autorise cet appareil.
+    let liste = crate::device::build_device_list_with_root(
+        &peer,
+        &appareil,
+        "Portable",
+        crate::node::now_ms(),
+    );
+    n.ingest_core(
+        &peer.public_key(),
+        CoreMsg::DeviceListAnnounce { list: liste },
+    )
+    .unwrap();
+
+    assert_eq!(
+        n.account_of_transport_key(&appareil.public_key()),
+        peer.public_key(),
+        "la clé d'appareil doit remonter au compte de l'ami"
+    );
+}
+
+#[test]
+fn lappareil_dun_non_ami_ne_remonte_a_aucun_compte() {
+    // Une liste peut être parfaitement signée sans que son compte soit un ami.
+    // Être signé n'est pas être invité.
+    let n = node();
+    let etranger = accord_crypto::Identity::generate_with_pow_bits(1);
+    let appareil = accord_crypto::DeviceIdentity::generate();
+    let liste = crate::device::build_device_list_with_root(
+        &etranger,
+        &appareil,
+        "Portable",
+        crate::node::now_ms(),
+    );
+    n.ingest_core(
+        &etranger.public_key(),
+        CoreMsg::DeviceListAnnounce { list: liste },
+    )
+    .unwrap();
+
+    assert_eq!(
+        n.account_of_transport_key(&appareil.public_key()),
+        appareil.public_key(),
+        "sans amitié, la clé reste elle-même"
+    );
+}

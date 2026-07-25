@@ -71,6 +71,25 @@ pub struct NodeConfig {
     /// Active l'annonce et la découverte de pairs Accord sur le réseau local
     /// (mDNS). Sans effet si l'écoute est en loopback.
     pub mdns_enabled: bool,
+    /// Le transport présente-t-il la **clé d'appareil** au lieu de la clé de
+    /// compte (multi-appareil, jalon 1, lot 1.C phase 2) ?
+    ///
+    /// 🔒 **Reste à `false` tant que le parc n'est pas sur 6.4.** Un pair qui
+    /// ne sait pas résoudre une clé d'appareil vers son compte ne reconnaît
+    /// pas son ami : la clé statique de transport **est** encore la clé de
+    /// compte pour lui, et une clé inconnue est un inconnu. Le premier à
+    /// basculer deviendrait un étranger pour tous les autres.
+    ///
+    /// La lecture, elle, est déjà active : `device::account_for_static`
+    /// rattache une clé d'appareil listée à son compte. Même déploiement en
+    /// deux temps que le champ de capacités du handshake — savoir lire
+    /// d'abord, écrire ensuite.
+    ///
+    /// L'allumer rend le multi-appareil réellement fonctionnel : c'est ce
+    /// basculement qui lève le bloqueur B1, l'invariant « au plus une session
+    /// directe par identité » devenant « par appareil » sans qu'une ligne de
+    /// `install_session` ne change.
+    pub device_key_transport: bool,
     /// Nœuds d'amorçage/relais PAR DÉFAUT livrés avec l'application (points
     /// d'entrée du réseau, à la manière des bootstrap nodes d'IPFS/BitTorrent —
     /// ce ne sont PAS des serveurs centraux : ils ne voient que du trafic
@@ -96,6 +115,7 @@ impl Default for NodeConfig {
             voice_backend: VoiceBackend::default(),
             nat_enabled: true,
             mdns_enabled: true,
+            device_key_transport: false,
             default_bootstrap: Vec::new(),
         }
     }
@@ -296,9 +316,21 @@ async fn run_node(
     // actuelle devient la racine du compte, et cette machine reçoit une clé
     // d'appareil DISTINCTE. Créée et persistée ici, pas encore utilisée — le
     // transport bascule dessus au lot 1.C. Voir `docs/MULTI_DEVICE.md`.
-    device::ensure_local_device(&db)?;
+    let local_device = device::ensure_local_device(&db)?;
 
     let identity = Arc::new(unlocked.identity);
+    // Identité présentée par le TRANSPORT — distincte de celle du compte dès
+    // que le drapeau est levé (lot 1.C phase 2). Tout le reste du nœud
+    // continue de signer et de s'identifier avec `identity` : le profil, les
+    // amitiés, les op-logs appartiennent au compte, pas à la machine.
+    let transport_identity: Arc<accord_crypto::Identity> = if config.device_key_transport {
+        Arc::new(accord_crypto::Identity::from_seed_with_pow_bits(
+            *local_device.seed(),
+            config.pow_bits,
+        ))
+    } else {
+        Arc::clone(&identity)
+    };
     let injected = socket_override.is_some();
 
     // Transport chiffré : socket injecté (tests) ou UDP réel, multiplexé avec
@@ -336,7 +368,7 @@ async fn run_node(
         relay_serving: true,
         ..EndpointConfig::default()
     };
-    let (endpoint, events) = Endpoint::new(socket, Arc::clone(&identity), clock, ep_config);
+    let (endpoint, events) = Endpoint::new(socket, transport_identity, clock, ep_config);
     endpoint.spawn();
     // Retient le port effectivement lié pour les prochains lancements (B2) —
     // sans objet pour un socket injecté (adresse du mesh simulé).

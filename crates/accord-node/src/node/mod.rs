@@ -617,6 +617,32 @@ impl Node {
         Ok(())
     }
 
+    /// Compte auquel appartient une clé statique de transport.
+    ///
+    /// La rend telle quelle quand elle est déjà celle d'un compte ami — le cas
+    /// de tout le parc aujourd'hui — et remonte au compte propriétaire quand
+    /// c'est la clé d'un appareil listé.
+    ///
+    /// 🔒 C'est **le** point de traduction. Tout ce qui est en aval du routage
+    /// travaille sur des comptes : les amitiés, les profils, les op-logs
+    /// appartiennent à une personne, pas à une machine. Traduire ailleurs, ou
+    /// à moitié, ferait apparaître le même ami sous deux identités selon le
+    /// chemin emprunté.
+    pub fn account_of_transport_key(&self, static_pub: &[u8; 32]) -> [u8; 32] {
+        let friends = self.friend_pubkeys().unwrap_or_default();
+        self.with_db(|db| {
+            Ok(crate::device::account_for_static(
+                db,
+                &friends,
+                static_pub,
+                now_ms(),
+            ))
+        })
+        .ok()
+        .flatten()
+        .unwrap_or(*static_pub)
+    }
+
     /// Révoque un appareil du compte et publie la version n+1.
     ///
     /// 🔒 **On ne révoque pas l'appareil sur lequel on est.** Ce serait se

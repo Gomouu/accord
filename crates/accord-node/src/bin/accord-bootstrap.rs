@@ -86,6 +86,9 @@ async fn run() -> Result<(), BootstrapError> {
     };
 
     let config = NodeConfig {
+        // Un nœud d'amorçage ne sert que de point de rendez-vous : il n'a
+        // ni compte ni appareil à distinguer.
+        device_key_transport: false,
         paths,
         p2p_addr,
         api_port: 0,

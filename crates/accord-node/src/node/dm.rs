@@ -151,18 +151,34 @@ impl Node {
     /// Marque la conversation avec `peer` lue jusqu'à `lamport` (position
     /// locale, persistée dans les métadonnées, pour le calcul des non-lus).
     ///
+    /// La marque est monotone : une position inférieure ou égale à celle déjà
+    /// retenue est ignorée en silence.
+    ///
     /// Best-effort read receipt (ephemeral, like typing): when the mark
     /// actually advances, the privacy toggle is on and the peer is presumed
     /// online, a `ReadReceipt` targeting the peer's latest covered message is
     /// emitted — never persisted, never queued offline.
     pub fn dm_mark_read(&self, peer_pubkey: &[u8; 32], lamport: u64) -> Result<(), NodeError> {
-        let previous = self.with_db(|db| Ok(read_u64(db.meta(&dm_mark_key(peer_pubkey))?)))?;
-        self.with_db(|db| Ok(db.set_meta(&dm_mark_key(peer_pubkey), &lamport.to_be_bytes())?))?;
+        let key = dm_mark_key(peer_pubkey);
+        let previous = self.with_db(|db| Ok(read_u64(db.meta(&key)?)))?;
+        // Un compte a plusieurs appareils, et « lu = lu sur au moins un
+        // appareil » (MULTI_DEVICE.md §5). Sans cette monotonie, un appareil
+        // resté trois jours éteint rouvrirait la conversation sur sa vieille
+        // position et ferait « redevenir non lus » des messages lus depuis
+        // longtemps : la conversation se remarquerait non lue toute seule ici,
+        // et l'accusé émis rembobinerait la vue de l'expéditeur. Un appareil en
+        // retard n'est pas une erreur — sa position est ignorée en silence.
+        let advanced = lamport > previous;
+        if advanced {
+            self.with_db(|db| Ok(db.set_meta(&key, &lamport.to_be_bytes())?))?;
+        }
         // Ouvrir une conversation éteint ses mentions non lues (parité Discord).
+        // Sans condition de position : acquitter une mention ne va que dans le
+        // sens du lu, donc ne peut pas faire régresser l'état.
         self.with_db(|db| Ok(db.mark_dm_mentions_read(peer_pubkey)?))?;
         // Throttle: only marks that advance emit a receipt (re-marking the
         // same position, e.g. on window refocus, stays silent).
-        if lamport <= previous || !self.read_receipts_enabled()? || !self.is_online(peer_pubkey) {
+        if !advanced || !self.read_receipts_enabled()? || !self.is_online(peer_pubkey) {
             return Ok(());
         }
         let receipt = self.with_db(|db| {
@@ -639,6 +655,96 @@ mod tests {
             .unwrap();
         assert_eq!(node.dm_delivery(&rec(), &map), "sent");
         assert!(node.dm_retry(&peer, &mid).is_err());
+    }
+
+    #[test]
+    fn la_marque_de_lecture_avance_mais_ne_recule_jamais() {
+        let (node, peer, lamport, _rx) = node_with_incoming_dm();
+        assert_eq!(node.dm_read_lamport(&peer).unwrap(), 0);
+
+        // Une marque plus récente avance.
+        node.dm_mark_read(&peer, lamport).unwrap();
+        assert_eq!(node.dm_read_lamport(&peer).unwrap(), lamport);
+        node.dm_mark_read(&peer, lamport + 10).unwrap();
+        assert_eq!(node.dm_read_lamport(&peer).unwrap(), lamport + 10);
+
+        // Une marque plus ancienne est ignorée en silence : pas d'erreur, c'est
+        // simplement un appareil du compte resté en arrière.
+        node.dm_mark_read(&peer, lamport).unwrap();
+        assert_eq!(node.dm_read_lamport(&peer).unwrap(), lamport + 10);
+
+        // Une marque identique ne change rien (re-marquage au refocus).
+        node.dm_mark_read(&peer, lamport + 10).unwrap();
+        assert_eq!(node.dm_read_lamport(&peer).unwrap(), lamport + 10);
+    }
+
+    #[test]
+    fn deux_appareils_dont_un_en_retard_retiennent_la_marque_la_plus_avancee() {
+        // « Lu = lu sur au moins un appareil » (MULTI_DEVICE.md §5) : quel que
+        // soit l'ordre d'arrivée, la marque retenue est la plus avancée des
+        // deux. L'appareil en retard se place avant le message entrant, donc
+        // une régression rendrait la conversation non lue — le symptôme exact
+        // que la monotonie protège.
+        let a_jour = |base: u64| base + 10;
+        let en_retard = |base: u64| base - 4;
+
+        // L'appareil en retard parle en dernier : sa position est ignorée.
+        let (node, peer, lamport, _rx) = node_with_incoming_dm();
+        node.dm_mark_read(&peer, a_jour(lamport)).unwrap();
+        node.dm_mark_read(&peer, en_retard(lamport)).unwrap();
+        assert_eq!(node.dm_read_lamport(&peer).unwrap(), a_jour(lamport));
+        assert_eq!(node.dm_unread(&peer).unwrap(), 0);
+
+        // Ordre inverse : l'appareil à jour rattrape et l'emporte.
+        let (node, peer, lamport, _rx) = node_with_incoming_dm();
+        node.dm_mark_read(&peer, en_retard(lamport)).unwrap();
+        node.dm_mark_read(&peer, a_jour(lamport)).unwrap();
+        assert_eq!(node.dm_read_lamport(&peer).unwrap(), a_jour(lamport));
+        assert_eq!(node.dm_unread(&peer).unwrap(), 0);
+    }
+
+    #[test]
+    fn un_accuse_de_lecture_perime_ne_recule_pas_la_position_du_pair() {
+        let (node, peer, _lamport, _rx) = node_with_incoming_dm();
+        // Deux messages sortants : le pair pourra accuser l'un puis l'autre.
+        let premier = crate::hex::decode::<16>(&node.dm_send(&peer, "un", None).unwrap()).unwrap();
+        let second = crate::hex::decode::<16>(&node.dm_send(&peer, "deux", None).unwrap()).unwrap();
+        let position = |id: &[u8; 16]| {
+            node.dm_history(&peer, u64::MAX, 10)
+                .unwrap()
+                .into_iter()
+                .find(|m| m.msg_id == *id)
+                .unwrap()
+                .lamport
+        };
+        let ingest_receipt = |up_to: [u8; 16], msg_id: [u8; 16], lamport: u64| {
+            let rr = MsgBody::ReadReceipt { up_to };
+            node.ingest_core(
+                &peer,
+                CoreMsg::DirectMsg {
+                    msg_id,
+                    lamport,
+                    sent_ms: 4_000,
+                    kind: rr.kind(),
+                    body: rr.encode_body(),
+                },
+            )
+            .unwrap();
+        };
+
+        ingest_receipt(second, [21; 16], position(&second) + 1);
+        assert_eq!(
+            node.dm_peer_read_lamport(&peer).unwrap(),
+            Some(position(&second))
+        );
+
+        // Le second appareil du pair, en retard, accuse un message plus ancien :
+        // sans monotonie, l'expéditeur verrait « deux » redevenir non lu.
+        ingest_receipt(premier, [22; 16], position(&second) + 2);
+        assert_eq!(
+            node.dm_peer_read_lamport(&peer).unwrap(),
+            Some(position(&second))
+        );
     }
 
     #[test]

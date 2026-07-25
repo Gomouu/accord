@@ -2188,3 +2188,38 @@ fn un_hello_tardif_ne_remplace_pas_le_canal_deja_prouve() {
         .iter()
         .any(|d| d.pubkey == appareil.public_key()));
 }
+
+#[test]
+fn le_meme_message_ingere_deux_fois_nest_stocke_quune_fois() {
+    // 🔒 La propriété que le rattrapage multi-appareil exige (jalon 1, lot
+    // 1.E) : quand un appareil revient en ligne et rejoue ce qu'il a raté,
+    // rien ne doit apparaître en double dans la conversation.
+    //
+    // Elle tient aujourd'hui grâce à `INSERT OR IGNORE` sur une clé primaire
+    // `msg_id` — un détail SQL que rien ne testait. Ce test l'épingle : le
+    // remplacer un jour par un `INSERT` nu passerait toute la suite sauf ici.
+    let (n, peer) = node_with_friend();
+    let corps = accord_proto::core_msg::MsgBody::Text {
+        text: "une seule fois".into(),
+        reply_to: None,
+        attachments: vec![],
+    };
+    let msg = CoreMsg::DirectMsg {
+        msg_id: [42u8; 16],
+        lamport: 1,
+        sent_ms: crate::node::now_ms(),
+        kind: corps.kind(),
+        body: corps.encode_body(),
+    };
+
+    for _ in 0..3 {
+        n.ingest_core(&peer.public_key(), msg.clone()).unwrap();
+    }
+
+    let fil = n.dm_history(&peer.public_key(), u64::MAX, 50).unwrap();
+    assert_eq!(
+        fil.iter().filter(|m| m.msg_id == [42u8; 16]).count(),
+        1,
+        "trois ingestions du même identifiant ne font qu'un message"
+    );
+}

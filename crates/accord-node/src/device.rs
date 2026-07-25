@@ -231,6 +231,29 @@ pub fn account_for_static(
         .copied()
 }
 
+/// Destinataires à atteindre pour livrer à `account`.
+///
+/// Rend les **clés d'appareil** quand une liste fraîche est connue, et la clé
+/// de compte sinon.
+///
+/// 🔒 Ce repli n'est pas une commodité, c'est la moitié « savoir lire » du
+/// déploiement en deux temps (voir `docs/MULTI_DEVICE.md` §3.2.1). Un pair qui
+/// n'a pas encore publié de liste — tout le parc antérieur à 6.4 — reste
+/// joignable par sa clé de compte, qui est encore ce que son transport
+/// présente. Rendre une liste vide le rendrait injoignable du jour au
+/// lendemain.
+///
+/// ⚠️ Un compte à N appareils multiplie le trafic par N pour un message
+/// direct. Négligeable pour du texte ; **inacceptable pour la voix et la
+/// vidéo**, qui restent mono-appareil (§5).
+pub fn delivery_targets(db: &Db, account: &[u8; 32], now_ms: u64) -> Vec<[u8; 32]> {
+    let devices = cached_devices_for(db, account, now_ms);
+    if devices.is_empty() {
+        return vec![*account];
+    }
+    devices
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -575,5 +598,80 @@ mod tests {
         let par_valeur = build_device_list(&account, &device, "Portable", now);
 
         assert_eq!(par_reference, par_valeur);
+    }
+
+    #[test]
+    fn sans_liste_connue_on_vise_la_cle_de_compte() {
+        // 🔒 Le parc antérieur à 6.4 ne publie pas de liste. Rendre une liste
+        // vide le rendrait injoignable du jour au lendemain.
+        let db = db();
+        let inconnu = [5u8; 32];
+        assert_eq!(
+            delivery_targets(&db, &inconnu, 1_700_000_000_000),
+            vec![inconnu]
+        );
+    }
+
+    #[test]
+    fn avec_une_liste_fraiche_on_vise_les_appareils() {
+        let now = 1_700_000_000_000;
+        let db = db();
+        let (account, device, record) = published(now);
+        let compte = en_cache(&db, &account, &record, now);
+
+        assert_eq!(
+            delivery_targets(&db, &compte, now),
+            vec![device.public_key()],
+            "un message direct part vers les appareils, pas vers le compte"
+        );
+    }
+
+    #[test]
+    fn avec_une_liste_perimee_on_retombe_sur_le_compte() {
+        // Une liste périmée ne dit plus qui est autorisé. Plutôt que de ne
+        // livrer à personne, on vise le compte : le pire cas est un message
+        // qui n'arrive pas, et c'est exactement ce qu'une liste vide donnerait
+        // — sauf que le repli, lui, marche encore avec les pairs anciens.
+        let now = 1_700_000_000_000;
+        let db = db();
+        let (account, _, record) = published(now);
+        let compte = en_cache(&db, &account, &record, now);
+
+        let expire = now + u64::from(DEVICE_LIST_VALID_S) * 1000 + 1;
+        assert_eq!(delivery_targets(&db, &compte, expire), vec![compte]);
+    }
+
+    #[test]
+    fn un_appareil_revoque_ne_recoit_plus_rien() {
+        // 🔒 Le bout qui compte : après révocation, plus aucun message ne doit
+        // partir vers la machine retirée.
+        let now = 1_700_000_000_000;
+        let db = db();
+        let account = AccountIdentity::from_identity(Identity::generate_with_pow_bits(1));
+        let garde = DeviceIdentity::generate_with_pow_bits(1);
+        let retire = DeviceIdentity::generate_with_pow_bits(1);
+
+        let mut liste = build_device_list(&account, &garde, "Fixe", now);
+        liste.revoked.push(accord_proto::device::RevokedEntry {
+            pubkey: retire.public_key(),
+            revoked_ms: now,
+        });
+        liste.devices.push(accord_proto::device::DeviceEntry {
+            pubkey: retire.public_key(),
+            pow_nonce: retire.pow_nonce(),
+            name: "Ancien".into(),
+            added_ms: now,
+            flags: 0,
+        });
+        account.sign_device_list(&mut liste);
+        let record = device_list_record(&account, &liste, now);
+        let compte = en_cache(&db, &account, &record, now);
+
+        let cibles = delivery_targets(&db, &compte, now);
+        assert!(cibles.contains(&garde.public_key()));
+        assert!(
+            !cibles.contains(&retire.public_key()),
+            "un appareil révoqué ne doit plus rien recevoir"
+        );
     }
 }

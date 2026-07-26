@@ -339,6 +339,26 @@ export function NetworkPanel() {
                       {sousLigne}
                       {p.rtt_ms !== null && p.rtt_ms !== undefined && ` · ${p.rtt_ms} ms`}
                     </div>
+                    {/* Mention du chiffrement (jalon 2, lot 2.C). Rien du tout
+                        quand le nœud ne renseigne pas le champ : « standard »
+                        serait alors une affirmation sans fondement, et l'absence
+                        d'information vaut mieux qu'une information fausse. */}
+                    {p.live && p.post_quantum !== undefined && (
+                      <div
+                        title={
+                          p.post_quantum
+                            ? t.reseau.encryptionHybridHint
+                            : t.reseau.encryptionClassicHint
+                        }
+                        className={`mt-0.5 truncate text-[11px] ${
+                          p.post_quantum ? 'text-green' : 'text-faint'
+                        }`}
+                      >
+                        {p.post_quantum
+                          ? t.reseau.encryptionHybrid
+                          : t.reseau.encryptionClassic}
+                      </div>
+                    )}
                   </div>
                   {direct || relaye ? (
                     <span

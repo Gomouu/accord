@@ -407,6 +407,7 @@ mod tests_rapport {
             rtt_ms: Some(38),
             last_delivery_ms: Some(1_700_000_000_000),
             capabilities: 0b101,
+            post_quantum: true,
         }
     }
 

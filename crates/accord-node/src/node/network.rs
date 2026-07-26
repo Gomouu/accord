@@ -103,6 +103,13 @@ pub struct PeerLink {
     /// son transcript (bitmask, voir `accord_proto::limits::CAP_KNOWN`). 0 sans
     /// session, ou pour un pair qui n'en annonce aucune. Champ additif.
     pub capabilities: u32,
+    /// La clé de la session courante dérive-t-elle aussi d'un secret ML-KEM
+    /// (jalon 2) ? Faux sans session. Champ additif.
+    ///
+    /// ⚠️ Décrit la SESSION, pas le pair. Faux ne veut pas dire « ce pair ne
+    /// sait pas faire » : voir SPEC §2.2.2 — dans un WELCOME, le bit
+    /// `CAP_PQ_HYBRID` dit ce que le répondeur a fait, pas ce qu'il sait faire.
+    pub post_quantum: bool,
 }
 
 /// Contrôle du réseau depuis l'API : implémenté par le runtime, branché sur le

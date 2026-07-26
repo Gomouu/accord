@@ -355,6 +355,31 @@ export const deSettings = {
     privacyEgressPeers: 'Verbundene Gegenstellen',
     privacyEgressRelays: 'Offene Relaiswege (Ende-zu-Ende-verschlüsselter Rückfall)',
     privacyEgressCentral: 'Kontaktierte zentrale Server',
+    security: 'Sicherheit',
+    securityStateTitle: 'Verschlüsselung deiner Unterhaltungen',
+    securityStateHint:
+      'Alles, was du sendest, ist in jedem Fall Ende-zu-Ende verschlüsselt. Dieser Bereich zeigt, wie der Schlüssel mit jedem Kontakt vereinbart wurde.',
+    securityHybridExplainTitle: 'Warum zwei Verfahren',
+    securityHybridExplain:
+      'Eine heute abgefangene Nachricht kann gespeichert und Jahre später entschlüsselt werden, sobald Quantencomputer existieren. Accord verbindet daher X25519, bewährt gegen klassische Computer, mit ML-KEM, entworfen um den bis heute bekannten Angriffen mit Quantencomputern zu widerstehen. Beide müssen gebrochen werden, um die Unterhaltung zu lesen: gibt eines nach, hält das andere.',
+    securityPerContactTitle: 'Status je Kontakt',
+    securityPerContactHint:
+      'Der Status beschreibt die laufende Sitzung, nicht den Kontakt. „Standard“ heißt, dass mindestens eines der beiden Geräte den verstärkten Modus nicht eröffnet hat — meist, weil es eine ältere Version nutzt.',
+    securityPerContactEmpty: 'Noch keine Kontakte.',
+    securityNoSession: 'Keine laufende Sitzung',
+    securityRatioTitle: 'Deine Sitzungen seit dem Start',
+    securityRatioHybrid: 'Verstärkt',
+    securityRatioClassic: 'Standard',
+    securityRatioLocal:
+      'Diese beiden Zahlen werden auf diesem Gerät gezählt und verlassen es nie: sie werden an niemanden übertragen.',
+    securityRequireTitle: 'Verstärkte Verschlüsselung verlangen',
+    securityRequireHint:
+      'Lehnt jede Sitzung ab, die nicht post-quantum wäre. Du kannst Kontakte, deren Gerät das nicht kann, dann nicht mehr erreichen und sie dich nicht.',
+    securityRequireOn: 'Verlangt — Standardsitzungen werden abgelehnt',
+    securityRequireOff:
+      'Nicht verlangt — der verstärkte Modus wird genutzt, wann immer es geht',
+    securityRequireFailed: 'Diese Einstellung konnte nicht gespeichert werden.',
+    securityUnavailable: 'Verschlüsselungsstatus auf diesem Knoten nicht verfügbar.',
   },
   decorations: {
     decorationTitle: 'Avatar-Verzierung',

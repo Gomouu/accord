@@ -323,6 +323,29 @@ export const zhSettings = {
     privacyEgressPeers: '已连接的节点',
     privacyEgressRelays: '已打开的中继线路（端到端加密的备用通道）',
     privacyEgressCentral: '联系过的中心服务器',
+    security: '安全',
+    securityStateTitle: '你的对话加密',
+    securityStateHint:
+      '你发送的一切在任何情况下都是端到端加密的。此页面说明与每位联系人协商密钥的方式。',
+    securityHybridExplainTitle: '为何采用两种机制',
+    securityHybridExplain:
+      '今天被截获的消息可以被保存下来，等量子计算机出现后再解密。因此 Accord 将经受传统计算机考验的 X25519 与专为抵御目前已知量子计算机攻击而设计的 ML-KEM 结合起来。要读取对话必须同时攻破两者：一方失守，另一方仍在。',
+    securityPerContactTitle: '各联系人的状态',
+    securityPerContactHint:
+      '状态描述的是当前会话，而不是联系人。“标准”表示两台设备中至少有一台没有开启增强模式，多数情况是因为它运行的是较旧版本。',
+    securityPerContactEmpty: '暂无联系人。',
+    securityNoSession: '没有进行中的会话',
+    securityRatioTitle: '自启动以来的会话',
+    securityRatioHybrid: '增强',
+    securityRatioClassic: '标准',
+    securityRatioLocal: '这两个数字在本设备上统计，从不离开本机：不会传给任何人。',
+    securityRequireTitle: '要求增强加密',
+    securityRequireHint:
+      '拒绝任何非后量子的会话。你将无法联系设备不支持此功能的联系人，他们也无法联系你。',
+    securityRequireOn: '已要求 — 标准会话将被拒绝',
+    securityRequireOff: '未要求 — 尽可能使用增强模式',
+    securityRequireFailed: '无法保存此设置。',
+    securityUnavailable: '此节点无法提供加密状态。',
   },
   decorations: {
     decorationTitle: '头像装饰',

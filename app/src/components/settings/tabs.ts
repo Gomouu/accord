@@ -13,6 +13,7 @@ import { LanguageTab } from './LanguageTab';
 import { NotificationsTab } from './NotificationsTab';
 import { PlanningTab } from './PlanningTab';
 import { PrivacyTab } from './PrivacyTab';
+import { SecurityTab } from './SecurityTab';
 import { ShortcutsTab } from './ShortcutsTab';
 import { SystemTab } from './SystemTab';
 import { TextMediaTab } from './TextMediaTab';
@@ -22,6 +23,7 @@ import { VoiceTab } from './VoiceTab';
 export type SettingsTabId =
   | 'account'
   | 'privacy'
+  | 'security'
   | 'appearance'
   | 'accessibility'
   | 'textMedia'
@@ -60,6 +62,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     tabs: [
       DEFAULT_TAB,
       { id: 'privacy', label: (_t, ts) => ts.settings.privacy, Content: PrivacyTab },
+      { id: 'security', label: (_t, ts) => ts.settings.security, Content: SecurityTab },
     ],
   },
   {

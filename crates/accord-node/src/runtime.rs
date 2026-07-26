@@ -1293,7 +1293,9 @@ impl Runtime {
             };
             match event {
                 TransportEvent::Connected {
-                    addr, static_pub, ..
+                    addr,
+                    static_pub,
+                    ..
                 } => {
                     // 🔒 Deux identités, deux usages. `static_pub` est la clé
                     // que la MACHINE présente : elle indexe le carnet, la file
@@ -2772,6 +2774,7 @@ impl NetworkControl for Runtime {
                         .filter_map(|cible| delivered.get(cible).copied())
                         .max(),
                     capabilities: session.map_or(0, |s| s.peer_capabilities),
+                    post_quantum: session.is_some_and(|s| s.is_post_quantum),
                 }
             })
             .collect()
@@ -2784,6 +2787,7 @@ impl NetworkControl for Runtime {
     async fn self_test(&self) -> SelfTestReport {
         self.run_self_test().await
     }
+
 }
 
 /// `NodeInfo` synthétique pour un RPC DHT direct vers une adresse : seule

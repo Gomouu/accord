@@ -968,6 +968,12 @@ export const fr = {
       'Copie dans le presse-papiers un résumé technique à joindre à un rapport de bug : compteurs, auto-test réseau et état des liens. Il ne contient ni message, ni code ami, ni adresse IP de tes amis — tu peux le partager sans risque.',
     reportCopied: 'Rapport de diagnostic copié.',
     reportFailed: 'Impossible de produire le rapport.',
+    encryptionHybrid: 'Chiffrement renforcé (post-quantique)',
+    encryptionHybridHint:
+      'La clé de cette session dérive de deux mécanismes indépendants, X25519 et ML-KEM. Elle résiste aux attaques par ordinateur quantique connues à ce jour.',
+    encryptionClassic: 'Chiffrement standard',
+    encryptionClassicHint:
+      'La clé de cette session dérive de X25519 seul. Le contenu reste chiffré de bout en bout, sans la protection supplémentaire contre un futur ordinateur quantique.',
   },
   errors: {
     sendFailed: 'Échec de l’envoi',

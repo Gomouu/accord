@@ -362,6 +362,30 @@ export const enSettings = {
     privacyEgressPeers: 'Connected peers',
     privacyEgressRelays: 'Open relay circuits (end-to-end encrypted fallback)',
     privacyEgressCentral: 'Central servers contacted',
+    security: 'Security',
+    securityStateTitle: 'Encryption of your conversations',
+    securityStateHint:
+      'Everything you send is end-to-end encrypted, in every case. This screen tells you how the key was agreed with each contact.',
+    securityHybridExplainTitle: 'Why two mechanisms',
+    securityHybridExplain:
+      'A message intercepted today can be stored and decrypted years later, once quantum computers exist. So Accord combines X25519, proven against classical computers, with ML-KEM, designed to resist quantum-computer attacks known to date. Both must be broken to read the conversation: if one gives way, the other holds.',
+    securityPerContactTitle: 'State per contact',
+    securityPerContactHint:
+      'The state describes the current session, not the contact. “Standard” means at least one of the two devices did not open reinforced mode — most often because it runs an older version.',
+    securityPerContactEmpty: 'No contacts yet.',
+    securityNoSession: 'No session in progress',
+    securityRatioTitle: 'Your sessions since startup',
+    securityRatioHybrid: 'Reinforced',
+    securityRatioClassic: 'Standard',
+    securityRatioLocal:
+      'These two numbers are counted on this device and never leave it: they are transmitted to no one.',
+    securityRequireTitle: 'Require reinforced encryption',
+    securityRequireHint:
+      'Refuses any session that would not be post-quantum. You will no longer be able to reach contacts whose device cannot do it, nor be reached by them.',
+    securityRequireOn: 'Required — standard sessions are refused',
+    securityRequireOff: 'Not required — reinforced mode is used whenever possible',
+    securityRequireFailed: 'Could not save this setting.',
+    securityUnavailable: 'Encryption state not available on this node.',
   },
   decorations: {
     decorationTitle: 'Avatar decoration',

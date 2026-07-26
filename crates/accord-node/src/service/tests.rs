@@ -3519,6 +3519,7 @@ impl crate::node::network::NetworkControl for FakeNetwork {
             rtt_ms: Some(42),
             last_delivery_ms: Some(1_700_000_000_000),
             capabilities: accord_proto::limits::CAP_PQ_HYBRID,
+            post_quantum: true,
         }]
     }
     fn counters(&self) -> crate::node::diagnostics::CountersSnapshot {
@@ -3569,6 +3570,7 @@ async fn network_peers_expose_les_champs_additifs_du_lien() {
             "last_delivery_ms",
             "last_recv_age_ms",
             "live",
+            "post_quantum",
             "pubkey",
             "relay",
             "rtt_ms",
@@ -3581,6 +3583,7 @@ async fn network_peers_expose_les_champs_additifs_du_lien() {
     assert_eq!(lien["rtt_ms"], 42);
     assert_eq!(lien["live"], true);
     assert_eq!(lien["capabilities"], accord_proto::limits::CAP_PQ_HYBRID);
+    assert_eq!(lien["post_quantum"], true);
 }
 
 #[tokio::test]
@@ -3589,12 +3592,19 @@ async fn diagnostics_counters_expose_les_groupes_de_compteurs() {
     let v = s.call("diagnostics.counters", json!({})).await.unwrap();
     assert_eq!(
         sorted_keys(&v),
-        ["mailbox", "outbox", "punch", "reconnect", "relay"]
+        [
+            "mailbox",
+            "outbox",
+            "punch",
+            "reconnect",
+            "relay"
+        ]
     );
     assert_eq!(v["punch"]["requested"], 1);
     assert_eq!(v["relay"]["open_ok"], 1);
     assert_eq!(v["mailbox"]["deposits"], 0);
 }
+
 
 #[tokio::test]
 async fn diagnostics_selftest_expose_le_rapport_complet() {

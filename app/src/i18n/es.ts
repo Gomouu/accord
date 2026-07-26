@@ -968,6 +968,12 @@ export const es: Dict = {
       'Copia al portapapeles un resumen técnico para adjuntar a un informe de error: contadores, autodiagnóstico de red y estado de los enlaces. No contiene mensajes, ni códigos de amigo, ni las direcciones IP de tus amigos: puedes compartirlo sin riesgo.',
     reportCopied: 'Informe de diagnóstico copiado.',
     reportFailed: 'No se pudo generar el informe.',
+    encryptionHybrid: 'Cifrado reforzado (poscuántico)',
+    encryptionHybridHint:
+      'La clave de esta sesión se deriva de dos mecanismos independientes, X25519 y ML-KEM. Resiste los ataques con ordenador cuántico conocidos hasta hoy.',
+    encryptionClassic: 'Cifrado estándar',
+    encryptionClassicHint:
+      'La clave de esta sesión se deriva solo de X25519. El contenido sigue cifrado de extremo a extremo, sin la protección adicional frente a un futuro ordenador cuántico.',
   },
   errors: {
     sendFailed: 'No se pudo enviar',

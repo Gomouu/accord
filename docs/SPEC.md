@@ -119,6 +119,74 @@ k_i2r     = HKDF-Expand(prk, "accord-i2r", 32)   // initiator→responder key
 k_r2i     = HKDF-Expand(prk, "accord-r2i", 32)
 ```
 
+#### 2.2.1 Additive fields: capabilities and post-quantum material
+
+Both messages carry two **trailing additive fields**, in this order, after the
+signature:
+
+```
+  capabilities  : u32          optional, 4 bytes when present
+  pq_ek / pq_ct : bytes<800> / bytes<768>   present iff CAP_PQ_HYBRID is set
+```
+
+Absent, the structure is byte-identical to the version that predates them. A
+decoder that predates a field rejects the excess bytes outright, so **emitting a
+field toward a peer too old to decode it makes the handshake undecodable for
+that peer** — emission is a deployment decision, not a protocol one.
+
+No length prefix is read from the wire. The handshake is decoded *before* a
+session exists, so nothing in it is authenticated yet, and a sender-chosen
+length would open a memory-exhaustion path. The size comes from the parameter
+set (ML-KEM-512). Consequently the capability bit and the material are welded
+together: bit set ⇔ material present, at encode and at decode alike.
+
+Both fields are absorbed into the transcript behind distinct one-byte markers
+(`0x01` for capabilities, `0x02` for the material), and only when present — an
+absent field contributes nothing, which is what keeps a classic transcript
+byte-identical to the pre-hybrid one. An attacker who strips the capability bit
+in flight, or flips one byte of key material, changes the transcript the
+receiver computes; the signature no longer verifies and the handshake is
+rejected. Such an attacker can deny the connection. They cannot obtain a
+downgraded session to decrypt later.
+
+Hybrid derivation replaces `ikm` above with the concatenation of both secrets,
+each exactly 32 bytes, so no byte split is ambiguous:
+
+```
+ikm = X25519(eph_priv, eph_pub_pair) ‖ ML-KEM-Decaps(pq_ct)      // hybrid
+ikm = X25519(eph_priv, eph_pub_pair)                             // classic
+```
+
+#### 2.2.2 ⚠️ `CAP_PQ_HYBRID` does not mean the same thing in both messages
+
+This is deliberate, and it is the one place in the protocol where a capability
+bit is not a capability. Read the field without this in mind and it will be
+misread.
+
+| Message | What the bit asserts | Reading it as the other meaning gives |
+|---|---|---|
+| HELLO (initiator) | **"I can do this."** The initiator announces the ability *and* attaches its ML-KEM encapsulation key. | Nothing wrong: for the initiator the two meanings coincide, because announcing costs it the material. |
+| WELCOME (responder) | **"I did this."** The bit is set only if the ML-KEM ciphertext actually accompanies this reply. | A false negative. A responder that *can* do hybrid but received a classic HELLO answers with the bit **clear**. Reading that as "peer cannot do hybrid" is wrong — and it is a durable wrong answer, because `SessionView::peer_capabilities` keeps the WELCOME's bitmask for the life of the session. |
+
+The asymmetry is forced by the wire invariant of §2.2.1: the bit is what tells
+the decoder whether 768 bytes follow, so in the WELCOME it *must* describe the
+packet's contents rather than the sender's abilities. A responder that
+advertised an ability it did not exercise would emit an undecodable packet.
+
+Two consequences worth stating explicitly:
+
+- **Only the initiator opens hybrid.** A capable responder never upgrades a
+  classic HELLO on its own; it has nowhere to put the ciphertext. Hybrid
+  coverage across the network is therefore driven by initiators, and any
+  measurement of it counts sessions, not peers.
+- **A classic session does not prove the peer is classic.** It proves that at
+  least one of the two sides did not open hybrid. Do not derive peer
+  capabilities from a session's mode; and do not present a classic session to
+  the user as "this contact cannot do it".
+
+Every *other* bit in the field keeps the plain "what I can do" meaning in both
+messages, and travels between them untouched.
+
 ### 2.3 Session state machine
 
 ```

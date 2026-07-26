@@ -618,6 +618,12 @@ export interface PeerLink {
   /** Capacités annoncées par le pair dans le handshake (bitmask authentifié).
    * 0 sans session ou pour un pair qui n'en annonce aucune. Champ additif. */
   capabilities?: number;
+  /** La clé de la session courante dérive-t-elle aussi d'un secret ML-KEM
+   * (chiffrement hybride, nœud 8.0+) ? Faux sans session. Champ additif.
+   *
+   * ⚠️ Décrit la SESSION, pas le pair : faux ne signifie pas « ce contact ne
+   * sait pas faire » (voir SPEC §2.2.2). */
+  post_quantum?: boolean;
 }
 
 /** Compteurs de diagnostic locaux depuis le démarrage (voir `diagnostics.counters`). */
@@ -627,6 +633,21 @@ export interface DiagnosticsCounters {
   mailbox: { deposits: number; pickups: number };
   outbox: { enqueued: number; flushed: number };
   reconnect: { attempts: number; ok: number };
+  /** Provenance des clés de session établies depuis le démarrage (8.0+).
+   * Compteur strictement local, jamais transmis. Champ additif. */
+  handshake?: { hybrid: number; classic: number };
+}
+
+/** État du chiffrement tel que le nœud le constate (`security.state`, 8.0+). */
+export interface SecurityState {
+  /** Ce nœud sait-il négocier le chiffrement hybride post-quantique ? */
+  hybrid_supported: boolean;
+  /** Refuse-t-il les sessions classiques (réglage avancé) ? */
+  require_hybrid: boolean;
+  /** Sessions hybrides établies depuis le démarrage. */
+  hybrid_sessions: number;
+  /** Sessions classiques établies depuis le démarrage. */
+  classic_sessions: number;
 }
 
 /** Résultat de l'auto-test réseau borné (voir `diagnostics.selftest`). */
@@ -2527,6 +2548,18 @@ export class Api {
    */
   privacyReport(): Promise<PrivacyReport> {
     return this.rpc.call('privacy.report');
+  }
+
+  // ---- Chiffrement (jalon 2) ----
+
+  /** État du chiffrement : hybride disponible, exigé, et compteurs locaux. */
+  securityState(): Promise<SecurityState> {
+    return this.rpc.call('security.state');
+  }
+
+  /** Exige (ou cesse d'exiger) l'hybride ; rend l'état à jour. */
+  securitySetRequireHybrid(require: boolean): Promise<SecurityState> {
+    return this.rpc.call('security.set_require_hybrid', { require });
   }
 
   // ---- Scheduled messages (F1) ----

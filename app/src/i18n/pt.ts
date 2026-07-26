@@ -945,6 +945,12 @@ export const pt: Dict = {
       'Copia para a área de transferência um resumo técnico para anexar a um relatório de erro: contadores, autoteste de rede e estado das ligações. Não contém mensagens, nem códigos de amigo, nem os endereços IP dos teus amigos — podes partilhá-lo sem risco.',
     reportCopied: 'Relatório de diagnóstico copiado.',
     reportFailed: 'Não foi possível gerar o relatório.',
+    encryptionHybrid: 'Criptografia reforçada (pós-quântica)',
+    encryptionHybridHint:
+      'A chave desta sessão deriva de dois mecanismos independentes, X25519 e ML-KEM. Ela resiste aos ataques por computador quântico conhecidos até hoje.',
+    encryptionClassic: 'Criptografia padrão',
+    encryptionClassicHint:
+      'A chave desta sessão deriva apenas de X25519. O conteúdo continua criptografado de ponta a ponta, sem a proteção adicional contra um futuro computador quântico.',
   },
   errors: {
     sendFailed: 'Falha no envio',

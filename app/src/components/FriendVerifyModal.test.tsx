@@ -1,7 +1,8 @@
 /**
  * Identity-verification modal tests: safety number rendering (12 groups of
  * 5 digits + 8 emoji), verified toggle round-trip, broken-verification
- * warning, and closing.
+ * warning, closing, and the two QR panels (§17.4) — which are lazy, so they
+ * are substituted here rather than loaded.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -15,6 +16,17 @@ vi.mock('../lib/client', () => ({
     friendsSetVerified: vi.fn(() => Promise.resolve({ ok: true })),
     friendsList: vi.fn(() => Promise.resolve({ contacts: [] })),
   },
+}));
+
+// Les deux panneaux QR sont paresseux et embarquent `qrcode` / `jsqr` : on les
+// remplace par des témoins, qui rendent visible ce qu'on leur passe.
+vi.mock('./SafetyQrCode', () => ({
+  SafetyQrCode: ({ digits }: { digits: string }) => <div data-qr-code={digits} />,
+}));
+vi.mock('./SafetyQrScanner', () => ({
+  SafetyQrScanner: ({ localDigits }: { localDigits: string }) => (
+    <div data-qr-scanner={localDigits} />
+  ),
 }));
 
 import { api } from '../lib/client';
@@ -100,6 +112,41 @@ describe('FriendVerifyModal', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'La clé de ce contact a changé',
     );
+  });
+
+  it('opens the QR panel without hiding the digits', async () => {
+    useUi.setState({ verifyTarget: 'ami-pk' });
+    const { container } = render(<FriendVerifyModal />);
+    const bouton = await screen.findByRole('button', { name: 'Afficher mon QR' });
+    expect(bouton).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(bouton);
+
+    // Le QR encode le numéro calculé localement…
+    await waitFor(() =>
+      expect(container.querySelector(`[data-qr-code="${DIGITS}"]`)).not.toBeNull(),
+    );
+    // …et la comparaison à voix haute reste possible : les chiffres sont là.
+    expect(screen.getAllByText('12345')).toHaveLength(6);
+    expect(bouton).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('hands the scanner the locally computed number, and closes it again', async () => {
+    useUi.setState({ verifyTarget: 'ami-pk' });
+    const { container } = render(<FriendVerifyModal />);
+    const bouton = await screen.findByRole('button', { name: 'Scanner son QR' });
+
+    fireEvent.click(bouton);
+
+    // 🔒 Le scanner ne reçoit que le numéro local : c'est contre lui, et rien
+    // d'autre, que le QR scanné sera comparé.
+    await waitFor(() =>
+      expect(container.querySelector(`[data-qr-scanner="${DIGITS}"]`)).not.toBeNull(),
+    );
+
+    // Refermer démonte le scanner — donc relâche la caméra.
+    fireEvent.click(bouton);
+    expect(container.querySelector('[data-qr-scanner]')).toBeNull();
   });
 
   it('closes on Escape', async () => {

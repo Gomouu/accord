@@ -134,6 +134,22 @@ export const de: Dict = {
       'Vergleiche diese Zahl mit der, die bei {name} steht — per Anruf oder persönlich. Stimmen sie überein, ist euer Gespräch authentifiziert: niemand hat sich dazwischengeschoben.',
     verifyEmojiHint:
       'Schneller Vergleich: die 8 Emojis müssen auf beiden Seiten gleich sein.',
+    verifyQrShow: 'Meinen QR-Code zeigen',
+    verifyQrScan: 'QR-Code scannen',
+    verifyQrAlt: 'QR-Code der Sicherheitsnummer',
+    verifyQrHint: 'Lass diesen Code vom Prüf-Bildschirm deines Gegenübers scannen.',
+    verifyScanHint:
+      'Richte die Kamera auf den QR-Code auf dem Bildschirm deines Freundes.',
+    verifyScanPreview: 'Kameravorschau',
+    verifyScanForeign: 'Dieser Code ist keine Accord-Sicherheitsnummer.',
+    verifyScanMatch: 'Zahlen stimmen überein: euer Gespräch ist authentifiziert.',
+    verifyScanMismatch:
+      'Die Zahlen stimmen nicht überein. Führe dieses Gespräch nicht fort, bevor du weißt, warum.',
+    verifyScanAgain: 'Erneut scannen',
+    verifyScanDenied:
+      'Kamerazugriff verweigert. Erlaube ihn in den Systemeinstellungen oder vergleiche die Ziffern oben.',
+    verifyScanNoCamera:
+      'Keine Kamera auf diesem Gerät verfügbar. Vergleiche die Ziffern oben.',
     verifyMark: 'Als geprüft markieren',
     verifyUnmark: 'Prüfung zurücknehmen',
     verifiedBadge: 'Identität geprüft',

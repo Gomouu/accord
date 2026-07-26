@@ -1295,8 +1295,13 @@ impl Runtime {
                 TransportEvent::Connected {
                     addr,
                     static_pub,
+                    is_post_quantum,
                     ..
                 } => {
+                    // Compteur local du basculement (lot 2.D) : compté ici, au
+                    // seul endroit que TOUTE session traverse, quel que soit le
+                    // rôle et quel que soit le lien (direct ou tunnel).
+                    self.counters.handshake_done(is_post_quantum);
                     // 🔒 Deux identités, deux usages. `static_pub` est la clé
                     // que la MACHINE présente : elle indexe le carnet, la file
                     // hors-ligne et le relais. `account` est la PERSONNE : elle
@@ -2788,6 +2793,13 @@ impl NetworkControl for Runtime {
         self.run_self_test().await
     }
 
+    fn requires_post_quantum(&self) -> bool {
+        self.endpoint.requires_post_quantum()
+    }
+
+    fn set_require_post_quantum(&self, require: bool) {
+        self.endpoint.set_require_post_quantum(require);
+    }
 }
 
 /// `NodeInfo` synthétique pour un RPC DHT direct vers une adresse : seule

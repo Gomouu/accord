@@ -38,6 +38,12 @@ pub enum TransportError {
     /// pendaison ni de fuite d'entrée `pending_relay_open`).
     #[error("ouverture de circuit relais expirée (relais silencieux)")]
     RelayOpenTimeout,
+    /// La session négociée est classique alors que la configuration locale
+    /// EXIGE l'hybride post-quantique (réglage avancé, lot 2.D). Le handshake
+    /// est authentifié et valide : c'est une politique locale qui le refuse,
+    /// pas une faute du pair. Aucune session n'est installée.
+    #[error("session classique refusée : l'hybride post-quantique est exigé")]
+    PostQuantumRequired,
     /// Endpoint en cours d'arrêt.
     #[error("endpoint arrêté")]
     Shutdown,

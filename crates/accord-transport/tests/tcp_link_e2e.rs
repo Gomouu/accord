@@ -47,6 +47,7 @@ async fn spawn_mux_node() -> Node {
             cookie_pressure_per_s: 64,
             relay_serving: false,
             capabilities: None,
+            require_post_quantum: false,
         },
     );
     ep.spawn();

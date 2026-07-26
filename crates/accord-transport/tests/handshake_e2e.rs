@@ -21,6 +21,7 @@ fn config() -> EndpointConfig {
         cookie_pressure_per_s: 64,
         relay_serving: false,
         capabilities: None,
+        require_post_quantum: false,
     }
 }
 
@@ -901,4 +902,138 @@ async fn hybride_et_classique_replient_proprement() {
     // L'initiateur a bien annoncé l'hybride ; c'est le répondeur qui décline.
     assert_eq!(capacites_vues(&classique), PQ);
     assert_eq!(capacites_vues(&hybride), SANS_PQ);
+}
+
+/// Nœud du lot 2.D : annonce l'hybride ET refuse de s'en passer.
+fn spawn_node_exigeant(net: &SimNet, clock: &ManualClock, addr: &str) -> Node {
+    let addr: SocketAddr = addr.parse().unwrap();
+    let socket = Arc::new(net.bind(addr));
+    let id = Arc::new(Identity::generate_with_pow_bits(POW));
+    let static_pub = id.public_key();
+    let (ep, events) = Endpoint::new(
+        socket,
+        id,
+        Arc::new(clock.clone()) as Arc<dyn accord_transport::Clock>,
+        EndpointConfig {
+            capabilities: Some(accord_proto::limits::CAP_PQ_HYBRID),
+            require_post_quantum: true,
+            ..config()
+        },
+    );
+    ep.spawn();
+    Node {
+        ep,
+        events,
+        addr,
+        static_pub,
+    }
+}
+
+/// Laisse au handshake tout le temps de réussir, puis constate qu'il n'a rien
+/// installé. Une assertion immédiate passerait pour la mauvaise raison — la
+/// session n'aurait simplement pas encore eu le temps d'exister.
+async fn rester_sans_session(node: &Node, quoi: &str) {
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(node.ep.session_count(), 0, "{quoi}");
+}
+
+/// Jalon 2, lot 2.D — Le réglage avancé « exiger l'hybride » refuse bien une
+/// session classique, dans les DEUX rôles. C'est le test qui distingue « on
+/// préfère l'hybride » de « on l'exige » : sans lui, l'option pourrait ne rien
+/// faire du tout et personne ne le verrait.
+#[tokio::test]
+async fn un_noeud_exigeant_refuse_une_session_classique() {
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(4247, NetConditions::default());
+
+    // Rôle répondeur : un pair antérieur au champ de capacités nous démarche.
+    let exigeant = spawn_node_exigeant(&net, &clock, "10.0.10.1:4000");
+    let ancien = spawn_node_avec_capacites(&net, &clock, "10.0.10.2:4000", None);
+    ancien
+        .ep
+        .send(
+            exigeant.addr,
+            &ChannelMsg::Control(ControlMsg::Ping { token: 8 }),
+        )
+        .await
+        .unwrap();
+    rester_sans_session(
+        &exigeant,
+        "un répondeur exigeant n'installe pas de session classique",
+    )
+    .await;
+    // Le WELCOME n'est jamais parti : l'initiateur reste sans session lui aussi.
+    assert_eq!(ancien.ep.session_count(), 0);
+
+    // Rôle initiateur : c'est nous qui démarchons un pair sans hybride.
+    let exigeant2 = spawn_node_exigeant(&net, &clock, "10.0.10.3:4000");
+    let ancien2 = spawn_node_avec_capacites(&net, &clock, "10.0.10.4:4000", None);
+    exigeant2
+        .ep
+        .send(
+            ancien2.addr,
+            &ChannelMsg::Control(ControlMsg::Ping { token: 9 }),
+        )
+        .await
+        .unwrap();
+    rester_sans_session(
+        &exigeant2,
+        "un initiateur exigeant n'installe pas de session classique",
+    )
+    .await;
+}
+
+/// Jalon 2, lot 2.D — L'exigence ne casse pas le cas qu'elle est censée servir :
+/// deux nœuds exigeants s'établissent normalement, en hybride.
+#[tokio::test]
+async fn deux_noeuds_exigeants_setablissent_en_hybride() {
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(4248, NetConditions::default());
+    let a = spawn_node_exigeant(&net, &clock, "10.0.11.1:4000");
+    let b = spawn_node_exigeant(&net, &clock, "10.0.11.2:4000");
+    a.ep.send(b.addr, &ChannelMsg::Control(ControlMsg::Ping { token: 10 }))
+        .await
+        .unwrap();
+    attendre_sessions(&a, &b).await;
+    assert!(session_hybride(&a) && session_hybride(&b));
+}
+
+/// Jalon 2, lot 2.D — L'exigence est modifiable à chaud. Un réglage de sécurité
+/// qui n'agirait qu'au prochain démarrage laisserait l'utilisateur croire qu'il
+/// est protégé alors qu'il ne l'est pas encore.
+#[tokio::test]
+async fn lexigence_prend_effet_sans_redemarrage() {
+    const PQ: u32 = accord_proto::limits::CAP_PQ_HYBRID;
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(4249, NetConditions::default());
+    let nous = spawn_node_avec_capacites(&net, &clock, "10.0.12.1:4000", Some(PQ));
+    assert!(!nous.ep.requires_post_quantum());
+
+    nous.ep.set_require_post_quantum(true);
+    assert!(nous.ep.requires_post_quantum());
+    let ancien = spawn_node_avec_capacites(&net, &clock, "10.0.12.2:4000", None);
+    ancien
+        .ep
+        .send(
+            nous.addr,
+            &ChannelMsg::Control(ControlMsg::Ping { token: 11 }),
+        )
+        .await
+        .unwrap();
+    rester_sans_session(&nous, "l'exigence posée à chaud doit déjà refuser").await;
+
+    // Et le retour en arrière rouvre bien la porte, sur un pair neuf : le
+    // premier a désormais un pending en cours, dont le nonce est consommé.
+    nous.ep.set_require_post_quantum(false);
+    let ancien2 = spawn_node_avec_capacites(&net, &clock, "10.0.12.3:4000", None);
+    ancien2
+        .ep
+        .send(
+            nous.addr,
+            &ChannelMsg::Control(ControlMsg::Ping { token: 12 }),
+        )
+        .await
+        .unwrap();
+    attendre_sessions(&ancien2, &nous).await;
+    assert!(!session_hybride(&nous));
 }

@@ -101,6 +101,11 @@ pub enum TransportEvent {
         addr: SocketAddr,
         /// Clé publique Ed25519 du pair.
         static_pub: [u8; 32],
+        /// La clé de session dérive-t-elle aussi d'un secret ML-KEM ? Porté par
+        /// l'événement plutôt que relu dans `session_views()` : au moment où la
+        /// couche nœud traiterait l'événement, la session a pu être remplacée
+        /// par une plus fraîche, et le compteur mesurerait alors la mauvaise.
+        is_post_quantum: bool,
     },
     /// Message applicatif déchiffré reçu d'un pair.
     Message {
@@ -411,6 +416,19 @@ pub struct EndpointConfig {
     /// déploiement en deux temps — savoir lire d'abord, écrire ensuite — qui
     /// permettra d'allumer l'émission sans rupture.
     pub capabilities: Option<u32>,
+    /// Refuser toute session dont la clé ne dérive PAS aussi d'un secret
+    /// ML-KEM (réglage avancé, lot 2.D). Faux par défaut : la politique
+    /// ordinaire est « accepter les deux, préférer l'hybride », parce qu'un
+    /// refus généralisé couperait les amis restés sur une version antérieure.
+    ///
+    /// Vrai, le handshake est mené jusqu'au bout — il faut la signature pour
+    /// savoir de quoi la clé dérive vraiment — puis la session est écartée
+    /// avant installation. C'est une politique LOCALE : le pair n'apprend rien
+    /// du refus qu'un pair injoignable ne lui apprendrait pas déjà.
+    ///
+    /// Modifiable à chaud par [`Endpoint::set_require_post_quantum`] : ce
+    /// réglage-là ne doit pas attendre un redémarrage pour prendre effet.
+    pub require_post_quantum: bool,
 }
 
 impl Default for EndpointConfig {
@@ -422,6 +440,7 @@ impl Default for EndpointConfig {
             cookie_pressure_per_s: 64,
             relay_serving: false,
             capabilities: None,
+            require_post_quantum: false,
         }
     }
 }
@@ -441,6 +460,11 @@ pub struct Endpoint {
     /// ne s'annonce jamais relais tant que sa joignabilité publique n'est pas
     /// établie.
     local_flags: AtomicU8,
+    /// Exigence d'hybride post-quantique, copiée de la configuration au
+    /// démarrage puis modifiable à chaud (lot 2.D). Atomique et non dans
+    /// `State` : la décision est consultée sur le chemin du handshake, où le
+    /// verrou d'état est déjà tenu pour d'autres raisons.
+    require_pq: AtomicBool,
 }
 
 impl Endpoint {
@@ -463,6 +487,7 @@ impl Endpoint {
     ) -> (Arc<Self>, mpsc::UnboundedReceiver<TransportEvent>) {
         let (tx, rx) = mpsc::unbounded_channel();
         let now = clock.now_ms();
+        let require_pq = AtomicBool::new(config.require_post_quantum);
         let ep = Arc::new(Self {
             socket,
             identity,
@@ -487,8 +512,22 @@ impl Endpoint {
             events: tx,
             shutdown: AtomicBool::new(false),
             local_flags: AtomicU8::new(0),
+            require_pq,
         });
         (ep, rx)
+    }
+
+    /// Exige (ou cesse d'exiger) l'hybride post-quantique pour toute nouvelle
+    /// session. Les sessions DÉJÀ établies ne sont pas fermées : elles ont été
+    /// acceptées sous la politique en vigueur à leur ouverture, et les couper
+    /// en masse ferait passer un changement de réglage pour une panne réseau.
+    pub fn set_require_post_quantum(&self, require: bool) {
+        self.require_pq.store(require, Ordering::Relaxed);
+    }
+
+    /// Politique courante d'exigence post-quantique.
+    pub fn requires_post_quantum(&self) -> bool {
+        self.require_pq.load(Ordering::Relaxed)
     }
 
     /// Drapeaux de capacité annoncés dans `NODE_ANNOUNCE`. Rend vrai si la
@@ -1069,6 +1108,20 @@ impl Endpoint {
                 self.config.pow_bits,
                 self.config.capabilities,
             )?;
+            // 🔒 Politique locale d'exigence post-quantique (lot 2.D), appliquée
+            // AVANT l'installation et avant l'émission du WELCOME : accepter la
+            // session puis la fermer laisserait une fenêtre où du trafic
+            // classique serait scellé. Le contrôle est ici et non dans
+            // `respond` : celui-ci fait de la cryptographie, pas de la
+            // politique.
+            if self.requires_post_quantum() && !established.is_post_quantum {
+                tracing::debug!(
+                    pair = %hex4(&established.peer_static),
+                    %peer_addr,
+                    "HELLO classique refusé : hybride post-quantique exigé"
+                );
+                return Err(TransportError::PostQuantumRequired);
+            }
             welcome_bytes = Packet::Welcome(welcome).to_bytes();
             let peer_node = node_id_of(&established.peer_static);
             let crypto = SessionCrypto::new(&established.keys, established.session_id, false, now);
@@ -1118,6 +1171,7 @@ impl Endpoint {
                 node: peer_node,
                 addr: peer_addr,
                 static_pub: established.peer_static,
+                is_post_quantum: established.is_post_quantum,
             });
         }
         // Le WELCOME repart par le même lien (direct ou ré-enveloppé en tunnel).
@@ -1206,6 +1260,21 @@ impl Endpoint {
                     return Err(TransportError::PeerIdentityMismatch);
                 }
             }
+            // 🔒 Exigence post-quantique (lot 2.D), côté initiateur. Le pending
+            // est déjà retiré : la file destinée au pair est abandonnée sans
+            // avoir été scellée, exactement comme pour une liaison d'identité
+            // refusée. Le contrôle vient APRÈS `finish` parce que seule la
+            // signature du transcript établit de quoi la clé dérive vraiment —
+            // un WELCOME dont le bit aurait été effacé en vol n'arrive même pas
+            // jusqu'ici.
+            if self.requires_post_quantum() && !established.is_post_quantum {
+                tracing::debug!(
+                    pair = %hex4(&established.peer_static),
+                    %peer_addr,
+                    "WELCOME classique refusé : hybride post-quantique exigé"
+                );
+                return Err(TransportError::PostQuantumRequired);
+            }
             let peer_node = node_id_of(&established.peer_static);
             let crypto = SessionCrypto::new(&established.keys, established.session_id, true, now);
             let mut session = Session {
@@ -1254,6 +1323,7 @@ impl Endpoint {
                 node: peer_node,
                 addr: peer_addr,
                 static_pub: established.peer_static,
+                is_post_quantum: established.is_post_quantum,
             });
         }
         for bytes in to_send {

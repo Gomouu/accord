@@ -426,6 +426,25 @@ async fn run_node(
         // publiquement joignables s'annoncent » (gating par `relay_eligible`)
         // est une optimisation ultérieure.
         relay_serving: true,
+        // Émission des capacités ALLUMÉE (jalon 2, lot 2.D) : sans elle, aucun
+        // handshake ne peut annoncer l'hybride et le jalon reste inerte.
+        //
+        // ⚠️ Jour de bascule assumé. Le champ occupe 4 octets après la
+        // signature du HELLO ; un pair antérieur à la 6.2 — version qui a
+        // introduit sa LECTURE — rejette les octets excédentaires et ne peut
+        // alors plus établir la moindre session avec nous. Le plancher réel du
+        // parc est déjà au-dessus : la 7.0 a fait basculer les clés d'appareil,
+        // ce qui exige 6.4 côté pair pour un premier contact. C'est le second
+        // volet du déploiement en deux temps voulu depuis la 6.2 — savoir lire
+        // d'abord, écrire ensuite.
+        //
+        // Seul `CAP_PQ_HYBRID` est annoncé : `CAP_DEVICE_KEYS` et
+        // `CAP_GROUP_VIDEO_N` décrivent des aptitudes qu'aucun pair n'exploite
+        // encore, et annoncer plus tôt que nécessaire fige un contrat.
+        capabilities: Some(accord_proto::limits::CAP_PQ_HYBRID),
+        // Réglage avancé, relu à chaque démarrage : c'est un choix de
+        // l'utilisateur, il doit survivre à la fermeture de l'application.
+        require_post_quantum: node::security::read_require_pq(&db)?,
         ..EndpointConfig::default()
     };
     let (endpoint, events) =

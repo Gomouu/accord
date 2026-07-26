@@ -92,6 +92,7 @@ pub(crate) mod privacy;
 pub(crate) mod relay;
 mod reminders;
 mod schedule;
+pub(crate) mod security;
 mod voice;
 
 // Les noms `friends` et `profile` sont déjà pris par les imports

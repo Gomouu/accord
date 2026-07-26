@@ -33,6 +33,7 @@ mod privacy;
 mod profile;
 mod reminders;
 mod schedule;
+mod security;
 mod voice;
 
 #[cfg(test)]
@@ -195,6 +196,9 @@ fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Value, NodeErro
     }
     if method.starts_with("privacy.") {
         return privacy::dispatch(node, method, params);
+    }
+    if method.starts_with("security.") {
+        return security::dispatch(node, method, params);
     }
     if method.starts_with("schedule.") {
         return schedule::dispatch(node, method, params);

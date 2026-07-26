@@ -130,6 +130,10 @@ pub trait NetworkControl: Send + Sync {
     /// Auto-test réseau borné (`diagnostics.selftest`) : joignabilité, type de
     /// NAT, sondes des pairs d'amorçage et d'un relais candidat.
     async fn self_test(&self) -> super::diagnostics::SelfTestReport;
+    /// Le transport refuse-t-il les sessions classiques (lot 2.D) ?
+    fn requires_post_quantum(&self) -> bool;
+    /// Pose ou lève cette exigence, à chaud.
+    fn set_require_post_quantum(&self, require: bool);
 }
 
 // ---- Encodage/décodage des valeurs `meta` (pur, testable) ----

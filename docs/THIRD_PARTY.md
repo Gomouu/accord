@@ -30,6 +30,7 @@
 | `tauri` | 2.11.5 | Desktop host (`accord-app`) |
 | `tauri-build` | 2.6.3 | Build of the Tauri host |
 | `thiserror` | 2.0.18 | Typed errors of all crates |
+| `unicode-normalization` | 0.1.25 | Canonical decomposition (NFD) of the AutoMod fold — same rule as the UI's `normalize('NFD')` |
 | `zeroize` | 1.9.0 | Wiping of secrets in memory |
 | `hex` (dev) | 0.4.3 | Hexadecimal test vectors |
 | `tempfile` (dev) | 3.27.0 | Temporary test directories |

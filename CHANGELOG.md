@@ -6,6 +6,35 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ### Added
 
+- **Video is only sent to the people who are actually looking at it.** In a
+  10-person call every participant emitted 9 video streams and received 9. The
+  receiving side was worse than it looked: a stream nobody displayed was still
+  received, reassembled and *decoded* — only the final `drawImage` was skipped.
+  The grid already knew which tiles were mounted; that knowledge simply never
+  left the renderer.
+
+  It does now. A receiver tells each sender, individually, which of *that
+  sender's* streams it is not displaying (new VOICE kind `0x07 VIDEO_INTEREST`,
+  SPEC §8.2), and the sender stops emitting them. Pinning one screen share in a
+  full room now costs one incoming stream instead of nine — upstream bandwidth
+  for everyone else, decoding for you.
+
+  The whole design turns on one rule: **saying nothing must never turn a stream
+  off.** So the mask is negative — it lists what is *hidden*, never what is
+  wanted. An older peer that declares nothing keeps receiving everything. A lost
+  datagram means a stream stays on, never that it goes dark. A stream the
+  receiver's build does not know about cannot appear in its hidden list, so a
+  future video kind is always delivered: an unknown kind costs bandwidth, never
+  a black tile. And the declaration is soft state — it expires after 10 s and is
+  reaffirmed every 3 s while something is still hidden, so the worst case for a
+  lost "show it again" message is one expiry of delay rather than a tile that
+  never comes back. Returning to full display also sends an explicit zero, which
+  is the fast path rather than the safety net.
+
+  Stream start/stop announces are deliberately exempt from the filter. They are
+  what makes a tile appear in the first place; filtering them would lock a peer
+  inside its own mask, never learning that a camera had just been switched on.
+
 - **A diagnostic log that actually exists.** A GUI application has no standard
   output: launched from the Finder or the Start menu, everything `tracing`
   produced went nowhere. There was a file sink, but only behind an

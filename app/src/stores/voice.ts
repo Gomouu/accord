@@ -8,6 +8,7 @@
 import { create } from 'zustand';
 import type { VoiceParticipant } from '../lib/api';
 import { api } from '../lib/client';
+import { resetDeclaration } from '../lib/mediaController';
 
 /** Volume de sortie par défaut (100 % = gain neutre). */
 const VOLUME_DEFAULT = 100;
@@ -200,6 +201,10 @@ export const useVoice = create<VoiceState>((set, get) => ({
 
   leave: async () => {
     await api.voiceLeave();
+    // Vidéo sélective : le moteur oublie ses masques en quittant le salon, on
+    // oublie donc aussi la dernière déclaration (sinon l'UI la croirait encore
+    // en vigueur au salon suivant et ne la réémettrait pas).
+    resetDeclaration();
     set({ active: null, selfDeafened: false, participants: new Map() });
   },
 

@@ -25,6 +25,7 @@ use serde_json::json;
 use tokio::sync::mpsc;
 
 use super::calls::{CallAction, CallMachine, CallPhase};
+use super::interest::{DeclaredHidden, HiddenByPeer, REFRESH_PERIOD};
 use super::media::VideoStream;
 use super::roster::{Roster, RosterEvent, ACTIVE_TIMEOUT_MS, PASSIVE_TTL_MS};
 use super::{
@@ -55,6 +56,11 @@ const PING_PERIOD_TICKS: u64 = 50;
 const STATE_PERIOD_TICKS: u64 = 1_500;
 /// Balayage des rosters passifs chaque seconde.
 const PASSIVE_SWEEP_TICKS: u64 = 50;
+/// Réaffirmation des masques de vidéo sélective (voir [`REFRESH_PERIOD`]),
+/// exprimée en trames de 20 ms. Portée par le moteur et non par l'UI : la
+/// déclaration doit survivre à un onglet inactif ou à une UI qui ne re-rend
+/// plus, sans quoi l'expiration rallumerait des flux qu'on masque toujours.
+const INTEREST_REFRESH_TICKS: u64 = REFRESH_PERIOD.as_millis() as u64 / FRAME_MS as u64;
 /// Trames de capture injectées en attente au maximum.
 const MAX_INJECTED_FRAMES: usize = 64;
 /// Une émission `event.voice_level` toutes les 5 trames de 20 ms (~10 Hz).
@@ -212,6 +218,12 @@ pub(crate) struct Engine {
     video_rx: HashMap<([u8; 32], VideoStream), super::media::Reassembler>,
     /// Compteur de trame sortante par flux (clé de réassemblage côté récepteur).
     video_next_frame_id: HashMap<VideoStream, u32>,
+    /// Vidéo sélective, côté ÉMETTEUR : ce que chaque destinataire déclare ne
+    /// pas afficher de nos flux. Vide = on émet tout, comme avant.
+    video_hidden: HiddenByPeer,
+    /// Vidéo sélective, côté RÉCEPTEUR : ce que l'on a déclaré à chaque
+    /// émetteur (pour n'émettre que les changements et réaffirmer le reste).
+    video_declared: DeclaredHidden,
 }
 
 /// Test micro actif : capture dédiée, VAD et crête de niveau (D-029).
@@ -290,6 +302,8 @@ impl Engine {
             tick_count: 0,
             video_rx: HashMap::new(),
             video_next_frame_id: HashMap::new(),
+            video_hidden: HiddenByPeer::default(),
+            video_declared: DeclaredHidden::default(),
         }
     }
 
@@ -432,6 +446,7 @@ impl Engine {
                 encoded,
             } => self.handle_video_send(stream, keyframe, encoded).await,
             Cmd::VideoAnnounce { stream, on } => self.handle_video_announce(stream, on).await,
+            Cmd::VideoInterest { hidden } => self.handle_video_interest(hidden).await,
             Cmd::Stop => unreachable!("Stop traité par la boucle"),
         }
     }
@@ -602,8 +617,12 @@ impl Engine {
     /// notion de présence passive pour un appel terminé).
     fn leave_active(&mut self) {
         // Les flux vidéo sont liés à la session : on abandonne tout
-        // réassemblage en cours à la fin de l'appel.
+        // réassemblage en cours à la fin de l'appel, et l'on oublie les
+        // masques de vidéo sélective des deux côtés — la session suivante
+        // repart de « tout le monde reçoit tout ».
         self.video_rx.clear();
+        self.video_hidden.clear();
+        self.video_declared.clear();
         let Some(active) = self.active.take() else {
             return;
         };
@@ -974,6 +993,12 @@ impl Engine {
         match action {
             ACTION_JOIN | ACTION_STATE => {
                 let peer_deafened = media_kinds & MEDIA_DEAFENED != 0;
+                if action == ACTION_JOIN {
+                    // Vidéo sélective : l'arrivant repart d'une UI vierge. Un
+                    // masque hérité de son passage précédent lui vaudrait une
+                    // tuile noire jusqu'à expiration — on l'oublie tout de suite.
+                    self.video_hidden.forget(&from);
+                }
                 {
                     let roster = self.rooms.entry(key).or_default();
                     match roster.join(from, now) {
@@ -1046,6 +1071,13 @@ impl Engine {
     /// Message du canal VOICE reçu d'un pair : trame audio (gigue + état
     /// « parle ») ou ping de qualité (adaptation de débit + vivacité).
     fn handle_peer_frame(&mut self, from: [u8; 32], msg: VoiceMsg) {
+        // Vidéo sélective : la déclaration d'un destinataire ne touche ni le
+        // moteur audio ni les réassembleurs — elle ne concerne que ce que NOUS
+        // émettons vers lui.
+        if let VoiceMsg::VideoInterest { room, hidden } = msg {
+            self.handle_video_interest_from(from, room, hidden);
+            return;
+        }
         // Le partage d'écran suit un chemin distinct (réassemblage + événements
         // UI), sans toucher au moteur audio.
         if matches!(
@@ -1091,11 +1123,12 @@ impl Engine {
                     roster.touch(&from, now);
                 }
             }
-            // Routées en amont par `handle_video_peer_frame` : inatteignable.
+            // Routées en amont (vidéo, intérêt vidéo) : inatteignable.
             VoiceMsg::ScreenFrame { .. }
             | VoiceMsg::ScreenControl { .. }
             | VoiceMsg::CameraFrame { .. }
-            | VoiceMsg::CameraControl { .. } => {}
+            | VoiceMsg::CameraControl { .. }
+            | VoiceMsg::VideoInterest { .. } => {}
         }
         if let Some(event) = event {
             self.emit_room(key, &event);
@@ -1180,7 +1213,8 @@ impl Engine {
     /// `stream` : fragmentée en trames ≤ MTU sur le canal VOICE. Sans effet
     /// hors appel actif.
     async fn handle_video_send(&mut self, stream: VideoStream, keyframe: bool, encoded: Vec<u8>) {
-        let Some((peers, room)) = self.video_targets() else {
+        // Vidéo sélective : seuls les destinataires qui affichent CE flux.
+        let Some((peers, room)) = self.video_targets(Some(stream)) else {
             return;
         };
         if peers.is_empty() {
@@ -1203,7 +1237,12 @@ impl Engine {
     /// Annonce le démarrage/arrêt d'un flux vidéo au pair de l'appel actif.
     /// Sans effet hors appel actif.
     async fn handle_video_announce(&mut self, stream: VideoStream, on: bool) {
-        let Some((peers, room)) = self.video_targets() else {
+        // L'annonce ignore délibérément la vidéo sélective (`None`) : elle part
+        // à TOUT LE MONDE, même à qui a masqué ce flux. C'est elle qui fait
+        // apparaître la tuile chez le récepteur ; la filtrer enfermerait un pair
+        // dans son propre masquage — il n'apprendrait jamais qu'une caméra
+        // vient de s'allumer, donc ne pourrait jamais demander à la voir.
+        let Some((peers, room)) = self.video_targets(None) else {
             return;
         };
         let msg = match stream {
@@ -1220,25 +1259,91 @@ impl Engine {
     /// - salon vocal de groupe → TOUS les participants sauf soi (même diffusion
     ///   full mesh que l'audio), `room == channel_id`.
     ///
+    /// `stream` porte la vidéo sélective : `Some(flux)` retire les destinataires
+    /// qui ont déclaré ne pas afficher CE flux (déclaration encore valide) ;
+    /// `None` ne filtre rien — c'est le mode des annonces, qui doivent atteindre
+    /// jusqu'à ceux qui masquent. Un pair qui n'a rien déclaré passe toujours :
+    /// le filtre ne peut que retirer sur demande explicite et fraîche.
+    ///
     /// `None` hors session active. La liste peut être vide (salon où l'on est
-    /// seul) : l'émission est alors simplement sans destinataire.
-    fn video_targets(&self) -> Option<(Vec<[u8; 32]>, [u8; 16])> {
+    /// seul, ou tout le monde a masqué le flux) : l'émission est alors
+    /// simplement sans destinataire.
+    fn video_targets(&self, stream: Option<VideoStream>) -> Option<(Vec<[u8; 32]>, [u8; 16])> {
         let active = self.active.as_ref()?;
-        if active.is_call {
+        let (peers, room) = if active.is_call {
             let snap = self.calls.snapshot();
-            return match (snap.phase, snap.peer, snap.call_id) {
-                (CallPhase::Active, Some(peer), Some(call_id)) => Some((vec![peer], call_id)),
-                _ => None,
-            };
-        }
-        let me = self.node.public_key();
-        let roster = self.rooms.get(&active.key())?;
-        let peers = roster
-            .pubkeys()
+            match (snap.phase, snap.peer, snap.call_id) {
+                (CallPhase::Active, Some(peer), Some(call_id)) => (vec![peer], call_id),
+                _ => return None,
+            }
+        } else {
+            let me = self.node.public_key();
+            let roster = self.rooms.get(&active.key())?;
+            let peers: Vec<[u8; 32]> = roster
+                .pubkeys()
+                .into_iter()
+                .filter(|pk| *pk != me)
+                .collect();
+            (peers, active.channel_id)
+        };
+        let Some(stream) = stream else {
+            return Some((peers, room));
+        };
+        let now = Instant::now();
+        let peers = peers
             .into_iter()
-            .filter(|pk| *pk != me)
+            .filter(|pk| self.video_hidden.wants(pk, stream, now))
             .collect();
-        Some((peers, active.channel_id))
+        Some((peers, room))
+    }
+
+    /// Vidéo sélective, côté RÉCEPTEUR : l'UI déclare ce qu'elle n'affiche pas.
+    /// Seuls les changements partent sur le fil (les trames arrivent à 24 Hz ;
+    /// une déclaration par re-rendu coûterait plus qu'elle n'économise), et un
+    /// pair qui n'est pas dans la session est écarté — déclarer à quelqu'un qui
+    /// ne nous envoie rien ne ferait que révéler ce que l'on regarde.
+    async fn handle_video_interest(&mut self, hidden: Vec<([u8; 32], u8)>) {
+        let Some((peers, room)) = self.video_targets(None) else {
+            // Hors session : rien à déclarer, et l'état repart de zéro à la
+            // session suivante (où plus rien n'est masqué).
+            self.video_declared.clear();
+            return;
+        };
+        let wanted: Vec<([u8; 32], u8)> = hidden
+            .into_iter()
+            .filter(|(peer, _)| peers.contains(peer))
+            .collect();
+        for (peer, mask) in self.video_declared.apply(&wanted) {
+            let msg = VoiceMsg::VideoInterest { room, hidden: mask };
+            if !self.sender.send_voice(&peer, msg).await {
+                // Perte sans gravité : le masque non nul sera réaffirmé au
+                // prochain cycle, et un masque nul perdu se règle par
+                // l'expiration chez l'émetteur.
+                tracing::trace!("vidéo : déclaration d'intérêt non remise");
+            }
+        }
+    }
+
+    /// Vidéo sélective, côté ÉMETTEUR : déclaration reçue d'un destinataire de
+    /// nos flux. Mêmes gardes que les trames vidéo (session active, bon salon,
+    /// participant connu) : un tiers ne doit pas pouvoir éteindre notre caméra
+    /// chez les autres.
+    fn handle_video_interest_from(&mut self, from: [u8; 32], room: [u8; 16], hidden: u8) {
+        let Some(active) = self.active.as_ref() else {
+            return;
+        };
+        if room != active.channel_id {
+            return;
+        }
+        let key = active.key();
+        if !self
+            .rooms
+            .get(&key)
+            .is_some_and(|roster| roster.contains(&from))
+        {
+            return;
+        }
+        self.video_hidden.note(from, hidden, Instant::now());
     }
 
     /// Émet la trame vidéo réassemblée vers l'UI (`event.screen_frame` ou
@@ -1437,6 +1542,21 @@ impl Engine {
             }
             self.rooms
                 .retain(|key, roster| Some(*key) == active_key || !roster.is_empty());
+        }
+
+        // Vidéo sélective : les masques que l'on impose aux autres sont un état
+        // SOUPLE chez eux (il expire). On les réaffirme tant qu'on masque
+        // quelque chose ; dès qu'on n'occulte plus rien, `refresh` est vide et
+        // le silence rétablit tout de lui-même.
+        if self.tick_count % INTEREST_REFRESH_TICKS == 0 {
+            let refresh = self.video_declared.refresh();
+            if !refresh.is_empty() {
+                if let Some((_, room)) = self.video_targets(None) {
+                    for (peer, hidden) in refresh {
+                        to_send.push((peer, VoiceMsg::VideoInterest { room, hidden }));
+                    }
+                }
+            }
         }
 
         for (key, event) in &events {
@@ -2538,6 +2658,253 @@ mod tests {
             .iter()
             .any(|(_, m)| matches!(m, VoiceMsg::ScreenFrame { room, .. } if *room == gid));
         assert!(room_ok, "la trame ne porte pas le salon du groupe");
+    }
+
+    // ---- Vidéo sélective (§9.1) ----
+
+    /// Salon de groupe avec deux participants, prêt à émettre de la vidéo.
+    async fn room_with_two_peers(
+        n: &Arc<Node>,
+    ) -> (
+        [u8; 16],
+        [u8; 32],
+        [u8; 32],
+        super::super::VoiceHandle,
+        Arc<TestSender>,
+    ) {
+        let gid: [u8; 16] = hex::decode(&n.group_create("Guilde").unwrap()).unwrap();
+        let a = Identity::generate_with_pow_bits(1).public_key();
+        let b = Identity::generate_with_pow_bits(1).public_key();
+        n.test_force_add_member(&gid, &a).unwrap();
+        n.test_force_add_member(&gid, &b).unwrap();
+        let (handle, sender) = spawn_engine(Arc::clone(n));
+        handle.join(gid, gid).await.unwrap();
+        handle.peer_signal(a, gid, gid, ACTION_JOIN, MEDIA_AUDIO, false);
+        handle.peer_signal(b, gid, gid, ACTION_JOIN, MEDIA_AUDIO, false);
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        (gid, a, b, handle, sender)
+    }
+
+    /// Destinataires ayant reçu au moins un message satisfaisant `pred`, puis
+    /// remise à zéro du journal (chaque phase de test part d'une page blanche).
+    fn drain_recipients(sender: &TestSender, pred: impl Fn(&VoiceMsg) -> bool) -> Vec<[u8; 32]> {
+        let mut sent = sender.0.lock().unwrap_or_else(|e| e.into_inner());
+        let out = sent
+            .iter()
+            .filter(|(_, m)| pred(m))
+            .map(|(to, _)| *to)
+            .collect();
+        sent.clear();
+        out
+    }
+
+    fn is_camera_frame(m: &VoiceMsg) -> bool {
+        matches!(m, VoiceMsg::CameraFrame { .. })
+    }
+
+    fn is_screen_frame(m: &VoiceMsg) -> bool {
+        matches!(m, VoiceMsg::ScreenFrame { .. })
+    }
+
+    /// Un pair qui déclare ne pas afficher notre caméra cesse d'en recevoir les
+    /// trames — c'est le gain d'émission recherché. Son voisin, muet, continue.
+    #[tokio::test]
+    async fn a_peer_that_hides_a_stream_stops_receiving_its_frames() {
+        let n = node();
+        let (gid, a, b, handle, sender) = room_with_two_peers(&n).await;
+
+        // Avant toute déclaration : les deux reçoivent (comportement d'origine).
+        handle.camera_send(true, vec![1u8; 32]);
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        let before = drain_recipients(&sender, is_camera_frame);
+        assert!(before.contains(&a) && before.contains(&b));
+
+        // A déclare ne pas afficher notre caméra.
+        handle.peer_frame(
+            a,
+            VoiceMsg::VideoInterest {
+                room: gid,
+                hidden: accord_proto::plaintext::VIDEO_HIDE_CAMERA,
+            },
+        );
+        tokio::time::sleep(Duration::from_millis(60)).await;
+
+        handle.camera_send(true, vec![2u8; 32]);
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        let after = drain_recipients(&sender, is_camera_frame);
+        assert!(
+            !after.contains(&a),
+            "A reçoit encore une caméra qu'il n'affiche pas"
+        );
+        assert!(after.contains(&b), "B, muet, ne reçoit plus rien");
+    }
+
+    /// Le masquage est PAR FLUX : masquer la caméra ne coupe pas l'écran (cas
+    /// de l'épinglage — on regarde un partage d'écran, pas le visage).
+    #[tokio::test]
+    async fn hiding_the_camera_leaves_the_screen_share_flowing() {
+        let n = node();
+        let (gid, a, _b, handle, sender) = room_with_two_peers(&n).await;
+
+        handle.peer_frame(
+            a,
+            VoiceMsg::VideoInterest {
+                room: gid,
+                hidden: accord_proto::plaintext::VIDEO_HIDE_CAMERA,
+            },
+        );
+        tokio::time::sleep(Duration::from_millis(60)).await;
+
+        handle.camera_send(true, vec![3u8; 32]);
+        handle.screen_send(true, vec![4u8; 32]);
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let sent = sender.0.lock().unwrap_or_else(|e| e.into_inner());
+        let cams: Vec<[u8; 32]> = sent
+            .iter()
+            .filter(|(_, m)| is_camera_frame(m))
+            .map(|(to, _)| *to)
+            .collect();
+        let screens: Vec<[u8; 32]> = sent
+            .iter()
+            .filter(|(_, m)| is_screen_frame(m))
+            .map(|(to, _)| *to)
+            .collect();
+        assert!(!cams.contains(&a), "la caméra masquée part quand même");
+        assert!(
+            screens.contains(&a),
+            "l'écran a été coupé alors que seule la caméra était masquée"
+        );
+    }
+
+    /// Revenir à l'affichage (masque nul) ramène les trames immédiatement.
+    #[tokio::test]
+    async fn unhiding_brings_the_stream_back() {
+        let n = node();
+        let (gid, a, _b, handle, sender) = room_with_two_peers(&n).await;
+
+        handle.peer_frame(
+            a,
+            VoiceMsg::VideoInterest {
+                room: gid,
+                hidden: accord_proto::plaintext::VIDEO_HIDE_CAMERA,
+            },
+        );
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        handle.camera_send(true, vec![5u8; 32]);
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        assert!(!drain_recipients(&sender, is_camera_frame).contains(&a));
+
+        // A ré-affiche : masque nul.
+        handle.peer_frame(
+            a,
+            VoiceMsg::VideoInterest {
+                room: gid,
+                hidden: 0,
+            },
+        );
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        handle.camera_send(true, vec![6u8; 32]);
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        assert!(
+            drain_recipients(&sender, is_camera_frame).contains(&a),
+            "le flux ne revient pas après le ré-affichage"
+        );
+    }
+
+    /// L'ANNONCE de flux ignore le masquage : sans elle, un pair qui a masqué
+    /// une caméra n'apprendrait jamais qu'elle se rallume et resterait enfermé
+    /// dans son propre masquage.
+    #[tokio::test]
+    async fn stream_announces_reach_even_a_peer_that_hid_the_stream() {
+        let n = node();
+        let (gid, a, _b, handle, sender) = room_with_two_peers(&n).await;
+
+        handle.peer_frame(
+            a,
+            VoiceMsg::VideoInterest {
+                room: gid,
+                hidden: accord_proto::plaintext::VIDEO_HIDE_CAMERA
+                    | accord_proto::plaintext::VIDEO_HIDE_SCREEN,
+            },
+        );
+        tokio::time::sleep(Duration::from_millis(60)).await;
+
+        handle.camera_announce(true);
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        let announced = drain_recipients(&sender, |m| matches!(m, VoiceMsg::CameraControl { .. }));
+        assert!(
+            announced.contains(&a),
+            "l'annonce a été filtrée : le pair ne saura jamais quoi ré-afficher"
+        );
+    }
+
+    /// Une déclaration venue d'un pair HORS du salon actif, ou portant un autre
+    /// salon, n'éteint rien : sinon un tiers couperait la vidéo des autres.
+    #[tokio::test]
+    async fn an_interest_from_an_outsider_or_another_room_is_ignored() {
+        let n = node();
+        let (gid, a, b, handle, sender) = room_with_two_peers(&n).await;
+        let stranger = Identity::generate_with_pow_bits(1).public_key();
+
+        handle.peer_frame(
+            stranger,
+            VoiceMsg::VideoInterest {
+                room: gid,
+                hidden: accord_proto::plaintext::VIDEO_HIDE_CAMERA,
+            },
+        );
+        // Bon pair, mais salon étranger.
+        handle.peer_frame(
+            a,
+            VoiceMsg::VideoInterest {
+                room: [0x77; 16],
+                hidden: accord_proto::plaintext::VIDEO_HIDE_CAMERA,
+            },
+        );
+        tokio::time::sleep(Duration::from_millis(60)).await;
+
+        handle.camera_send(true, vec![7u8; 32]);
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        let got = drain_recipients(&sender, is_camera_frame);
+        assert!(got.contains(&a) && got.contains(&b), "un flux a été coupé");
+    }
+
+    /// Côté récepteur : la déclaration locale part sur le fil, une seule fois
+    /// par changement, vers les seuls pairs de la session.
+    #[tokio::test]
+    async fn local_interest_is_declared_once_per_change() {
+        let n = node();
+        let (_gid, a, b, handle, sender) = room_with_two_peers(&n).await;
+        let outsider = Identity::generate_with_pow_bits(1).public_key();
+
+        let hidden = accord_proto::plaintext::VIDEO_HIDE_CAMERA;
+        handle.video_interest(vec![(a, hidden), (outsider, hidden)]);
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        let declared = drain_recipients(&sender, |m| matches!(m, VoiceMsg::VideoInterest { .. }));
+        assert_eq!(
+            declared,
+            vec![a],
+            "la déclaration doit viser A seul (pas B, pas un pair hors session)"
+        );
+
+        // Même état re-déclaré : rien ne repart (les re-rendus sont fréquents).
+        handle.video_interest(vec![(a, hidden)]);
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        assert!(
+            drain_recipients(&sender, |m| matches!(m, VoiceMsg::VideoInterest { .. })).is_empty(),
+            "une déclaration inchangée a été réémise"
+        );
+
+        // Retour à l'affichage : un masque nul explicite part vers A.
+        handle.video_interest(vec![]);
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        let sent = sender.0.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            sent.iter()
+                .any(|(to, m)| *to == a && matches!(m, VoiceMsg::VideoInterest { hidden: 0, .. })),
+            "aucun masque nul émis au retour à l'affichage"
+        );
+        assert!(!sent.iter().any(|(to, _)| *to == b));
     }
 
     /// Une trame vidéo d'un pair qui n'est PAS dans le salon actif est ignorée

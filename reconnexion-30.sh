@@ -36,6 +36,7 @@ for i in $(seq 1 "$RUNS"); do
   cargo test --release -p accord-node \
     --test reconnexion_e2e --test reconnexion_lifecycle_e2e \
     --test profil_perdu_e2e --test profil_reboot_e2e \
+    --test chaos_reseau_e2e \
     -- --test-threads=1 > "$LOGS/$i-node.log" 2>&1 || ok=0
   cargo test --release -p accord-transport \
     --test reconnexion_transport_e2e --test multi_appareil_e2e --test handshake_e2e \

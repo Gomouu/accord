@@ -135,16 +135,33 @@ The series (7 test binaries, release profile, single-threaded):
 
 | Crate | Test binaries |
 |---|---|
-| `accord-node` | `reconnexion_e2e`, `reconnexion_lifecycle_e2e`, `profil_perdu_e2e`, `profil_reboot_e2e` |
+| `accord-node` | `reconnexion_e2e`, `reconnexion_lifecycle_e2e`, `profil_perdu_e2e`, `profil_reboot_e2e`, `chaos_reseau_e2e` |
 | `accord-transport` | `reconnexion_transport_e2e`, `multi_appareil_e2e`, `handshake_e2e` |
+
+`chaos_reseau_e2e` runs the messaging path over the simulated UDP mesh with the
+adverse conditions turned **on** — that mesh has carried per-datagram loss,
+variable latency and a per-node kill switch for a long time, and every caller
+was passing `NetConditions::default()`, meaning zero loss and zero latency. What
+the project knew about its behaviour on a degraded network, it knew by
+deduction.
+
+| Condition | What it exercises |
+|---|---|
+| 33% datagram loss | the offline queue and its retries — a message only gets through by being re-sent |
+| 5–120 ms jitter | the Lamport clock: arrival order must not decide displayed order |
+| Hard cut (`set_down`) | datagrams vanish with no RST, no FIN, no error — a Wi-Fi dropping, not a clean shutdown |
 
 ### 2.1 Result
 
-| Date | Machine | Runs | Failures | Longest clean streak |
-|---|---|---|---|---|
-| 2026-07-26 | M1 Pro, release, idle | 30 | **0** | **30** |
+| Date | Machine | Series | Runs | Failures | Longest clean streak |
+|---|---|---|---|---|---|
+| 2026-07-26 | M1 Pro, release, idle | 7 binaries | 30 | **0** | **30** |
+| 2026-07-26 | M1 Pro, release, idle | 8 binaries, chaos included | 30 | **0** | **30** |
 
-Target met at commit `bc6868f`.
+Target met. The second row is the one that stands: adding `chaos_reseau_e2e` to
+the campaign changed what the script runs, so the first number no longer
+described it and the campaign was re-run in full rather than left to look
+current.
 
 ### 2.2 How to read a failure
 
@@ -158,8 +175,16 @@ in from there.
   real deadlines. A compile or another test suite running alongside produces
   failures that say nothing about the code — that is a measurement artefact, not
   a flake, and it must not be recorded as one.
-- **Loopback only.** No packet loss, no reordering, no address change
-  mid-session. §9.3 asks for those campaigns too; they do not exist yet, and
-  this number does not cover them.
+- **The reordering test does not prove reordering happened.** It sets up the
+  conditions that allow it and checks the invariant holds; it does not count
+  inversions. Proving it would need the simulator to report delivery order,
+  which it does not.
+- **No address change mid-session.** §9.3 asks for that campaign too and it does
+  not exist: making a node change address while a session is live needs a rebind
+  path the simulator has no handle for. Loss, reordering and hard cuts are
+  covered; this one is not.
+- **The adverse conditions are simulated, not real.** A simulated NAT and a
+  simulated loss model are what the code was written against; a real carrier-
+  grade NAT will find things neither covers.
 - 30 runs bounds the failure rate loosely. It rules out a one-in-ten flake with
   high confidence; it says little about a one-in-five-hundred one.

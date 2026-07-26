@@ -601,11 +601,29 @@ async fn un_appareil_eteint_rattrape_a_son_retour() {
         1,
         "le portable a reçu le message une seconde fois"
     );
-    assert_eq!(
-        a.node.dm_history(&p.ami, u64::MAX, 100).unwrap().len(),
-        1,
-        "rien d'autre n'a atterri dans la conversation du portable"
-    );
+    // 🔒 Et rien d'ÉTRANGER n'a atterri dans cette conversation.
+    //
+    // Cette assertion comptait les messages et en exigeait UN. Elle ne tenait
+    // qu'en gagnant une course : « de retour », envoyé par le fixe juste
+    // au-dessus, se synchronise vers le portable — c'est le multi-appareil qui
+    // fait son travail, pas une anomalie. Le test finissait simplement avant.
+    // Sous charge il perdait la course, et son message d'échec envoyait
+    // chercher une double livraison qui n'existe pas.
+    //
+    // On vérifie donc ce qui était réellement visé : aucun corps inattendu.
+    // Le non-doublon de TEXTE est déjà épinglé juste au-dessus, et cette
+    // formulation est vraie que la synchro soit arrivée ou non.
+    let attendus = [TEXTE, "de retour"];
+    for m in a.node.dm_history(&p.ami, u64::MAX, 100).unwrap() {
+        let texte = match accord_proto::core_msg::MsgBody::decode_body(m.kind, &m.body) {
+            Ok(accord_proto::core_msg::MsgBody::Text { text, .. }) => text,
+            autre => panic!("corps inattendu dans la conversation du portable : {autre:?}"),
+        };
+        assert!(
+            attendus.contains(&texte.as_str()),
+            "message étranger dans la conversation du portable : {texte:?}"
+        );
+    }
 
     a.shutdown();
     b.shutdown();

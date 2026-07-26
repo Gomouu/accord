@@ -53,6 +53,36 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ### Internal
 
+- **A multi-device test only passed by winning a race.** `un_appareil_eteint_
+  rattrape_a_son_retour` ended by asserting the laptop's conversation held
+  exactly one message. It holds two: the desktop, switched back on, sends a
+  message of its own, and that message syncs to the laptop — which is the whole
+  point of milestone 1, working exactly as designed. The test simply finished
+  before the sync landed. Under load it lost, and its failure message
+  ("nothing else landed in the laptop's conversation") sent whoever looked
+  hunting for a duplicate delivery that does not exist. It now checks what it
+  actually meant — that no *foreign* message arrived — which is true whichever
+  way the race goes.
+
+- **The network chaos knobs were there all along, switched off.** The simulated
+  UDP mesh used by the integration tests has carried per-datagram loss, variable
+  latency and a per-node kill switch since it was written — and every single
+  caller passed `NetConditions::default()`: zero loss, zero latency. Everything
+  the project believed about its behaviour on a bad network, it believed by
+  deduction.
+
+  Three campaigns now turn them on. A message crosses a link losing one
+  datagram in three. A burst of eight messages sent under 5–120 ms of jitter
+  still displays in the order it was written, not the order it arrived. And a
+  hard cut — datagrams vanishing with no RST, no FIN, no error, the way a Wi-Fi
+  drops rather than the way a node shuts down cleanly — does not lose the
+  message written while the link was down.
+
+  They join the nightly 30-run campaign, after 20 consecutive clean runs of
+  their own. What they do not cover is stated in `docs/PERFORMANCE.md`: no
+  address change mid-session, and the reordering test sets up the conditions
+  for reordering without proving any given run reordered anything.
+
 - **The frontend suite no longer depends on which Node you happen to run.**
   On Node 26, 260 of the 2 105 tests failed at `window.localStorage.clear()`
   with "cannot read properties of undefined". Node 22 and later define their own

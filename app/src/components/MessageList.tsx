@@ -690,6 +690,7 @@ export function MessageList({
                         <MessageQuote
                           quoted={byId.get(m.body.reply_to)}
                           nameOf={nameOf}
+                          automodWords={automodWords}
                           onJump={() => {
                             if (m.body.type === 'text' && m.body.reply_to !== null) {
                               requestJump(view, m.body.reply_to);

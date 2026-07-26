@@ -846,6 +846,40 @@ impl Db {
         )?)
     }
 
+    /// Messages non lus d'un salon, mêmes prédicats que
+    /// [`Db::count_group_unread`], du plus ancien au plus récent, bornés à
+    /// `cap`.
+    ///
+    /// Sert à retrancher du compteur les messages masqués par l'AutoMod
+    /// ([`crate::automod`]) : décider demande le CORPS, qu'un `COUNT(*)` ne
+    /// lit pas. La borne est ce qui garde le coût borné sur un salon laissé
+    /// non lu pendant des mois — l'appelant en tire les conséquences.
+    pub fn unread_group_msgs(
+        &self,
+        group_id: &[u8; 16],
+        channel_id: &[u8; 16],
+        after_lamport: u64,
+        exclude_author: &[u8; 32],
+        cap: usize,
+    ) -> Result<Vec<GroupMsgRecord>, CoreError> {
+        let sql = format!(
+            "SELECT {GROUP_COLS} FROM group_messages
+             WHERE group_id = ?1 AND channel_id = ?2 AND lamport > ?3
+               AND author <> ?4 AND deleted = 0
+             ORDER BY lamport ASC, msg_id ASC LIMIT ?5"
+        );
+        self.group_rows(
+            &sql,
+            &[
+                &group_id.as_slice(),
+                &channel_id.as_slice(),
+                &(after_lamport.min(i64::MAX as u64) as i64),
+                &exclude_author.as_slice(),
+                &(cap as i64),
+            ],
+        )
+    }
+
     /// Édition d'un message de groupe par son auteur.
     pub fn edit_group_msg(
         &self,

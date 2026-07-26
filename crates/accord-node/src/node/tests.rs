@@ -1088,6 +1088,61 @@ fn group_unread_tracks_others_messages_until_mark_read() {
 }
 
 #[test]
+fn group_unread_ignores_automod_masked_messages() {
+    // 🔒 Le correctif : un message dont le mot est remplacé par des `█` au
+    // rendu allumait quand même la pastille rouge. Le filtre désignait alors
+    // précisément ce qu'il prétendait cacher.
+    let (alice, mut rx_a) = node_with_channel();
+    let (bob, mut rx_b) = node_with_channel();
+    let alice_pub = alice.public_key();
+    let bob_pub = bob.public_key();
+
+    let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
+    let chan = hex::decode::<16>(&alice.group_add_channel(&gid, "général").unwrap()).unwrap();
+    invite_and_join(
+        &alice, &mut rx_a, &alice_pub, &bob, &mut rx_b, &bob_pub, &gid,
+    );
+
+    alice
+        .group_automod_set(&gid, vec!["crétin".into()])
+        .unwrap();
+
+    bob.group_send(&gid, &chan, "bonjour").unwrap();
+    // Sans accent et en majuscules : le repli doit quand même l'attraper,
+    // exactement comme le masquage au rendu.
+    bob.group_send(&gid, &chan, "espece de CRETIN").unwrap();
+    // « concert » contient « cretin » ? Non — mais il contient bien un mot
+    // voisin d'un autre filtre : la frontière de mot doit tenir ici aussi.
+    bob.group_send(&gid, &chan, "on va au concert").unwrap();
+    deliver(&mut rx_b, &bob_pub, &alice, &alice_pub);
+
+    // Trois messages reçus, un seul masqué : la pastille en annonce deux.
+    assert_eq!(alice.group_unread(&gid).unwrap(), vec![(chan, 2)]);
+
+    // La liste est relue à CHAQUE comptage : retirer le mot fait réapparaître
+    // le message dans la pastille. Un drapeau figé à l'ingestion ne le
+    // pourrait pas.
+    alice.group_automod_set(&gid, vec![]).unwrap();
+    assert_eq!(alice.group_unread(&gid).unwrap(), vec![(chan, 3)]);
+
+    // Et un filtre qui n'attrape rien laisse le compte entier.
+    alice
+        .group_automod_set(&gid, vec!["absent".into()])
+        .unwrap();
+    assert_eq!(alice.group_unread(&gid).unwrap(), vec![(chan, 3)]);
+
+    // Un salon dont TOUS les non-lus sont masqués disparaît de la liste : pas
+    // de pastille à zéro, pas de serveur qui s'allume pour rien.
+    alice
+        .group_automod_set(
+            &gid,
+            vec!["bonjour".into(), "cretin".into(), "concert".into()],
+        )
+        .unwrap();
+    assert!(alice.group_unread(&gid).unwrap().is_empty());
+}
+
+#[test]
 fn group_typing_reaches_only_online_members() {
     let (alice, mut rx_a) = node_with_channel();
     let (bob, mut rx_b) = node_with_channel();

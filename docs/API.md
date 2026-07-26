@@ -362,7 +362,7 @@ After each applied op (local or remote), the node emits
 | Method | Parameters | Result |
 |---------|-----------|----------|
 | `groups.create` | `{ name }` | `{ group_id }` |
-| `groups.list` | — | `{ groups: [group_id], unread, mentions }` — `unread`: `{ group_id: { channel_id: n } }`, unread per channel (others' messages after the `groups.mark_read` mark); only channels with at least one unread appear. `mentions`: `{ group_id: n }`, unread mentions per group (all channels combined); only groups with at least one appear |
+| `groups.list` | — | `{ groups: [group_id], unread, mentions }` — `unread`: `{ group_id: { channel_id: n } }`, unread per channel (others' messages after the `groups.mark_read` mark), **AutoMod-masked messages deducted** (see "AutoMod"); only channels with at least one unread appear. `mentions`: `{ group_id: n }`, unread mentions per group (all channels combined); only groups with at least one appear |
 | `groups.state` | `{ group_id, channel_id? }` | full state, see below — with `channel_id`, `my_permissions` becomes the **effective** bitfield in that channel (overrides folded in, `deny` > `allow`) |
 | `groups.rename` | `{ group_id, name }` | `{ ok: true }` — 1-100 characters |
 | `groups.set_icon` | `{ group_id, data_b64, mime }` | `{ icon }` — image ≤ 512 KiB decoded, published in the file store; `icon` = hex-64 Merkle root |
@@ -401,6 +401,8 @@ After each applied op (local or remote), the node emits
 | `groups.emoji.del` | `{ group_id, name }` | `{ ok: true }` — `MANAGE_EMOJIS` permission |
 | `groups.typing` | `{ group_id, channel_id }` | `{ ok: true }` — **ephemeral** typing indicator, broadcast only to members presumed online (never persisted or queued); when received, it triggers `event.group_typing` |
 | `groups.mark_read` | `{ group_id, channel_id, lamport }` | `{ ok: true }` — records our local read position in the channel (for `unread` in `groups.list`) |
+| `groups.automod.set` | `{ group_id, words }` | `{ ok: true }` — replaces the server's filtered-word list wholesale (`SetAutoModWords` op, `MANAGE_CHANNELS`). At most **50** words, each 1-32 characters, lowercased by the node, no control or spoofing characters; one malformed word rejects the whole call (never a partial replacement). See "AutoMod" below |
+| `groups.automod.get` | `{ group_id }` | `{ words: [...] }` — the current list (also surfaced as `automod_words` in `groups.state`) |
 | `groups.set_ephemeral` | `{ group_id, ttl_secs? }` | `{ ok: true }` — **local** disappearing-message timer for the whole group (every channel); same contract as `dm.set_ephemeral` (see "Disappearing messages") |
 | `groups.ephemeral` | `{ group_id }` | `{ ttl_secs }` — integer∣`null` |
 | `groups.schedule` | `{ group_id, channel_id, body, fire_at }` | `{ id }` — schedules a **local** deferred send in a channel (see "Planning") |
@@ -409,6 +411,38 @@ After each applied op (local or remote), the node emits
 travel as bodies encrypted with the group key, over the same path
 as `groups.send`; on ingestion at each member, the action is applied
 (author verified) and `event.group_msg` is emitted.
+
+#### AutoMod
+
+A server's filtered-word list (`groups.automod.set`, `MANAGE_CHANNELS`) lives
+in the replicated signed op-log and is surfaced as `automod_words` in
+`groups.state`. It is a **display convention between honest clients**, not
+enforcement: nothing is deleted, nothing is blocked at send time, the list
+itself travels in the clear to every member, and a modified client always sees
+the full text. Treat it as clutter reduction, never as a safety boundary.
+
+What a matching message does on a compliant client:
+
+- its occurrences are replaced by `█` at render time (`app/src/lib/automod.ts`);
+- it raises **no** native notification and plays **no** sound;
+- it is **deducted from the `unread` counters** of `groups.list`.
+
+The last point is why the node also matches: a message whose word is masked
+but whose red badge still lights up points straight at what the filter was
+meant to hide. The node applies the same rule as the UI
+(`crates/accord-core/src/automod.rs`), and re-evaluates it on every count —
+removing a word makes the affected messages count again, without reindexing.
+
+Matching is **case- and accent-insensitive** and bounded to **whole words**
+(Unicode `Alphabetic`, `N` and `_` are word characters): a filter on `con`
+does not mask `concert`. Both precomposed (`é`) and decomposed (`e` + U+0301)
+forms match, so the outcome does not depend on the sender's keyboard. Only
+message text (and its latest edit) is matched: polls, stickers and attachment
+names are not masked at render time, so they are not deducted either.
+
+Per-channel unread deduction scans at most 500 unread messages per channel;
+beyond that the surplus counts as unmasked (the badge can then be too high,
+never too low).
 
 #### Shape of `groups.state`
 

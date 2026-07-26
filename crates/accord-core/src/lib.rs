@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod automod;
 pub mod db;
 pub mod dm_sync;
 pub mod error;

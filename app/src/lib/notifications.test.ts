@@ -133,6 +133,32 @@ describe('isNotificationEligible', () => {
       }),
     ).toBe(true);
   });
+
+  it('tait la notification native d’un message masqué par l’AutoMod', () => {
+    // 🔒 Le cœur du correctif : un message dont le mot est remplacé par des
+    // `█` faisait quand même apparaître « Nouveau message de … ». Le filtre
+    // désignait alors précisément ce qu'il prétendait cacher.
+    expect(
+      isNotificationEligible({
+        kind: 'group',
+        prefs: ALL_ON,
+        windowFocused: false,
+        isOwnMessage: false,
+        filtered: true,
+      }),
+    ).toBe(false);
+  });
+
+  it('`filtered` absent ou faux : notifie comme avant', () => {
+    const base = {
+      kind: 'group',
+      prefs: ALL_ON,
+      windowFocused: false,
+      isOwnMessage: false,
+    } as const;
+    expect(isNotificationEligible(base)).toBe(true);
+    expect(isNotificationEligible({ ...base, filtered: false })).toBe(true);
+  });
 });
 
 describe('isSoundEligible', () => {
@@ -212,6 +238,21 @@ describe('isSoundEligible', () => {
 
   it('`muted` absent (comportement historique) : équivaut à `muted: false`', () => {
     expect(isSoundEligible(BASE)).toBe(true);
+  });
+
+  it('tait le son d’un message masqué par l’AutoMod, même pour une mention', () => {
+    // Une mention masquée reste masquée : faire sonner la machine pour un
+    // texte illisible ne rend service à personne.
+    expect(isSoundEligible({ ...BASE, filtered: true })).toBe(false);
+    expect(isSoundEligible({ ...BASE, filtered: true, isMention: true })).toBe(false);
+    expect(
+      isSoundEligible({ ...BASE, filtered: true, mode: 'mentionsOnly', isMention: true }),
+    ).toBe(false);
+  });
+
+  it('`filtered` absent ou faux : joue comme avant', () => {
+    expect(isSoundEligible(BASE)).toBe(true);
+    expect(isSoundEligible({ ...BASE, filtered: false })).toBe(true);
   });
 });
 

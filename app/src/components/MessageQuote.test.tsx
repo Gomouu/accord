@@ -55,4 +55,28 @@ describe('MessageQuote', () => {
     render(<MessageQuote quoted={msg('salut')} nameOf={nameOf} />);
     expect(screen.queryByRole('button')).toBeNull();
   });
+
+  it('masque les mots filtrés de l’AutoMod dans l’aperçu', () => {
+    // 🔒 Répondre à un message filtré recopiait son texte en clair ici, une
+    // ligne au-dessus des `█` : le mot se lisait toujours, il suffisait d'y
+    // répondre.
+    render(
+      <MessageQuote
+        quoted={msg('quel crétin celui-là')}
+        nameOf={nameOf}
+        automodWords={['cretin']}
+      />,
+    );
+    expect(screen.getByText('quel ██████ celui-là')).toBeInTheDocument();
+    expect(screen.queryByText('quel crétin celui-là')).toBeNull();
+  });
+
+  it('laisse l’aperçu intact sans mot filtré (MP, ou liste vide)', () => {
+    render(<MessageQuote quoted={msg('quel crétin')} nameOf={nameOf} />);
+    expect(screen.getByText('quel crétin')).toBeInTheDocument();
+    render(
+      <MessageQuote quoted={msg('rien à cacher')} nameOf={nameOf} automodWords={[]} />,
+    );
+    expect(screen.getByText('rien à cacher')).toBeInTheDocument();
+  });
 });

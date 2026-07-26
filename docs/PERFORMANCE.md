@@ -131,7 +131,7 @@ runs. A single run does not see them. So the campaign runs the whole series 30
 times, and **any failure anywhere resets the counter to zero**: the claim is "30
 in a row", not "30 of which most passed".
 
-The series (7 test binaries, release profile, single-threaded):
+The series (8 test binaries, release profile, single-threaded):
 
 | Crate | Test binaries |
 |---|---|
@@ -150,6 +150,13 @@ deduction.
 | 33% datagram loss | the offline queue and its retries — a message only gets through by being re-sent |
 | 5–120 ms jitter | the Lamport clock: arrival order must not decide displayed order |
 | Hard cut (`set_down`) | datagrams vanish with no RST, no FIN, no error — a Wi-Fi dropping, not a clean shutdown |
+| Address change mid-session (`rebind`) | mobility: a peer moves to another IP *and* port under a live session — nothing closed, nothing renegotiated, a laptop switching from Wi-Fi to 4G |
+
+`rebind` is new: the mesh could kill a node and it could bind a fresh one, but it
+had no way to *move* one, which is a different thing — a moved node keeps its
+inbox, so it keeps its sessions, its keys and its state. The transport half of
+that campaign lives in `accord-transport`
+(`reconnexion_transport_e2e`), for the reason given in §2.3.
 
 ### 2.1 Result
 
@@ -157,11 +164,14 @@ deduction.
 |---|---|---|---|---|---|
 | 2026-07-26 | M1 Pro, release, idle | 7 binaries | 30 | **0** | **30** |
 | 2026-07-26 | M1 Pro, release, idle | 8 binaries, chaos included | 30 | **0** | **30** |
+| 2026-07-27 | M1 Pro, release, idle | 8 binaries, address change included | 30 | **0** | **30** |
 
-Target met. The second row is the one that stands: adding `chaos_reseau_e2e` to
-the campaign changed what the script runs, so the first number no longer
-described it and the campaign was re-run in full rather than left to look
-current.
+Target met. The last row is the one that stands, and for the same reason the
+second one replaced the first: adding a test to `chaos_reseau_e2e` (and one to
+`reconnexion_transport_e2e`) changed what the script runs, so the earlier
+numbers no longer described it. Re-running in full costs about ten minutes;
+leaving a number to look current costs more than that the first time someone
+trusts it. The mobility tests add roughly 12 s to a run.
 
 ### 2.2 How to read a failure
 
@@ -179,10 +189,29 @@ in from there.
   conditions that allow it and checks the invariant holds; it does not count
   inversions. Proving it would need the simulator to report delivery order,
   which it does not.
-- **No address change mid-session.** §9.3 asks for that campaign too and it does
-  not exist: making a node change address while a session is live needs a rebind
-  path the simulator has no handle for. Loss, reordering and hard cuts are
-  covered; this one is not.
+- **Reaching a moved peer again does not prove its session followed it**, and
+  the end-to-end campaign cannot tell the difference. Several paths lead to the
+  same place: the transport re-targets the live session from the source address
+  of the next datagram (`Endpoint::on_data`); the node's address book learns
+  that same address from the incoming `Message` event and dials it; and even
+  inside the transport, replying to a packet from an unknown address opens a
+  handshake towards it. The last two negotiate a **fresh** session whose
+  `install_session` then evicts the stale one — same table, same addresses, at
+  the price of a full handshake instead of one field update. Disabling the
+  mobility path therefore leaves `chaos_reseau_e2e` **green** (measured, not
+  assumed). What separates the two is that no new session was ever negotiated,
+  which is what `une_session_directe_suit_son_pair_qui_change_d_adresse`
+  (`accord-transport/tests/reconnexion_transport_e2e.rs`) asserts, on the
+  session events. The end-to-end test keeps its place — it covers the whole
+  chain, database to socket — but it is not what proves mobility works.
+- **Mobility is only covered for a peer that speaks after moving.** The learning
+  is passive: a node that moves and then stays silent is written to at its dead
+  address until the 25 s keep-alive reopens the other side's eyes, and that
+  recovery is not exercised (waiting for it would dominate the campaign).
+  Neither is mobility through a relay: only direct sessions are re-targeted, a
+  tunnelled one keeping the relay's address. And the simulated move is
+  instantaneous and lossless — a real Wi-Fi/4G handover drops packets for
+  seconds.
 - **The adverse conditions are simulated, not real.** A simulated NAT and a
   simulated loss model are what the code was written against; a real carrier-
   grade NAT will find things neither covers.

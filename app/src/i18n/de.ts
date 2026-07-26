@@ -954,7 +954,7 @@ export const de: Dict = {
     reportFailed: 'Bericht konnte nicht erstellt werden.',
     logTitle: 'Diagnoseprotokoll',
     logHint:
-      'Die Datei accord.log in diesem Ordner protokolliert, was die App tut. Sie enthält keine Nachrichten, Schlüssel oder Adressen von Freunden — du kannst sie einem Fehlerbericht beilegen.',
+      'Die Datei accord.log in diesem Ordner protokolliert, was die App tut. Sie enthält keine Nachrichteninhalte. Sie kann jedoch technische Kennungen deiner Kontakte enthalten – behandle sie wie dein Adressbuch.',
     logCopyPath: 'Pfad kopieren',
     logLevel: 'Stufe',
   },

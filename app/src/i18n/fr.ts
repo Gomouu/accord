@@ -978,7 +978,7 @@ export const fr = {
     reportFailed: 'Impossible de produire le rapport.',
     logTitle: 'Journal de diagnostic',
     logHint:
-      'Le fichier accord.log de ce dossier retrace le fonctionnement de l’application. Il ne contient ni message, ni clé, ni adresse d’ami — tu peux le joindre à un rapport de bug.',
+      'Le fichier accord.log de ce dossier retrace le fonctionnement de l’application. Il ne contient aucun contenu de message. Il peut en revanche contenir des identifiants techniques de tes pairs : traite-le comme ton carnet d’adresses.',
     logCopyPath: 'Copier le chemin',
     logLevel: 'Niveau',
   },

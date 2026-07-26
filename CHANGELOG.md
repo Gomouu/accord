@@ -29,6 +29,13 @@ All notable changes to Accord. This project follows [semantic versioning](https:
   and the network answer each other. The log level can be switched between
   `info` and `debug` from the network panel without restarting.
 
+  What the log does **not** yet guarantee is stated in the app rather than
+  glossed over: it carries no message content, but the pass over existing
+  `tracing::` calls has not been done, and several of them log peer
+  identifiers on the assumption that a developer reads them locally. The help
+  text tells the user to treat the file like their address book, because that
+  is what is true today.
+
   Two things it does not do, deliberately. There is no "open folder" button:
   no Tauri opener plugin is installed, and adding one — or spawning a system
   process — widens the attack surface for a convenience, so the panel shows the

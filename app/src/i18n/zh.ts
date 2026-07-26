@@ -936,7 +936,7 @@ export const zh: Dict = {
     reportFailed: '无法生成报告。',
     logTitle: '诊断日志',
     logHint:
-      '此文件夹中的 accord.log 记录应用的运行情况。其中不含消息、密钥或好友地址——可放心附在错误报告中。',
+      '此文件夹中的 accord.log 记录应用的运行情况。其中不含任何消息内容，但可能包含好友的技术标识符——请像对待通讯录一样对待它。',
     logCopyPath: '复制路径',
     logLevel: '级别',
   },

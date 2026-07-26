@@ -955,7 +955,7 @@ export const pt: Dict = {
     reportFailed: 'Não foi possível gerar o relatório.',
     logTitle: 'Registo de diagnóstico',
     logHint:
-      'O ficheiro accord.log desta pasta regista o funcionamento da aplicação. Não contém mensagens, chaves nem endereços de amigos — podes juntá-lo a um relatório de erro.',
+      'O ficheiro accord.log desta pasta regista o funcionamento da aplicação. Não contém o conteúdo de mensagens. Pode conter identificadores técnicos dos teus pares: trata-o como a tua lista de contactos.',
     logCopyPath: 'Copiar o caminho',
     logLevel: 'Nível',
   },

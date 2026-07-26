@@ -968,7 +968,7 @@ export const en: Dict = {
     reportFailed: 'Could not produce the report.',
     logTitle: 'Diagnostic log',
     logHint:
-      'The accord.log file in this folder records what the app does. It holds no messages, no keys and no friend addresses — you can attach it to a bug report.',
+      'The accord.log file in this folder records what the app does. It contains no message content. It may contain technical identifiers of your peers, so treat it like your address book.',
     logCopyPath: 'Copy the path',
     logLevel: 'Level',
   },

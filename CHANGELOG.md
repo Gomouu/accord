@@ -53,6 +53,29 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ### Internal
 
+- **The accessibility audit found nothing, so the finding is a guard.** All 319
+  `<button>` elements in the sources already carry an accessible name; contrast
+  is checked on every built-in theme across six surfaces; `prefers-reduced-
+  motion` has a universal floor for both the OS preference and the in-app
+  toggle; the command palette implements the full combobox pattern and the
+  video grid labels its groups and pin buttons. There was nothing to fix.
+
+  What did not exist was anything keeping it true. An icon-only button added
+  tomorrow without a label would be silent to a screen reader and no one would
+  notice, because nothing was looking. A Playwright spec now walks the demo
+  surfaces — channel, DM, friends, server menu, settings, video grid — and
+  fails on any interactive control the browser cannot name.
+
+  It runs on the real accessibility tree rather than a source scan. A first
+  attempt did scan the sources with a regular expression and produced three
+  false positives in two iterations: a `{q}` child read as empty, and a
+  self-closing `<span aria-hidden />` whose next `</span>` belonged to the
+  label. An accessible name is computed from the rendered tree, not from
+  source text. The spec also checks that it can still fail: it injects an
+  unlabelled icon button and demands the guard point at it — otherwise a
+  change in snapshot format would leave five green tests inspecting an empty
+  list.
+
 - **A multi-device test only passed by winning a race.** `un_appareil_eteint_
   rattrape_a_son_retour` ended by asserting the laptop's conversation held
   exactly one message. It holds two: the desktop, switched back on, sends a

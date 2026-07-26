@@ -50,25 +50,28 @@ jobs:
       # chemins de décodage chaque nuit. Un crash/panic fait échouer le job
       # avec l'entrée fautive dans les logs.
       - name: Fuzz proto_decode
-        run: cargo +nightly fuzz run proto_decode seeds/proto_decode -- -max_total_time=240
+        run: cargo +nightly fuzz run proto_decode fuzz/seeds/proto_decode -- -max_total_time=240
 
       - name: Fuzz group_op_body
-        run: cargo +nightly fuzz run group_op_body seeds/group_op_body -- -max_total_time=240
+        run: cargo +nightly fuzz run group_op_body fuzz/seeds/group_op_body -- -max_total_time=240
 
       - name: Fuzz core_msg
-        run: cargo +nightly fuzz run core_msg seeds/core_msg -- -max_total_time=240
+        run: cargo +nightly fuzz run core_msg fuzz/seeds/core_msg -- -max_total_time=240
 
       - name: Fuzz handshake_decode
-        run: cargo +nightly fuzz run handshake_decode seeds/handshake_decode -- -max_total_time=240
+        run: cargo +nightly fuzz run handshake_decode fuzz/seeds/handshake_decode -- -max_total_time=240
 
       - name: Fuzz dht_record
-        run: cargo +nightly fuzz run dht_record seeds/dht_record -- -max_total_time=240
+        run: cargo +nightly fuzz run dht_record fuzz/seeds/dht_record -- -max_total_time=240
 
       - name: Fuzz file_manifest
-        run: cargo +nightly fuzz run file_manifest seeds/file_manifest -- -max_total_time=240
+        run: cargo +nightly fuzz run file_manifest fuzz/seeds/file_manifest -- -max_total_time=240
 
       - name: Fuzz group_state
-        run: cargo +nightly fuzz run group_state seeds/group_state -- -max_total_time=240
+        run: cargo +nightly fuzz run group_state fuzz/seeds/group_state -- -max_total_time=240
 
       - name: Fuzz backup_archive
-        run: cargo +nightly fuzz run backup_archive seeds/backup_archive -- -max_total_time=240
+        run: cargo +nightly fuzz run backup_archive fuzz/seeds/backup_archive -- -max_total_time=240
+
+      - name: Fuzz device_list
+        run: cargo +nightly fuzz run device_list fuzz/seeds/device_list -- -max_total_time=240

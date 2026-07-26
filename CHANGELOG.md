@@ -4,6 +4,8 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ## [Unreleased]
 
+## [7.1.0] — 2026-07-27
+
 ### Fixed
 
 - **🔴 Revoking a device could silently do nothing.** Found by the adversarial

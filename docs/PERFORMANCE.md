@@ -111,3 +111,55 @@ indexes weigh at this volume.
 - The React render of a page of 50 messages. This bench stops at the node's JSON
   reply, which is where the 0.91 ms is spent; what the UI then does with it is a
   separate measurement.
+
+## 2. Reconnection stability
+
+**Campaign**: `./reconnexion-30.sh`.
+
+```bash
+./reconnexion-30.sh
+```
+
+Not a latency measurement — a **flakiness** one. The roadmap's target for §9.3
+is "30 consecutive runs without a failure", and this is what produces that
+number.
+
+One green run proves these tests *can* pass; it says nothing about how often
+they fail. The defects already found on this path — a dial abandoned too early,
+a lost WELCOME, a dead session not evicted — showed up once in ten or twenty
+runs. A single run does not see them. So the campaign runs the whole series 30
+times, and **any failure anywhere resets the counter to zero**: the claim is "30
+in a row", not "30 of which most passed".
+
+The series (7 test binaries, release profile, single-threaded):
+
+| Crate | Test binaries |
+|---|---|
+| `accord-node` | `reconnexion_e2e`, `reconnexion_lifecycle_e2e`, `profil_perdu_e2e`, `profil_reboot_e2e` |
+| `accord-transport` | `reconnexion_transport_e2e`, `multi_appareil_e2e`, `handshake_e2e` |
+
+### 2.1 Result
+
+| Date | Machine | Runs | Failures | Longest clean streak |
+|---|---|---|---|---|
+| 2026-07-26 | M1 Pro, release, idle | 30 | **0** | **30** |
+
+Target met at commit `bc6868f`.
+
+### 2.2 How to read a failure
+
+The script keeps the logs of any run that fails and prints the failing test
+names. Re-running a single failing binary in a loop is usually the fastest way
+in from there.
+
+### 2.3 Assumed limits
+
+- **The machine must be idle.** These tests wait on real network events with
+  real deadlines. A compile or another test suite running alongside produces
+  failures that say nothing about the code — that is a measurement artefact, not
+  a flake, and it must not be recorded as one.
+- **Loopback only.** No packet loss, no reordering, no address change
+  mid-session. §9.3 asks for those campaigns too; they do not exist yet, and
+  this number does not cover them.
+- 30 runs bounds the failure rate loosely. It rules out a one-in-ten flake with
+  high confidence; it says little about a one-in-five-hundred one.

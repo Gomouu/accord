@@ -1,0 +1,58 @@
+# Campagne de reconnexion nocturne — cible §9.3 de la feuille de route.
+#
+# Invariant vérifié : les scénarios de reconnexion passent 30 fois d'affilée.
+# Pas une fois — trente. Ces tests montent de vrais nœuds sur de vraies
+# sockets ; un passage vert prouve qu'ils PEUVENT passer, pas qu'ils passent
+# toujours. Les défauts déjà trouvés ici (dial abandonné trop tôt, WELCOME
+# perdu, session cadavre non évincée) apparaissaient une fois sur dix ou vingt.
+#
+# ⚠️ Ce job ne peut PAS vivre dans ci.sh : ~75 min sur une machine au repos,
+# contre quelques minutes pour le gate entier. D'où la nuit, comme le fuzzing.
+# La contrepartie est assumée : une régression de stabilité introduite le matin
+# n'est vue que la nuit suivante, jamais à la pull request.
+#
+# Déclencheurs : cron nocturne + lancement manuel depuis l'onglet Actions.
+name: Reconnexion
+
+on:
+  schedule:
+    # 03:30 UTC : après le fuzzing (02:00), pour ne pas se disputer un runner —
+    # ces tests sont sensibles au temps et une machine chargée les fait échouer
+    # pour de mauvaises raisons.
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "Nombre d'exécutions consécutives"
+        required: false
+        default: "30"
+
+permissions:
+  contents: read
+
+jobs:
+  reconnexion:
+    runs-on: ubuntu-latest
+    # 30 exécutions à ~2,5 min, plus la compilation en release. Large, mais
+    # borné : un blocage doit tuer le job, pas occuper un runner six heures.
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+
+      # Compilation d'abord, hors de la boucle : sans cela la première
+      # exécution paie la compilation et les suivantes non, ce qui fausse la
+      # comparaison des durées et, sur une machine chargée, la première
+      # exécution elle-même.
+      - name: Build reconnection tests (release)
+        run: cargo build --release --tests -p accord-node -p accord-transport
+
+      - name: Run the campaign
+        run: RUNS="${{ github.event.inputs.runs || '30' }}" ./reconnexion-30.sh

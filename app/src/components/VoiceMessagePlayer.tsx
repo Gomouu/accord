@@ -329,6 +329,21 @@ export function VoiceMessagePlayer({
         {playing ? <PauseIcon /> : <PlayIcon />}
       </button>
       <div className="min-w-0 flex-1">
+        {/*
+          La barre de lecture ne fait que 6 px de haut : c'était la plus petite
+          cible de l'application. Le rôle `slider` et les gestes portent donc
+          un conteneur de 44 px dont le rembourrage vertical est transparent,
+          la barre visible restant le bloc interne de 6 px. La marge négative
+          compense exactement ce rembourrage : la hauteur du lecteur ne bouge
+          pas, et les 19 px qui débordent vers le bas ne recouvrent que
+          l'horodatage, qui ne se clique pas. `relative` est nécessaire pour
+          ça : sans lui, l'horodatage, dessiné après, reprendrait la moitié
+          basse de la cible.
+
+          Le calcul de position reste juste : le conteneur n'a aucun
+          rembourrage horizontal, donc son `getBoundingClientRect()` est
+          toujours celui de la barre.
+        */}
         <div
           role="slider"
           tabIndex={0}
@@ -356,12 +371,17 @@ export function VoiceMessagePlayer({
               chercher(1);
             }
           }}
-          className="h-1.5 w-full cursor-pointer overflow-hidden rounded-full bg-rail/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple"
+          className="group/seek relative -my-[19px] flex w-full cursor-pointer items-center py-[19px] focus-visible:outline-none"
         >
-          <div
-            className="h-full origin-left rounded-full bg-blurple"
-            style={{ transform: `scaleX(${ratioActuel})` }}
-          />
+          {/* L'anneau de focus reste collé à la barre visible : posé sur le
+              conteneur de 44 px, il déborderait sur le bouton de lecture et
+              sur l'horodatage. */}
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-rail/60 ring-blurple group-focus-visible/seek:ring-2">
+            <div
+              className="h-full origin-left rounded-full bg-blurple"
+              style={{ transform: `scaleX(${ratioActuel})` }}
+            />
+          </div>
         </div>
         <div className="mt-1 text-[11px] tabular-nums text-faint">
           {formatDuration(currentTime)} / {formatDuration(dureeSure)}

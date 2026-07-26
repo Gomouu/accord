@@ -178,7 +178,21 @@ export function ModalFrame({
               type="button"
               aria-label={t.app.close}
               onClick={fermer}
-              className="rounded-sm p-1 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
+              // Coque partagée par toutes les modales : cette croix-ci est la
+              // plus cliquée de l'application, elle passe de 28 à 44 px.
+              //
+              // Le rembourrage fait grandir la cible, la marge négative la
+              // reprend au layout : le bouton grandit vers l'intérieur du
+              // `px-5 pt-5` de l'en-tête, qui est vide. Résultat, l'icône ne
+              // bouge pas d'un pixel, l'en-tête ne gagne pas un pixel de
+              // hauteur — et comme le bouton n'a pas de fond, seul l'anneau
+              // de focus change de taille, ce qui est correct : il doit
+              // entourer la cible réelle.
+              //
+              // `relative` est nécessaire : sans lui, la zone de contenu qui
+              // suit se dessinerait par-dessus les 8 px que le bouton
+              // déborde vers le bas et les lui reprendrait.
+              className="relative -m-2 rounded-sm p-3 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
             >
               <CloseIcon size={20} />
             </button>
@@ -910,7 +924,9 @@ function CreatePollModal({ groupId, channelId }: { groupId: string; channelId: s
             type="button"
             aria-label={t.app.close}
             onClick={closeModal}
-            className="rounded-sm p-1 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
+            // 28 → 44 px : le rembourrage grandit dans le `p-5` vide de
+            // l'en-tête, la marge négative le reprend au layout.
+            className="relative -m-2 rounded-sm p-3 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
           >
             <CloseIcon size={20} />
           </button>
@@ -956,7 +972,10 @@ function CreatePollModal({ groupId, channelId }: { groupId: string; channelId: s
                       index: String(index + 1),
                     })}
                     onClick={() => removeOption(index)}
-                    className="shrink-0 rounded-sm p-1.5 text-faint transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
+                    // 28 → 44 px. Vers le début, le débordement s'arrête
+                    // pile sur l'écart de 8 px qui le sépare du champ : la
+                    // cible grandit sans mordre sur la saisie.
+                    className="relative -m-2 shrink-0 rounded-sm p-3.5 text-faint transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal"
                   >
                     <CloseIcon size={16} />
                   </button>

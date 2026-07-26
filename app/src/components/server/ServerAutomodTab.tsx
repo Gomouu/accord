@@ -102,7 +102,12 @@ export function ServerAutomodTab({ groupId }: { groupId: string }) {
                     title={interpolate(t.automod.removeWord, { word: mot })}
                     disabled={busy}
                     onClick={() => retirerMot(mot)}
-                    className="rounded-full p-0.5 text-faint transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
+                    // 16 px de croix dans une pastille de 28 px : grossir la
+                    // boîte déformerait la pastille elle-même. `hit-area`
+                    // étend la seule zone cliquable, sur toute la hauteur de
+                    // la pastille et jusqu'à l'écart qui la sépare de la
+                    // suivante.
+                    className="hit-area relative rounded-full p-0.5 text-faint transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40 [--hit-block:6px] [--hit-inline:14px]"
                   >
                     <CloseIcon size={12} />
                   </button>

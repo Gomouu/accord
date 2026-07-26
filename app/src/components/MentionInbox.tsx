@@ -128,7 +128,10 @@ export function MentionInbox({ onClose }: { onClose: () => void }) {
               type="button"
               aria-label={t.app.close}
               onClick={onClose}
-              className="rounded-sm p-1 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
+              // 24 → 40 px. Le débordement vers le début s'arrête pile sur
+              // l'écart de 8 px qui sépare la croix de « Tout marquer lu » :
+              // les deux cibles se touchent sans se recouvrir.
+              className="relative -m-2 rounded-sm p-3 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
             >
               <CloseIcon size={16} />
             </button>

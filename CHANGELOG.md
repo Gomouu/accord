@@ -178,6 +178,48 @@ All notable changes to Accord. This project follows [semantic versioning](https:
   change in snapshot format would leave five green tests inspecting an empty
   list.
 
+- **Small controls are easier to hit, and the dense ones stayed dense.** A
+  follow-up audit measured every clickable control: 291 of 321 were under
+  44×44 px. Growing all of them was the obvious move and the wrong one. Accord
+  is a desktop application driven by a mouse, and its density is a decision,
+  not an accident — a uniform 44 px would have turned the hover toolbar on a
+  message into a 264×44 slab floating over the message above it, cost the
+  sidebar a fifth of its visible channels, and added 16 px of height to every
+  message carrying a reaction.
+
+  So the rule was: grow the control only where the room already exists, and
+  everywhere else grow the *target* without touching the drawing. Twenty-four
+  controls moved. The modal close button — one shared component behind every
+  dialog in the app, and the most-clicked cross in the product — went from 28
+  to 44 px, along with the six dialogs that carry their own. Panel and picker
+  closes went from 24 to 40, attachment removal from 32 to 44, and the camera
+  and screen-share buttons in a call from 36 to 44. None of these moved a pixel
+  on screen: the padding grew and an equal negative margin handed the space
+  back to the layout, so the icon stays put, headers keep their height, and
+  only the focus ring gets bigger — which is right, since it should outline the
+  target you can actually hit.
+
+  Six controls could not grow without showing it, and got an invisible
+  extension instead: the box keeps its size, a transparent overlay reaches past
+  it. The worst offender in the whole application was the voice-message
+  playback bar — 6 px tall, and you had to hit it to scrub. It is now a 44 px
+  target wrapped around an unchanged 6 px bar. The same treatment went to the
+  cancel cross on a reply banner and the one on a filtered-word chip (16 px
+  each, inside 28 px strips where a 44 px focus ring would have spilled onto
+  the neighbouring message), to both crosses in the search bar (one has a hover
+  pill that a bigger box would have inflated; the other sits beside the "run
+  this search again" button and must not steal its clicks), and to the "copy"
+  button on a code block, which floats *over* the code and at 44 px would have
+  hidden the first characters.
+
+  What was deliberately left alone: the message hover toolbar, the composer
+  row, the sidebar lists, reaction pills, the role reorder arrows, and roughly
+  a hundred 36 px dialog footer buttons. Each of those would trade room a
+  reader is using for millimetres a mouse does not need. For reference, the
+  accessibility floor (WCAG 2.2 AA) is 24×24 px and 44×44 is the enhanced AAA
+  figure: everything touched here clears the floor, and most of it clears the
+  ceiling.
+
 - **A multi-device test only passed by winning a race.** `un_appareil_eteint_
   rattrape_a_son_retour` ended by asserting the laptop's conversation held
   exactly one message. It holds two: the desktop, switched back on, sends a

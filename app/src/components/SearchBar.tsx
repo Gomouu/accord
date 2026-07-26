@@ -202,7 +202,12 @@ export function SearchBar() {
             aria-label={t.search.clear}
             title={t.search.clear}
             onClick={clear}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-faint transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar active:scale-90"
+            // Ce bouton-ci porte une pastille au survol : agrandir la boîte
+            // agrandirait la pastille, et un cercle de 44 px ne tient pas
+            // dans un champ de 32 px. On étend donc la cible seule. Pas
+            // d'extension vers le début non plus — le champ de saisie est
+            // juste à côté et doit garder ses pixels pour poser le curseur.
+            className="hit-area relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-faint transition-colors duration-fast hover:bg-chat-hover hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar active:scale-90 [--hit-block:6px] [--hit-end:6px]"
           >
             <CloseIcon size={14} />
           </button>
@@ -289,7 +294,13 @@ export function SearchBar() {
                   aria-label={t.search.clearRecent}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => removeRecent(q)}
-                  className="shrink-0 rounded-sm p-1 text-faint opacity-0 transition-opacity duration-fast hover:text-norm focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple group-hover:opacity-100"
+                  // La croix ne peut pas s'étendre vers le début de la ligne :
+                  // c'est le bouton « relancer cette recherche » qui s'y
+                  // trouve, et lui voler ses derniers pixels ferait supprimer
+                  // une recherche là où l'on voulait la rejouer. L'extension
+                  // se fait donc sur toute la hauteur de la ligne et vers la
+                  // fin, où il n'y a que le rembourrage du menu.
+                  className="hit-area relative shrink-0 rounded-sm p-1 text-faint opacity-0 transition-opacity duration-fast hover:text-norm focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple group-hover:opacity-100 [--hit-block:6px] [--hit-end:12px]"
                 >
                   <CloseIcon size={12} />
                 </button>

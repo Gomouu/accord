@@ -4,6 +4,31 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ## [Unreleased]
 
+### Fixed
+
+- **🔴 Revoking a device could silently do nothing.** Found by the adversarial
+  security review the roadmap requires for milestone 1 — and it is in the
+  published 7.0.
+
+  Two defects, one consequence. Nothing bounded a device list's `issued_ms`:
+  the clock-skew guard that has always protected the DHT envelope never looked
+  *inside* the list. A list dated far in the future therefore stayed "fresh"
+  for centuries, and since its version follows the same clock, no later
+  legitimate list could ever overtake it. And the write that would have
+  corrected it reported success even when the database refused it, because the
+  refusal came back as a boolean that the caller discarded.
+
+  Together: the moderator clicked revoke, read "device revoked", and the
+  revocation existed nowhere. Nothing ever told them otherwise.
+
+  It does not take an attacker. A machine with a dead CMOS battery or a
+  misconfigured time zone produces exactly the same list. Ingestion now refuses
+  anything dated more than five minutes ahead — the same tolerance the DHT
+  already used — and a refused write raises an error instead of passing for
+  success. Both are pinned by tests that were verified to fail when the fix is
+  removed; the first one was vacuous on the first attempt and was rewritten
+  until it bit.
+
 ### Added
 
 - **A diagnostic log that actually exists.** A GUI application has no standard

@@ -536,6 +536,11 @@ export const ar: Dict = {
     mutedLabel: 'مكتومة',
     mutedChannelLabel: 'قناة مكتومة: الإشعارات معطّلة',
     auditEmpty: 'لم تُسجَّل أي عملية.',
+    entryCheck: 'التحقق عند الدخول',
+    entryCheckHint:
+      'عند التفعيل، لا يدخل من يستخدم أحد دعواتك على الفور — بل ينتظر موافقتك. إعداد محلي: ينطبق فقط على الدعوات التي أنشأتَها أنت.',
+    entryApprove: 'قبول',
+    entryRefuse: 'رفض',
     auditExport: 'تصدير السجل',
     auditExportHeading: 'سجل التدقيق — {server}',
     auditExportSubtitle: '{count} إجراء، من الأحدث إلى الأقدم.',

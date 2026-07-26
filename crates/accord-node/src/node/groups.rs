@@ -20,6 +20,7 @@ use std::collections::BTreeSet;
 use accord_core::db::{IncomingInvite, LocalMembership};
 use accord_core::group;
 use accord_core::group::invite as group_invite;
+use accord_core::group::invite::AcceptOutcome;
 use accord_core::group::GroupState;
 use accord_core::messaging;
 use accord_proto::core_msg::{perms, ChannelKind, CoreMsg, FileRef, GroupOp, GroupOpBody};
@@ -2150,11 +2151,19 @@ impl Node {
                 now_ms(),
             )?)
         });
-        // `Ok(None)` = cette identité n'est pas le créateur de l'invitation
-        // (CRITICAL/HIGH liens publics) : rien à pousser, exactement comme une
-        // preuve invalide (`Err`).
-        let Ok(Some(finalized)) = result else {
-            return;
+        // Trois issues, trois conduites. `NotOurs` : le créateur du lien
+        // finalisera, rien à pousser — exactement comme une preuve invalide.
+        // `Held` : la preuve est bonne mais le serveur exige une validation ;
+        // la demande est en file, on prévient l'interface et on s'arrête là,
+        // sans rien envoyer au candidat (lui dire « tu es en attente »
+        // renseignerait un inconnu sur l'existence du groupe).
+        let finalized = match result {
+            Ok(AcceptOutcome::Admitted(f)) => *f,
+            Ok(AcceptOutcome::Held) => {
+                self.emit_group_state(&group_id);
+                return;
+            }
+            Ok(AcceptOutcome::NotOurs) | Err(_) => return,
         };
         self.outbound.send(Outbound::GroupOp {
             op: Box::new(finalized.add_op),
@@ -2193,6 +2202,80 @@ impl Node {
         secret: [u8; 32],
     ) {
         self.ingest_invite_accept(redeemer, group_id, invite_id, secret);
+    }
+
+    /// Vrai si ce groupe exige une validation avant d'admettre un membre.
+    pub fn group_entry_check(&self, group_id: &[u8; 16]) -> Result<bool, NodeError> {
+        self.with_db(|db| Ok(group_invite::entry_check_enabled(db, group_id)?))
+    }
+
+    /// Active ou coupe la vérification à l'entrée d'un groupe.
+    pub fn group_set_entry_check(&self, group_id: &[u8; 16], actif: bool) -> Result<(), NodeError> {
+        self.with_db(|db| Ok(group_invite::set_entry_check(db, group_id, actif)?))
+    }
+
+    /// Demandes d'entrée en attente de validation, de la plus ancienne à la
+    /// plus récente.
+    pub fn group_pending_members(
+        &self,
+        group_id: &[u8; 16],
+    ) -> Result<Vec<group_invite::PendingMember>, NodeError> {
+        self.with_db(|db| Ok(group_invite::pending_members(db, group_id)?))
+    }
+
+    /// Approuve une demande en attente : admet le membre et lui pousse le
+    /// journal complet et la clé de groupe, exactement comme une admission
+    /// directe.
+    pub fn group_approve_member(
+        &self,
+        group_id: &[u8; 16],
+        member: &[u8; 32],
+    ) -> Result<(), NodeError> {
+        let finalized = self.with_db(|db| {
+            Ok(group_invite::approve_pending_member(
+                db,
+                &self.identity,
+                group_id,
+                member,
+                now_ms(),
+            )?)
+        })?;
+        self.outbound.send(Outbound::GroupOp {
+            op: Box::new(finalized.add_op),
+        });
+        for op in finalized.ops {
+            self.outbound.send(Outbound::Core {
+                to: *member,
+                msg: Box::new(CoreMsg::GroupOpMsg { op }),
+            });
+        }
+        self.outbound.send(Outbound::Core {
+            to: *member,
+            msg: Box::new(CoreMsg::GroupKey {
+                group_id: *group_id,
+                key_epoch: finalized.key_epoch,
+                sealed_key: finalized.sealed_key,
+            }),
+        });
+        self.emit_group_state(group_id);
+        Ok(())
+    }
+
+    /// Refuse une demande : elle quitte la file, rien n'est envoyé au
+    /// candidat.
+    ///
+    /// 🔒 Silence délibéré. Dire « tu as été refusé » confirmerait à un
+    /// inconnu que le groupe existe, que son secret était bon, et qu'un
+    /// humain l'a regardé — trois renseignements qu'un refus n'a pas à
+    /// donner. Il reste sur une attente indistinguable d'un serveur lent.
+    pub fn group_refuse_member(
+        &self,
+        group_id: &[u8; 16],
+        member: &[u8; 32],
+    ) -> Result<(), NodeError> {
+        self.with_db(|db| Ok(group_invite::drop_pending_member(db, group_id, member)?))?;
+        self.emit_group_state(group_id);
+        Ok(())
     }
 
     /// Fixture de test : ajoute directement un membre en contournant le

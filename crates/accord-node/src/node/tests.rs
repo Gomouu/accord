@@ -3116,3 +3116,95 @@ fn la_liste_dun_inconnu_sans_rien_en_file_reste_ignoree() {
         "rien ne doit avoir été mis en cache"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Révocation : les deux défauts trouvés par la revue adversariale du §10.3
+// ---------------------------------------------------------------------------
+
+/// 🔒 Une liste datée dans le futur est refusée.
+///
+/// Sans cette borne, la fraîcheur (`issued_ms + valid_for_s`) restait vraie
+/// pendant des siècles et la `version` qui l'accompagne devenait indépassable :
+/// plus aucune liste légitime ne pouvait la remplacer, donc plus aucune
+/// révocation ne pouvait être apprise. Et il ne faut pas un attaquant pour y
+/// arriver — une horloge déréglée produit exactement la même liste.
+#[test]
+fn une_liste_datee_dans_le_futur_est_refusee() {
+    let n = node();
+    let inconnu = accord_crypto::Identity::generate_with_pow_bits(1);
+    let appareil = accord_crypto::DeviceIdentity::generate();
+
+    // Un siècle dans le futur : très au-delà de la tolérance d'horloge.
+    let dans_un_siecle = crate::node::now_ms() + 100 * 365 * 24 * 60 * 60 * 1000;
+    let liste = crate::device::build_device_list_with_root(
+        &inconnu,
+        &appareil,
+        "Portable",
+        dans_un_siecle,
+        accord_proto::device::DEVICE_FLAG_TRANSPORT_KEY,
+    );
+
+    // ⚠️ On attaque le chemin de PERSISTANCE directement. Passer par
+    // `ingest_core_from` ne prouverait rien : une annonce d'inconnu n'est de
+    // toute façon jamais persistée, donc le test serait vert même sans la
+    // borne — vérifié par mutation, il l'était.
+    assert!(
+        n.store_peer_device_list_pour_test(&inconnu.public_key(), &liste)
+            .is_err(),
+        "une liste datée dans le futur ne doit jamais entrer en base : \
+         elle y verrouillerait la révocation pour toujours"
+    );
+    assert!(n
+        .with_db(|db| Ok(db.device_list(&inconnu.public_key())?))
+        .unwrap()
+        .is_none());
+}
+
+/// 🔒 Un enregistrement refusé ne doit pas passer pour un succès.
+///
+/// `cache_device_list` refuse toute version inférieure ou égale à celle déjà
+/// en base — protection anti-rejeu voulue — et le disait par un booléen qui
+/// était jeté. `revoke_device` rendait donc « succès » sans avoir rien écrit :
+/// le modérateur lisait « appareil révoqué » alors que la révocation
+/// n'existait nulle part. Un échec silencieux sur un contrôle de sécurité
+/// fabrique une certitude fausse.
+#[test]
+fn une_liste_non_enregistree_ne_passe_pas_pour_un_succes() {
+    let n = node();
+    let appareil = accord_crypto::DeviceIdentity::generate();
+
+    // Une version très haute déjà en base pour NOTRE compte.
+    let haute = crate::device::build_device_list_with_root(
+        &n.identity,
+        &appareil,
+        "Portable",
+        crate::node::now_ms(),
+        accord_proto::device::DEVICE_FLAG_TRANSPORT_KEY,
+    );
+    let mut w = accord_proto::Writer::new();
+    accord_proto::WireEncode::encode(&haute, &mut w);
+    n.with_db(|db| {
+        db.cache_device_list(&accord_core::db::CachedDeviceList {
+            account: n.public_key(),
+            version: u64::MAX,
+            encoded: w.into_bytes(),
+            fetched_ms: crate::node::now_ms(),
+        })?;
+        Ok(())
+    })
+    .unwrap();
+
+    // Toute écriture ultérieure porte une version plus petite : elle est
+    // refusée par la base, et l'appelant doit l'apprendre.
+    let plus_basse = crate::device::build_device_list_with_root(
+        &n.identity,
+        &appareil,
+        "Portable",
+        crate::node::now_ms(),
+        accord_proto::device::DEVICE_FLAG_TRANSPORT_KEY,
+    );
+    assert!(
+        n.store_device_list_pour_test(&plus_basse).is_err(),
+        "un enregistrement refusé doit remonter une erreur, pas un Ok(())"
+    );
+}

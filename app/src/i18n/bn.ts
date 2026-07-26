@@ -536,6 +536,11 @@ export const bn: Dict = {
     mutedLabel: 'চুপ করানো',
     mutedChannelLabel: 'চুপ করানো চ্যানেল: বিজ্ঞপ্তি বন্ধ',
     auditEmpty: 'কোনো কাজ নথিভুক্ত হয়নি।',
+    entryCheck: 'প্রবেশে যাচাই',
+    entryCheckHint:
+      'চালু থাকলে, আপনার আমন্ত্রণ ব্যবহারকারী সঙ্গে সঙ্গে ঢোকে না — সে আপনার অনুমোদনের অপেক্ষা করে। স্থানীয় সেটিং: এটি কেবল আপনার তৈরি আমন্ত্রণেই প্রযোজ্য।',
+    entryApprove: 'অনুমোদন',
+    entryRefuse: 'প্রত্যাখ্যান',
     auditExport: 'লগ রপ্তানি করুন',
     auditExportHeading: 'অডিট লগ — {server}',
     auditExportSubtitle: '{count}টি কাজ, নতুন থেকে পুরনো।',

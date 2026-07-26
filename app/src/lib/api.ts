@@ -681,6 +681,16 @@ export interface DiagnosticsReport {
   }[];
 }
 
+/** Une demande d'entrée en attente de validation (`groups.pending.list`). */
+export interface PendingMemberEntry {
+  /** Clé publique (hex 64) du candidat. */
+  member: string;
+  /** Invitation qu'il a rachetée. */
+  invite_id: string;
+  /** Date de la demande (ms epoch). */
+  at_ms: number;
+}
+
 /** Read-only privacy dashboard report (`privacy.report`, all local). */
 export interface PrivacyReport {
   counts: {
@@ -1555,6 +1565,40 @@ export class Api {
    * récente à la plus ancienne. `before` = `op_id` de la plus ancienne
    * entrée déjà chargée (curseur) ; `limit` borné à [1, 100].
    */
+  /**
+   * Vérification à l'entrée d'un serveur (§9.4) : réglage LOCAL du créateur
+   * des invitations. Quand il est actif, un rachat prouvé n'admet plus
+   * personne — il entre dans une file que le modérateur valide.
+   */
+  groupsEntryCheck(groupId: string): Promise<{ enabled: boolean }> {
+    return this.rpc.call('groups.entry_check.get', { group_id: groupId });
+  }
+
+  /** Active ou coupe la vérification à l'entrée. */
+  groupsSetEntryCheck(groupId: string, enabled: boolean): Promise<{ ok: boolean }> {
+    return this.rpc.call('groups.entry_check.set', { group_id: groupId, enabled });
+  }
+
+  /** Demandes d'entrée en attente, de la plus ancienne à la plus récente. */
+  groupsPendingMembers(groupId: string): Promise<{ entries: PendingMemberEntry[] }> {
+    return this.rpc.call('groups.pending.list', { group_id: groupId });
+  }
+
+  /** Approuve une demande : le candidat devient membre et reçoit la clé. */
+  groupsApproveMember(groupId: string, pubkey: string): Promise<{ ok: boolean }> {
+    return this.rpc.call('groups.pending.approve', { group_id: groupId, pubkey });
+  }
+
+  /**
+   * Refuse une demande : elle quitte la file.
+   *
+   * 🔒 Rien n'est envoyé au candidat — le lui dire confirmerait à un inconnu
+   * que le serveur existe et que son secret était bon.
+   */
+  groupsRefuseMember(groupId: string, pubkey: string): Promise<{ ok: boolean }> {
+    return this.rpc.call('groups.pending.refuse', { group_id: groupId, pubkey });
+  }
+
   groupsAudit(
     groupId: string,
     before?: string,

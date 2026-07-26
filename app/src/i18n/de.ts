@@ -543,6 +543,11 @@ export const de: Dict = {
     mutedLabel: 'Stummgeschaltet',
     mutedChannelLabel: 'Stummgeschalteter Kanal: Benachrichtigungen aus',
     auditEmpty: 'Keine Aktion aufgezeichnet.',
+    entryCheck: 'Prüfung beim Beitritt',
+    entryCheckHint:
+      'Wenn dies aktiv ist, kommt jemand, der eine deiner Einladungen einlöst, nicht sofort herein – er wartet auf deine Zustimmung. Lokale Einstellung: sie gilt nur für Einladungen, die DU erstellt hast.',
+    entryApprove: 'Zulassen',
+    entryRefuse: 'Ablehnen',
     auditExport: 'Protokoll exportieren',
     auditExportHeading: 'Prüfprotokoll — {server}',
     auditExportSubtitle: '{count} Aktion(en), neueste zuerst.',

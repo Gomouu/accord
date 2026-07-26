@@ -537,6 +537,11 @@ export const hi: Dict = {
     mutedLabel: 'चुप किया गया',
     mutedChannelLabel: 'चुप किया चैनल: सूचनाएँ बंद',
     auditEmpty: 'कोई कार्रवाई दर्ज नहीं।',
+    entryCheck: 'प्रवेश पर जाँच',
+    entryCheckHint:
+      'चालू होने पर, आपका निमंत्रण भुनाने वाला तुरंत नहीं आता — वह आपकी स्वीकृति की प्रतीक्षा करता है। स्थानीय सेटिंग: यह केवल आपके बनाए निमंत्रणों पर लागू होती है।',
+    entryApprove: 'स्वीकारें',
+    entryRefuse: 'अस्वीकारें',
     auditExport: 'लॉग निर्यात करें',
     auditExportHeading: 'ऑडिट लॉग — {server}',
     auditExportSubtitle: '{count} कार्रवाई, नवीनतम पहले।',

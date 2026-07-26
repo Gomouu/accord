@@ -649,12 +649,47 @@ impl Node {
         self.store_peer_device_list(account, &list)
     }
 
+    #[cfg(test)]
+    pub(crate) fn store_peer_device_list_pour_test(
+        &self,
+        account: &[u8; 32],
+        list: &accord_proto::device::DeviceList,
+    ) -> Result<(), NodeError> {
+        self.store_peer_device_list(account, list)
+    }
+
     /// Persiste la liste d'appareils d'un pair déjà vérifiée.
+    ///
+    /// 🔒 Borne d'horloge sur `issued_ms`, à l'image de ce que
+    /// `accord_dht::store` fait depuis toujours pour le `timestamp_ms` de
+    /// l'enveloppe DHT — mais qui ne regardait jamais À L'INTÉRIEUR de la
+    /// liste.
+    ///
+    /// La fraîcheur d'une liste se juge sur `issued_ms + valid_for_s`. Rien ne
+    /// bornait `issued_ms` : une liste signée avec une date très lointaine
+    /// paraissait fraîche pour des siècles, et comme sa `version` accompagne
+    /// généralement la même horloge, plus aucune liste future légitime ne
+    /// pouvait la dépasser. La révocation s'en trouvait verrouillée, en
+    /// silence et définitivement.
+    ///
+    /// Il ne faut pas un attaquant pour y arriver : une machine dont
+    /// l'horloge est déréglée — pile CMOS morte, fuseau mal réglé — produit
+    /// exactement la même liste, sans la moindre malveillance. C'est la raison
+    /// principale de cette borne.
     fn store_peer_device_list(
         &self,
         account: &[u8; 32],
         list: &accord_proto::device::DeviceList,
     ) -> Result<(), NodeError> {
+        if list.issued_ms > now_ms().saturating_add(accord_dht::store::MAX_CLOCK_SKEW_MS) {
+            tracing::warn!(
+                compte = %crate::hex::encode(&account[..4]),
+                "liste d'appareils datée dans le futur : refusée"
+            );
+            return Err(NodeError::Invalid(
+                "liste d'appareils datée trop loin dans le futur",
+            ));
+        }
         let mut w = accord_proto::Writer::new();
         accord_proto::WireEncode::encode(list, &mut w);
         self.with_db(|db| {
@@ -1469,19 +1504,49 @@ impl Node {
     }
 
     /// Persiste la liste d'appareils du compte.
+    /// Persiste NOTRE liste d'appareils.
+    ///
+    /// 🔒 Le refus de `cache_device_list` est remonté, pas avalé.
+    ///
+    /// Cette fonction rendait `Ok(())` quoi qu'il arrive. Or `cache_device_list`
+    /// refuse toute version inférieure ou égale à celle déjà en base — une
+    /// protection anti-rejeu parfaitement voulue — et rend `Ok(false)` pour le
+    /// dire. Le booléen était jeté.
+    ///
+    /// Conséquence, et c'est la raison de ce commentaire : si la base porte
+    /// une version anormalement haute (horloge locale déréglée au moment d'une
+    /// écriture précédente, ou liste forgée par un détenteur de la racine),
+    /// alors `revoke_device` rendait **succès** en n'ayant rien écrit. Le
+    /// modérateur voyait « appareil révoqué », la révocation n'existait nulle
+    /// part, et rien ne le détrompait — jamais. Un échec silencieux sur un
+    /// contrôle de sécurité est pire que pas de contrôle : il fabrique une
+    /// certitude fausse.
+    #[cfg(test)]
+    pub(crate) fn store_device_list_pour_test(
+        &self,
+        list: &accord_proto::device::DeviceList,
+    ) -> Result<(), NodeError> {
+        self.store_device_list(list)
+    }
+
     fn store_device_list(&self, list: &accord_proto::device::DeviceList) -> Result<(), NodeError> {
         let mut w = accord_proto::Writer::new();
         accord_proto::WireEncode::encode(list, &mut w);
         let account = self.public_key();
-        self.with_db(|db| {
-            db.cache_device_list(&accord_core::db::CachedDeviceList {
+        let ecrit = self.with_db(|db| {
+            Ok(db.cache_device_list(&accord_core::db::CachedDeviceList {
                 account,
                 version: list.version,
                 encoded: w.into_bytes(),
                 fetched_ms: now_ms(),
-            })?;
-            Ok(())
-        })
+            })?)
+        })?;
+        if !ecrit {
+            return Err(NodeError::Invalid(
+                "liste d'appareils non enregistrée : une version supérieure ou égale est déjà en base",
+            ));
+        }
+        Ok(())
     }
 
     /// Diffuse une liste d'appareils fraîchement signée aux amis connectés.

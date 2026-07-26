@@ -530,6 +530,11 @@ export const zh: Dict = {
     mutedLabel: '已静音',
     mutedChannelLabel: '已静音的频道：通知已关闭',
     auditEmpty: '没有记录任何操作。',
+    entryCheck: '入群审核',
+    entryCheckHint:
+      '开启后，使用你的邀请的人不会立即加入，而是等待你的批准。本地设置：仅对你自己创建的邀请生效。',
+    entryApprove: '批准',
+    entryRefuse: '拒绝',
     auditExport: '导出日志',
     auditExportHeading: '审计日志 — {server}',
     auditExportSubtitle: '{count} 条操作，由新到旧。',

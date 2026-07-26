@@ -404,6 +404,25 @@ Read before recommending Accord to people whose safety depends on anonymity.
     while an unwanted unblock silently reopens a channel someone closed. There
     is no logical clock per account today.
 
+16. **A device list dated in the future is refused.** Freshness is judged on
+    `issued_ms + valid_for_s`, and nothing used to bound `issued_ms` — the
+    clock-skew guard that `accord-dht` has always applied to the DHT envelope
+    never looked *inside* the list. A list signed with a far-future date
+    therefore looked fresh for centuries, and since its `version` follows the
+    same clock, no later legitimate list could overtake it: revocation was
+    locked, silently and permanently. It does not take an attacker — a machine
+    with a dead CMOS battery or a misconfigured clock produces exactly the same
+    list. Ingestion now refuses anything more than five minutes ahead, the same
+    tolerance the DHT store uses. Found by the milestone-1 adversarial review.
+
+17. **A refused write is no longer reported as success.** `cache_device_list`
+    rejects any version at or below the one already stored — a deliberate
+    anti-replay guard — and said so through a boolean that the caller discarded.
+    `revoke_device` could therefore return success having persisted nothing: the
+    moderator read "device revoked" while the revocation existed nowhere, and
+    nothing ever corrected them. A silent failure on a security control is worse
+    than no control, because it manufactures a false certainty.
+
 ## 6. Accepted v0 trade-offs
 
 Documented in full in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md), with

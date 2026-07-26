@@ -545,6 +545,11 @@ export const pt: Dict = {
     mutedLabel: 'Silenciado',
     mutedChannelLabel: 'Canal silenciado: notificações desativadas',
     auditEmpty: 'Nenhuma ação registada.',
+    entryCheck: 'Verificação à entrada',
+    entryCheckHint:
+      'Quando está ativo, quem usa um dos teus convites não entra de imediato: espera pela tua aprovação. Definição local — aplica-se apenas aos convites que TU criaste.',
+    entryApprove: 'Aprovar',
+    entryRefuse: 'Recusar',
     auditExport: 'Exportar o registo',
     auditExportHeading: 'Registo de auditoria — {server}',
     auditExportSubtitle: '{count} ação(ões), da mais recente para a mais antiga.',

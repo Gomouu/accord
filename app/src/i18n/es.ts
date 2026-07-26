@@ -564,6 +564,11 @@ export const es: Dict = {
     mutedChannelLabel: 'Canal silenciado: notificaciones desactivadas',
     // Audit log.
     auditEmpty: 'No hay ninguna acción registrada.',
+    entryCheck: 'Verificación en la entrada',
+    entryCheckHint:
+      'Cuando está activo, quien canjea una de tus invitaciones no entra de inmediato: espera tu aprobación. Ajuste local: solo se aplica a las invitaciones que TÚ has creado.',
+    entryApprove: 'Aprobar',
+    entryRefuse: 'Rechazar',
     auditExport: 'Exportar el registro',
     auditExportHeading: 'Registro de auditoría — {server}',
     auditExportSubtitle: '{count} acción(es), de la más reciente a la más antigua.',

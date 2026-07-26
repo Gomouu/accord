@@ -556,6 +556,11 @@ export const en: Dict = {
     mutedChannelLabel: 'Muted channel: notifications disabled',
     // Audit log.
     auditEmpty: 'No recorded action.',
+    entryCheck: 'Check people before they join',
+    entryCheckHint:
+      'When this is on, someone redeeming one of your invites does not get in straight away — they wait for your approval. Local setting: it only applies to invites YOU created.',
+    entryApprove: 'Approve',
+    entryRefuse: 'Refuse',
     auditExport: 'Export the log',
     auditExportHeading: 'Audit log — {server}',
     auditExportSubtitle: '{count} action(s), most recent first.',

@@ -544,6 +544,11 @@ export const ru: Dict = {
     mutedLabel: 'Без звука',
     mutedChannelLabel: 'Канал без звука: уведомления отключены',
     auditEmpty: 'Действий не записано.',
+    entryCheck: 'Проверка при входе',
+    entryCheckHint:
+      'Когда включено, тот, кто использует ваше приглашение, не входит сразу — он ждёт вашего одобрения. Локальная настройка: действует только на приглашения, созданные ВАМИ.',
+    entryApprove: 'Одобрить',
+    entryRefuse: 'Отклонить',
     auditExport: 'Экспортировать журнал',
     auditExportHeading: 'Журнал аудита — {server}',
     auditExportSubtitle: '{count} действий, от новых к старым.',

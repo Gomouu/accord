@@ -565,6 +565,45 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             node.group_category_del(&gid, &cat)?;
             Ok(json!({ "ok": true }))
         }
+        // Vérification à l'entrée (§9.4) : réglage local du créateur des
+        // invitations, et file des demandes prouvées en attente.
+        "groups.entry_check.get" => {
+            let gid = param_id16(params, "group_id")?;
+            Ok(json!({ "enabled": node.group_entry_check(&gid)? }))
+        }
+        "groups.entry_check.set" => {
+            let gid = param_id16(params, "group_id")?;
+            let enabled = params
+                .get("enabled")
+                .and_then(|v| v.as_bool())
+                .ok_or(NodeError::Invalid("enabled attendu"))?;
+            node.group_set_entry_check(&gid, enabled)?;
+            Ok(json!({ "ok": true }))
+        }
+        "groups.pending.list" => {
+            let gid = param_id16(params, "group_id")?;
+            let attente = node.group_pending_members(&gid)?;
+            Ok(json!({
+                "entries": attente
+                    .iter()
+                    .map(|p| json!({
+                        "member": hex::encode(&p.member),
+                        "invite_id": hex::encode(&p.invite_id),
+                        "at_ms": p.at_ms,
+                    }))
+                    .collect::<Vec<_>>()
+            }))
+        }
+        "groups.pending.approve" => {
+            let gid = param_id16(params, "group_id")?;
+            node.group_approve_member(&gid, &param_pubkey(params, "pubkey")?)?;
+            Ok(json!({ "ok": true }))
+        }
+        "groups.pending.refuse" => {
+            let gid = param_id16(params, "group_id")?;
+            node.group_refuse_member(&gid, &param_pubkey(params, "pubkey")?)?;
+            Ok(json!({ "ok": true }))
+        }
         "groups.audit" => {
             let gid = param_id16(params, "group_id")?;
             let before = param_opt_id16(params, "before")?;

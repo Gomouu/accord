@@ -565,6 +565,11 @@ export const fr = {
     mutedChannelLabel: 'Salon en sourdine : notifications désactivées',
     // Journal d'audit.
     auditEmpty: 'Aucune action enregistrée.',
+    entryCheck: 'Vérification à l’entrée',
+    entryCheckHint:
+      'Quand c’est actif, une personne qui rachète une de tes invitations n’entre pas tout de suite : elle attend ton accord. Réglage local — il ne s’applique qu’aux invitations que TU as créées.',
+    entryApprove: 'Approuver',
+    entryRefuse: 'Refuser',
     auditExport: 'Exporter le journal',
     auditExportHeading: "Journal d'audit — {server}",
     auditExportSubtitle: '{count} action(s), de la plus récente à la plus ancienne.',

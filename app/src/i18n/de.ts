@@ -952,6 +952,11 @@ export const de: Dict = {
       'Kopiert eine technische Zusammenfassung in die Zwischenablage, zum Anhängen an einen Fehlerbericht: Zähler, Netzwerk-Selbsttest und Verbindungsstatus. Er enthält keine Nachrichten, keine Freundescodes und keine IP-Adressen deiner Freunde — du kannst ihn bedenkenlos teilen.',
     reportCopied: 'Diagnosebericht kopiert.',
     reportFailed: 'Bericht konnte nicht erstellt werden.',
+    logTitle: 'Diagnoseprotokoll',
+    logHint:
+      'Die Datei accord.log in diesem Ordner protokolliert, was die App tut. Sie enthält keine Nachrichten, Schlüssel oder Adressen von Freunden — du kannst sie einem Fehlerbericht beilegen.',
+    logCopyPath: 'Pfad kopieren',
+    logLevel: 'Stufe',
   },
   errors: {
     sendFailed: 'Senden fehlgeschlagen',

@@ -6,6 +6,35 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ### Added
 
+- **A diagnostic log that actually exists.** A GUI application has no standard
+  output: launched from the Finder or the Start menu, everything `tracing`
+  produced went nowhere. There was a file sink, but only behind an
+  `ACCORD_LOG_FILE` environment variable — out of reach for a normal launch —
+  and it truncated on open, so the restart that follows a crash erased the
+  trace of that crash, at exactly the moment someone went looking for it.
+
+  There is now a log in `<app data>/logs/accord.log`, with no environment
+  variable. The previous run is kept as `accord.log.1`. It also rotates past
+  5 MB, so the footprint is bounded to two files — a log that fills the disk is
+  a bug, not a tool.
+
+  Startup is in it too. `tracing` starts before Tauri knows where the data
+  folder is, so the first lines are held in memory and poured into the file
+  when it opens. Without that, startup — where failed starts happen — would
+  have been the one part missing from the log.
+
+  The webview writes to the same file: unhandled promise rejections and
+  uncaught errors, wired before the first render. One file and one clock, since
+  two logs to reconcile by hand help nobody read a sequence where the interface
+  and the network answer each other. The log level can be switched between
+  `info` and `debug` from the network panel without restarting.
+
+  Two things it does not do, deliberately. There is no "open folder" button:
+  no Tauri opener plugin is installed, and adding one — or spawning a system
+  process — widens the attack surface for a convenience, so the panel shows the
+  path with a copy button instead. And the log is not folded into the
+  diagnostic report: 5 MB does not belong in a clipboard.
+
 - **The server audit log can leave the app.** The log itself was already
   there — every moderation action is an entry in the group's signed op-log,
   with its author and its timestamp, and the Audit tab has been rendering it

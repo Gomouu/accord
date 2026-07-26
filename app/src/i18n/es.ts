@@ -976,6 +976,11 @@ export const es: Dict = {
       'Copia al portapapeles un resumen técnico para adjuntar a un informe de error: contadores, autodiagnóstico de red y estado de los enlaces. No contiene mensajes, ni códigos de amigo, ni las direcciones IP de tus amigos: puedes compartirlo sin riesgo.',
     reportCopied: 'Informe de diagnóstico copiado.',
     reportFailed: 'No se pudo generar el informe.',
+    logTitle: 'Registro de diagnóstico',
+    logHint:
+      'El archivo accord.log de esta carpeta registra el funcionamiento de la aplicación. No contiene mensajes, ni claves, ni direcciones de amigos: puedes adjuntarlo a un informe de error.',
+    logCopyPath: 'Copiar la ruta',
+    logLevel: 'Nivel',
   },
   errors: {
     sendFailed: 'No se pudo enviar',

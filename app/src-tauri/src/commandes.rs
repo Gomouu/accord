@@ -463,3 +463,49 @@ async fn demarrer(etat: &EtatHote, deverrouille: Unlocked) -> Result<InfoSession
     etat.rafraichir_compte_actif();
     Ok(session)
 }
+
+// ---------------------------------------------------------------------------
+// Journal de diagnostic (feuille de route §10.6)
+// ---------------------------------------------------------------------------
+
+/// Écrit une ligne de la webview dans le MÊME journal que le nœud.
+///
+/// 🔒 Un seul fichier, une seule horloge. La moitié de l'application est du
+/// TypeScript ; ses erreurs n'allaient nulle part en production, et deux
+/// journaux qu'il faut recoller à la main n'aident personne à comprendre un
+/// enchaînement où l'interface et le réseau se répondent.
+///
+/// ⚠️ L'appelant est responsable de ce qu'il envoie : pas de contenu de
+/// message, pas de clé, pas de code ami. Cette commande ne filtre rien — elle
+/// ne le peut pas, une chaîne déjà composée ne se relit pas.
+#[tauri::command]
+pub fn journal_ui(niveau: String, message: String) {
+    // Cible distincte (`accord_ui`) pour que l'origine se lise dans le
+    // fichier sans convention de préfixe à respecter à la main.
+    match niveau.as_str() {
+        "error" => tracing::error!(target: "accord_ui", "{message}"),
+        "warn" => tracing::warn!(target: "accord_ui", "{message}"),
+        "debug" => tracing::debug!(target: "accord_ui", "{message}"),
+        _ => tracing::info!(target: "accord_ui", "{message}"),
+    }
+}
+
+/// Dossier du journal, pour le bouton « ouvrir le dossier des logs ».
+///
+/// `None` si le journal n'a pas pu être ouvert — l'interface propose alors
+/// autre chose plutôt que d'ouvrir un chemin qui n'existe pas.
+#[tauri::command]
+pub fn journal_dossier(journal: State<'_, crate::journal::Journal>) -> Option<String> {
+    journal.dossier().map(|p| p.to_string_lossy().into_owned())
+}
+
+/// Change le niveau de journalisation à chaud (`info` par défaut, `debug`
+/// quand on cherche quelque chose). Rend `false` sur un niveau inconnu.
+#[tauri::command]
+pub fn journal_niveau(journal: State<'_, crate::journal::Journal>, niveau: String) -> bool {
+    let change = journal.regler_niveau(&niveau);
+    if change {
+        tracing::info!(niveau = %niveau, "niveau de journalisation changé");
+    }
+    change
+}

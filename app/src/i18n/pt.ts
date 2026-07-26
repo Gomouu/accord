@@ -953,6 +953,11 @@ export const pt: Dict = {
       'Copia para a área de transferência um resumo técnico para anexar a um relatório de erro: contadores, autoteste de rede e estado das ligações. Não contém mensagens, nem códigos de amigo, nem os endereços IP dos teus amigos — podes partilhá-lo sem risco.',
     reportCopied: 'Relatório de diagnóstico copiado.',
     reportFailed: 'Não foi possível gerar o relatório.',
+    logTitle: 'Registo de diagnóstico',
+    logHint:
+      'O ficheiro accord.log desta pasta regista o funcionamento da aplicação. Não contém mensagens, chaves nem endereços de amigos — podes juntá-lo a um relatório de erro.',
+    logCopyPath: 'Copiar o caminho',
+    logLevel: 'Nível',
   },
   errors: {
     sendFailed: 'Falha no envio',

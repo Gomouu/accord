@@ -976,6 +976,11 @@ export const fr = {
       'Copie dans le presse-papiers un résumé technique à joindre à un rapport de bug : compteurs, auto-test réseau et état des liens. Il ne contient ni message, ni code ami, ni adresse IP de tes amis — tu peux le partager sans risque.',
     reportCopied: 'Rapport de diagnostic copié.',
     reportFailed: 'Impossible de produire le rapport.',
+    logTitle: 'Journal de diagnostic',
+    logHint:
+      'Le fichier accord.log de ce dossier retrace le fonctionnement de l’application. Il ne contient ni message, ni clé, ni adresse d’ami — tu peux le joindre à un rapport de bug.',
+    logCopyPath: 'Copier le chemin',
+    logLevel: 'Niveau',
   },
   errors: {
     sendFailed: 'Échec de l’envoi',

@@ -934,6 +934,11 @@ export const zh: Dict = {
       '将技术摘要复制到剪贴板，用于附在错误报告中：计数器、网络自检和链路状态。其中不含任何消息内容、好友代码或好友的 IP 地址——可以放心分享。',
     reportCopied: '诊断报告已复制。',
     reportFailed: '无法生成报告。',
+    logTitle: '诊断日志',
+    logHint:
+      '此文件夹中的 accord.log 记录应用的运行情况。其中不含消息、密钥或好友地址——可放心附在错误报告中。',
+    logCopyPath: '复制路径',
+    logLevel: '级别',
   },
   errors: {
     sendFailed: '发送失败',

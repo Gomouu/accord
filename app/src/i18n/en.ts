@@ -966,6 +966,11 @@ export const en: Dict = {
       "Copies a technical summary to the clipboard, to attach to a bug report: counters, network self-test and link states. It contains no messages, no friend codes and none of your friends' IP addresses — it is safe to share.",
     reportCopied: 'Diagnostic report copied.',
     reportFailed: 'Could not produce the report.',
+    logTitle: 'Diagnostic log',
+    logHint:
+      'The accord.log file in this folder records what the app does. It holds no messages, no keys and no friend addresses — you can attach it to a bug report.',
+    logCopyPath: 'Copy the path',
+    logLevel: 'Level',
   },
   errors: {
     sendFailed: 'Failed to send',

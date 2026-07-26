@@ -175,6 +175,17 @@ fn validate_event_start_ms(start_ms: u64) -> Result<(), NodeError> {
 /// que les autres libellés) : cette frontière ne fait que couper court aux
 /// entrées manifestement invalides avant de signer/diffuser une op qui
 /// serait de toute façon rejetée au rejeu.
+/// Messages non lus examinés au plus par salon pour en retrancher ceux que
+/// l'AutoMod masque.
+///
+/// Décider demande de lire et décoder le corps, là où le comptage brut est un
+/// `COUNT(*)` sur index : sans borne, un salon laissé non lu pendant des mois
+/// ferait relire des dizaines de milliers de corps à chaque `groups.list`.
+/// Au-delà de la borne, le surplus est compté comme non masqué — la pastille
+/// est alors trop haute, jamais trop basse, ce qui est le bon sens du
+/// dépassement : mieux vaut annoncer un message de trop qu'en cacher un.
+const UNREAD_AUTOMOD_SCAN: usize = 500;
+
 fn validate_automod_words(words: &[String]) -> Result<Vec<String>, NodeError> {
     if words.len() > accord_proto::core_msg::MAX_AUTOMOD_WORDS {
         return Err(NodeError::Invalid("trop de mots AutoMod (50 max)"));
@@ -2316,15 +2327,45 @@ impl Node {
     }
 
     /// Non-lus par salon d'un groupe : `(channel_id, n)` pour chaque salon
-    /// portant au moins un message d'autrui après la marque de lecture locale.
+    /// portant au moins un message d'autrui après la marque de lecture locale,
+    /// **messages masqués par l'AutoMod déduits**.
+    ///
+    /// 🔒 La déduction est le point : un message dont le mot est remplacé par
+    /// des `█` au rendu mais qui allume quand même la pastille rouge attire
+    /// l'œil sur exactement ce que le filtre prétend cacher. La liste de mots
+    /// vient de l'état répliqué du groupe, la même que l'interface applique au
+    /// rendu (`app/src/lib/automod.ts`), et la règle de correspondance est
+    /// celle de [`accord_core::automod`], jumelle de la sienne.
+    ///
+    /// Liste vide (le cas courant) : aucun corps n'est lu, le comptage reste
+    /// le `COUNT(*)` indexé d'avant.
     pub fn group_unread(&self, group_id: &[u8; 16]) -> Result<Vec<([u8; 16], u64)>, NodeError> {
         let state = self.group_state(group_id)?;
         let me = self.identity.public_key();
+        let filtered_words = accord_core::automod::prepare(&state.automod_words);
         self.with_db(|db| {
             let mut out = Vec::new();
             for channel_id in state.channels.keys() {
                 let mark = read_u64(db.meta(&group_mark_key(group_id, channel_id))?);
                 let n = db.count_group_unread(group_id, channel_id, mark, &me)?;
+                let n = if n == 0 || filtered_words.is_empty() {
+                    n
+                } else {
+                    let scanned =
+                        db.unread_group_msgs(group_id, channel_id, mark, &me, UNREAD_AUTOMOD_SCAN)?;
+                    let masked = scanned
+                        .iter()
+                        .filter(|m| {
+                            accord_core::automod::message_matches(
+                                m.kind,
+                                &m.body,
+                                m.edited.as_deref(),
+                                &filtered_words,
+                            )
+                        })
+                        .count();
+                    n.saturating_sub(masked as u64)
+                };
                 if n > 0 {
                     out.push((*channel_id, n));
                 }

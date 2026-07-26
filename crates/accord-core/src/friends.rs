@@ -162,6 +162,9 @@ fn new_contact(pubkey: [u8; 32], display_name: &str, state: ContactState, now_ms
         last_seen_ms: now_ms,
         verified_at: None,
         verified_pubkey: None,
+        // Un contact naît avec l'horodatage de sa création : c'est bien la
+        // date à laquelle son état a été décidé.
+        state_changed_ms: now_ms,
     }
 }
 
@@ -318,13 +321,75 @@ pub fn ingest_friend_remove(db: &Db, peer_pubkey: &[u8; 32]) -> Result<bool, Cor
 pub fn block(db: &Db, peer_pubkey: &[u8; 32], now_ms: u64) -> Result<(), CoreError> {
     let node_id = node_id_of(peer_pubkey).0;
     match db.contact(&node_id)? {
-        Some(_) => db.set_contact_state(&node_id, ContactState::Blocked),
+        // Horodaté : un blocage est une décision qui se propage et qui doit
+        // pouvoir être ordonnée face à celle d'une autre machine.
+        Some(_) => db.set_contact_state_at(&node_id, ContactState::Blocked, now_ms),
         None => db.upsert_contact(&new_contact(
             *peer_pubkey,
             "bloqué",
             ContactState::Blocked,
             now_ms,
         )),
+    }
+}
+
+/// Applique un changement d'état décidé par UNE AUTRE MACHINE du même compte
+/// (`CoreMsg::SelfContactState`).
+///
+/// 🔒 **La règle de conflit, et pourquoi celle-ci.** Deux machines d'un même
+/// compte peuvent changer l'état d'un contact en même temps, et rien ne les
+/// ordonne : elles n'ont ni horloge commune, ni journal partagé. On tranche
+/// donc sur l'horloge murale de la machine qui a décidé — dernier écrit,
+/// dernier appliqué — avec **le blocage qui gagne les égalités**.
+///
+/// Ce n'est pas de la symétrie mal placée : les deux erreurs possibles ne
+/// coûtent pas la même chose. Un blocage appliqué à tort se défait d'un clic et
+/// l'utilisateur le voit. Un déblocage appliqué à tort rouvre un canal que
+/// quelqu'un a explicitement fermé, sans que personne ne s'en aperçoive.
+///
+/// ⚠️ **Ce que cette règle ne répare pas.** Si l'horloge du fixe avance de dix
+/// minutes sur celle du portable, un déblocage émis par le fixe *avant* un
+/// blocage posé sur le portable portera quand même un `at_ms` plus grand, et
+/// écrasera le blocage. Une horloge logique par compte corrigerait cela ; elle
+/// n'existe pas, et l'inventer pour ce seul message coûterait plus que le
+/// risque. La dérive à craindre se compte en minutes, la fenêtre entre deux
+/// décisions contradictoires du même utilisateur en secondes.
+pub fn apply_remote_state(
+    db: &Db,
+    peer_pubkey: &[u8; 32],
+    bloque: bool,
+    at_ms: u64,
+) -> Result<(), CoreError> {
+    let node_id = node_id_of(peer_pubkey).0;
+    let courant = db.contact(&node_id)?;
+
+    // Un changement plus ancien que ce que la base porte déjà n'a rien à dire.
+    // `>=` et non `>` : à horodatage égal, seul un blocage passe (voir plus
+    // bas), donc laisser passer l'égalité ici serait sans effet pour lui et
+    // ouvrirait la porte au déblocage.
+    if let Some(c) = &courant {
+        let deja_bloque = c.state == ContactState::Blocked;
+        if c.state_changed_ms > at_ms || (c.state_changed_ms == at_ms && deja_bloque && !bloque) {
+            return Ok(());
+        }
+    }
+
+    if bloque {
+        return match courant {
+            Some(_) => db.set_contact_state_at(&node_id, ContactState::Blocked, at_ms),
+            None => db.upsert_contact(&new_contact(
+                *peer_pubkey,
+                "bloqué",
+                ContactState::Blocked,
+                at_ms,
+            )),
+        };
+    }
+    // Déblocage : efface le contact, comme [`unblock`]. Absent, il n'y a rien
+    // à faire — et surtout rien à inventer.
+    match courant {
+        Some(_) => db.remove_contact(&node_id),
+        None => Ok(()),
     }
 }
 
@@ -348,6 +413,68 @@ mod tests {
             Identity::generate_with_pow_bits(1),
             Identity::generate_with_pow_bits(1),
         )
+    }
+
+    /// État courant d'un contact, ou `None` s'il n'existe pas.
+    fn etat(db: &Db, pubkey: &[u8; 32]) -> Option<ContactState> {
+        db.contact(&node_id_of(pubkey).0).unwrap().map(|c| c.state)
+    }
+
+    #[test]
+    fn un_blocage_distant_plus_recent_s_applique() {
+        let (db, _, autre) = setup();
+        let pair = autre.public_key();
+        apply_remote_state(&db, &pair, true, 1_000).unwrap();
+        assert_eq!(etat(&db, &pair), Some(ContactState::Blocked));
+    }
+
+    #[test]
+    fn un_deblocage_anterieur_ne_defait_pas_un_blocage_posterieur() {
+        // 🔒 Le cas qui compte. Les deux machines décident chacune de leur
+        // côté ; celle qui débloque peut être jointe en dernier. Si l'ordre
+        // d'ARRIVÉE l'emportait, un canal explicitement fermé se rouvrirait
+        // tout seul, sans que personne ne le voie.
+        let (db, _, autre) = setup();
+        let pair = autre.public_key();
+        apply_remote_state(&db, &pair, true, 2_000).unwrap();
+        apply_remote_state(&db, &pair, false, 1_000).unwrap();
+        assert_eq!(
+            etat(&db, &pair),
+            Some(ContactState::Blocked),
+            "un déblocage antérieur a défait un blocage postérieur"
+        );
+    }
+
+    #[test]
+    fn a_horodatage_egal_le_blocage_l_emporte() {
+        // Deux décisions contradictoires à la même milliseconde : rien ne les
+        // ordonne. On choisit la moins coûteuse en cas d'erreur — un blocage
+        // de trop se défait d'un clic et se voit ; un déblocage de trop rouvre
+        // un canal en silence.
+        let (db, _, autre) = setup();
+        let pair = autre.public_key();
+        apply_remote_state(&db, &pair, true, 5_000).unwrap();
+        apply_remote_state(&db, &pair, false, 5_000).unwrap();
+        assert_eq!(etat(&db, &pair), Some(ContactState::Blocked));
+    }
+
+    #[test]
+    fn un_deblocage_plus_recent_efface_bien_le_contact() {
+        // L'autre moitié : la règle protège le blocage, elle ne le rend pas
+        // indéfaisable. Sans ce test, « bloquer gagne toujours » passerait.
+        let (db, _, autre) = setup();
+        let pair = autre.public_key();
+        apply_remote_state(&db, &pair, true, 1_000).unwrap();
+        apply_remote_state(&db, &pair, false, 2_000).unwrap();
+        assert_eq!(etat(&db, &pair), None);
+    }
+
+    #[test]
+    fn un_deblocage_sur_un_inconnu_n_invente_rien() {
+        let (db, _, autre) = setup();
+        let pair = autre.public_key();
+        apply_remote_state(&db, &pair, false, 9_000).unwrap();
+        assert_eq!(etat(&db, &pair), None);
     }
 
     #[test]

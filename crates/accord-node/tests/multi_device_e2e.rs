@@ -201,6 +201,7 @@ fn inscrire_ami(db: &Db, peer: &[u8; 32], nom: &str) {
         last_seen_ms: 1,
         verified_at: None,
         verified_pubkey: None,
+        state_changed_ms: 0,
     })
     .unwrap();
 }
@@ -906,4 +907,56 @@ async fn un_pair_davant_et_un_pair_bascule_se_parlent_encore() {
 
     ancien.shutdown();
     neuf.shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// Blocage au niveau du COMPTE (feuille de route §9.4, débloqué par le jalon 1)
+// ---------------------------------------------------------------------------
+
+/// 🔒 Bloquer sur une machine doit protéger l'autre.
+///
+/// Sans cela, l'utilisateur qui bloque quelqu'un depuis son portable reste
+/// joignable par cette personne depuis son fixe — et il ne le sait pas. C'est
+/// une promesse de sécurité tenue à moitié, ce qui est pire que pas de
+/// promesse : il croit avoir coupé le lien.
+#[tokio::test]
+async fn un_blocage_pose_sur_une_machine_protege_l_autre() {
+    let p = preparer();
+    let liste = liste_signee(
+        &p.root,
+        &[
+            (&p.device_a, "Portable", TRANSPORT),
+            (&p.device_b, "Fixe", TRANSPORT),
+        ],
+        maintenant_ms(),
+    );
+    p.stocker_sur_le_compte(&liste);
+
+    let a = boot(&p.paths_a, maintenance_rapide()).await;
+    let b = boot(&p.paths_b, maintenance_rapide()).await;
+    a.learn_peer(&b).unwrap();
+    b.learn_peer(&a).unwrap();
+
+    // Les deux machines connaissent l'ami comme ami confirmé (préparé sur
+    // disque par `preparer`).
+    assert!(a.node.friend_pubkeys().unwrap().contains(&p.ami));
+    assert!(b.node.friend_pubkeys().unwrap().contains(&p.ami));
+
+    // Le portable bloque.
+    a.node.friend_block(&p.ami).unwrap();
+    assert!(
+        !a.node.friend_pubkeys().unwrap().contains(&p.ami),
+        "le blocage n'a pas pris sur la machine qui l'a posé"
+    );
+
+    // Le fixe doit suivre.
+    assert!(
+        eventually(|| !b.node.friend_pubkeys().unwrap().contains(&p.ami)).await,
+        "le blocage posé sur le portable n'a jamais atteint le fixe : la \
+         personne bloquée peut encore écrire à l'utilisateur depuis l'autre \
+         machine, sans qu'il le sache"
+    );
+
+    a.shutdown();
+    b.shutdown();
 }

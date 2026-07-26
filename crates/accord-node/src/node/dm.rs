@@ -329,7 +329,7 @@ impl Node {
     /// mixte : un appareil non basculé parlant à un appareil basculé serait
     /// refusé ici, et lui seul — panne asymétrique, donc invisible aux tests
     /// qui n'essaient qu'un sens.
-    fn is_own_device(&self, key: &[u8; 32]) -> bool {
+    pub(super) fn is_own_device(&self, key: &[u8; 32]) -> bool {
         if *key == self.public_key() {
             return true;
         }

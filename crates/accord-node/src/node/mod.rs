@@ -2015,6 +2015,24 @@ impl Node {
                 self.ingest_device_list(device_pubkey, peer_pubkey, &list)?;
                 Ok(vec![])
             }
+            CoreMsg::SelfContactState { peer, state, at_ms } => {
+                // 🔒 Même contrôle que la marque de lecture, et pour une
+                // raison plus lourde : sans lui, n'importe quel ami pourrait
+                // faire bloquer ou débloquer n'importe qui dans notre carnet.
+                // C'est la clé authentifiée par la session qui décide, jamais
+                // le contenu du message.
+                if self.is_own_device(device_pubkey) {
+                    self.with_db(|db| {
+                        Ok(accord_core::friends::apply_remote_state(
+                            db,
+                            &peer,
+                            state == accord_proto::core_msg::CONTACT_STATE_BLOCKED,
+                            at_ms,
+                        )?)
+                    })?;
+                }
+                Ok(vec![])
+            }
             CoreMsg::SelfReadMark { scope, conv, up_to } => {
                 // Autorisé sur la clé de la MACHINE, pas sur la personne : que
                 // le routeur ait su ou non remonter au compte, c'est la clé que

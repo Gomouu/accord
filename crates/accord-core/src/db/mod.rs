@@ -39,7 +39,7 @@ use std::path::Path;
 /// la version suffit pour créer les nouvelles tables sur une base existante.
 /// Modifier des colonnes existantes exige en revanche une vraie migration —
 /// voir [`MIGRATIONS`].
-const SCHEMA_VERSION: i64 = 15;
+const SCHEMA_VERSION: i64 = 16;
 
 /// Version au-delà de laquelle les évolutions passent par [`MIGRATIONS`].
 ///
@@ -157,6 +157,37 @@ const MIGRATIONS: &[Migration] = &[
                  CREATE INDEX IF NOT EXISTS dm_unread
                    ON dm_messages(peer, author, deleted, lamport);",
             )?;
+            Ok(())
+        },
+    },
+    Migration {
+        to: 16,
+        label: "horodatage du dernier changement d'état d'un contact",
+        apply: |conn| {
+            // Le blocage se propage désormais aux autres machines du compte
+            // (`CoreMsg::SelfContactState`). Départager deux changements
+            // concurrents demande de savoir QUAND l'état courant a été décidé ;
+            // sans cette date, un déblocage arrivé en retard écraserait un
+            // blocage plus récent.
+            //
+            // Colonne sur la ligne qu'elle décrit, et non table annexe :
+            // contrairement à `dm_synced`, cette date circule sur le fil et
+            // qualifie l'état lui-même. À côté, elle pourrait diverger de ce
+            // qu'elle décrit.
+            //
+            // Défaut 0 pour les contacts existants : leur état est réputé
+            // infiniment ancien, donc toute décision ultérieure le remplace.
+            // C'est le bon sens par défaut — la première décision prise après
+            // la mise à jour fait autorité.
+            if !conn
+                .prepare("SELECT state_changed_ms FROM contacts LIMIT 0")
+                .is_ok()
+            {
+                conn.execute_batch(
+                    "ALTER TABLE contacts
+                       ADD COLUMN state_changed_ms INTEGER NOT NULL DEFAULT 0;",
+                )?;
+            }
             Ok(())
         },
     },
@@ -477,7 +508,8 @@ impl Db {
                added_ms        INTEGER NOT NULL,
                last_seen_ms    INTEGER NOT NULL DEFAULT 0,
                verified_at     INTEGER,
-               verified_pubkey BLOB
+               verified_pubkey BLOB,
+               state_changed_ms INTEGER NOT NULL DEFAULT 0
              );
              CREATE TABLE IF NOT EXISTS dm_messages (
                msg_id   BLOB PRIMARY KEY,

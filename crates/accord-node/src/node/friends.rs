@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use accord_core::db::Contact;
 use accord_core::{friends, peer_addr, presence};
 use accord_crypto::{node_id_of, FriendCode};
-use accord_proto::core_msg::CoreMsg;
+use accord_proto::core_msg::{CoreMsg, CONTACT_STATE_ABSENT, CONTACT_STATE_BLOCKED};
 use serde_json::json;
 
 use crate::error::NodeError;
@@ -111,14 +111,42 @@ impl Node {
         self.with_db(|db| Ok(presence::own_presence(db)?))
     }
 
-    /// Bloque un pair.
+    /// Bloque un pair, et l'annonce aux autres machines du compte.
     pub fn friend_block(&self, peer_pubkey: &[u8; 32]) -> Result<(), NodeError> {
-        self.with_db(|db| Ok(friends::block(db, peer_pubkey, now_ms())?))
+        let at_ms = now_ms();
+        self.with_db(|db| Ok(friends::block(db, peer_pubkey, at_ms)?))?;
+        self.annoncer_etat_contact(peer_pubkey, CONTACT_STATE_BLOCKED, at_ms);
+        Ok(())
     }
 
-    /// Débloque un pair.
+    /// Débloque un pair, et l'annonce aux autres machines du compte.
     pub fn friend_unblock(&self, peer_pubkey: &[u8; 32]) -> Result<(), NodeError> {
-        self.with_db(|db| Ok(friends::unblock(db, peer_pubkey)?))
+        let at_ms = now_ms();
+        self.with_db(|db| Ok(friends::unblock(db, peer_pubkey)?))?;
+        self.annoncer_etat_contact(peer_pubkey, CONTACT_STATE_ABSENT, at_ms);
+        Ok(())
+    }
+
+    /// Annonce aux AUTRES appareils du compte qu'un contact a changé d'état.
+    ///
+    /// 🔒 Sans effet observable en cas d'échec, et c'est voulu : le blocage
+    /// local a déjà pris. Faire échouer `friend_block` parce que l'annonce n'a
+    /// pas pu partir laisserait l'utilisateur devant une erreur alors que la
+    /// protection qu'il demandait est en place sur la machine qu'il regarde.
+    /// L'autre machine rattrapera au prochain blocage, ou restera en retard —
+    /// c'est écrit dans `SECURITY.md`.
+    fn annoncer_etat_contact(&self, peer_pubkey: &[u8; 32], state: u8, at_ms: u64) {
+        self.outbound.send(Outbound::Core {
+            // Adressé au COMPTE : la couche réseau développe en un envoi par
+            // appareil joignable. Nous pouvons y figurer nous-mêmes — sans
+            // conséquence, l'application est idempotente.
+            to: self.public_key(),
+            msg: Box::new(CoreMsg::SelfContactState {
+                peer: *peer_pubkey,
+                state,
+                at_ms,
+            }),
+        });
     }
 
     /// Mémorise la dernière adresse directe connue d'un pair (carnet

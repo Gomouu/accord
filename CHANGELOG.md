@@ -6,6 +6,23 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ### Added
 
+- **Blocking someone now protects every device on the account.** It did not.
+  Blocking on the laptop left the desktop accepting that person's messages, and
+  nothing said so — the user believed the link was cut. A block promise kept on
+  one machine out of two is worse than no promise.
+
+  A block, and an unblock, now travel to the account's other devices. The
+  ordering rule is stated where it is implemented and in `SECURITY.md`: last
+  decision wins on the wall clock of the device that made it, **and ties go to
+  the block**. That asymmetry is deliberate — an unwanted block is undone with
+  one click and is visible; an unwanted unblock silently reopens a channel
+  someone closed.
+
+  Two limits are documented rather than hidden. A device that is off, or still
+  on 7.0, does not learn the block until it is reachable and upgraded. And
+  because devices order by their own clocks, a machine running minutes fast can
+  have an earlier unblock beat a later block.
+
 - **A diagnostic report you can actually send to someone.** The network panel
   gains a button that copies a technical summary — counters, network self-test,
   link states, version and platform — meant to be attached to a bug report.

@@ -1961,7 +1961,47 @@ pub enum CoreMsg {
         /// Nouveau corps si le message a été édité.
         edited: Option<Vec<u8>>,
     },
+    /// 0x20 — Changement d'état d'un contact, propagé aux AUTRES APPAREILS du
+    /// même compte (feuille de route §9.4).
+    ///
+    /// 🔒 Le blocage est une promesse de sécurité, et une promesse tenue à
+    /// moitié est pire que pas de promesse. Sans ce message, bloquer quelqu'un
+    /// depuis son portable le laisse écrire au fixe : l'utilisateur croit avoir
+    /// coupé le lien, et personne ne le détrompe.
+    ///
+    /// ⚠️ Ce message ne quitte jamais le compte. Il porte la clé d'un tiers ;
+    /// l'envoyer à qui que ce soit d'autre révélerait à la fois l'existence de
+    /// ce tiers et le jugement porté sur lui.
+    SelfContactState {
+        /// Compte du contact visé.
+        peer: [u8; 32],
+        /// Nouvel état, dans l'encodage de `ContactState` ([`CONTACT_STATE_BLOCKED`],
+        /// [`CONTACT_STATE_ABSENT`]). Toute autre valeur est rejetée au
+        /// décodage : un état inconnu appliqué au hasard sur un contrôle de
+        /// sécurité vaut moins que pas d'état du tout.
+        state: u8,
+        /// Horloge murale du changement, sur la machine qui l'a décidé.
+        ///
+        /// ⚠️ Sert à départager deux changements concurrents, et c'est la
+        /// partie fragile : deux machines d'un même compte n'ont pas la même
+        /// horloge. Un déblocage émis par une machine en avance peut donc
+        /// annuler un blocage décidé après lui. La règle d'application
+        /// (`accord_core::friends::apply_remote_state`) tranche les égalités
+        /// en faveur du blocage pour cette raison — c'est le sens le moins
+        /// coûteux quand on ne sait pas.
+        at_ms: u64,
+    },
 }
+
+/// [`CoreMsg::SelfContactState::state`] : contact bloqué.
+pub const CONTACT_STATE_BLOCKED: u8 = 0;
+
+/// [`CoreMsg::SelfContactState::state`] : contact effacé (déblocage).
+///
+/// Un déblocage n'est pas « redevenu ami » : côté cœur, il efface le contact.
+/// Propager « effacé » plutôt qu'un état d'amitié évite d'inventer une amitié
+/// sur l'autre machine à partir d'un simple déblocage.
+pub const CONTACT_STATE_ABSENT: u8 = 1;
 
 /// Portée d'une [`CoreMsg::SelfReadMark`] : conversation directe. `conv` porte
 /// alors la clé de compte du pair.
@@ -2278,6 +2318,12 @@ impl WireEncode for CoreMsg {
                 w.put_u8(u8::from(*deleted));
                 w.put_opt(edited.as_ref(), |w, e| w.put_lbytes(e));
             }
+            CoreMsg::SelfContactState { peer, state, at_ms } => {
+                w.put_u8(0x20);
+                w.put_arr(peer);
+                w.put_u8(*state);
+                w.put_u64(*at_ms);
+            }
         }
     }
 }
@@ -2527,6 +2573,19 @@ impl WireDecode for CoreMsg {
                 deleted: decode_bool(r, "self_sync.deleted")?,
                 edited: r.opt(|r| r.lbytes(MAX_BODY, "self_sync.edited"))?,
             }),
+            0x20 => Ok(CoreMsg::SelfContactState {
+                peer: r.arr()?,
+                // 🔒 Rejet strict d'un état inconnu, plutôt que le repli
+                // tolérant appliqué ailleurs aux valeurs inattendues. Ce
+                // message pilote un contrôle de sécurité : ramener un état
+                // qu'on ne comprend pas à une valeur par défaut reviendrait à
+                // choisir au hasard entre « bloqué » et « pas bloqué ».
+                state: match r.u8()? {
+                    v @ (CONTACT_STATE_BLOCKED | CONTACT_STATE_ABSENT) => v,
+                    _ => return Err(DecodeError::InvalidValue("self_contact.state")),
+                },
+                at_ms: r.u64()?,
+            }),
             _ => Err(DecodeError::InvalidValue("core kind")),
         }
     }
@@ -2650,6 +2709,33 @@ mod tests {
         // triviale entre un nom de groupe et un secret par ex.).
         let c = invite_ticket_signable_bytes(&[1; 16], &[2; 16], "Autre", &[3; 32], &[4; 32], 5);
         assert_ne!(a, c);
+    }
+
+    #[test]
+    fn self_contact_state_roundtrips_and_rejects_an_unknown_state() {
+        for state in [CONTACT_STATE_BLOCKED, CONTACT_STATE_ABSENT] {
+            let msg = CoreMsg::SelfContactState {
+                peer: [0x3B; 32],
+                state,
+                at_ms: 1_700_000_000_123,
+            };
+            let mut w = Writer::new();
+            msg.encode(&mut w);
+            let bytes = w.into_bytes();
+            // Opcode gelé : le déplacer casserait la compatibilité en silence.
+            assert_eq!(bytes.first(), Some(&0x20));
+            assert_eq!(CoreMsg::from_bytes(&bytes).unwrap(), msg);
+        }
+
+        // 🔒 Un état inconnu est REJETÉ, pas ramené à une valeur par défaut.
+        // Ce message pilote un contrôle de sécurité : deviner entre « bloqué »
+        // et « pas bloqué » est le pire des deux mondes.
+        let mut w = Writer::new();
+        w.put_u8(0x20);
+        w.put_arr(&[0x3B; 32]);
+        w.put_u8(0x7F);
+        w.put_u64(1);
+        assert!(CoreMsg::from_bytes(&w.into_bytes()).is_err());
     }
 
     #[test]

@@ -391,6 +391,19 @@ Read before recommending Accord to people whose safety depends on anonymity.
     account has, the names you gave them ("Work laptop") and when each was
     added**. Name devices accordingly.
 
+15. **Blocking is eventually consistent, and ordered by wall clocks.** Blocking
+    someone now propagates to the other devices of the account, so a block set
+    on the laptop protects the desktop too. Two limits follow from how it is
+    ordered. A device that is off, or running a release older than this one,
+    does not learn the block until it is reachable and upgraded — until then it
+    still accepts messages from that person. And concurrent decisions are
+    resolved on the wall clock of the device that made them: if one device's
+    clock runs minutes ahead, an unblock it emitted *before* a block made
+    elsewhere can still carry the larger timestamp and win. Ties go to the
+    block, because an unwanted block is undone with one click and is visible,
+    while an unwanted unblock silently reopens a channel someone closed. There
+    is no logical clock per account today.
+
 ## 6. Accepted v0 trade-offs
 
 Documented in full in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md), with

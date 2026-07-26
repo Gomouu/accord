@@ -3118,6 +3118,61 @@ async fn camera_share_methods_route_and_validate() {
 }
 
 #[tokio::test]
+async fn video_interest_routes_and_validates() {
+    let (s, _, _, _) = service_with_voice();
+    // Déclaration vide, ou absente : « je n'occulte rien » — l'état par défaut.
+    assert_eq!(
+        s.call("video.interest", json!({})).await.unwrap(),
+        json!({})
+    );
+    assert_eq!(
+        s.call("video.interest", json!({"hidden": []}))
+            .await
+            .unwrap(),
+        json!({})
+    );
+    let peer = "11".repeat(32);
+    assert_eq!(
+        s.call(
+            "video.interest",
+            json!({"hidden": [{"peer": peer, "streams": ["camera"]}]}),
+        )
+        .await
+        .unwrap(),
+        json!({})
+    );
+    // Flux inconnu : ignoré, pas refusé — une UI plus récente ne doit pas voir
+    // sa déclaration entière rejetée à cause d'un nom qu'on ne connaît pas.
+    assert_eq!(
+        s.call(
+            "video.interest",
+            json!({"hidden": [{"peer": peer, "streams": ["hologramme"]}]}),
+        )
+        .await
+        .unwrap(),
+        json!({})
+    );
+    // Clé publique invalide → erreur de paramètre.
+    assert!(s
+        .call("video.interest", json!({"hidden": [{"peer": "zz"}]}))
+        .await
+        .is_err());
+    // Type inattendu → erreur de paramètre.
+    assert!(s
+        .call("video.interest", json!({"hidden": 3}))
+        .await
+        .is_err());
+    // Plus d'entrées qu'un salon ne peut compter de participants → refusé.
+    let too_many: Vec<_> = (0..11)
+        .map(|_| json!({"peer": peer, "streams": ["camera"]}))
+        .collect();
+    assert!(s
+        .call("video.interest", json!({"hidden": too_many}))
+        .await
+        .is_err());
+}
+
+#[tokio::test]
 async fn screen_methods_require_the_subsystem() {
     let s = service();
     let err = s.call("screen.start", json!({})).await.unwrap_err();

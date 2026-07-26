@@ -661,7 +661,8 @@ block and unblock people in our address book by sending us a byte.
 
 ```
   vkind : u8   0x01 AUDIO_FRAME, 0x02 VOICE_PING, 0x03 SCREEN_FRAME,
-               0x04 SCREEN_CONTROL, 0x05 CAMERA_FRAME, 0x06 CAMERA_CONTROL
+               0x04 SCREEN_CONTROL, 0x05 CAMERA_FRAME, 0x06 CAMERA_CONTROL,
+               0x07 VIDEO_INTEREST
 
 AUDIO_FRAME    { room: bytes<16>, media_type: u8 (0x01=opus-audio),
                  seq: u16, ts_ms: u32, payload: vbytes (20 ms Opus frame) }
@@ -687,6 +688,60 @@ CAMERA_CONTROL { room: bytes<16>, on: u8(0|1) }                // since 6.0
   simultaneous messages are wrong for real time.
 - A room's video stops on `*_CONTROL{on: 0}`, and also on a prolonged absence of
   frames: a sender that vanishes never sends the off switch.
+- An unknown `vkind` is rejected cleanly (the datagram is dropped), which is what
+  makes adding a kind backward compatible.
+
+### 8.1 Video (screen share and camera)
+
+```
+  SCREEN_FRAME  { room: bytes<16>, frame_id: u32, frag_count: u16,
+                  frag_idx: u16, flags: u8, payload: vbytes (≤ 1200 B) }
+  SCREEN_CONTROL{ room: bytes<16>, on: u8 (0/1) }
+  CAMERA_FRAME  { same fields as SCREEN_FRAME }
+  CAMERA_CONTROL{ room: bytes<16>, on: u8 (0/1) }
+```
+
+- Two independent streams: one peer may share a screen **and** show a camera in
+  the same session. Distinct kinds rather than a flag on one kind, so that a peer
+  which knows only the screen stream rejects a camera frame instead of feeding it
+  to its screen viewer.
+- `flags` bit 0 = keyframe (independently decodable picture).
+- Each encoded video frame is split into slices ≤ 1200 B, one per UDP datagram
+  (never re-fragmented by the transport). The receiver reassembles by `frame_id`
+  and keeps only the most recent frame: an incomplete frame is abandoned as soon
+  as a newer one arrives, and a lost fragment drops the frame — the next keyframe
+  recovers. Best effort, no retransmission.
+- `*_CONTROL` announces the start/stop of a stream. Ephemeral like everything on
+  this channel; a stop is also inferred from a prolonged absence of frames.
+- `room` is the `call_id` of a 1-to-1 call, or the `channel_id` of a group voice
+  room (video is sent full mesh there, like audio).
+
+### 8.2 Selective video
+
+```
+  VIDEO_INTEREST{ room: bytes<16>, hidden: u8 }
+                  hidden bit 0 = camera, bit 1 = screen
+```
+
+- Sent by a **receiver** to **one sender**, and it speaks only about that
+  sender's streams: `hidden` lists the streams the receiver is **not** currently
+  displaying. The sender stops emitting them, which saves both upstream bandwidth
+  and the receiver's decoding — at 10 participants each peer would otherwise emit
+  9 streams, most of which are never painted.
+- **Negative** mask by design. Silence, an empty mask, an unknown peer or an
+  expired declaration all mean "send me everything": a peer that says nothing
+  (older build, lost datagram, UI not yet rendered) keeps receiving video. An
+  unknown future stream kind can never appear in a `hidden` mask, so it is always
+  sent — a new kind costs bandwidth, never a black tile. Unknown bits are ignored.
+- **Soft state**: a declaration expires 10 s after reception; the receiver
+  reaffirms non-zero masks every 3 s for as long as it hides something. A lost
+  "show it again" message therefore costs at most one expiry of delay. Returning
+  to full display also sends an explicit `hidden = 0` for immediate recovery.
+- `*_CONTROL` announces are **never** filtered by this mechanism: they are what
+  makes a tile appear at the receiver, so filtering them would trap a peer inside
+  its own mask (it would never learn a camera just turned on).
+- A declaration is only honoured from a participant of the active room, on the
+  active `room` — a third party cannot switch off someone else's video.
 
 ## 9. Files (channel 0x04)
 

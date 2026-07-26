@@ -131,6 +131,57 @@ export function pushRemoteFrame(
   if (bytes !== null) playbackFor(peer, source).push(keyframe, bytes);
 }
 
+/** Ce qu'un pair nous envoie et que l'on n'affiche pas, tel que déclaré. */
+export interface HiddenStreams {
+  peer: string;
+  streams: VideoSource[];
+}
+
+/**
+ * Dernière déclaration transmise au nœud, sérialisée. La grille se re-rend à
+ * chaque trame reçue (12–24 fois par seconde) : sans ce garde, on enverrait
+ * une requête RPC par image, ce qui coûterait plus cher que le trafic
+ * économisé. Le nœud filtre lui aussi les non-changements — ceci évite en
+ * amont l'aller-retour.
+ */
+let lastDeclared = '';
+
+const declarationKey = (hidden: readonly HiddenStreams[]): string =>
+  hidden
+    .map(({ peer, streams }) => `${peer}:${[...streams].sort().join(',')}`)
+    .sort()
+    .join('|');
+
+/**
+ * Vidéo sélective : déclare aux émetteurs ce que l'on n'affiche pas d'eux.
+ *
+ * Sémantique NÉGATIVE de bout en bout : ce qui n'est pas listé continue
+ * d'arriver. Un flux qui vient d'apparaître n'est jamais dans la liste (l'UI ne
+ * peut pas masquer ce qu'elle ignore), donc il arrive tout de suite — la
+ * première image ne paie aucun aller-retour.
+ */
+export function declareHidden(hidden: readonly HiddenStreams[]): void {
+  const key = declarationKey(hidden);
+  if (key === lastDeclared) return;
+  lastDeclared = key;
+  // Best-effort : un échec laisse l'émetteur envoyer tout, comme avant.
+  void api.videoInterest(hidden).catch(() => {
+    // La déclaration repartira au prochain changement d'affichage.
+    lastDeclared = '';
+  });
+}
+
+/**
+ * Oublie la dernière déclaration (fin de session). Le moteur oublie ses masques
+ * en quittant : sans ce reset, l'UI croirait avoir déjà déclaré et le nœud
+ * resterait à « rien de masqué ». Sans conséquence visible — c'est l'ancien
+ * comportement, tout le monde reçoit tout — mais l'économie serait perdue
+ * jusqu'au prochain changement d'affichage.
+ */
+export function resetDeclaration(): void {
+  lastDeclared = '';
+}
+
 /** Fin d'un flux distant : ferme et oublie la visionneuse concernée. */
 export function resetRemote(peer: string, source: VideoSource): void {
   const key = keyOf(peer, source);
@@ -150,6 +201,7 @@ export function resetPeer(peer: string): void {
 export function resetAllRemote(): void {
   for (const playback of playbacks.values()) playback.close();
   playbacks.clear();
+  resetDeclaration();
 }
 
 /** Fin d'appel : coupe toute capture locale encore active. */

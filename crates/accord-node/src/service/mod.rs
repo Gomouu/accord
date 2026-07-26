@@ -89,6 +89,7 @@ impl Service for NodeService {
             || method.starts_with("calls.")
             || method.starts_with("screen.")
             || method.starts_with("camera.")
+            || method.starts_with("video.")
         {
             return self
                 .call_voice(method, &params)

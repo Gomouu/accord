@@ -2480,6 +2480,18 @@ export class Api {
   }
 
   /**
+   * Vidéo sélective (v6.2) : déclare à chaque émetteur lesquels de SES flux on
+   * n'affiche PAS, pour qu'il cesse de les envoyer. Un émetteur absent de la
+   * liste, ou une liste vide, veut dire « j'affiche tout » — ne rien déclarer
+   * conserve donc exactement l'ancien comportement.
+   */
+  videoInterest(
+    hidden: readonly { peer: string; streams: readonly string[] }[],
+  ): Promise<Record<string, never>> {
+    return this.rpc.call('video.interest', { hidden });
+  }
+
+  /**
    * Force la sourdine (`mute`) et/ou la surdité (`deafen`) d'un membre dans
    * tous les salons vocaux du groupe (permission `KICK`, hiérarchie de rôles,
    * fondateur intouchable — vérifié côté nœud). Absents = `false` ;

@@ -1090,7 +1090,9 @@ impl Runtime {
                 }
                 Err(e) => tracing::debug!(
                     ami = %crate::hex::encode(&to[..4]),
-                    %addr,
+                    // 🔒 Hôte masqué : l'adresse d'un ami est la donnée d'un
+                    // tiers, et ce journal est fait pour être envoyé.
+                    ami_addr = %accord_transport::endpoint::masque_hote(&addr),
                     erreur = %e,
                     "envoi direct impossible"
                 ),

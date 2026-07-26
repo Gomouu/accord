@@ -978,7 +978,7 @@ export const es: Dict = {
     reportFailed: 'No se pudo generar el informe.',
     logTitle: 'Registro de diagnóstico',
     logHint:
-      'El archivo accord.log de esta carpeta registra el funcionamiento de la aplicación. No contiene el contenido de ningún mensaje. Sí puede contener identificadores técnicos de tus contactos: trátalo como tu libreta de direcciones.',
+      'El archivo accord.log de esta carpeta registra el funcionamiento de la aplicación. No contiene el contenido de los mensajes ni las direcciones IP de tus contactos: los pares aparecen como un prefijo corto de su clave, suficiente para seguir un intercambio, no para localizarlos. Puedes adjuntarlo a un informe de error.',
     logCopyPath: 'Copiar la ruta',
     logLevel: 'Nivel',
   },

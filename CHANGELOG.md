@@ -29,12 +29,17 @@ All notable changes to Accord. This project follows [semantic versioning](https:
   and the network answer each other. The log level can be switched between
   `info` and `debug` from the network panel without restarting.
 
-  What the log does **not** yet guarantee is stated in the app rather than
-  glossed over: it carries no message content, but the pass over existing
-  `tracing::` calls has not been done, and several of them log peer
-  identifiers on the assumption that a developer reads them locally. The help
-  text tells the user to treat the file like their address book, because that
-  is what is true today.
+  It is also safe to send, and that was checked rather than claimed. Peer keys
+  were already truncated to four bytes everywhere — a convention that existed
+  and held. Peer *addresses* were not: five sites logged a friend's IP in full,
+  which is third-party data, exactly what the diagnostic report refuses to
+  carry. Those now keep the port and lose the host, for the same reason as
+  there: the port is what diagnoses a NAT, the host is where someone lives. A
+  test pins the rule, including that IPv6 is not mangled by a textual split.
+
+  So the log holds no message content and no friend IP addresses. Peers appear
+  as a short key prefix — enough to follow one exchange, not enough to find
+  anybody.
 
   Two things it does not do, deliberately. There is no "open folder" button:
   no Tauri opener plugin is installed, and adding one — or spawning a system

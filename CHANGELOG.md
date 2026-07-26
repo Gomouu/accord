@@ -34,6 +34,16 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ### Internal
 
+- **The frontend suite no longer depends on which Node you happen to run.**
+  On Node 26, 260 of the 2 105 tests failed at `window.localStorage.clear()`
+  with "cannot read properties of undefined". Node 22 and later define their own
+  global `localStorage` accessor, which returns `undefined` unless
+  `--localstorage-file` is passed, and it shadows the one jsdom installs. The
+  giveaway was that `sessionStorage` — which Node does not define — kept
+  working. CI is pinned to Node 22 and saw nothing; it would have broken the day
+  that pin moved. The test setup now installs an explicit in-memory store
+  instead of relying on which of jsdom or Node wins the property.
+
 - **Opening a conversation with 100 000 messages: 0.92 ms, measured.** The
   performance budget said "< 300 ms, to be instrumented", which meant nothing
   held it. There is now a benchmark (`cargo bench -p accord-node --bench

@@ -21,6 +21,14 @@ RACINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$RACINE"
 export PATH="$HOME/.cargo/bin:$PATH"
 
+# audiopus_sys embarque un CMakeLists ancien ; CMake >= 4 refuse désormais son
+# `cmake_minimum_required`. Le build universel N'A PAS d'échappatoire par
+# pkg-config : Homebrew ne fournit libopus que pour l'architecture native, donc
+# la seconde tranche du binaire universel passe forcément par le Opus embarqué,
+# donc par CMake. Sans cette variable, le build échoue sur une machine à jour —
+# c'est la même que celle posée par `.github/workflows/ci.yml`.
+export CMAKE_POLICY_VERSION_MINIMUM="${CMAKE_POLICY_VERSION_MINIMUM:-3.5}"
+
 # Cible de compilation : universelle par défaut.
 CIBLE="${ACCORD_CIBLE:-universal-apple-darwin}"
 

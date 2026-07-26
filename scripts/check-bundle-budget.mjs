@@ -1,5 +1,5 @@
 /**
- * Fails when the initial JavaScript chunk exceeds its budget.
+ * Fails when the initial JavaScript or CSS chunk exceeds its budget.
  *
  * The budget guards a trajectory, not a number: every feature adds to the
  * entry chunk unless it is deliberately split, and nothing in the build output
@@ -32,6 +32,23 @@ import { join } from 'node:path';
  */
 const ENTRY_BUDGET = 140 * 1024;
 
+/**
+ * Gzipped ceiling for the entry stylesheet, in bytes.
+ *
+ * ROADMAP §10.2 has carried a 50 kB CSS budget since the beginning with nothing
+ * enforcing it. Measured on 2026-07-27: 33.2 kB, against 34.5 kB when the budget
+ * was written — so no drift, and this check is a guard rail rather than a fix.
+ *
+ * It measures the entry stylesheet ALONE, not the sum of every .css file. Nine
+ * of the ten stylesheets in the build are lazy chunks — decorations, animated
+ * profiles, the Appearance tab — that a session may never load. Summing them
+ * would make the number grow every time a stylesheet is correctly split out,
+ * which is to say it would penalise exactly the thing the budget exists to
+ * encourage. (The sum is 48.9 kB today; read as a total it looks like a
+ * near-breach, and it means nothing.)
+ */
+const CSS_BUDGET = 50 * 1024;
+
 const assets = join(process.cwd().endsWith('/app') ? '.' : 'app', 'dist', 'assets');
 
 let files;
@@ -62,3 +79,25 @@ if (gzipped > ENTRY_BUDGET) {
 }
 
 console.log(`bundle-budget: entry chunk ${kb(gzipped)} gzipped (budget ${kb(ENTRY_BUDGET)})`);
+
+// The entry stylesheet is the one Vite links from index.html; the rest are lazy.
+const css = files.find((name) => /^index-.*\.css$/.test(name));
+if (css === undefined) {
+  console.error('bundle-budget: no index-*.css entry stylesheet in the build output');
+  process.exit(1);
+}
+
+const cssGzipped = gzipSync(readFileSync(join(assets, css))).length;
+
+if (cssGzipped > CSS_BUDGET) {
+  console.error(
+    `bundle-budget: entry stylesheet is ${kb(cssGzipped)} gzipped, over the ${kb(CSS_BUDGET)} budget.\n` +
+      'Move the offending styles into the lazy chunk of the screen that needs them,\n' +
+      'the way decorations and animated profiles already are.',
+  );
+  process.exit(1);
+}
+
+console.log(
+  `bundle-budget: entry stylesheet ${kb(cssGzipped)} gzipped (budget ${kb(CSS_BUDGET)})`,
+);

@@ -25,6 +25,7 @@ pub use messages::{DmRecord, GroupMsgRecord};
 pub use outbox::OutboxItem;
 pub use reminders::Reminder;
 pub use scheduled::ScheduledMessage;
+pub use search::{SearchCandidate, SearchScope};
 pub use stats::StorageStats;
 
 use crate::error::CoreError;
@@ -38,7 +39,7 @@ use std::path::Path;
 /// la version suffit pour créer les nouvelles tables sur une base existante.
 /// Modifier des colonnes existantes exige en revanche une vraie migration —
 /// voir [`MIGRATIONS`].
-const SCHEMA_VERSION: i64 = 14;
+const SCHEMA_VERSION: i64 = 15;
 
 /// Version au-delà de laquelle les évolutions passent par [`MIGRATIONS`].
 ///
@@ -120,6 +121,41 @@ const MIGRATIONS: &[Migration] = &[
                 "CREATE TABLE IF NOT EXISTS dm_synced (
                    msg_id BLOB PRIMARY KEY
                  );",
+            )?;
+            Ok(())
+        },
+    },
+    Migration {
+        // 🔒 15, et non 14 comme sur la branche d'origine : la 14 est *déjà
+        // publiée*, avec un tout autre contenu (`dm_synced`, livré par la
+        // 7.0.0). Renuméroter est le seul choix correct — garder 14 aurait
+        // laissé toute base déjà passée en 7.0 se déclarer à jour et ne
+        // recevoir aucun de ces index, en silence et pour toujours. C'est la
+        // règle énoncée en tête de `MIGRATIONS`, appliquée à la lettre.
+        to: 15,
+        label: "index de récence et de non-lus (gros historiques)",
+        apply: |conn| {
+            // Mesuré sur 100 000 messages (voir `accord-node/benches/history.rs`) :
+            // la recherche et le compteur de non-lus étaient les deux seuls chemins
+            // dont le coût suivait la TAILLE de l'historique et non celle de la
+            // réponse. Chacun manquait l'index qui aurait borné son travail.
+            //
+            // `*_by_sent` : la recherche rend les résultats les plus récents
+            // d'abord. Sans index de récence, en trouver mille exigeait de lire et
+            // de trier l'historique entier.
+            //
+            // `dm_unread` : couvrant, dans l'ordre exact du prédicat de
+            // `count_dm_unread` (pair, auteur, tombstone, horloge). L'index
+            // `dm_by_peer` ne portant ni l'auteur ni le tombstone, chaque comptage
+            // devait relire une ligne de table par message non lu.
+            //
+            // Création d'index seulement : aucune table n'est réécrite, rien à
+            // remplir, et `IF NOT EXISTS` rend l'étape rejouable.
+            conn.execute_batch(
+                "CREATE INDEX IF NOT EXISTS dm_by_sent   ON dm_messages(sent_ms);
+                 CREATE INDEX IF NOT EXISTS gmsg_by_sent ON group_messages(sent_ms);
+                 CREATE INDEX IF NOT EXISTS dm_unread
+                   ON dm_messages(peer, author, deleted, lamport);",
             )?;
             Ok(())
         },
@@ -971,6 +1007,59 @@ mod tests {
             assert!(!m.label.is_empty());
         }
         assert_eq!(SCHEMA_VERSION, attendu);
+    }
+
+    #[test]
+    fn une_base_7_0_recoit_les_index_de_gros_historiques() {
+        // 🔒 Le scénario exact que la renumérotation de l'étape 15 protège.
+        //
+        // La 7.0.0 est publiée : des bases réelles sont arrêtées au schéma 14.
+        // Si l'étape des index avait gardé le numéro 14 de sa branche
+        // d'origine, ces bases se seraient déclarées à jour et n'auraient
+        // jamais reçu les index — sans erreur, sans trace, et pour toujours.
+        // Le seul symptôme aurait été une recherche restée lente chez les
+        // utilisateurs existants, et rapide chez les nouveaux.
+        //
+        // Le registre est vérifié par ailleurs (numéros croissants) ; ce qui
+        // manque, c'est la preuve que le pas 14 → 15 fait bien le travail.
+        const INDEX_ATTENDUS: [&str; 3] = ["dm_by_sent", "gmsg_by_sent", "dm_unread"];
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("core.db");
+        let db_key = key(15);
+        Db::open(&path, &db_key).unwrap();
+
+        // Fabrique une base « telle que la 7.0.0 la laissait » : les index
+        // retirés, la version ramenée à 14. Les retirer est le cœur du test —
+        // rembobiner seulement la version laisserait les index en place et le
+        // test passerait quoi qu'il arrive.
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key(&db_key)))
+                .unwrap();
+            for nom in INDEX_ATTENDUS {
+                conn.execute_batch(&format!("DROP INDEX IF EXISTS {nom};"))
+                    .unwrap();
+            }
+            conn.execute_batch("PRAGMA user_version = 14;").unwrap();
+        }
+
+        let db = Db::open(&path, &db_key).expect("migration d'une base 7.0");
+        assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
+        for nom in INDEX_ATTENDUS {
+            let present: i64 = db
+                .conn
+                .query_row(
+                    "SELECT count(*) FROM sqlite_master
+                     WHERE type = 'index' AND name = ?1",
+                    [nom],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                present, 1,
+                "l'index {nom} manque après la migration 14 → 15"
+            );
+        }
     }
 
     #[test]

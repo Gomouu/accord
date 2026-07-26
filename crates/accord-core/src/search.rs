@@ -13,7 +13,7 @@ use hmac::digest::KeyInit;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
-use crate::db::Db;
+use crate::db::{Db, SearchCandidate};
 use crate::error::CoreError;
 
 /// Longueur minimale d'un mot indexé (élimine le bruit).
@@ -85,13 +85,33 @@ pub fn reindex_message(
     index_message(db, search_key, msg_id, new_text)
 }
 
-/// Messages contenant tous les mots de `query` (intersection).
+/// Messages contenant tous les mots de `query` (intersection), sans borne.
+///
+/// Primitive complète : elle rend TOUS les messages qui portent les mots. Le
+/// chemin utilisateur passe par [`search_recent`], qui borne le travail — sur un
+/// mot fréquent d'un gros historique, « tous » se compte en dizaines de
+/// milliers.
 pub fn search(db: &Db, search_key: &[u8; 32], query: &str) -> Result<Vec<[u8; 16]>, CoreError> {
     let tokens = hashed_tokens(search_key, query);
     if tokens.is_empty() {
         return Ok(Vec::new());
     }
     db.search_tokens(&tokens)
+}
+
+/// Les `cap` candidats les plus récents pour `query`, hydratés (conversation,
+/// auteur, horloges, corps). Une requête sans mot rend simplement les `cap`
+/// messages les plus récents : c'est le cas d'une recherche qui ne porte que
+/// des filtres (`from:`, `has:`…), résolus par l'appelant.
+///
+/// ⚠️ Borné : voir [`Db::search_candidates`] pour ce que la borne écarte.
+pub fn search_recent(
+    db: &Db,
+    search_key: &[u8; 32],
+    query: &str,
+    cap: usize,
+) -> Result<Vec<SearchCandidate>, CoreError> {
+    db.search_candidates(&hashed_tokens(search_key, query), cap)
 }
 
 // ---- Grammaire de recherche filtrée (SPEC §9, résolution côté nœud) ----

@@ -44,6 +44,9 @@ hardware = ["accord-voice/hardware"]
 tempfile = "3"
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
+# Déjà utilisé par les bancs d'accord-core : aucune dépendance nouvelle pour
+# la chaîne d'approvisionnement, seulement un second crate qui s'en sert.
+criterion = "0.5"
 
 [[bin]]
 name = "accord-noded"
@@ -52,3 +55,7 @@ path = "src/bin/accord-noded.rs"
 [[bin]]
 name = "accord-bootstrap"
 path = "src/bin/accord-bootstrap.rs"
+
+[[bench]]
+name = "history"
+harness = false

@@ -6,6 +6,25 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ### Added
 
+- **The server audit log can leave the app.** The log itself was already
+  there — every moderation action is an entry in the group's signed op-log,
+  with its author and its timestamp, and the Audit tab has been rendering it
+  for a while. What was missing was the one word the roadmap underlines:
+  *exportable*. A button now copies it as a Markdown table.
+
+  It re-walks the pages from the beginning rather than exporting what is on
+  screen: the tab only shows what the moderator scrolled through, and an export
+  that stops where someone's eye stopped is not a register. It is bounded at
+  500 entries, and **says so inside the file** when the bound bites — an
+  incomplete register that does not admit it is worse than a short one, because
+  the reader concludes nothing happened before.
+
+  Unlike the diagnostic report, this export keeps names and details. That is
+  not an inconsistency: this is the server's own register, for its own
+  moderators, and an anonymised register is useless. The reasoning is written
+  where the formatter lives so nobody has to guess which of the two patterns to
+  copy.
+
 - **Blocking someone now protects every device on the account.** It did not.
   Blocking on the laptop left the desktop accepting that person's messages, and
   nothing said so — the user believed the link was cut. A block promise kept on

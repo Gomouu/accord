@@ -8,6 +8,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { interpolate } from '../../i18n';
 import type { Dict } from '../../i18n';
 import { api } from '../../lib/client';
+import { buildAuditExport } from '../../lib/auditExport';
+import { copyToClipboard } from '../../lib/clipboard';
 import type { AuditEntry, GroupStateJson } from '../../lib/api';
 import { formatTimestamp, shortId } from '../../lib/format';
 import { avatarDecorationOf, displayNameOf, useFriends } from '../../stores/friends';
@@ -19,6 +21,17 @@ import { messageOf } from './controls';
 
 /** Page size of the audit log (node caps at 100). */
 const AUDIT_PAGE = 50;
+
+/**
+ * Borne de l'export, en entrées.
+ *
+ * Un serveur ancien peut porter des dizaines de milliers d'opérations, et les
+ * tirer toutes tiendrait la base pendant tout ce temps. La borne est annoncée
+ * DANS le fichier produit quand elle mord : un registre incomplet qui ne le
+ * dit pas est pire qu'un registre court, parce que le lecteur en conclut
+ * qu'il n'y a rien eu avant.
+ */
+const AUDIT_EXPORT_MAX = 500;
 
 /** i18n template of each op kind (see `groups.audit` in API.md). */
 const KIND_LABELS: Record<string, (t: Dict) => string> = {
@@ -138,12 +151,88 @@ export function ServerAuditTab({ groupId }: { groupId: string }) {
     void loadPage();
   }, [loadPage]);
 
+  const [exportEnCours, setExportEnCours] = useState(false);
+
+  /**
+   * Copie le journal complet (borné) en Markdown.
+   *
+   * Refait la pagination depuis le début plutôt que d'exporter ce qui est
+   * affiché : l'onglet ne montre que ce que l'utilisateur a déroulé, et un
+   * export qui s'arrête là où le regard s'est arrêté n'est pas un registre.
+   */
+  const exporter = async (): Promise<void> => {
+    if (exportEnCours) return;
+    setExportEnCours(true);
+    try {
+      const toutes: AuditEntry[] = [];
+      let avant: string | undefined;
+      let tronque = false;
+      for (;;) {
+        const { entries: page } = await api.groupsAudit(groupId, avant, AUDIT_PAGE);
+        toutes.push(...page);
+        const dernier = page[page.length - 1];
+        if (page.length < AUDIT_PAGE || dernier === undefined) break;
+        if (toutes.length >= AUDIT_EXPORT_MAX) {
+          tronque = true;
+          break;
+        }
+        avant = dernier.op_id;
+      }
+      const markdown = buildAuditExport(
+        toutes.map((e) => ({
+          actor: nameOf(e.author),
+          action: describeEntry(t, e, state, nameOf),
+          at: formatTimestamp(e.wall_ms, lang),
+        })),
+        {
+          heading: interpolate(t.serveur.auditExportHeading, {
+            server: state?.name ?? '',
+          }),
+          subtitle: interpolate(t.serveur.auditExportSubtitle, {
+            count: String(toutes.length),
+          }),
+          empty: t.serveur.auditEmpty,
+          columnAt: t.serveur.auditExportColumnAt,
+          columnActor: t.serveur.auditExportColumnActor,
+          columnAction: t.serveur.auditExportColumnAction,
+          truncated: tronque
+            ? interpolate(t.serveur.auditExportTruncated, {
+                max: String(AUDIT_EXPORT_MAX),
+              })
+            : null,
+        },
+      );
+      // `copyToClipboard` est best-effort : le presse-papiers peut être
+      // refusé (environnement restreint). L'échec se dit, il ne se tait pas —
+      // sinon l'utilisateur croit tenir son registre et n'a rien.
+      copyToClipboard(
+        markdown,
+        () => toast('success', t.serveur.auditExportDone),
+        () => toast('error', errorLabel),
+      );
+    } catch (e) {
+      toast('error', messageOf(e, errorLabel));
+    } finally {
+      setExportEnCours(false);
+    }
+  };
+
   const oldest = entries[entries.length - 1];
 
   return (
     <div>
       {entries.length === 0 && !loading && (
         <p className="text-sm text-muted">{t.serveur.auditEmpty}</p>
+      )}
+      {entries.length > 0 && (
+        <button
+          type="button"
+          disabled={exportEnCours}
+          onClick={() => void exporter()}
+          className="mb-3 rounded-lg bg-rail px-4 py-2 text-sm font-medium text-norm transition-colors duration-fast hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple disabled:opacity-50"
+        >
+          {t.serveur.auditExport}
+        </button>
       )}
       <ol className="m-0 list-none p-0">
         {entries.map((entry) => {

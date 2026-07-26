@@ -940,6 +940,11 @@ export const pt: Dict = {
     countersRelay: 'Circuitos de retransmissão (abertos/falhados)',
     countersReconnect: 'Religações (conseguidas/tentadas)',
     countersMailbox: 'Caixas de correio (depósitos/levantamentos)',
+    reportButton: 'Copiar um relatório de diagnóstico',
+    reportHint:
+      'Copia para a área de transferência um resumo técnico para anexar a um relatório de erro: contadores, autoteste de rede e estado das ligações. Não contém mensagens, nem códigos de amigo, nem os endereços IP dos teus amigos — podes partilhá-lo sem risco.',
+    reportCopied: 'Relatório de diagnóstico copiado.',
+    reportFailed: 'Não foi possível gerar o relatório.',
   },
   errors: {
     sendFailed: 'Falha no envio',

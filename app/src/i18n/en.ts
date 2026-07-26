@@ -953,6 +953,11 @@ export const en: Dict = {
     countersRelay: 'Relay circuits (open/failed)',
     countersReconnect: 'Reconnections (ok/attempted)',
     countersMailbox: 'Mailboxes (deposits/pickups)',
+    reportButton: 'Copy a diagnostic report',
+    reportHint:
+      "Copies a technical summary to the clipboard, to attach to a bug report: counters, network self-test and link states. It contains no messages, no friend codes and none of your friends' IP addresses — it is safe to share.",
+    reportCopied: 'Diagnostic report copied.',
+    reportFailed: 'Could not produce the report.',
   },
   errors: {
     sendFailed: 'Failed to send',

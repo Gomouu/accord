@@ -241,6 +241,279 @@ pub struct SelfTestReport {
     pub reachability: Reachability,
 }
 
+/// Un lien vers un ami, **débarrassé de tout ce qui désigne cet ami**.
+///
+/// Voir [`bug_report`] pour la règle et pourquoi elle existe.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RedactedLink {
+    /// Numéro d'ordre dans la liste, seule façon de distinguer deux liens.
+    /// Il ne vaut que pour ce rapport : rien ne le rattache à un ami.
+    pub peer: usize,
+    /// Session active.
+    pub live: bool,
+    /// Nature du lien (direct, relayé, aucun).
+    pub transport: super::network::LinkTransport,
+    /// Relais qui héberge le tunnel, s'il y en a un. **Conservé** : c'est
+    /// l'adresse d'un nœud relais, pas celle de l'ami.
+    pub relay: Option<String>,
+    /// Âge du dernier trafic entrant (ms).
+    pub last_recv_age_ms: Option<u64>,
+    /// Dernier aller-retour keep-alive mesuré (ms).
+    pub rtt_ms: Option<u64>,
+    /// Capacités annoncées par le pair (bitmask).
+    pub capabilities: u32,
+}
+
+/// Auto-test réseau dont l'adresse publique locale est masquée.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RedactedSelfTest {
+    /// Port UDP P2P lié.
+    pub p2p_port: u16,
+    /// Nature du NAT local.
+    pub nat_kind: NatKind,
+    /// Méthode de mapping de port active.
+    pub port_mapping: PortMappingMethod,
+    /// Adresse externe du mapping, hôte masqué, port conservé.
+    pub external_addr: Option<String>,
+    /// Consensus d'adresse publique, hôte masqué, port conservé.
+    pub observed_consensus: Option<String>,
+    /// Nœuds dans la table de routage DHT.
+    pub dht_nodes: usize,
+    /// Pairs dont une session a été apprise.
+    pub connected_peers: usize,
+    /// Éligibilité relais.
+    pub relay_eligible: bool,
+    /// Sondes des pairs d'amorçage. **Conservées telles quelles** : ce sont
+    /// des adresses d'infrastructure, que l'utilisateur a lui-même saisies.
+    pub bootstrap: Vec<ProbeResult>,
+    /// Sonde du relais candidat, même raison.
+    pub relay_probe: Option<ProbeResult>,
+    /// Verdict de joignabilité.
+    pub reachability: Reachability,
+}
+
+/// Rapport de diagnostic destiné à être **joint à un rapport de bug**.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BugReport {
+    /// Version de l'application qui a produit le rapport.
+    pub version: &'static str,
+    /// Système et architecture (`macos/aarch64`).
+    pub platform: String,
+    /// Compteurs réseau depuis le démarrage.
+    pub counters: CountersSnapshot,
+    /// Auto-test, caviardé.
+    pub selftest: RedactedSelfTest,
+    /// Liens vers les amis, caviardés.
+    pub links: Vec<RedactedLink>,
+}
+
+/// Masque l'hôte d'une adresse `hôte:port` en gardant le port.
+///
+/// Le port est ce qui sert au diagnostic NAT — savoir que le mapping externe
+/// tombe sur un port différent du port local est précisément l'information
+/// utile. L'hôte, lui, est l'adresse IP publique de la machine : dans un
+/// fichier que l'utilisateur envoie à un inconnu, elle n'a rien à faire.
+fn masquer_hote(addr: &str) -> String {
+    // IPv6 littéral : `[::1]:443`. Le dernier `:` sépare toujours le port.
+    match addr.rfind(':') {
+        Some(i) => format!("masqué:{}", &addr[i + 1..]),
+        None => "masqué".to_string(),
+    }
+}
+
+/// Assemble le rapport de bug à partir de l'état brut — **fonction pure**,
+/// donc éprouvable sans monter le moindre nœud.
+///
+/// 🔒 **Ce qui ne doit jamais y entrer, et pourquoi.**
+///
+/// Ce rapport a une seule raison d'exister : être envoyé à quelqu'un d'autre.
+/// C'est le seul endroit de l'application où des données locales partent
+/// délibérément — tout le reste du produit est construit pour que rien ne
+/// sorte. Il doit donc être sûr à partager par construction, pas par la
+/// prudence de celui qui l'envoie.
+///
+/// Deux champs de [`super::network::PeerLink`] sont écartés sans discussion :
+///
+/// - `pubkey` est la clé publique de l'ami, c'est-à-dire **son code ami**.
+///   Un rapport qui la porte livre le carnet d'adresses de l'utilisateur à qui
+///   le reçoit, et permet de recouper deux rapports pour établir que deux
+///   personnes se connaissent.
+/// - `addr` est l'**adresse IP de l'ami**. Ce n'est pas la donnée de
+///   l'utilisateur : c'est celle d'un tiers, qui n'a rien demandé et à qui on
+///   ne peut pas poser la question.
+///
+/// Ce qui reste est conservé délibérément : les adresses d'amorçage et de
+/// relais sont de l'infrastructure publique, saisie par l'utilisateur
+/// lui-même, et sans elles un problème de relais n'est pas diagnosticable.
+/// L'adresse publique de la machine locale, elle, est masquée jusqu'au port.
+pub fn bug_report(
+    counters: CountersSnapshot,
+    selftest: SelfTestReport,
+    links: &[super::network::PeerLink],
+) -> BugReport {
+    BugReport {
+        version: env!("CARGO_PKG_VERSION"),
+        platform: format!("{}/{}", std::env::consts::OS, std::env::consts::ARCH),
+        counters,
+        selftest: RedactedSelfTest {
+            p2p_port: selftest.p2p_port,
+            nat_kind: selftest.nat_kind,
+            port_mapping: selftest.port_mapping,
+            external_addr: selftest.external_addr.as_deref().map(masquer_hote),
+            observed_consensus: selftest.observed_consensus.as_deref().map(masquer_hote),
+            dht_nodes: selftest.dht_nodes,
+            connected_peers: selftest.connected_peers,
+            relay_eligible: selftest.relay_eligible,
+            bootstrap: selftest.bootstrap,
+            relay_probe: selftest.relay_probe,
+            reachability: selftest.reachability,
+        },
+        links: links
+            .iter()
+            .enumerate()
+            .map(|(i, l)| RedactedLink {
+                peer: i + 1,
+                live: l.live,
+                transport: l.transport,
+                relay: l.relay.clone(),
+                last_recv_age_ms: l.last_recv_age_ms,
+                rtt_ms: l.rtt_ms,
+                capabilities: l.capabilities,
+            })
+            .collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests_rapport {
+    use super::*;
+    use crate::node::network::{LinkTransport, PeerLink};
+
+    /// Clé publique d'un ami, en hexadécimal, telle que `PeerLink` la porte.
+    const CLE_AMI: &str = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+    /// Adresse directe d'un ami : la donnée d'un tiers.
+    const IP_AMI: &str = "198.51.100.42:51820";
+    /// Adresse publique de la machine locale.
+    const IP_LOCALE: &str = "203.0.113.7:41234";
+
+    fn lien() -> PeerLink {
+        PeerLink {
+            pubkey: CLE_AMI.to_string(),
+            live: true,
+            addr: Some(IP_AMI.to_string()),
+            transport: LinkTransport::Relay,
+            relay: Some("192.0.2.10:4242".to_string()),
+            last_recv_age_ms: Some(1_200),
+            rtt_ms: Some(38),
+            last_delivery_ms: Some(1_700_000_000_000),
+            capabilities: 0b101,
+        }
+    }
+
+    fn autotest() -> SelfTestReport {
+        SelfTestReport {
+            p2p_port: 40_000,
+            nat_kind: NatKind::Cone,
+            port_mapping: PortMappingMethod::Upnp,
+            external_addr: Some(IP_LOCALE.to_string()),
+            observed_consensus: Some(IP_LOCALE.to_string()),
+            dht_nodes: 12,
+            connected_peers: 3,
+            relay_eligible: false,
+            bootstrap: vec![ProbeResult {
+                addr: "45.77.223.0:48016".to_string(),
+                ok: true,
+            }],
+            relay_probe: Some(ProbeResult {
+                addr: "192.0.2.10:4242".to_string(),
+                ok: true,
+            }),
+            reachability: Reachability::Punch,
+        }
+    }
+
+    #[test]
+    fn le_rapport_ne_porte_ni_cle_ni_adresse_d_ami() {
+        // 🔒 Le test qui justifie la fonction. Il ne lit pas les champs un par
+        // un — il cherche les valeurs interdites dans le JSON complet, donc un
+        // champ ajouté plus tard à `PeerLink` et recopié par inadvertance le
+        // fait tomber, sans que personne ait à y penser.
+        let rapport = bug_report(NetCounters::default().snapshot(), autotest(), &[lien()]);
+        let json = serde_json::to_string(&rapport).expect("rapport sérialisable");
+
+        assert!(
+            !json.contains(CLE_AMI),
+            "la clé publique de l'ami — son code ami — est dans le rapport"
+        );
+        assert!(
+            !json.contains("198.51.100.42"),
+            "l'adresse IP de l'ami est dans le rapport"
+        );
+        assert!(
+            !json.contains("203.0.113.7"),
+            "l'adresse publique de la machine est dans le rapport"
+        );
+    }
+
+    #[test]
+    fn le_rapport_garde_de_quoi_diagnostiquer() {
+        // L'autre moitié : un rapport vide serait parfaitement privé et
+        // parfaitement inutile.
+        let rapport = bug_report(NetCounters::default().snapshot(), autotest(), &[lien()]);
+
+        assert_eq!(rapport.links.len(), 1);
+        let l = &rapport.links[0];
+        assert_eq!(l.peer, 1, "les liens restent distinguables entre eux");
+        assert!(l.live);
+        assert_eq!(l.transport, LinkTransport::Relay);
+        assert_eq!(l.rtt_ms, Some(38));
+        assert_eq!(l.last_recv_age_ms, Some(1_200));
+        assert_eq!(
+            l.relay.as_deref(),
+            Some("192.0.2.10:4242"),
+            "l'adresse du relais est de l'infrastructure, elle reste"
+        );
+
+        // Le port du mapping externe est ce qui sert au diagnostic NAT.
+        assert_eq!(
+            rapport.selftest.external_addr.as_deref(),
+            Some("masqué:41234")
+        );
+        assert_eq!(rapport.selftest.p2p_port, 40_000);
+        assert_eq!(
+            rapport.selftest.bootstrap[0].addr, "45.77.223.0:48016",
+            "les pairs d'amorçage sont ceux que l'utilisateur a saisis"
+        );
+    }
+
+    #[test]
+    fn deux_amis_restent_deux_lignes_distinctes() {
+        // Caviarder ne doit pas fusionner : sans numéro d'ordre, deux liens
+        // au même état deviendraient indiscernables et le rapport mentirait
+        // sur le nombre d'amis connectés.
+        let rapport = bug_report(
+            NetCounters::default().snapshot(),
+            autotest(),
+            &[lien(), lien()],
+        );
+        assert_eq!(rapport.links.len(), 2);
+        assert_eq!(rapport.links[0].peer, 1);
+        assert_eq!(rapport.links[1].peer, 2);
+    }
+
+    #[test]
+    fn masquer_garde_le_port_meme_en_ipv6() {
+        assert_eq!(masquer_hote("203.0.113.7:41234"), "masqué:41234");
+        // IPv6 littéral : le dernier `:` est celui du port, pas ceux de
+        // l'adresse. Une découpe sur le PREMIER `:` rendrait « masqué:: »
+        // et laisserait l'adresse entière dans le rapport.
+        assert_eq!(masquer_hote("[2001:db8::1]:443"), "masqué:443");
+        // Rien qui ressemble à un port : on ne garde rien plutôt que de
+        // laisser passer la chaîne telle quelle.
+        assert_eq!(masquer_hote("hote-sans-port"), "masqué");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -3622,6 +3622,38 @@ async fn diagnostics_selftest_expose_le_rapport_complet() {
 }
 
 #[tokio::test]
+async fn diagnostics_report_ne_sort_ni_cle_ni_adresse_d_ami() {
+    // 🔒 La même garantie que `diagnostics::tests_rapport`, mais vérifiée
+    // ici à la frontière JSON réelle — c'est cette chaîne d'octets-là que
+    // l'utilisateur colle dans un rapport de bug. Un futur branchement qui
+    // rendrait `peer_links()` brut passerait le test unitaire et tomberait
+    // sur celui-ci.
+    let s = service_with_network();
+    let v = s.call("diagnostics.report", json!({})).await.unwrap();
+    let brut = serde_json::to_string(&v).unwrap();
+
+    assert!(
+        !brut.contains(&"aa".repeat(32)),
+        "la clé publique de l'ami est sortie dans le rapport"
+    );
+    assert!(
+        !brut.contains("203.0.113.7"),
+        "une adresse IP est sortie dans le rapport"
+    );
+
+    // Et il reste utilisable : un lien, identifié par son rang seul.
+    assert_eq!(
+        sorted_keys(&v),
+        ["counters", "links", "platform", "selftest", "version"]
+    );
+    assert_eq!(v["links"][0]["peer"], 1);
+    assert_eq!(v["links"][0]["rtt_ms"], 42);
+    assert!(v["links"][0].get("pubkey").is_none());
+    assert!(v["links"][0].get("addr").is_none());
+    assert_eq!(v["selftest"]["observed_consensus"], "masqué:48016");
+}
+
+#[tokio::test]
 async fn diagnostics_sans_reseau_rend_indisponible() {
     let s = service();
     let err = s.call("diagnostics.counters", json!({})).await.unwrap_err();

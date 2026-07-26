@@ -114,6 +114,8 @@ export function NetworkPanel() {
   const [selftest, setSelftest] = useState<DiagnosticsSelftest | null>(null);
   const [selftestEnCours, setSelftestEnCours] = useState(false);
   const [selftestErreur, setSelftestErreur] = useState(false);
+  /** `null` au repos, `'ok'` ou `'echec'` après un clic, le temps du retour. */
+  const [rapport, setRapport] = useState<'ok' | 'echec' | null>(null);
 
   const rafraichir = useCallback((): void => {
     api
@@ -152,6 +154,26 @@ export function NetworkPanel() {
     });
     return off;
   }, [rafraichir]);
+
+  /**
+   * Copie le rapport de diagnostic dans le presse-papiers.
+   *
+   * 🔒 Le rapport est pris tel que le nœud le rend — il en a déjà retiré les
+   * clés publiques et les adresses IP des amis. Ne jamais le recomposer ici à
+   * partir de `peers`, qui porte les deux : ce composant les affiche, mais
+   * pour l'utilisateur qui les connaît déjà, pas pour un fichier qu'il enverra
+   * à un inconnu.
+   */
+  const copierRapport = (): void => {
+    api
+      .diagnosticsReport()
+      .then((r) => navigator.clipboard.writeText(JSON.stringify(r, null, 2)))
+      .then(() => setRapport('ok'))
+      .catch(() => setRapport('echec'))
+      .finally(() => {
+        setTimeout(() => setRapport(null), COPY_FEEDBACK_MS * 2);
+      });
+  };
 
   const copier = (valeur: string): void => {
     void navigator.clipboard.writeText(valeur).then(() => {
@@ -405,6 +427,21 @@ export function NetworkPanel() {
                   label={t.reseau.countersMailbox}
                   value={paire(counters.mailbox.deposits, counters.mailbox.pickups)}
                 />
+              </div>
+
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={copierRapport}
+                  className="rounded-md bg-input px-3 py-1.5 text-xs font-medium hover:bg-hover"
+                >
+                  {rapport === 'ok'
+                    ? t.reseau.reportCopied
+                    : rapport === 'echec'
+                      ? t.reseau.reportFailed
+                      : t.reseau.reportButton}
+                </button>
+                <p className="mt-1.5 text-xs text-faint">{t.reseau.reportHint}</p>
               </div>
             </div>
           )}

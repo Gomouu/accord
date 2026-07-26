@@ -18,6 +18,7 @@ vi.mock('../lib/client', () => {
       networkRemovePeer: vi.fn(),
       diagnosticsCounters: vi.fn(),
       diagnosticsSelftest: vi.fn(),
+      diagnosticsReport: vi.fn(),
     },
     rpc: {
       onEvent: (handler: (method: string, params: unknown) => void) => {
@@ -59,6 +60,7 @@ async function renderPanel(): Promise<void> {
 const peersMock = api.networkPeers as unknown as Mock;
 const countersMock = api.diagnosticsCounters as unknown as Mock;
 const selftestMock = api.diagnosticsSelftest as unknown as Mock;
+const reportMock = api.diagnosticsReport as unknown as Mock;
 
 const COUNTERS = {
   punch: { requested: 4, received: 3, ok: 2, fail: 1 },
@@ -74,6 +76,7 @@ beforeEach(() => {
   peersMock.mockReset();
   countersMock.mockReset();
   selftestMock.mockReset();
+  reportMock.mockReset();
   statusMock.mockResolvedValue(STATUS);
   peersMock.mockResolvedValue([]);
   countersMock.mockResolvedValue(COUNTERS);
@@ -206,5 +209,110 @@ describe('NetworkPanel — diagnostic (4.0)', () => {
     fireEvent.click(screen.getByRole('button', { name: /self-test/i }));
     await waitFor(() => expect(screen.getByText('Via relay')).toBeInTheDocument());
     expect(screen.getByText(/1\.1\.1\.1:48016/)).toBeInTheDocument();
+  });
+});
+
+describe('rapport de diagnostic', () => {
+  const RAPPORT = {
+    version: '7.1.0',
+    platform: 'macos/aarch64',
+    counters: COUNTERS,
+    selftest: {
+      p2p_port: 48016,
+      nat_kind: 'cone',
+      port_mapping: 'upnp',
+      external_addr: 'masqué:48016',
+      observed_consensus: null,
+      dht_nodes: 5,
+      connected_peers: 1,
+      relay_eligible: false,
+      bootstrap: [],
+      relay_probe: null,
+      reachability: 'punch',
+    },
+    links: [
+      {
+        peer: 1,
+        live: true,
+        transport: 'direct',
+        relay: null,
+        last_recv_age_ms: 800,
+        rtt_ms: 42,
+        capabilities: 0,
+      },
+    ],
+  };
+
+  /**
+   * Presse-papiers de test. Il accumule ce qui lui est écrit plutôt que de
+   * laisser le test aller le chercher dans `mock.calls[0][0]` : sous
+   * `noUncheckedIndexedAccess`, cet accès n'est pas typable sans assertion,
+   * et une assertion sur un tableau vide masquerait justement le cas « rien
+   * n'a été copié » que le dernier test vérifie.
+   */
+  function presse_papiers(): { writeText: Mock; copie: () => string } {
+    const ecrits: string[] = [];
+    const writeText = vi.fn((valeur: string) => {
+      ecrits.push(valeur);
+      return Promise.resolve();
+    });
+    Object.assign(navigator, { clipboard: { writeText } });
+    return { writeText, copie: () => ecrits.join('') };
+  }
+
+  it('copie le rapport rendu par le nœud et le confirme', async () => {
+    const { writeText, copie } = presse_papiers();
+    reportMock.mockResolvedValue(RAPPORT);
+    await renderPanel();
+
+    fireEvent.click(screen.getByRole('button', { name: /diagnostic report/i }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(copie())).toEqual(RAPPORT);
+    await waitFor(() =>
+      expect(screen.getByText(/Diagnostic report copied/)).toBeInTheDocument(),
+    );
+  });
+
+  it('ne recompose jamais le rapport à partir de network.peers', async () => {
+    // 🔒 Le panneau AFFICHE la clé et l'adresse de chaque ami — c'est son
+    // travail, l'utilisateur les connaît déjà. Le rapport, lui, part chez un
+    // inconnu. Ce test épingle que le presse-papiers reçoit ce que le nœud a
+    // caviardé, et rien qui vienne de la liste affichée à l'écran.
+    const { writeText, copie } = presse_papiers();
+    peersMock.mockResolvedValue([
+      {
+        pubkey: 'bb'.repeat(32),
+        live: true,
+        addr: '198.51.100.42:48016',
+        transport: 'direct',
+        relay: null,
+        last_recv_age_ms: 800,
+        rtt_ms: 42,
+        last_delivery_ms: null,
+        capabilities: 0,
+      },
+    ]);
+    reportMock.mockResolvedValue(RAPPORT);
+    await renderPanel();
+
+    fireEvent.click(screen.getByRole('button', { name: /diagnostic report/i }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+
+    expect(copie()).not.toContain('bb'.repeat(32));
+    expect(copie()).not.toContain('198.51.100.42');
+  });
+
+  it('signale l’échec sans rien copier', async () => {
+    const { writeText } = presse_papiers();
+    reportMock.mockRejectedValue(new Error('nœud trop ancien'));
+    await renderPanel();
+
+    fireEvent.click(screen.getByRole('button', { name: /diagnostic report/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/Could not produce the report/)).toBeInTheDocument(),
+    );
+    expect(writeText).not.toHaveBeenCalled();
   });
 });

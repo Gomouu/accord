@@ -963,6 +963,11 @@ export const fr = {
     countersRelay: 'Circuits relais (ouverts/échoués)',
     countersReconnect: 'Reconnexions (réussies/tentées)',
     countersMailbox: 'Boîtes aux lettres (dépôts/retraits)',
+    reportButton: 'Copier un rapport de diagnostic',
+    reportHint:
+      'Copie dans le presse-papiers un résumé technique à joindre à un rapport de bug : compteurs, auto-test réseau et état des liens. Il ne contient ni message, ni code ami, ni adresse IP de tes amis — tu peux le partager sans risque.',
+    reportCopied: 'Rapport de diagnostic copié.',
+    reportFailed: 'Impossible de produire le rapport.',
   },
   errors: {
     sendFailed: 'Échec de l’envoi',

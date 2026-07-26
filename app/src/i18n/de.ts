@@ -939,6 +939,11 @@ export const de: Dict = {
     countersRelay: 'Relaiswege (offen/fehlgeschlagen)',
     countersReconnect: 'Neuverbindungen (erfolgreich/versucht)',
     countersMailbox: 'Postfächer (Ablagen/Abholungen)',
+    reportButton: 'Diagnosebericht kopieren',
+    reportHint:
+      'Kopiert eine technische Zusammenfassung in die Zwischenablage, zum Anhängen an einen Fehlerbericht: Zähler, Netzwerk-Selbsttest und Verbindungsstatus. Er enthält keine Nachrichten, keine Freundescodes und keine IP-Adressen deiner Freunde — du kannst ihn bedenkenlos teilen.',
+    reportCopied: 'Diagnosebericht kopiert.',
+    reportFailed: 'Bericht konnte nicht erstellt werden.',
   },
   errors: {
     sendFailed: 'Senden fehlgeschlagen',

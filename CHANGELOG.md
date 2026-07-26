@@ -4,6 +4,25 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ## [Unreleased]
 
+### Added
+
+- **A diagnostic report you can actually send to someone.** The network panel
+  gains a button that copies a technical summary — counters, network self-test,
+  link states, version and platform — meant to be attached to a bug report.
+
+  It is the only thing in Accord built to leave the machine, so it is built to
+  be safe to share rather than trusting whoever sends it. Each friend appears as
+  a rank — "peer 1", "peer 2" — with their link state, transport and round-trip
+  time. Their public key is **not** in it: a public key is a friend code, and a
+  report carrying it hands over your address book to whoever reads it, and lets
+  two reports be cross-referenced to prove that two people know each other.
+  Their IP address is not in it either — that is someone else's data, and they
+  were never asked. Your own public address keeps its port and loses its host,
+  because the port is what diagnoses a NAT and the host is where you live.
+
+  Bootstrap and relay addresses stay: that is public infrastructure you typed in
+  yourself, and without it a relay problem cannot be diagnosed.
+
 ### Changed
 
 - **Search no longer stalls on a big history.** On a conversation of 100 000

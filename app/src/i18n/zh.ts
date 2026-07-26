@@ -921,6 +921,11 @@ export const zh: Dict = {
     countersRelay: '中继线路（已开／失败）',
     countersReconnect: '重连（成功／尝试）',
     countersMailbox: '信箱（存入／取出）',
+    reportButton: '复制诊断报告',
+    reportHint:
+      '将技术摘要复制到剪贴板，用于附在错误报告中：计数器、网络自检和链路状态。其中不含任何消息内容、好友代码或好友的 IP 地址——可以放心分享。',
+    reportCopied: '诊断报告已复制。',
+    reportFailed: '无法生成报告。',
   },
   errors: {
     sendFailed: '发送失败',

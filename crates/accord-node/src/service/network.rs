@@ -38,6 +38,20 @@ impl NodeService {
             let report = ctrl.self_test().await;
             return Ok(serde_json::to_value(report).unwrap_or_else(|_| json!({})));
         }
+        // 🔒 `diagnostics.report` est le SEUL endroit d'où des données locales
+        // partent délibérément : il existe pour être joint à un rapport de bug,
+        // donc envoyé à quelqu'un d'autre. Il ne rend jamais `peer_links()`
+        // brut — celui-ci porte la clé publique de chaque ami (son code ami)
+        // et son adresse IP. Le caviardage est fait par
+        // `diagnostics::bug_report`, où il est testé.
+        if method == "diagnostics.report" {
+            let report = crate::node::diagnostics::bug_report(
+                ctrl.counters(),
+                ctrl.self_test().await,
+                &ctrl.peer_links(),
+            );
+            return Ok(serde_json::to_value(report).unwrap_or_else(|_| json!({})));
+        }
         let status = match method {
             "network.status" => ctrl.status(),
             "network.add_peer" => {

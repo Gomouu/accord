@@ -645,6 +645,42 @@ export interface DiagnosticsSelftest {
   reachability: 'direct' | 'punch' | 'relay' | 'unknown';
 }
 
+/**
+ * Rapport de diagnostic caviardé (`diagnostics.report`), à joindre à un
+ * rapport de bug.
+ *
+ * 🔒 Noter ce que ce type N'A PAS, par rapport à `PeerLink` : ni `pubkey`
+ * (la clé publique d'un ami est son code ami), ni `addr` (son adresse IP).
+ * Ces deux champs sont retirés par le nœud, parce que ce rapport est fait
+ * pour être envoyé à quelqu'un d'autre. Les rajouter ici ne les ferait pas
+ * apparaître — mais ce serait le signe qu'on est en train de reconstruire le
+ * rapport du mauvais côté de la frontière.
+ */
+export interface DiagnosticsReport {
+  /** Version de l'application qui a produit le rapport. */
+  version: string;
+  /** Système et architecture, par exemple `macos/aarch64`. */
+  platform: string;
+  counters: DiagnosticsCounters;
+  selftest: Omit<DiagnosticsSelftest, 'external_addr' | 'observed_consensus'> & {
+    /** Hôte masqué, port conservé (`masqué:41234`). */
+    external_addr: string | null;
+    /** Hôte masqué, port conservé. */
+    observed_consensus: string | null;
+  };
+  links: {
+    /** Rang dans la liste — le seul identifiant, valable pour ce rapport seul. */
+    peer: number;
+    live: boolean;
+    transport: 'direct' | 'relay' | 'none';
+    /** Adresse du relais : de l'infrastructure, pas celle de l'ami. */
+    relay: string | null;
+    last_recv_age_ms: number | null;
+    rtt_ms: number | null;
+    capabilities: number;
+  }[];
+}
+
 /** Read-only privacy dashboard report (`privacy.report`, all local). */
 export interface PrivacyReport {
   counts: {
@@ -2440,6 +2476,19 @@ export class Api {
   /** Lance un auto-test réseau borné (quelques secondes) et rend son verdict (4.0+). */
   diagnosticsSelftest(): Promise<DiagnosticsSelftest> {
     return this.rpc.call('diagnostics.selftest');
+  }
+
+  /**
+   * Rapport de diagnostic destiné à être joint à un rapport de bug (7.1+).
+   *
+   * 🔒 C'est la seule réponse de l'API pensée pour être ENVOYÉE À UN TIERS.
+   * Le nœud en retire les clés publiques et les adresses IP des amis avant de
+   * la rendre ; le caviardage est fait et testé côté Rust, pas ici. Ne jamais
+   * composer un rapport à la main à partir de `network.peers`, qui porte les
+   * deux.
+   */
+  diagnosticsReport(): Promise<DiagnosticsReport> {
+    return this.rpc.call('diagnostics.report');
   }
 
   /**

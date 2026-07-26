@@ -963,6 +963,11 @@ export const es: Dict = {
     countersRelay: 'Circuitos de relé (abiertos/fallidos)',
     countersReconnect: 'Reconexiones (ok/intentos)',
     countersMailbox: 'Buzones (depósitos/recogidas)',
+    reportButton: 'Copiar un informe de diagnóstico',
+    reportHint:
+      'Copia al portapapeles un resumen técnico para adjuntar a un informe de error: contadores, autodiagnóstico de red y estado de los enlaces. No contiene mensajes, ni códigos de amigo, ni las direcciones IP de tus amigos: puedes compartirlo sin riesgo.',
+    reportCopied: 'Informe de diagnóstico copiado.',
+    reportFailed: 'No se pudo generar el informe.',
   },
   errors: {
     sendFailed: 'No se pudo enviar',

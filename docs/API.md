@@ -592,6 +592,7 @@ adds it as a bootstrap peer.
 | `network.peers` | — | `[{ pubkey, live, addr: string\|null, transport: "direct"\|"relay"\|"none", relay: string\|null, last_recv_age_ms: number\|null, rtt_ms: number\|null, last_delivery_ms: number\|null }]` — one entry per friend (see Diagnostics below) |
 | `diagnostics.counters` | — | `{ punch: { requested, received, ok, fail }, relay: { open_ok, open_fail }, mailbox: { deposits, pickups }, outbox: { enqueued, flushed }, reconnect: { attempts, ok } }` — local counters since node start |
 | `diagnostics.selftest` | — | `{ p2p_port, nat_kind, port_mapping, external_addr: string\|null, observed_consensus: string\|null, dht_nodes, connected_peers, relay_eligible: bool, bootstrap: [{ addr, ok }], relay_probe: { addr, ok }\|null, reachability: "direct"\|"punch"\|"relay"\|"unknown" }` — bounded network self-test (a few seconds at most) |
+| `diagnostics.report` | — | `{ version, platform, counters, selftest, links: [{ peer, live, transport, relay: string\|null, last_recv_age_ms, rtt_ms, capabilities }] }` — redacted diagnostic bundle, safe to attach to a bug report |
 
 - **Stable P2P port**: by default `48016/udp`. If it is occupied, the range
   `48017`…`48026` is tried, then an ephemeral port as a last resort. The
@@ -686,6 +687,25 @@ additive too.
     confirmed by observation consensus), `"punch"` (cone NAT: direct
     hole punching viable), `"relay"` (symmetric NAT: relay required),
     `"unknown"` (too few observations).
+
+- `diagnostics.report` — everything above in one object, **redacted so that it
+  can be shared**. This is the only response in the API designed to be sent to
+  someone else, and it is built for that:
+  - each friend becomes an anonymous entry: a rank (`peer: 1, 2, …`), the link
+    state, transport, RTT and staleness. **No `pubkey`** — a friend's public key
+    is their friend code, and a report carrying it hands over the user's address
+    book, and lets two reports be cross-referenced to prove that two people know
+    each other. **No `addr`** — that is the friend's IP address, third-party data
+    from someone who was never asked;
+  - `external_addr` and `observed_consensus` keep their port and lose their host
+    (`masqué:41234`). The port is what diagnoses a NAT; the host is the user's
+    home IP address;
+  - bootstrap and relay addresses are kept as-is: that is public infrastructure,
+    entered by the user, and without it a relay problem cannot be diagnosed.
+
+  Redaction happens in the node (`diagnostics::bug_report`) and is tested there
+  and at the JSON boundary. Never rebuild this report client-side from
+  `network.peers`, which carries both removed fields.
 
 > **NAT limit.** Direct P2P requires that at least **one of the two peers** has
 > its UDP port reachable from outside. The **automatic mapping**

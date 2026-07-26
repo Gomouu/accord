@@ -166,12 +166,31 @@ misread.
 | Message | What the bit asserts | Reading it as the other meaning gives |
 |---|---|---|
 | HELLO (initiator) | **"I can do this."** The initiator announces the ability *and* attaches its ML-KEM encapsulation key. | Nothing wrong: for the initiator the two meanings coincide, because announcing costs it the material. |
-| WELCOME (responder) | **"I did this."** The bit is set only if the ML-KEM ciphertext actually accompanies this reply. | A false negative. A responder that *can* do hybrid but received a classic HELLO answers with the bit **clear**. Reading that as "peer cannot do hybrid" is wrong — and it is a durable wrong answer, because `SessionView::peer_capabilities` keeps the WELCOME's bitmask for the life of the session. |
+| WELCOME (responder) | **"I did this."** The bit is set only if the ML-KEM ciphertext actually accompanies this reply. | A false negative. A responder that *can* do hybrid but received a classic HELLO answers with the bit **clear**; reading that as "peer cannot do hybrid" is wrong. |
 
 The asymmetry is forced by the wire invariant of §2.2.1: the bit is what tells
 the decoder whether 768 bytes follow, so in the WELCOME it *must* describe the
 packet's contents rather than the sender's abilities. A responder that
 advertised an ability it did not exercise would emit an undecodable packet.
+
+**The bit therefore does not survive the handshake.** It stays on the wire, where
+the encode/decode invariant needs it, but implementations **must strip it from
+whatever they retain as the peer's capabilities**:
+
+```
+peer_capabilities = received_capabilities & ~CAP_PQ_HYBRID     // both roles
+```
+
+The reason is that a retained capability field is read afterwards as a property
+of the peer, and a bitmask has two states where reality has three — capable,
+incapable, unknown. Leaving the bit in would encode "unknown" as "incapable".
+Stripping it is unconditional and applies to **both** roles, including the
+responder, where the HELLO's bit *is* a truthful capability: keeping it on one
+role only would make the field's meaning depend on who dialled, which is a
+subtler trap than the one being closed. The negotiated mode is reported
+separately (`is_post_quantum` in this implementation), which states it exactly.
+Every other bit in the field survives untouched, so this is a targeted mask and
+not a cleared field.
 
 Two consequences worth stating explicitly:
 

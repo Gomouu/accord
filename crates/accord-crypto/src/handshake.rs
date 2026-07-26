@@ -46,6 +46,10 @@ pub struct Established {
     pub peer_pow_nonce: u64,
     /// Capacités annoncées par le pair, authentifiées par le transcript. Vaut
     /// 0 pour un pair qui n'annonce rien (version antérieure au champ).
+    ///
+    /// 🔒 [`CAP_PQ_HYBRID`] en est **toujours retiré** — voir
+    /// [`peer_capabilities_sans_mode`]. Le mode de la session se lit sur
+    /// [`Established::is_post_quantum`], jamais ici.
     pub peer_capabilities: u32,
     /// Vrai si la clé de session dérive **aussi** d'un secret ML-KEM, et pas
     /// du seul X25519. Faux en session classique.
@@ -162,6 +166,32 @@ fn derive_keys(x25519: &[u8; 32], pq: Option<&PqSharedSecret>, t2: &[u8; 32]) ->
 /// la décision, côté initiateur comme côté répondeur.
 fn wants_pq(capabilities: Option<u32>) -> bool {
     capabilities.is_some_and(|caps| caps & CAP_PQ_HYBRID != 0)
+}
+
+/// Capacités du pair telles qu'on les CONSERVE, [`CAP_PQ_HYBRID`] retiré.
+///
+/// 🔒 Ce bit ne peut pas cohabiter avec les autres dans un champ « ce que le
+/// pair sait faire », parce qu'il ne dit pas la même chose selon le message qui
+/// le porte (SPEC §2.2.2) : « je sais faire » dans un HELLO, « j'ai fait » dans
+/// un WELCOME. Or `peer_capabilities` survit à tout le handshake et se lit
+/// ensuite comme un état du pair. Un initiateur qui garderait le bit du WELCOME
+/// conclurait « ce pair ne sait pas faire » d'un répondeur parfaitement capable
+/// à qui il a simplement parlé en classique — un faux négatif durable.
+///
+/// ⚠️ Le retrait est INCONDITIONNEL, des deux côtés, et pas seulement là où le
+/// bit mentirait. Côté répondeur, le bit du HELLO est bien une aptitude vraie,
+/// et on la jette quand même : un masque de bits n'a que deux états, alors que
+/// la réalité en a trois — capable, incapable, indéterminé. Conserver le bit sur
+/// un seul des deux rôles rendrait la signification du champ dépendante de qui
+/// a composé, ce qui est un piège plus discret que celui qu'on referme. La règle
+/// tient donc en une ligne vérifiable : `peer_capabilities & CAP_PQ_HYBRID == 0`,
+/// toujours. Le mode réellement négocié vit dans `is_post_quantum`, qui le dit
+/// exactement.
+///
+/// Si un besoin d'« annoncer l'aptitude sans l'exercer » apparaît, il devra
+/// passer par un champ nommé pour ça, pas par la réhabilitation de ce bit.
+fn peer_capabilities_sans_mode(annoncees: Option<u32>) -> u32 {
+    annoncees.unwrap_or(0) & !CAP_PQ_HYBRID
 }
 
 fn check_freshness(timestamp_ms: u64, now_ms: u64) -> Result<(), CryptoError> {
@@ -313,7 +343,7 @@ impl Initiator {
             session_id: w.session_id,
             peer_static: w.static_pub,
             peer_pow_nonce: w.pow_nonce,
-            peer_capabilities: w.capabilities.unwrap_or(0),
+            peer_capabilities: peer_capabilities_sans_mode(w.capabilities),
             is_post_quantum: pq_secret.is_some(),
             is_initiator: true,
         })
@@ -406,7 +436,7 @@ pub fn respond(
             session_id,
             peer_static: hello.static_pub,
             peer_pow_nonce: hello.pow_nonce,
-            peer_capabilities: hello.capabilities.unwrap_or(0),
+            peer_capabilities: peer_capabilities_sans_mode(hello.capabilities),
             is_post_quantum: pq_secret.is_some(),
             is_initiator: false,
         },
@@ -670,7 +700,50 @@ mod tests {
         let init = Initiator::start(&alice, now, vec![], POW, None, Some(exotic));
         let mut cache = NonceCache::new();
         let (_, est_b) = respond(&bob, init.hello(), now, &mut cache, POW, None).unwrap();
-        assert_eq!(est_b.peer_capabilities, exotic);
+        // Le bit inconnu traverse ; seul CAP_PQ_HYBRID est retiré de ce qu'on
+        // conserve (voir `peer_capabilities_sans_mode`).
+        assert_eq!(est_b.peer_capabilities, 0x8000_0000);
+    }
+
+    #[test]
+    fn le_mode_hybride_ne_se_lit_jamais_dans_les_capacites_du_pair() {
+        // 🔒 Invariant tenant en une ligne : `peer_capabilities & CAP_PQ_HYBRID`
+        // vaut 0, TOUJOURS, dans les deux rôles et quel que soit le mode
+        // réellement négocié. Sans lui, un initiateur conclurait « ce pair ne
+        // sait pas faire » d'un répondeur capable à qui il a parlé en classique,
+        // et ce faux négatif durerait toute la session.
+        let now = 1_000_000;
+        let autre = accord_proto::limits::CAP_DEVICE_KEYS;
+
+        // Cas 1 : hybride effectivement négocié des deux côtés. Le bit est posé
+        // sur le fil dans les deux messages, et pourtant absent des deux vues.
+        let (alice, bob) = pair();
+        let init = Initiator::start(&alice, now, vec![], POW, None, Some(PQ | autre));
+        let mut cache = NonceCache::new();
+        let (welcome, est_b) =
+            respond(&bob, init.hello(), now, &mut cache, POW, Some(PQ | autre)).unwrap();
+        assert_eq!(
+            welcome.capabilities,
+            Some(PQ | autre),
+            "le bit doit rester sur le FIL : l'invariant filaire bit ⇔ matériel en dépend"
+        );
+        let est_a = init.finish(&welcome, now).unwrap();
+        assert!(est_a.is_post_quantum && est_b.is_post_quantum);
+        assert_eq!(est_a.peer_capabilities, autre, "vue de l'initiateur");
+        assert_eq!(est_b.peer_capabilities, autre, "vue du répondeur");
+
+        // Cas 2 : le répondeur SAIT faire mais l'initiateur n'a rien proposé.
+        // C'est le cas qui produisait le faux négatif : la session est classique,
+        // et rien dans les capacités ne doit prétendre décrire cette aptitude.
+        let (carol, dave) = pair();
+        let init = Initiator::start(&carol, now, vec![], POW, None, Some(autre));
+        let mut cache = NonceCache::new();
+        let (welcome, est_d) =
+            respond(&dave, init.hello(), now, &mut cache, POW, Some(PQ | autre)).unwrap();
+        let est_c = init.finish(&welcome, now).unwrap();
+        assert!(!est_c.is_post_quantum && !est_d.is_post_quantum);
+        assert_eq!(est_c.peer_capabilities & PQ, 0);
+        assert_eq!(est_d.peer_capabilities & PQ, 0);
     }
 
     #[test]

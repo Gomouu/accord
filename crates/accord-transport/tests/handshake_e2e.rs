@@ -745,7 +745,7 @@ async fn keepalive_mesure_la_latence_et_session_views_l_expose() {
 /// fin de la tâche : le champ additif ne coupe personne.
 #[tokio::test]
 async fn nouveau_et_ancien_noeud_sinterconnectent() {
-    const CAPS: u32 = accord_proto::limits::CAP_PQ_HYBRID;
+    const CAPS: u32 = accord_proto::limits::CAP_DEVICE_KEYS;
     let clock = ManualClock::new(1_000_000);
     let net = SimNet::new(4242, NetConditions::default());
 
@@ -786,10 +786,10 @@ async fn nouveau_et_ancien_noeud_sinterconnectent() {
 /// Deux nœuds qui annoncent tous les deux échangent bien leurs capacités,
 /// dans les deux sens, à travers le transport complet.
 ///
-/// Les bits choisis excluent `CAP_PQ_HYBRID` : c'est le seul dont la valeur
-/// dans le WELCOME décrit le contenu du paquet plutôt que les aptitudes de
-/// l'émetteur (voir `handshake::respond`). Le cas hybride a ses propres tests
-/// plus bas.
+/// Les bits choisis excluent `CAP_PQ_HYBRID` : c'est le seul qui ne survit pas
+/// à l'échange, puisqu'il est retiré de ce qu'on conserve (SPEC §2.2.2 et
+/// `handshake::peer_capabilities_sans_mode`). Le cas hybride a ses propres
+/// tests plus bas.
 #[tokio::test]
 async fn deux_noeuds_capables_echangent_leurs_capacites() {
     const DE_A: u32 = accord_proto::limits::CAP_DEVICE_KEYS;
@@ -837,8 +837,11 @@ async fn deux_noeuds_negocient_lhybride_post_quantique() {
         session_hybride(&b),
         "le répondeur doit voir une session hybride"
     );
-    assert_eq!(capacites_vues(&a), PQ);
-    assert_eq!(capacites_vues(&b), PQ);
+    // 🔒 Le mode ne se lit PAS dans les capacités : le bit est retiré de ce
+    // qu'on conserve, des deux côtés, même quand l'hybride a bel et bien eu
+    // lieu. C'est `is_post_quantum` qui porte l'information, ci-dessus.
+    assert_eq!(capacites_vues(&a) & PQ, 0);
+    assert_eq!(capacites_vues(&b) & PQ, 0);
 }
 
 /// Jalon 2 — Un nœud hybride et un nœud antérieur au champ de capacités
@@ -899,9 +902,44 @@ async fn hybride_et_classique_replient_proprement() {
         .unwrap();
     attendre_sessions(&hybride, &classique).await;
     assert!(!session_hybride(&hybride) && !session_hybride(&classique));
-    // L'initiateur a bien annoncé l'hybride ; c'est le répondeur qui décline.
-    assert_eq!(capacites_vues(&classique), PQ);
+    // Le répondeur a bien reçu l'annonce de l'initiateur — mais réduite à ce
+    // qui décrit vraiment une aptitude : le bit de mode est retiré des deux
+    // vues, et c'est `session_hybride` ci-dessus qui dit ce qui s'est passé.
+    assert_eq!(capacites_vues(&classique) & PQ, 0);
     assert_eq!(capacites_vues(&hybride), SANS_PQ);
+}
+
+/// Jalon 2 — Le bit de mode est retiré des capacités CONSERVÉES, et lui seul :
+/// les autres bits annoncés dans le même champ survivent intacts.
+///
+/// 🔒 C'est le test qui distingue un masque ciblé d'un effacement du champ. Sans
+/// la seconde moitié de l'assertion, une implémentation qui remettrait
+/// `peer_capabilities` à zéro passerait pour correcte — et le jour où un pair
+/// annoncera une aptitude qu'on exploite, on la perdrait en silence.
+#[tokio::test]
+async fn le_bit_de_mode_est_retire_des_capacites_mais_pas_les_autres() {
+    const PQ: u32 = accord_proto::limits::CAP_PQ_HYBRID;
+    const AUTRE: u32 = accord_proto::limits::CAP_DEVICE_KEYS;
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(4250, NetConditions::default());
+    let a = spawn_node_avec_capacites(&net, &clock, "10.0.13.1:4000", Some(PQ | AUTRE));
+    let b = spawn_node_avec_capacites(&net, &clock, "10.0.13.2:4000", Some(PQ | AUTRE));
+    a.ep.send(b.addr, &ChannelMsg::Control(ControlMsg::Ping { token: 13 }))
+        .await
+        .unwrap();
+    attendre_sessions(&a, &b).await;
+
+    // L'hybride a bien eu lieu : c'est ce que le mode doit dire.
+    assert!(
+        session_hybride(&a) && session_hybride(&b),
+        "les deux annonçaient l'hybride : la session doit l'être"
+    );
+    // Et pourtant le bit n'apparaît dans aucune des deux vues…
+    assert_eq!(capacites_vues(&a) & PQ, 0, "vue de l'initiateur");
+    assert_eq!(capacites_vues(&b) & PQ, 0, "vue du répondeur");
+    // …tandis que le bit voisin, lui, a traversé.
+    assert_eq!(capacites_vues(&a), AUTRE);
+    assert_eq!(capacites_vues(&b), AUTRE);
 }
 
 /// Nœud du lot 2.D : annonce l'hybride ET refuse de s'en passer.

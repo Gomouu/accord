@@ -45,11 +45,18 @@ structured JSON (see "Direct messaging"); they are never logged.
 
 | Method | Parameters | Result |
 |---------|-----------|----------|
-| `identity.self` | — | `{ node_id, pubkey, friend_code, name, bio, avatar, banner }` |
+| `identity.self` | — | `{ node_id, pubkey, friend_code, name, bio, avatar, banner, pronouns, accent_color, banner_color, avatar_decoration, profile_effect, profile_frame }` |
 
 `name` is the local nickname (`string`), or `null` if it has never been set
 via `profile.set` (see "Profile"); `bio` (`string` or `null`), `avatar` and
-`banner` (hex-64 hash or `null`) follow the same rules.
+`banner` (hex-64 hash or `null`) follow the same rules. The decoration fields
+(`pronouns` … `profile_frame`) are `null` when unset; colours are integers
+`0xRRGGBB`.
+
+🔒 `pubkey`, `node_id` and `friend_code` are those of the **account**, never of
+this machine's device key (`MULTI_DEVICE.md` §2). The device key is not exposed
+by this method at all — `devices.list` is where machines are named, and its
+`is_current` entry is the only place this machine appears.
 
 `identity.self` is the **only** identity RPC method. The lifecycle
 (creation, restoration, unlocking) does **not** go through JSON-RPC: these
@@ -66,6 +73,17 @@ IPC** (D-023) — the exact contract between `app/src/lib/bridge.ts` and
 | `restore_identity` | `{ phrase, passphrase }` | `{ port, token }` |
 | `unlock` | `{ passphrase }` | `{ port, token }` |
 | `lock` | — | `"absent"` ∣ `"locked"` |
+
+⚠️ This table covers the **identity lifecycle only**, not every registered IPC
+command. `app/src-tauri/src/lib.rs` is the authoritative list; the others are the
+multi-account surface (`accounts_list`, `account_create`, `account_restore`,
+`account_adopt_paired`, `account_unlock`, `session_close`), the encrypted backup
+(`backup_export`, `backup_import`), the diagnostic log (`journal_ui`,
+`journal_dossier`, `journal_niveau` — see `DEV.md`), the microphone permission
+(`micro_autorisation_etat`, `micro_autorisation_demander`,
+`ouvrir_reglages_systeme`) and `app_quit`. 🔒 `account_adopt_paired` is where a
+newly paired machine takes up the account root; like the lifecycle commands it
+handles a seed, which is exactly why it is IPC and not JSON-RPC.
 
 Details of shape and behavior:
 
@@ -100,8 +118,8 @@ Details of shape and behavior:
 
 | Method | Parameters | Result |
 |---------|-----------|----------|
-| `profile.get` | — | `{ name, bio, avatar, banner }` — nickname (`string`∣`null`), bio (`string`∣`null`), avatar and banner hash (hex 64∣`null`) |
-| `profile.set` | `{ name?, bio? }` | `{}` — at least one of the two fields required |
+| `profile.get` | — | `{ name, bio, avatar, banner, pronouns, accent_color, banner_color, avatar_decoration, profile_effect, profile_frame }` — nickname (`string`∣`null`), bio (`string`∣`null`), avatar and banner hash (hex 64∣`null`), pronouns (`string`∣`null`), colours (`0xRRGGBB` integer∣`null`), decoration/effect/frame ids (`string`∣`null`) |
+| `profile.set` | `{ name?, bio?, pronouns?, accent_color?, banner_color?, avatar_decoration?, profile_effect?, profile_frame? }` | `{}` — at least one field required; an explicit `null` clears that field |
 | `profile.set_avatar` | `{ data_b64, mime }` | `{ avatar }` — hex-64 hash of the published blob, or `null` after removal |
 | `profile.set_banner` | `{ data_b64, mime }` | `{ banner }` — hex-64 hash of the published blob, or `null` after removal |
 
@@ -109,8 +127,11 @@ Details of shape and behavior:
 is trimmed, no control characters) and the bio (at most 2048 characters
 after trimming; line breaks and tabs allowed; **empty string = clear**),
 stores locally (trimmed forms) then announces the full profile to all
-confirmed friends (CORE `PROFILE` message, SPEC §6.5). All or nothing: if one
-of the two fields is invalid, neither is written. The profile is also announced
+confirmed friends (CORE `PROFILE` message, SPEC §6.5). The decoration fields
+follow the same shape: `pronouns` at most 40 characters, the two colours
+`0xRRGGBB` integers rejected outright above 24 bits, and the three ids revalidated
+(alphabet and bound) before writing. All or nothing: if any submitted field is
+invalid, **none** is written. The profile is also announced
 automatically on every friendship establishment (in both directions) and
 re-announced periodically by maintenance. As long as no nickname is
 set, nothing is announced (the `PROFILE` message requires a nickname).
@@ -138,6 +159,50 @@ avatar or banner in the announcement **clear** the known value.
 If the received avatar or banner hash matches no local blob, the
 node starts downloading it in the background from the sender. Announcements
 from non-friends are ignored (anti-abuse).
+
+### Devices
+
+The machines of **this** account (design: `MULTI_DEVICE.md`). Not to be confused
+with `friends.*`, which is about other people.
+
+| Method | Parameters | Result |
+|---------|-----------|----------|
+| `devices.list` | — | `{ devices: [{ pubkey, name, added_ms, is_current }] }` — `pubkey` hex-64, `added_ms` epoch ms (`0` for the device produced by the 7.0 migration), `is_current` `bool` |
+| `devices.rename` | `{ name }` | `{ name }` — the trimmed name |
+| `devices.pair_start` | — | `{ code, expires_ms }` — opens an offer **on the already-authorised device** |
+| `devices.pair_submit` | `{ code }` | `{ hello }` — hex PAKE message; entering the code **on the new device** |
+| `devices.pair_status` | — | `{ fingerprint, role, adopted }` |
+| `devices.pair_confirm` | — | `{}` — the human confirmed the fingerprint on this side |
+| `devices.pair_cancel` | — | `{}` |
+| `devices.revoke` | `{ pubkey }` | `{}` |
+
+- `devices.rename` bounds the name at **32 UTF-8 bytes**, which is the wire bound
+  (`MAX_DEVICE_NAME`), not 32 characters. Counting characters looks stricter and
+  is looser: "é" weighs two bytes, so 32 accented characters would pass here and
+  be refused at decode — a setting that looks accepted and never takes.
+- **Pairing is symmetric.** SPAKE2 has no server side: one machine displays a
+  code (`pair_start`), the other types it (`pair_submit`), and both then sit in
+  the same state waiting for the other's PAKE message. `pair_submit` also
+  broadcasts on the local network — the new device holds the code and nothing
+  else, no session and no address, and the code carries neither; the PAKE fails
+  silently for anyone without it, so greeting everyone tells nobody anything.
+- `pair_status.fingerprint` is `null` until an exchange has succeeded (the screen
+  shows the code and waits rather than inventing a fingerprint). `role` is
+  `"authoriser"` ∣ `"joiner"` ∣ `null` — the two sides do not display the same
+  screen. `adopted` reports that the account root has arrived.
+- 🔒 **`adopted` is a boolean and never the seed.** The host picks the root up
+  through `Node::pairing_take_adoption`, which does not go through this API:
+  nothing crossing this local JSON channel may contain the account, because it is
+  readable by anything running on the machine and it ends up in the traces of
+  whoever is debugging. Same rule as the identity lifecycle above (D-023).
+- Requesting a new code cancels the previous one, and typing a new one replaces
+  the pairing in progress. Someone who clicks again wants to start over, not to
+  hold two valid codes.
+- `devices.revoke` refuses the device it is called from: that would leave the
+  account with no machine able to sign the next list. Revocation is eventually
+  consistent — `SECURITY.md` §5, item 13, says what it does and does not buy.
+- Event: `event.pairing_adopted` `{}` — this machine has just received the
+  account root and is now a full device of the account.
 
 ### Friends
 
@@ -825,6 +890,7 @@ Pushed to all authenticated clients, without `id`:
 | `event.voice_level` | `{ level, speaking }` — mic level during the test (`voice.mic_test`): normalized RMS peak 0..1 and VAD, at ~10 Hz |
 | `event.file_progress` | `{ merkle_root, done, total, complete }` — progress of a download (steps of about 5% then final state; `complete: false` in the last event = abandon) |
 | `event.network` | `{ connected_peers, dht_nodes }` — the network counters have changed (emitted sparingly, never in bursts) |
+| `event.pairing_adopted` | `{}` — this machine has just received the account root and is now a full device of the account (see "Devices") |
 | `event.desynchronise` | `{}` — the client has fallen behind; re-synchronize via the `*.list`/`*.history` methods |
 
 ## Presence

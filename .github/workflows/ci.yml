@@ -23,7 +23,14 @@ permissions:
 
 env:
   # audiopus_sys embarque un CMakeLists ancien : CMake >= 4 refuse son
-  # cmake_minimum_required sans cette variable (même contournement que ci.sh).
+  # cmake_minimum_required sans cette variable.
+  #
+  # ⚠️ `ci.sh` ne la pose PAS — le commentaire d'origine annonçait ici « même
+  # contournement que ci.sh », ce qui était faux et coûtait le temps de le
+  # découvrir. En local, la parité s'obtient autrement : soit un libopus
+  # système (`brew install opus pkgconf`), soit cette variable exportée à la
+  # main. Les deux chemins sont écrits dans `docs/DEV.md` § application de
+  # bureau.
   CMAKE_POLICY_VERSION_MINIMUM: "3.5"
 
 jobs:

@@ -242,6 +242,23 @@ the 5-minute window and by asking for a new code.
   even a local one (D-023, see `API.md` § Identity).
 - The Tauri window CSP restricts connections to `ws://127.0.0.1:*` and to the
   IPC bridge; no remote content is loadable.
+- **A diagnostic log is written on every launch**, at `<app_data>/logs/accord.log`
+  (previous run kept as `.1`, rotated at 5 MiB). It is a plain file, **outside**
+  the encrypted database: it is readable by anything that can read the user's
+  data directory, which disk encryption at rest does not cover once the machine
+  is on. What keeps that acceptable is a rule on `tracing` calls across the whole
+  repository rather than on the file: **never a message body, a key, a friend
+  code, or a friend's address**. A log nobody dares send is a log that does not
+  exist, so it is written to be sendable.
+- **`diagnostics.report` is the only API response designed to leave the machine.**
+  It is redacted in the node, not in the UI: friends become anonymous ranks with
+  no public key (a friend's key *is* their friend code, so a raw report would hand
+  over the address book, and two reports could be cross-referenced to prove that
+  two people know each other) and no address (third-party data from someone who
+  was never asked); the user's own external address keeps its port and loses its
+  host. Bootstrap and relay addresses are kept — public infrastructure the user
+  entered, without which a relay fault cannot be diagnosed. ⚠️ Never rebuild this
+  report from `network.peers`, which carries both removed fields.
 
 ## 4. Attackers considered
 

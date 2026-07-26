@@ -72,16 +72,10 @@ const TRANSPORT: u32 = DEVICE_FLAG_TRANSPORT_KEY;
 /// travail symbolique et mDNS coupé — la vraie difficulté ferait ramper la
 /// suite, et l'annonce LAN ferait dépendre le test du réseau de la machine.
 ///
-/// ⚠️ `device_key_transport` est **forcé** ici, et il ne l'est plus par défaut.
-///
-/// Le basculement a été repoussé d'une version : la moitié « savoir recevoir »
-/// un premier contact venu d'une clé d'appareil doit être dans le parc **avant**
-/// que quiconque en présente une (voir `NodeConfig::device_key_transport`). Ces
-/// tests démontrent donc le monde d'après, sur une configuration qui l'anticipe.
-///
-/// 🔒 Le jour où le défaut basculera, ce forçage devra disparaître — sans quoi
-/// ces tests redeviendraient muets sur un retour en arrière du défaut, ce qui
-/// était précisément leur intérêt.
+/// 🔒 `device_key_transport` n'est **pas** forcé : c'est la valeur par défaut
+/// qui s'applique, donc celle que l'application livre. Le jalon se démontre sur
+/// la configuration réelle ; forcer le drapeau ici rendrait ces tests muets sur
+/// un retour en arrière du défaut, qui reste le recours d'urgence.
 fn config(paths: Paths) -> NodeConfig {
     NodeConfig {
         paths,
@@ -89,14 +83,13 @@ fn config(paths: Paths) -> NodeConfig {
         api_port: 0,
         pow_bits: 1,
         mdns_enabled: false,
-        device_key_transport: true,
         ..NodeConfig::default()
     }
 }
 
-/// Configuration d'un pair **d'avant le basculement** — aujourd'hui le parc
-/// entier, y compris ce que cette version livre : son transport présente encore
-/// la clé de compte.
+/// Configuration d'un pair **d'avant le basculement** (6.4.0 et antérieurs) :
+/// son transport présente encore la clé de compte. C'est le parc qu'on doit
+/// continuer de joindre, et le retour en arrière d'urgence.
 fn config_avant_bascule(paths: Paths) -> NodeConfig {
     NodeConfig {
         device_key_transport: false,

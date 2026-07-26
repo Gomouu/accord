@@ -4,6 +4,34 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ## [Unreleased]
 
+## [7.0.0] — 2026-07-26
+
+### Changed
+
+- **🔴 Two machines, one account, both working at the same time.** Each machine
+  now presents its own key on the network instead of both claiming one identity.
+  That is what makes them genuinely two peers — until now the second one to
+  connect silently pushed the first off every friend, and messages vanished with
+  no error anywhere. Everything built over the 6.x line comes alive with it: a
+  direct message reaches both, a call rings on both and goes quiet elsewhere when
+  you answer, reading on one clears the badge on the other, and a machine that
+  was off catches up when it returns.
+
+  **This is a flag day, and there is no compatibility path.** A network endpoint
+  presents one identity; it cannot present two. What that means for you:
+
+  - **Update before adding new friends.** A peer running **6.3.0** handles your
+    existing friendships across the switch, but at a *brand new* first contact it
+    cannot yet trace a machine key back to a person — it would file the friendship
+    under a machine. Messages would still flow, but your friend code would stop
+    designating you to them, and your second device would look to them like a
+    third person. The half that fixes this shipped in **6.4.0**; both sides need
+    it before you add each other.
+  - **A peer on 6.2 or older will see a stranger** and cannot reach you at all,
+    until they update. Anyone who updates is fine, including someone jumping
+    straight from 6.2.
+  - Existing friendships cross the switch without doing anything.
+
 ## [6.4.0] — 2026-07-26
 
 ### Added

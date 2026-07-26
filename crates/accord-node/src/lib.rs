@@ -74,9 +74,8 @@ pub struct NodeConfig {
     /// Le transport présente-t-il la **clé d'appareil** au lieu de la clé de
     /// compte (multi-appareil, jalon 1, lot 1.C phase 2) ?
     ///
-    /// **Encore `false` par défaut** : le basculement est différé d'une
-    /// version, voir la raison sur `NodeConfig::default`. C'est lui qui lèvera
-    /// le bloqueur B1 : l'invariant « au plus une session directe par identité »
+    /// **Vrai par défaut depuis la 7.0.** C'est lui qui lève le bloqueur B1 :
+    /// l'invariant « au plus une session directe par identité »
     /// devient « par appareil » sans qu'une ligne d'`install_session` ne
     /// change, et deux machines d'un même compte cessent de s'évincer chez
     /// chacun de leurs amis.
@@ -120,24 +119,24 @@ impl Default for NodeConfig {
             voice_backend: VoiceBackend::default(),
             nat_enabled: true,
             mdns_enabled: true,
-            // 🔒 Encore `false`, et pour une raison précise découverte en
-            // construisant le basculement : le parc doit d'abord savoir
-            // **recevoir** un premier contact venu d'une clé d'appareil.
+            // 🔒 Le basculement. L'invariant « au plus une session directe par
+            // identité » devient « par appareil » sans qu'une ligne
+            // d'`install_session` ne change, et deux machines d'un même compte
+            // cessent de s'évincer chez chacun de leurs amis.
             //
-            // Un pair 6.3.0 ne rattache une clé d'appareil qu'aux comptes avec
-            // lesquels il est déjà en relation. Au tout premier contact il n'en
-            // a aucune : il enregistre donc l'amitié sous la clé d'une MACHINE.
-            // Les messages passent, mais le code ami cesse de désigner ce
-            // contact, et un second appareil apparaîtrait chez lui comme une
-            // troisième personne. C'est une corruption durable de son carnet,
-            // silencieuse, et qui ne se répare pas quand il met à jour.
+            // ⚠️ Il n'y a pas de chemin de compatibilité : un point d'entrée
+            // présente une seule identité statique. Un pair antérieur à la
+            // 6.3.0 ne sait pas rattacher une clé d'appareil à un compte et
+            // voit un inconnu ; un pair en 6.3.0 le sait pour les comptes avec
+            // lesquels il est déjà en relation, mais pas au tout PREMIER
+            // contact — il enregistrerait alors l'amitié sous la clé d'une
+            // machine. La moitié « savoir recevoir » qui corrige ça est dans la
+            // 6.4.0. Les amitiés déjà établies traversent le basculement.
             //
-            // L'annonce auto-authentifiante qui corrige ça est dans cette
-            // version — mais c'est une capacité de RÉCEPTION. Elle doit être
-            // dans le parc avant que quiconque présente sa clé d'appareil.
-            // Même discipline que le champ de capacités et
-            // `RecordKind::Unknown` : savoir lire une version avant d'écrire.
-            device_key_transport: false,
+            // Le champ reste réglable, et pas seulement pour les tests : le
+            // remettre à `false` est le retour en arrière d'urgence.
+            // `reconcile_local_device_flags` gère les deux sens.
+            device_key_transport: true,
             default_bootstrap: Vec::new(),
         }
     }

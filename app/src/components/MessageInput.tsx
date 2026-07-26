@@ -836,7 +836,12 @@ export function MessageInput({
                   title={interpolate(t.fichiers.retirerPiece, { name: nom })}
                   disabled={sending}
                   onClick={() => retirer(piece.id)}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-faint transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
+                  // 32 → 44 px. Les 6 px de marge négative rendent au layout
+                  // exactement ce que la boîte a pris : la vignette garde sa
+                  // hauteur, et le débordement ne tombe que sur le
+                  // rembourrage de la vignette et sur le nom du fichier, qui
+                  // ne se clique pas.
+                  className="relative -m-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-faint transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
                 >
                   <CloseIcon size={14} />
                 </button>

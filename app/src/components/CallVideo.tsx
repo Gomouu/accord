@@ -280,8 +280,12 @@ export function CallVideo() {
     }
   };
 
+  // Caméra et partage d'écran : deux boutons isolés qui flottent au-dessus de
+  // la grille d'appel, sans voisin à bousculer. 36 → 44 px de haut, c'est le
+  // seul endroit du projet où la cible peut grandir franchement sans coûter
+  // un pixel à quoi que ce soit d'autre.
   const buttonClass = (on: boolean): string =>
-    `pointer-events-auto inline-flex min-h-9 items-center gap-2 rounded-full px-4 py-2 text-sm font-medium shadow-2 transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat disabled:cursor-not-allowed disabled:opacity-50 ${
+    `pointer-events-auto inline-flex min-h-11 items-center gap-2 rounded-full px-4 py-2 text-sm font-medium shadow-2 transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat disabled:cursor-not-allowed disabled:opacity-50 ${
       on
         ? 'bg-red text-white hover:bg-red/90'
         : 'bg-blurple text-white hover:bg-blurple/90'

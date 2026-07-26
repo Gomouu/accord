@@ -66,7 +66,11 @@ export function SavedMessages({ onClose }: { onClose: () => void }) {
               type="button"
               aria-label={t.app.close}
               onClick={onClose}
-              className="rounded-sm p-1 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
+              // 24 → 40 px, dans le `px-4 py-3` vide de l'en-tête. La marge
+              // négative est indispensable ici : la hauteur de l'en-tête est
+              // reprise en dur dans le `max-h-[calc(70vh-3.25rem)]` du
+              // contenu.
+              className="relative -m-2 rounded-sm p-3 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
             >
               <CloseIcon size={16} />
             </button>
@@ -103,7 +107,11 @@ export function SavedMessages({ onClose }: { onClose: () => void }) {
                   type="button"
                   aria-label={t.saved.remove}
                   onClick={() => remove(item.msgId)}
-                  className="mt-2 shrink-0 rounded-sm p-1 text-faint opacity-0 transition-opacity duration-fast hover:text-norm focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple group-hover:opacity-100"
+                  // 22 → 38 px. Le `mt-2` disparaît au profit du
+                  // rembourrage : les 8 px du haut sont désormais dans la
+                  // cible au lieu d'être une marge morte, et l'icône reste
+                  // exactement où elle était.
+                  className="relative -mx-2 -mb-2 shrink-0 rounded-sm p-3 text-faint opacity-0 transition-opacity duration-fast hover:text-norm focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple group-hover:opacity-100"
                 >
                   <CloseIcon size={14} />
                 </button>

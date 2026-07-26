@@ -20,6 +20,13 @@
   `NodeId = SHA-256(pubkey)`. Creating an identity requires a 16-bit
   proof of work over `SHA-256(pubkey ‖ nonce)`, verified by every peer and
   by the DHT (anti-Sybil cost, not an anti-Sybil wall).
+  ⚠️ **Since 7.0 that key is a *device* key, and the account is a second key
+  above it** (`MULTI_DEVICE.md` §2). The trade-offs listed below were reviewed
+  before that split and are unchanged by it — they concern the transport, the
+  relays and the DHT, which reason about machines either way. What the split
+  *did* add — pairing, the signed device list, the widened reach of an unlocked
+  machine — is analysed in `SECURITY.md` §3.5 and §5, **not here**. Do not read
+  this document's date as covering it.
 - **Groups are signed operation logs**: every administrative operation is
   signed by its author and validated against the permission state at its
   application point, in a deterministic total order

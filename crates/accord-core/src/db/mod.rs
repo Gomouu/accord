@@ -335,11 +335,23 @@ pub struct Db {
     group_cache: std::sync::Mutex<HashMap<[u8; 16], GroupCacheEntry>>,
 }
 
+/// Clé d'ordre canonique d'une op : `(lamport, node_id(auteur), op_id)`, la
+/// même que celle du tri de [`crate::group::GroupState::fold`].
+pub(crate) type CleOrdre = (u64, [u8; 32], [u8; 16]);
+
 /// Entrée de cache d'un groupe : état replié et/ou offre de synchronisation.
 #[derive(Default)]
 pub(crate) struct GroupCacheEntry {
     pub(crate) state: Option<std::sync::Arc<crate::group::GroupState>>,
     pub(crate) offer: Option<crate::group::SyncOffer>,
+    /// Clé d'ordre la plus haute déjà repliée dans `state`.
+    ///
+    /// C'est ce qui rend le repli incrémental possible **et sûr** : une op qui
+    /// trie strictement au-dessus de ce repère aurait, dans un repli complet,
+    /// été appliquée en dernier — l'appliquer par-dessus l'état en cache donne
+    /// donc exactement le même résultat. Une op qui trie en dessous doit
+    /// s'insérer au milieu, et là seul un repli complet est juste.
+    pub(crate) repere: Option<CleOrdre>,
 }
 
 impl Db {
@@ -794,15 +806,71 @@ impl Db {
             .and_then(|e| e.state.clone())
     }
 
-    /// Mémorise l'état replié d'un groupe.
+    /// Mémorise l'état replié d'un groupe, avec le repère d'ordre qui permettra
+    /// de l'étendre sans tout relire.
     pub(crate) fn group_cache_put_state(
         &self,
         group_id: [u8; 16],
         state: std::sync::Arc<crate::group::GroupState>,
+        repere: Option<CleOrdre>,
     ) {
         if let Ok(mut cache) = self.group_cache.lock() {
-            cache.entry(group_id).or_default().state = Some(state);
+            let e = cache.entry(group_id).or_default();
+            e.state = Some(state);
+            e.repere = repere;
         }
+    }
+
+    /// Étend l'état en cache avec une op qui vient d'entrer, **si c'est sûr** ;
+    /// invalide sinon.
+    ///
+    /// 🔴 Le point chaud mesuré du jalon 6 : sans cela, chaque insertion
+    /// invalidait, et le `group_state` suivant relisait tout le journal depuis
+    /// SQLite pour le replier. Rejoindre un serveur de 500 membres coûtait
+    /// 827 ms dont ~62 % dans ces relectures — environ 596 000 lignes lues pour
+    /// 1 092 ops. Le rejeu lui-même n'en représentait que 0,5 ms
+    /// (`docs/PERFORMANCE.md` §3).
+    ///
+    /// 🔒 **Trois conditions, et chacune protège une façon de se tromper.**
+    /// - Un état doit déjà être en cache avec son repère : sans lui, on ne sait
+    ///   pas ce qui a été replié, donc on ne peut rien affirmer.
+    /// - L'op doit trier **strictement au-dessus** du repère. En dessous, elle
+    ///   s'insérerait au milieu de l'ordre canonique et changerait le résultat
+    ///   des ops déjà appliquées : seul un repli complet est juste.
+    /// - L'op ne doit pas être une CREATE. `fold` hisse la racine commise en
+    ///   tête, hors de l'ordre canonique ; l'ajouter à la fin ne reproduirait
+    ///   pas ce traitement. Il y en a une par groupe, donc ce cas ne coûte rien.
+    pub(crate) fn group_cache_extend(&self, op: &accord_proto::core_msg::GroupOp) {
+        use accord_proto::core_msg::GroupOpBody;
+
+        let cle: CleOrdre = (
+            op.lamport,
+            accord_crypto::identity::node_id_of(&op.author).0,
+            op.op_id,
+        );
+        let Ok(mut cache) = self.group_cache.lock() else {
+            return;
+        };
+        let Some(e) = cache.get_mut(&op.group_id) else {
+            return;
+        };
+        // L'offre de synchronisation dépend de TOUT le journal : elle est
+        // invalidée dans tous les cas, y compris quand l'état, lui, survit.
+        e.offer = None;
+        let etendable = op.kind != GroupOpBody::CREATE_KIND
+            && matches!((&e.state, e.repere), (Some(_), Some(r)) if r < cle);
+        if !etendable {
+            cache.remove(&op.group_id);
+            return;
+        }
+        let Some(etat) = e.state.as_ref() else {
+            cache.remove(&op.group_id);
+            return;
+        };
+        let mut suivant = (**etat).clone();
+        let _ = suivant.apply(op);
+        e.state = Some(std::sync::Arc::new(suivant));
+        e.repere = Some(cle);
     }
 
     /// Offre de synchronisation en cache, si elle est encore valide.
@@ -814,13 +882,6 @@ impl Db {
     pub(crate) fn group_cache_put_offer(&self, group_id: [u8; 16], offer: crate::group::SyncOffer) {
         if let Ok(mut cache) = self.group_cache.lock() {
             cache.entry(group_id).or_default().offer = Some(offer);
-        }
-    }
-
-    /// Invalide le cache d'un groupe (log modifié).
-    pub(crate) fn group_cache_invalidate(&self, group_id: &[u8; 16]) {
-        if let Ok(mut cache) = self.group_cache.lock() {
-            cache.remove(group_id);
         }
     }
 

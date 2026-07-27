@@ -1160,6 +1160,7 @@ async fn self_sync_tick(rt: &Runtime, _cfg: &MaintenanceConfig) {
         if rt.addr_of(&frere).is_none() {
             continue; // appareil sans lien connu : rien à offrir cette passe
         }
+        rt.announce_self_contacts(&frere).await;
         rt.offer_self_sync(&frere).await;
     }
 }

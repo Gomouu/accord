@@ -1991,6 +1991,42 @@ pub enum CoreMsg {
         /// coûteux quand on ne sait pas.
         at_ms: u64,
     },
+    /// 0x22 — Une amitié existe sur cette machine ; qu'elle existe aussi sur
+    /// les AUTRES APPAREILS du même compte.
+    ///
+    /// 🔴 Sans ce message, un appareil fraîchement appairé est **sourd**.
+    /// `accord_core::messaging::ingest_dm` ignore tout message d'un pair qui
+    /// n'est pas `Friend` dans la base de CETTE machine ; or l'appairage part
+    /// d'un profil neuf, donc d'un carnet vide, et rien ne le remplissait. La
+    /// machine ouvrait ses sessions, figurait dans l'éventail de livraison, et
+    /// jetait en silence tout ce qui lui arrivait — un appareil qui a l'air
+    /// connecté et ne reçoit rien.
+    ///
+    /// 🔒 **Crée, ne modifie jamais.** Si le contact existe déjà ici, ce
+    /// message est sans effet — nom compris. Deux raisons, et la seconde suffit
+    /// seule : un contact **bloqué** ici ne doit pas pouvoir redevenir ami
+    /// parce qu'une autre machine du compte l'ignorait encore (le blocage
+    /// l'emporte, comme partout ailleurs, cf. [`CoreMsg::SelfContactState`]) ;
+    /// et un message qui ne fait qu'ajouter n'offre aucun levier de
+    /// rétrogradation, ce qui laisse le blocage et le déblocage circuler sur
+    /// leur propre message, avec leur propre horodatage.
+    ///
+    /// ⚠️ Comme [`CoreMsg::SelfContactState`], il ne quitte jamais le compte :
+    /// il porte la clé d'un tiers, et l'envoyer ailleurs révélerait à la fois
+    /// l'existence de cette personne et le fait qu'on la connaît.
+    SelfContactAdd {
+        /// Compte de l'ami.
+        peer: [u8; 32],
+        /// Pseudo affiché tel que la machine émettrice le connaît.
+        display_name: String,
+        /// Horloge murale de l'ajout, sur la machine qui l'a décidé.
+        ///
+        /// 🔒 Borné à l'ingestion contre une date trop lointaine dans le
+        /// futur, comme la liste d'appareils depuis la 7.1 (`SECURITY.md` 16) :
+        /// une machine à la pile CMOS morte ne doit pas pouvoir dater un ajout
+        /// de l'an 3000 et fausser tout classement ultérieur.
+        added_ms: u64,
+    },
 }
 
 /// [`CoreMsg::SelfContactState::state`] : contact bloqué.
@@ -2324,6 +2360,16 @@ impl WireEncode for CoreMsg {
                 w.put_u8(*state);
                 w.put_u64(*at_ms);
             }
+            CoreMsg::SelfContactAdd {
+                peer,
+                display_name,
+                added_ms,
+            } => {
+                w.put_u8(0x22);
+                w.put_arr(peer);
+                w.put_str(display_name);
+                w.put_u64(*added_ms);
+            }
         }
     }
 }
@@ -2586,6 +2632,11 @@ impl WireDecode for CoreMsg {
                 },
                 at_ms: r.u64()?,
             }),
+            0x22 => Ok(CoreMsg::SelfContactAdd {
+                peer: r.arr()?,
+                display_name: r.str(MAX_NAME, "self_contact.name")?,
+                added_ms: r.u64()?,
+            }),
             _ => Err(DecodeError::InvalidValue("core kind")),
         }
     }
@@ -2734,6 +2785,31 @@ mod tests {
         w.put_u8(0x20);
         w.put_arr(&[0x3B; 32]);
         w.put_u8(0x7F);
+        w.put_u64(1);
+        assert!(CoreMsg::from_bytes(&w.into_bytes()).is_err());
+    }
+
+    #[test]
+    fn self_contact_add_roundtrips_and_bounds_its_name() {
+        let msg = CoreMsg::SelfContactAdd {
+            peer: [0x9C; 32],
+            display_name: "Camille".to_string(),
+            added_ms: 1_700_000_000_456,
+        };
+        let mut w = Writer::new();
+        msg.encode(&mut w);
+        let bytes = w.into_bytes();
+        // Opcode gelé, et distinct de 0x20 : l'ajout et le changement d'état
+        // sont deux messages, pas deux valeurs d'un même champ.
+        assert_eq!(bytes.first(), Some(&0x22));
+        assert_eq!(CoreMsg::from_bytes(&bytes).unwrap(), msg);
+
+        // 🔒 Le pseudo est borné AU DÉCODAGE : le nœud qui l'applique n'a
+        // jamais à se méfier de sa longueur, comme pour `friend.name`.
+        let mut w = Writer::new();
+        w.put_u8(0x22);
+        w.put_arr(&[0x9C; 32]);
+        w.put_str(&"a".repeat(MAX_NAME + 1));
         w.put_u64(1);
         assert!(CoreMsg::from_bytes(&w.into_bytes()).is_err());
     }

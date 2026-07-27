@@ -440,6 +440,19 @@ Read before recommending Accord to people whose safety depends on anonymity.
     nothing ever corrected them. A silent failure on a security control is worse
     than no control, because it manufactures a false certainty.
 
+18. **A friendship announced by one of our devices creates, and never
+    modifies.** Until 7.2 nothing propagated the address book between the
+    machines of one account, and a freshly paired device — which starts from an
+    empty database by design — silently discarded every message from every
+    existing friend while looking perfectly connected. `SELF_CONTACT_ADD`
+    (SPEC §6.6) fixes that, and is deliberately the weakest message that can:
+    a contact already present locally is left untouched, name included. A
+    **block** set here therefore survives an announcement from a machine that
+    had not learned about it yet, and the message cannot be used to downgrade
+    anything. Reception is gated on the authenticated device key, like every
+    other `SELF_*` message, and `added_ms` is bounded against a clock in the
+    future for the same reason as item 16.
+
 ## 6. Accepted v0 trade-offs
 
 Documented in full in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md), with

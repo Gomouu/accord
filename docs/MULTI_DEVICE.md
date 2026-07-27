@@ -807,7 +807,33 @@ Three properties are worth stating plainly, because each is a limit:
   — or on an older release — simply stays behind until it is reachable and
   updated. `SECURITY.md` §5 states this as a non-guarantee rather than burying it.
 
-⚠️ Blocking is the *only* such state pushed today. Anything else that is decided
+### 6.2 Friendships had to be pushed too — the device that looked connected and was deaf
+
+🔴 The table above calls friendships account-level, and §6.1 explains that most
+account-level concerns are account-level *for free* because a second device
+recomputes them from something signed. **Friendships are not among them, and
+believing they were shipped a real failure in 7.0.**
+
+A friendship lives in this machine's `contacts` table and in no signed structure.
+`accord_core::messaging::ingest_dm` drops every message from a peer that is not
+`Friend` *there*. Pairing starts from a fresh profile — §4.3 deletes the old
+database — so a newly paired device begins with an empty address book, and
+nothing filled it. The result: sessions established, the device correctly listed
+and correctly targeted by the friend's delivery fan-out, and every message
+silently discarded on arrival. A machine that looks connected and receives
+nothing, with nothing anywhere saying why.
+
+`CoreMsg::SelfContactAdd` (0x22, SPEC §6.6) closes it, on the same channel as
+blocking. It **creates and never modifies**, which is both its conflict rule and
+its safety property: a contact already present here — friend, pending or
+**blocked** — comes out unchanged, so an announcement can never undo a block, and
+the message offers no downgrade lever at all. Two paths carry it: one message
+when a friendship is established, and the whole address book when a sibling
+device becomes reachable, which is what covers the device that was off or did not
+yet exist.
+
+⚠️ Blocking is no longer the only such state pushed, but the rest of this
+paragraph still holds: Anything else that is decided
 locally about a third party — private contact notes, DM pins, manual identity
 verification — stays on the machine that decided it, and no wire message carries
 it. That is a bounded scope, not an oversight: each one would need its own

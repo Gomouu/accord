@@ -2051,6 +2051,9 @@ impl Node {
                         // pseudo au pair (D-027).
                         let mut replies = vec![CoreMsg::FriendResponse { accepted: true }];
                         replies.extend(self.own_profile_msg()?);
+                        // …et l'amitié elle-même à NOS appareils, sans quoi les
+                        // autres machines du compte resteront sourdes à ce pair.
+                        self.annoncer_ami(peer_pubkey, &display_name, now_ms());
                         replies
                     }
                     _ => vec![],
@@ -2072,6 +2075,7 @@ impl Node {
                 // Nouvel ami : annoncer notre pseudo en retour (l'accepteur
                 // fait de même de son côté, D-027).
                 if established {
+                    self.annoncer_ami(peer_pubkey, &self.nom_du_contact(peer_pubkey), now_ms());
                     return Ok(self.own_profile_msg()?.into_iter().collect());
                 }
                 Ok(vec![])
@@ -2095,6 +2099,44 @@ impl Node {
                             at_ms,
                         )?)
                     })?;
+                }
+                Ok(vec![])
+            }
+            CoreMsg::SelfContactAdd {
+                peer,
+                display_name,
+                added_ms,
+            } => {
+                // 🔒 Même porte que `SelfContactState`, et pour une raison de
+                // même nature : c'est la clé authentifiée par la session qui
+                // décide, jamais le contenu. Sans elle, n'importe quel ami
+                // pourrait inscrire n'importe qui dans notre carnet — et donc
+                // se rendre audible en se présentant sous une autre clé.
+                if self.is_own_device(device_pubkey) {
+                    // 🔒 Borne d'horloge, leçon directe du défaut corrigé en
+                    // 7.1 (`SECURITY.md` 16) : une machine à la pile morte ne
+                    // doit pas pouvoir dater une création de l'an 3000. Ici
+                    // `added_ms` ne tranche aucun conflit — l'application ne
+                    // fait que créer — mais il devient la date affichée et le
+                    // point de départ de tout classement futur, et une date
+                    // aberrante y resterait pour toujours.
+                    let plafond = now_ms().saturating_add(accord_dht::store::MAX_CLOCK_SKEW_MS);
+                    if added_ms <= plafond {
+                        let cree = self.with_db(|db| {
+                            Ok(accord_core::friends::apply_remote_add(
+                                db,
+                                &peer,
+                                &display_name,
+                                added_ms,
+                            )?)
+                        })?;
+                        if cree {
+                            self.emit(
+                                "event.friend_response",
+                                json!({ "peer": hex::encode(&peer), "accepted": true }),
+                            );
+                        }
+                    }
                 }
                 Ok(vec![])
             }

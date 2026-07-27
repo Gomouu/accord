@@ -1376,6 +1376,9 @@ impl Runtime {
                     // minutes après un démarrage laisserait l'utilisateur
                     // devant une conversation trouée.
                     if account == self.node.public_key() {
+                        // Le carnet AVANT les conversations : un appareil au
+                        // carnet vide jetterait l'historique qu'on lui sert.
+                        self.announce_self_contacts(&static_pub).await;
                         self.offer_self_sync(&static_pub).await;
                     }
                     if self.is_friend(&account) {
@@ -1636,6 +1639,50 @@ impl Runtime {
     /// Best-effort et silencieux : une offre perdue ne coûte qu'une passe de
     /// retard, et faire échouer l'établissement d'une session parce que la base
     /// est momentanément illisible n'aurait aucun sens.
+    /// Annonce notre carnet d'amis à UN de nos appareils.
+    ///
+    /// 🔴 Le chemin de rattrapage du correctif « appareil sourd ». L'annonce
+    /// unitaire part au moment où l'amitié se noue ; celle-ci couvre tout ce
+    /// qui a été noué pendant que cette machine était éteinte — et le cas qui
+    /// compte vraiment, l'appareil qui vient d'être appairé et dont le carnet
+    /// est vide.
+    ///
+    /// Best-effort et silencieux, comme [`RuntimeInner::offer_self_sync`] : une
+    /// annonce perdue coûte une passe de retard, et faire échouer
+    /// l'établissement d'une session parce que la base est momentanément
+    /// illisible n'aurait aucun sens.
+    pub(crate) async fn announce_self_contacts(&self, device: &[u8; 32]) {
+        let (msgs, total) = match self.node.self_contact_msgs() {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::debug!(erreur = %e, "carnet : contacts illisibles");
+                return;
+            }
+        };
+        // ⚠️ Jamais de troncature muette : si la borne mord, elle laisse
+        // l'appareil sourd à des amis, ce qui est la panne même que cette
+        // annonce supprime.
+        if total > msgs.len() {
+            tracing::warn!(
+                total,
+                annonces = msgs.len(),
+                "carnet : annonce tronquée, des amis ne seront pas propagés"
+            );
+        }
+        let mut envoyees = 0usize;
+        for msg in msgs {
+            if self
+                .send_via_best_link(device, &ChannelMsg::Core(msg))
+                .await
+            {
+                envoyees += 1;
+            }
+        }
+        if envoyees > 0 {
+            tracing::debug!(amis = envoyees, "carnet : annoncé à un appareil");
+        }
+    }
+
     pub(crate) async fn offer_self_sync(&self, device: &[u8; 32]) {
         let offres = match self.node.self_sync_offers() {
             Ok(o) => o,

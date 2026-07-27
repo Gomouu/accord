@@ -393,6 +393,45 @@ pub fn apply_remote_state(
     }
 }
 
+/// Applique une amitié annoncée par UNE AUTRE MACHINE du même compte
+/// (`CoreMsg::SelfContactAdd`).
+///
+/// 🔴 **Ce que cela répare.** [`crate::messaging::ingest_dm`] ignore tout
+/// message d'un pair qui n'est pas `Friend` **dans la base de cette machine**.
+/// Un appareil qui vient d'être appairé part d'un profil neuf, donc d'un carnet
+/// vide, et rien ne le remplissait : il ouvrait ses sessions, figurait dans
+/// l'éventail de livraison, et jetait en silence tout ce qu'on lui envoyait.
+///
+/// 🔒 **Crée, ne modifie jamais**, et c'est la totalité de la règle de conflit.
+/// Il n'y a rien à départager : un contact déjà présent ici — ami, en attente
+/// ou **bloqué** — sort inchangé. En particulier un blocage posé ici ne peut
+/// pas être défait par une machine du compte qui l'ignorait encore, ce qui
+/// serait exactement l'accident que [`apply_remote_state`] s'emploie à rendre
+/// coûteux. Le blocage et le déblocage gardent leur propre message et leur
+/// propre horodatage ; celui-ci n'a donc pas besoin d'horloge, seulement d'une
+/// date de création à inscrire.
+///
+/// Renvoie `true` si un contact a été créé — utile pour ne journaliser que ce
+/// qui a bougé.
+pub fn apply_remote_add(
+    db: &Db,
+    peer_pubkey: &[u8; 32],
+    display_name: &str,
+    added_ms: u64,
+) -> Result<bool, CoreError> {
+    let node_id = node_id_of(peer_pubkey).0;
+    if db.contact(&node_id)?.is_some() {
+        return Ok(false);
+    }
+    db.upsert_contact(&new_contact(
+        *peer_pubkey,
+        display_name,
+        ContactState::Friend,
+        added_ms,
+    ))?;
+    Ok(true)
+}
+
 /// Débloque un pair en effaçant le contact.
 pub fn unblock(db: &Db, peer_pubkey: &[u8; 32]) -> Result<(), CoreError> {
     let node_id = node_id_of(peer_pubkey).0;
@@ -418,6 +457,55 @@ mod tests {
     /// État courant d'un contact, ou `None` s'il n'existe pas.
     fn etat(db: &Db, pubkey: &[u8; 32]) -> Option<ContactState> {
         db.contact(&node_id_of(pubkey).0).unwrap().map(|c| c.state)
+    }
+
+    #[test]
+    fn une_amitie_annoncee_cree_le_contact_absent() {
+        let (db, _, autre) = setup();
+        let pair = autre.public_key();
+        assert_eq!(etat(&db, &pair), None);
+
+        let cree = apply_remote_add(&db, &pair, "Camille", 4_000).unwrap();
+
+        assert!(cree, "un carnet vide doit apprendre l'ami");
+        assert_eq!(etat(&db, &pair), Some(ContactState::Friend));
+        let c = db.contact(&node_id_of(&pair).0).unwrap().unwrap();
+        assert_eq!(c.display_name, "Camille");
+        assert_eq!(c.added_ms, 4_000);
+    }
+
+    #[test]
+    fn une_amitie_annoncee_ne_deverrouille_jamais_un_blocage_local() {
+        let (db, _, autre) = setup();
+        let pair = autre.public_key();
+        // Bloqué ICI, et daté APRÈS l'annonce : même en LWW naïf, l'annonce
+        // perdrait. On la date volontairement plus tard pour vérifier que ce
+        // n'est pas l'horodatage qui protège, mais la règle « crée seulement ».
+        apply_remote_state(&db, &pair, true, 1_000).unwrap();
+
+        let cree = apply_remote_add(&db, &pair, "Camille", 9_999_999).unwrap();
+
+        assert!(!cree, "un contact existant n'est jamais recréé");
+        assert_eq!(
+            etat(&db, &pair),
+            Some(ContactState::Blocked),
+            "🔒 un blocage local doit survivre à l'annonce d'amitié d'une autre machine"
+        );
+    }
+
+    #[test]
+    fn une_amitie_annoncee_ne_renomme_pas_un_contact_existant() {
+        let (db, _, autre) = setup();
+        let pair = autre.public_key();
+        apply_remote_add(&db, &pair, "Camille", 4_000).unwrap();
+
+        apply_remote_add(&db, &pair, "AUTRE NOM", 5_000).unwrap();
+
+        let c = db.contact(&node_id_of(&pair).0).unwrap().unwrap();
+        assert_eq!(
+            c.display_name, "Camille",
+            "le message crée, il ne modifie pas"
+        );
     }
 
     #[test]

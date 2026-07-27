@@ -374,10 +374,10 @@ table is the **complete** list, so that no code looks free when it is not.
 | `0x16` | `SOUNDBOARD_PLAY` `{group_id: bytes<16>, channel_id: bytes<16>, sound: bytes<32>}` — `sound` is the Merkle root of a server sound. Honoured only from a group member, in a **voice** channel, for a sound registered in the group state (ops `0x2F`/`0x30`) | ⚠️ nowhere else |
 | `0x17` | `DEVICE_LIST_ANNOUNCE` — the signed device list pushed to a friend rather than fetched from the DHT (§4) | `MULTI_DEVICE.md` §3 |
 | `0x18`, `0x19`, `0x1F` | `PAIRING_HELLO`, `PAIRING_SEALED`, `PAIRING_SEED` — SPAKE2 pairing of a new device, then the sealed account seed | `MULTI_DEVICE.md` §4 |
-| `0x1B`–`0x1E`, `0x20` | `SELF_READ_MARK`, `SELF_SYNC_OFFER`, `SELF_SYNC_PULL`, `SELF_SYNC_ITEM`, `SELF_CONTACT_STATE` | §6.6 |
+| `0x1B`–`0x1E`, `0x20`, `0x22` | `SELF_READ_MARK`, `SELF_SYNC_OFFER`, `SELF_SYNC_PULL`, `SELF_SYNC_ITEM`, `SELF_CONTACT_STATE`, `SELF_CONTACT_ADD` | §6.6 |
 
-No code above `0x20` is assigned; an unknown one is a decode error that drops the
-message, not the session.
+`0x21` is reserved. No code above `0x22` is assigned; an unknown one is a decode
+error that drops the message, not the session.
 
 ### 6.1 Direct messages
 
@@ -575,7 +575,7 @@ onwards were added by D-047 and are the message's versioning path.
 
 ### 6.6 Account-internal messages (`SELF_*`)
 
-Five opcodes addressed to **our own account**, so that delivery (§7) fans them
+Six opcodes addressed to **our own account**, so that delivery (§7) fans them
 out to our other machines and to nobody else. They are what makes two devices
 one account rather than two accounts that happen to share a name.
 
@@ -588,6 +588,7 @@ one account rather than two accounts that happen to share a name.
                        lamport: u64, sent_ms: u64, kind: u8, body: lbytes,
                        acked: u8(0|1), deleted: u8(0|1), edited: opt<lbytes> }
 0x20 SELF_CONTACT_STATE { peer: bytes<32>, state: u8, at_ms: u64 }
+0x22 SELF_CONTACT_ADD   { peer: bytes<32>, display_name: str, added_ms: u64 }
 ```
 
 🔒 **Reception is gated on the authenticated key, never on the content.** Each of
@@ -631,6 +632,32 @@ block and unblock people in our address book by sending us a byte.
   ⚠️ It never leaves the account, and that is a confidentiality requirement rather
   than a routing detail: it carries a third party's key, so sending it anywhere
   else would reveal both that this person exists to us and what we think of them.
+- **`0x22 SELF_CONTACT_ADD`** — a friendship exists here; let it exist on the
+  other machines too. Without it a freshly paired device is **deaf**: `ingest_dm`
+  drops every message from a peer that is not `Friend` in *that machine's*
+  database, pairing starts from a fresh profile and therefore an empty address
+  book, and nothing filled it. The device opened its sessions, appeared in the
+  friend's delivery fan-out, and silently discarded everything it received.
+
+  🔒 **It creates, it never modifies** — and that is the whole conflict rule.
+  There is nothing to arbitrate: a contact already present locally comes out
+  unchanged, name included. In particular a **block** set here cannot be undone
+  by a machine of the account that had not learned about it yet, which is exactly
+  the accident `0x20` goes to some length to make expensive. Blocking and
+  unblocking keep their own message and their own timestamp; this one needs no
+  clock, only a creation date to record.
+
+  `added_ms` is bounded on ingestion to `now + MAX_CLOCK_SKEW_MS`, the same
+  tolerance the DHT uses. It arbitrates nothing, but it becomes the displayed
+  date and the starting point of any later ordering, and a machine with a dead
+  clock would leave an absurd one there for good (`SECURITY.md` 16).
+
+  Two paths carry it: one message when a friendship is established, and the whole
+  address book when a sibling device becomes reachable — the second is what
+  covers a device that was switched off, or that did not exist yet. The bulk pass
+  is capped at 512 and **logs a warning when the cap bites**: a silently truncated
+  address book would leave the device deaf to some friends, which is the very
+  failure this message removes.
 
 ## 7. Offline: queues and mailboxes
 

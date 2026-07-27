@@ -106,8 +106,22 @@ indexes weigh at this volume.
 
 ### 1.5 Not measured here
 
-- Cold start to usable interface (< 2 s budget), idle CPU, memory over 5 servers
-  and 20 conversations: still uninstrumented.
+- Cold start to usable interface (< 2 s budget) and idle CPU (< 2 %): still
+  uninstrumented. Both need a real running application watched over wall-clock
+  time on a quiet machine — a harness, not a test.
+- Memory over five servers: **now measured**, see §3.5 (0.3 MB of folded state
+  against a 400 MB budget). The twenty-conversations half of that budget is
+  still not covered.
+- **End-to-end message latency on a LAN (< 100 ms).** Nothing measures it, and
+  ROADMAP §10.2 marks the row "déjà bon" — a verdict with no figure behind it.
+  It is listed here so the absence is on the record rather than reading as a
+  pass.
+
+  ⚠️ The tempting shortcut is to time send→receive inside the simulated mesh
+  that `chaos_reseau_e2e` already drives. That would measure the code's own
+  contribution in microseconds and say nothing about a LAN, while producing a
+  number that looks like an answer to the budget. Two real machines on one
+  network is what this asks for.
 - The React render of a page of 50 messages. This bench stops at the node's JSON
   reply, which is where the 0.91 ms is spent; what the UI then does with it is a
   separate measurement.

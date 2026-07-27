@@ -304,6 +304,10 @@ export const arSettings = {
     backupPassphraseEmpty: 'أدخل عبارة مرورك.',
     dangerZoneTitle: 'منطقة الخطر',
     logoutHint: 'يقفل خزنتك ويعيدك إلى شاشة الفتح. لا تُحذف أي بيانات.',
+    linkPreviewsTitle: 'معاينات الروابط',
+    linkPreviewsLabel: 'تحميل معاينة للروابط الواردة',
+    linkPreviewsHint:
+      'معطّل افتراضيًا. لعرض المعاينة يجب أن يجلب جهازك الصفحة — عندها يرى الموقع عنوان IP الخاص بك، مع أن الرابط اختاره شخص آخر. في مجموعة، رابط إلى خادم يتحكم به يكشف عنوان IP لكل من فعّل هذا الإعداد.',
     streamerTitle: 'وضع البث',
     streamerLabel: 'أخفِ المعلومات الحساسة',
     streamerHint:

@@ -748,6 +748,9 @@ export const ru: Dict = {
     searchPlaceholder: 'Найти звук',
     noResults: 'Ни один звук не подходит.',
   },
+  linkPreview: {
+    cardLabel: 'Предпросмотр ссылки',
+  },
   calls: {
     startCall: 'Позвонить',
     callAlreadyOngoing: 'Звонок уже идёт',

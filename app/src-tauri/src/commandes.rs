@@ -490,6 +490,24 @@ pub fn journal_ui(niveau: String, message: String) {
     }
 }
 
+/// Aperçu d'un lien — **jamais appelée tant que le réglage est éteint**.
+///
+/// 🔒 La décision d'aller chercher la page appartient au frontend, qui seul
+/// connaît le réglage de l'utilisateur. Cette commande ne la reprend pas : elle
+/// suppose que le choix est déjà fait, et se contente de le faire sûrement
+/// (schéma, adresse publique, redirections re-vérifiées, corps borné — voir
+/// `apercu_lien`). Un appel dont l'utilisateur n'a pas voulu resterait donc une
+/// fuite ; c'est au frontend de ne pas le passer.
+///
+/// L'erreur rendue est volontairement générique : détailler « adresse non
+/// publique » confirmerait à qui sonde ce que la machine héberge.
+#[tauri::command]
+pub async fn apercu_lien(url: String) -> Result<crate::apercu_lien::Apercu, String> {
+    crate::apercu_lien::recuperer(&url)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Dossier du journal, pour le bouton « ouvrir le dossier des logs ».
 ///
 /// `None` si le journal n'a pas pu être ouvert — l'interface propose alors

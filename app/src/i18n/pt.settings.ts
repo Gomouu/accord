@@ -330,6 +330,10 @@ export const ptSettings = {
     dangerZoneTitle: 'Zona de perigo',
     logoutHint:
       'Bloqueia a tua caixa forte e volta ao ecrã de desbloqueio. Nenhum dado é apagado.',
+    linkPreviewsTitle: 'Pré-visualizações de links',
+    linkPreviewsLabel: 'Carregar uma pré-visualização dos links recebidos',
+    linkPreviewsHint:
+      'Desativado por padrão. Para mostrar a pré-visualização, o seu dispositivo precisa buscar a página — o site vê então o seu endereço IP, embora o link tenha sido escolhido por outra pessoa. Num grupo, um link para um servidor controlado revela o IP de todos os que ativaram isto.',
     streamerTitle: 'Modo streamer',
     streamerLabel: 'Ocultar a informação sensível',
     streamerHint:

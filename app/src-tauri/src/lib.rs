@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod apercu_lien;
 pub mod commandes;
 pub mod erreur;
 pub mod etat;
@@ -77,6 +78,7 @@ pub fn executer() -> ExitCode {
         .invoke_handler(tauri::generate_handler![
             commandes::vault_status,
             commandes::journal_ui,
+            commandes::apercu_lien,
             commandes::journal_dossier,
             commandes::journal_niveau,
             commandes::app_quit,

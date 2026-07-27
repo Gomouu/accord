@@ -328,6 +328,10 @@ export const deSettings = {
     dangerZoneTitle: 'Gefahrenzone',
     logoutHint:
       'Sperrt deinen Tresor und kehrt zum Entsperrbildschirm zurück. Es werden keine Daten gelöscht.',
+    linkPreviewsTitle: 'Linkvorschauen',
+    linkPreviewsLabel: 'Vorschau empfangener Links laden',
+    linkPreviewsHint:
+      'Standardmäßig aus. Für eine Vorschau muss dein Gerät die Seite abrufen — die Website sieht dann deine IP-Adresse, obwohl jemand anderes den Link gewählt hat. In einer Gruppe verrät ein Link zu einem kontrollierten Server die IP aller, die dies aktiviert haben.',
     streamerTitle: 'Streamer-Modus',
     streamerLabel: 'Sensible Informationen verbergen',
     streamerHint:

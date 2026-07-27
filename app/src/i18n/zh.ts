@@ -731,6 +731,9 @@ export const zh: Dict = {
     searchPlaceholder: '搜索音效',
     noResults: '没有匹配的音效。',
   },
+  linkPreview: {
+    cardLabel: '链接预览',
+  },
   calls: {
     startCall: '通话',
     callAlreadyOngoing: '已经有一通电话在进行',

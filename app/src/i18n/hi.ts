@@ -740,6 +740,9 @@ export const hi: Dict = {
     searchPlaceholder: 'ध्वनि खोजो',
     noResults: 'कोई ध्वनि मेल नहीं खाती।',
   },
+  linkPreview: {
+    cardLabel: 'लिंक पूर्वावलोकन',
+  },
   calls: {
     startCall: 'कॉल करो',
     callAlreadyOngoing: 'एक कॉल पहले से चल रही है',

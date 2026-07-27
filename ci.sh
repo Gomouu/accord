@@ -4,6 +4,13 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 export PATH="$HOME/.cargo/bin:$PATH"
+# Opus vendu (audiopus_sys) se compile via CMake, et CMake >= 4 a retiré la
+# compatibilité avec les projets < 3.5. Sans cette variable, tout changement
+# touchant app/src-tauri fait échouer le gate sur un message qui ne parle ni
+# d'Accord ni d'audio. `ci.yml` et `scripts/build-macos.sh` la posaient déjà ;
+# ici elle manquait, et la panne restait invisible tant que le crate hôte
+# n'était pas reconstruit.
+export CMAKE_POLICY_VERSION_MINIMUM="${CMAKE_POLICY_VERSION_MINIMUM:-3.5}"
 
 step() { printf '\n\033[1;34m== %s ==\033[0m\n' "$1"; }
 

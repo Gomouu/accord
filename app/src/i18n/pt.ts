@@ -750,6 +750,9 @@ export const pt: Dict = {
     searchPlaceholder: 'Procurar um som',
     noResults: 'Nenhum som corresponde.',
   },
+  linkPreview: {
+    cardLabel: 'Pré-visualização do link',
+  },
   calls: {
     startCall: 'Ligar',
     callAlreadyOngoing: 'Já há uma chamada em curso',

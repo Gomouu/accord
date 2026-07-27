@@ -773,6 +773,9 @@ export const es: Dict = {
     searchPlaceholder: 'Buscar sonidos',
     noResults: 'Ningún sonido coincide.',
   },
+  linkPreview: {
+    cardLabel: 'Vista previa del enlace',
+  },
   calls: {
     startCall: 'Llamar',
     callAlreadyOngoing: 'Ya hay una llamada en curso',

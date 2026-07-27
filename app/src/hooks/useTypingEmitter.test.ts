@@ -10,7 +10,15 @@ import type { Mock } from 'vitest';
 import { renderHook } from '@testing-library/react';
 
 vi.mock('../lib/client', () => ({
-  api: { dmTyping: vi.fn(), groupsTyping: vi.fn() },
+  api: {
+    dmTyping: vi.fn(),
+    groupsTyping: vi.fn(),
+    // L'indicateur de frappe est une préférence SYNCHRONISÉE : l'écrire passe
+    // par le miroir vers le nœud. Rien à vérifier ici, mais le mock doit
+    // exister, sans quoi ce fichier échouerait sur un sujet qui n'est pas le
+    // sien.
+    setPref: vi.fn(() => Promise.resolve(0)),
+  },
 }));
 
 import { api } from '../lib/client';

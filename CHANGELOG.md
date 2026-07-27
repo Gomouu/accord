@@ -4,6 +4,87 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ## [Unreleased]
 
+### Fixed
+
+- **🔴 A freshly paired device received nothing, and looked perfectly
+  connected.** Not slowly — nothing, from every existing friend, for as long as
+  it ran. It established its sessions, appeared correctly in the friend's
+  delivery fan-out, and discarded every message on arrival.
+
+  A message from someone who is not a friend *in this machine's database* is
+  dropped, which is correct. But pairing starts from a fresh profile — the old
+  database is deleted, by design — so the new device begins with an empty
+  address book, and nothing ever filled it. Friendships were treated as
+  account-level because most account-level state is recomputed from something
+  the account root signed; a friendship is not, it lives in a local table and in
+  no signed structure. That gap is what shipped in 7.0.
+
+  A friendship now travels to the account's other devices, on the same channel
+  as blocking. The rule is that it **creates and never modifies**: a contact
+  already present locally — friend, pending, or blocked — comes out untouched.
+  So an announcement can never undo a block, and the message offers no way to
+  downgrade anything at all. Two paths carry it: one message when a friendship
+  is established, and the whole address book when another of your devices
+  becomes reachable — which is what covers the machine that was switched off,
+  or that did not exist yet.
+
+  A message that arrives before the address book is not lost: it is not
+  acknowledged, so the sender keeps it and re-sends it.
+
+  This was found by probing rather than by reading. The regression test is the
+  probe that first failed.
+
+### Added
+
+- **Compare safety numbers by QR instead of by voice.** Verifying a contact
+  meant reading 60 digits aloud, and transcription error is what actually breaks
+  that ceremony. One friend now shows the QR of their safety number, the other
+  points the camera at it, and the app answers.
+
+  The comparison is always against the number this machine computed from the two
+  identity keys it already holds. Nothing decoded from a QR is stored, adopted,
+  or displayed as an identity — the payload carries a value to compare and
+  nothing else. "Identical" has a single origin in the code: a well-formed
+  payload *and* strict equality. A failed read exits as "not a safety number" or
+  as nothing at all, never as a match. And a mismatch stops the scan rather than
+  retrying until some frame happens to agree.
+
+  The digits and the emoji stay on screen throughout. A refused camera, an
+  absent camera and a foreign QR each say so plainly and leave the manual
+  comparison exactly as it was.
+
+- **The devices screen says when each machine was last seen, and how it was
+  reached.** It could only show a name and a date added — nothing distinguished
+  the machine in daily use from the one lent out last year that ought to be
+  revoked, which is the one question that screen exists to answer.
+
+  "How" means the route — a direct link or a relay circuit — and never an
+  address. A device address on screen ends up in the first screenshot sent to
+  someone for help, and the address of a tunnelled session is the relay's
+  anyway, so showing it as the device's would be wrong as well as indiscreet.
+  The whole thing is a local table: it is never published, and in particular
+  never joins the signed device list, which every friend can read from the DHT.
+
+- **Language, theme and notification policy follow you between your devices.**
+  Preferences that describe *you* rather than *the machine* now travel to your
+  other devices.
+
+  What deliberately stays put: audio input and output devices (the names are not
+  merely useless on another machine, they are wrong), volumes and the microphone
+  processing (bound to the room and the hardware), interface zoom and panel
+  widths (display geometry), tray behaviour (per-OS semantics), quiet hours
+  (stored as bare local hours with no timezone, so syncing them across
+  timezones would misfire silently), and the inactivity lock — a shared laptop
+  wants a shorter one than a home desktop, and syncing it would weaken the
+  device that needed it most.
+
+  Conflicts are resolved by the wall clock of the machine that decided, per
+  preference. That is unsound under clock drift, and it is accepted here for a
+  reason it would not be for blocking: losing a theme change is visible and you
+  simply set it again, whereas a lost block is silent. A preference dated far in
+  the future is refused outright — the same guard the device list has carried
+  since 7.1, and for the same reason.
+
 ## [7.1.0] — 2026-07-27
 
 ### Fixed

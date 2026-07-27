@@ -169,8 +169,17 @@ let miroirSuspendu = false;
  */
 export function mirrorSyncedPref(key: string, value: string): void {
   if (miroirSuspendu || !isSyncedPrefKey(key)) return;
-  void api
-    .setPref(key, value)
+  // ⚠️ L'appel est enveloppé plutôt qu'appelé directement, et le `.catch()`
+  // seul ne suffisait pas : il n'attrape que les rejets, pas un lancer
+  // SYNCHRONE. Or écrire une préférence passe désormais par le store, donc par
+  // ici, donc par le réseau — et tout test qui touche un réglage synchronisé
+  // sans avoir mocké `setPref` explosait en `TypeError`, à des kilomètres du
+  // sujet qu'il testait. Faire remonter ça jusqu'à l'appelant contredirait de
+  // toute façon la promesse écrite ci-dessus : le réglage a déjà pris
+  // localement, et ne pas pouvoir tenter le miroir est un échec de miroir
+  // comme un autre.
+  void Promise.resolve()
+    .then(() => api.setPref(key, value))
     .then((atMs) => {
       recordPrefSyncedAt(key, atMs);
     })

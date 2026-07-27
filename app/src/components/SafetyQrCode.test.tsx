@@ -9,6 +9,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
 vi.mock('qrcode', () => ({
@@ -16,6 +17,12 @@ vi.mock('qrcode', () => ({
 }));
 
 import { toDataURL } from 'qrcode';
+
+// `qrcode` surcharge `toDataURL`, et TypeScript retient la variante à
+// callback, dont le retour est `void` : `mockResolvedValue` ne s'y applique
+// pas. Même échappatoire que le reste du dépôt (`AppShell.test.tsx`), qui
+// alias le mock plutôt que d'annoter chaque appel.
+const qrMock = toDataURL as unknown as Mock;
 import { fr } from '../i18n/fr';
 import { useUi } from '../stores/ui';
 import { SafetyQrCode } from './SafetyQrCode';
@@ -24,8 +31,8 @@ const DIGITS = '123450987612345098761234509876123450987612345098761234509876';
 
 beforeEach(() => {
   useUi.setState({ lang: 'fr' });
-  vi.mocked(toDataURL).mockClear();
-  vi.mocked(toDataURL).mockResolvedValue('data:image/png;base64,QR');
+  qrMock.mockClear();
+  qrMock.mockResolvedValue('data:image/png;base64,QR');
 });
 
 describe('SafetyQrCode', () => {
@@ -36,7 +43,7 @@ describe('SafetyQrCode', () => {
     // Assert
     const img = await screen.findByRole('img', { name: fr.friends.verifyQrAlt });
     expect(img).toHaveAttribute('src', 'data:image/png;base64,QR');
-    expect(toDataURL).toHaveBeenCalledWith(`accord://safety/${DIGITS}`, {
+    expect(qrMock).toHaveBeenCalledWith(`accord://safety/${DIGITS}`, {
       width: 200,
       margin: 1,
     });
@@ -45,7 +52,7 @@ describe('SafetyQrCode', () => {
   it('ne casse rien quand la génération échoue', async () => {
     // Arrange — canvas indisponible : le QR ne s'affiche pas, mais la modale
     // garde ses chiffres au-dessus et son explication en dessous.
-    vi.mocked(toDataURL).mockRejectedValue(new Error('canvas indisponible'));
+    qrMock.mockRejectedValue(new Error('canvas indisponible'));
 
     // Act
     render(<SafetyQrCode digits={DIGITS} />);

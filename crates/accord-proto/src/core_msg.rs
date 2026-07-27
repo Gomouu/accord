@@ -2892,7 +2892,7 @@ mod tests {
         // l'encodeur ne produit jamais ces messages, seul un pair les produit.
         let mut trop_longue_cle = Writer::new();
         trop_longue_cle.put_u8(0x21);
-        trop_longue_cle.put_lbytes(&vec![b'k'; MAX_SELF_PREF_KEY + 1]);
+        trop_longue_cle.put_lbytes(&[b'k'; MAX_SELF_PREF_KEY + 1]);
         trop_longue_cle.put_lbytes(b"v");
         trop_longue_cle.put_u64(1);
         assert!(CoreMsg::from_bytes(&trop_longue_cle.into_bytes()).is_err());
@@ -2900,7 +2900,7 @@ mod tests {
         let mut trop_longue_valeur = Writer::new();
         trop_longue_valeur.put_u8(0x21);
         trop_longue_valeur.put_lbytes(b"accord.theme");
-        trop_longue_valeur.put_lbytes(&vec![b'v'; MAX_SELF_PREF_VALUE + 1]);
+        trop_longue_valeur.put_lbytes(&[b'v'; MAX_SELF_PREF_VALUE + 1]);
         trop_longue_valeur.put_u64(1);
         assert!(CoreMsg::from_bytes(&trop_longue_valeur.into_bytes()).is_err());
 

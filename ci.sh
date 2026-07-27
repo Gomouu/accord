@@ -68,6 +68,11 @@ if [ -d app ] && [ -f app/package.json ]; then
   step "UI: budget du chunk initial"
   node scripts/check-bundle-budget.mjs
 
+  # Dette D3 (ROADMAP §1.3) : mesurée deux fois, écrite deux fois, et les
+  # fichiers avaient grossi les deux fois. Un cliquet plutôt qu'un vœu.
+  step "Cliquet des fichiers de plus de 800 lignes"
+  node scripts/check-file-size.mjs
+
   # Les e2e d'interface étaient hors du gate : « Marquer comme lu » a disparu
   # du menu serveur à la refonte 4.5.0 et la régression a été publiée, alors
   # que le test qui la couvrait existait déjà et échouait dans son coin.

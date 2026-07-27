@@ -9,7 +9,9 @@ import {
   useGroups,
   channelKey,
   channelThreads,
+  displayedPermissions,
   hasPerm,
+  isDmGroup,
   memberColor,
   myChannelPermissions,
   nicknameOf,
@@ -25,7 +27,8 @@ import {
   MEMBERS_WIDTH_MIN,
   MEMBERS_WIDTH_MAX,
 } from '../stores/ui';
-import { CloseIcon } from './ContextMenu';
+import { Avatar } from './Avatar';
+import { CloseIcon, GearMenuIcon } from './ContextMenu';
 import { MemberList } from './chat/MemberList';
 import { PinnedPanel, SelectionBar, ThreadsListPanel, PURGE_MAX } from './chat/panels';
 import { MessageInput } from './MessageInput';
@@ -58,6 +61,7 @@ export function GroupView({
 }) {
   const t = useT();
   const toast = useUi((s) => s.toast);
+  const openModal = useUi((s) => s.openModal);
   const self = useSession((s) => s.self);
   const contacts = useFriends((s) => s.contacts);
   const state = useGroups((s) => s.states[groupId]);
@@ -113,7 +117,14 @@ export function GroupView({
   );
 
   const channel = state?.channels.find((c) => c.channel_id === channelId);
-  const canModerate = hasPerm(state?.my_permissions ?? 0, PERMISSIONS.MANAGE_MESSAGES);
+  /**
+   * Groupe de MP (jalon 5) : un seul fil, aucun rôle, aucun modérateur. Les
+   * permissions présentées y sont nulles (`displayedPermissions`), et les
+   * commandes sans objet — fils, épingles — disparaissent de l'en-tête au lieu
+   * d'échouer contre la liste blanche du nœud (`docs/DM_GROUPS.md` §4).
+   */
+  const isDm = isDmGroup(state);
+  const canModerate = hasPerm(displayedPermissions(state), PERMISSIONS.MANAGE_MESSAGES);
   const closeMembers = (): void => {
     setMembersOpen(false);
     membersButtonRef.current?.focus();
@@ -340,19 +351,37 @@ export function GroupView({
     >
       <div className="group-chat-main relative flex min-w-0 flex-1 flex-col">
         <header className="accord-chat-header flex h-12 shrink-0 items-center gap-2 border-b border-[color:var(--glass-border)] bg-chat/90 px-4 shadow-1">
-          <span
-            aria-hidden
-            className="flex h-5 w-5 shrink-0 items-center justify-center text-[19px] font-medium leading-none text-faint"
-          >
-            #
-          </span>
+          {isDm ? (
+            <span className="shrink-0">
+              <Avatar
+                id={groupId}
+                name={state?.name ?? ''}
+                size={24}
+                avatarHash={state?.icon ?? null}
+              />
+            </span>
+          ) : (
+            <span
+              aria-hidden
+              className="flex h-5 w-5 shrink-0 items-center justify-center text-[19px] font-medium leading-none text-faint"
+            >
+              #
+            </span>
+          )}
           <span
             className="min-w-0 truncate font-semibold text-header"
-            title={channel.name}
+            title={isDm ? (state?.name ?? '') : channel.name}
           >
-            {channel.name}
+            {isDm ? (state?.name ?? '') : channel.name}
           </span>
-          {channel.topic !== '' && (
+          {isDm && (
+            <span className="shrink-0 text-sm text-muted">
+              {interpolate(t.dmGroups.memberCount, {
+                count: String(state?.members.length ?? 0),
+              })}
+            </span>
+          )}
+          {!isDm && channel.topic !== '' && (
             <>
               <span aria-hidden className="h-5 w-px shrink-0 bg-input" />
               <span className="min-w-0 truncate text-sm text-muted" title={channel.topic}>
@@ -408,53 +437,71 @@ export function GroupView({
                 <path d="M8 11h8M8 15h5" />
               </svg>
             </HeaderIconButton>
-            <HeaderIconButton
-              label={t.threads.threadsList}
-              active={threadsListOpen}
-              ariaExpanded={threadsListOpen}
-              onClick={() => {
-                setPinsOpen(false);
-                setThreadsListOpen((open) => !open);
-              }}
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
+            {/* Fils et épingles reposent sur des ops que la liste blanche d'un
+                groupe de MP refuse : les boutons n'y sont pas rendus plutôt que
+                de conduire à un refus du nœud. */}
+            {!isDm && (
+              <>
+                <HeaderIconButton
+                  label={t.threads.threadsList}
+                  active={threadsListOpen}
+                  ariaExpanded={threadsListOpen}
+                  onClick={() => {
+                    setPinsOpen(false);
+                    setThreadsListOpen((open) => !open);
+                  }}
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                  >
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" />
+                  </svg>
+                </HeaderIconButton>
+                <HeaderIconButton
+                  label={t.serveur.pinnedTitle}
+                  active={pinsOpen}
+                  ariaExpanded={pinsOpen}
+                  onClick={() => {
+                    setThreadsListOpen(false);
+                    setPinsOpen((open) => !open);
+                  }}
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                  >
+                    <line x1="12" x2="12" y1="17" y2="22" />
+                    <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
+                  </svg>
+                </HeaderIconButton>
+              </>
+            )}
+            {isDm && (
+              <HeaderIconButton
+                label={t.dmGroups.settings}
+                active={false}
+                onClick={() => openModal({ kind: 'dmGroup', groupId })}
               >
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" />
-              </svg>
-            </HeaderIconButton>
-            <HeaderIconButton
-              label={t.serveur.pinnedTitle}
-              active={pinsOpen}
-              ariaExpanded={pinsOpen}
-              onClick={() => {
-                setThreadsListOpen(false);
-                setPinsOpen((open) => !open);
-              }}
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
-              >
-                <line x1="12" x2="12" y1="17" y2="22" />
-                <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
-              </svg>
-            </HeaderIconButton>
+                {/* Roue dentée déjà présente dans le bundle initial (jeu de
+                    menu partagé) : pas un second tracé à embarquer. */}
+                <GearMenuIcon />
+              </HeaderIconButton>
+            )}
           </div>
         </header>
         {threadsListOpen && (
@@ -537,7 +584,7 @@ export function GroupView({
           automodWords={automodWords}
           groupId={groupId}
           threads={channelThreadList}
-          onOpenThread={onOpenThread}
+          {...(isDm ? {} : { onOpenThread })}
           selection={
             selecting
               ? { active: true, selected: selectedIds, onToggle: toggleSelected }
@@ -564,7 +611,9 @@ export function GroupView({
         )}
         <TypingIndicator typingKey={groupTypingKey(groupId, channelId)} nameOf={nameOf} />
         <MessageInput
-          placeholder={interpolate(t.groups.channelPlaceholder, { name: channel.name })}
+          placeholder={interpolate(t.groups.channelPlaceholder, {
+            name: isDm ? (state?.name ?? '') : channel.name,
+          })}
           groupId={groupId}
           typingTarget={{ kind: 'group', groupId, channelId }}
           focusKey={replyTo?.msg_id ?? null}

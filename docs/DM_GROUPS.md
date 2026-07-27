@@ -86,3 +86,40 @@ merely against our own UI:
   members do not re-send history — that is `GROUP_SYNC`'s existing behaviour and
   it is the privacy-preserving default: joining a conversation should not hand
   over everything said before you were there.
+
+## 6. What the interface does with this
+
+The rules above are enforced where ops are applied; the interface's job is to
+stop offering what they refuse, and to file a DM group where it belongs.
+
+- **Filed with the conversations.** `groups.state.is_dm` routes the group out of
+  the server rail and into the conversation list, and keeps the home sidebar
+  while its thread is open — so no channel list, no categories, no roles tab.
+- **One thread, opened directly.** The group's single channel is the only one
+  `AddChannel` ever accepted; the row opens it without a channel to choose.
+- **No permissions, deliberately.** `base_permissions` does not consult `is_dm`,
+  so the founder of a DM group receives the full mask (measured: `1023`).
+  Presenting it would draw pinning, purging, banning and invitations — every one
+  refused at replay. The interface therefore reads **zero** permissions in a DM
+  group and renders the three permitted actions (rename, add, leave) as their
+  own controls, available to every member.
+
+### ⚠️ Adding a member is not reachable
+
+§5 decided that **any member may add anyone**, and the state layer implements
+exactly that: `AddMember` under twenty members is on the whitelist, and a member
+with no role can author it. **No RPC reaches it.**
+
+- `groups.invite` / `groups.invite_create` author `InviteCreate`, which the
+  whitelist refuses. Measured against a running node: `groups.invite` on a DM
+  group answers `refusé : opération sans objet dans un groupe de MP`, and
+  `state.invites` stays empty.
+- `groups.invite_accept` and `groups.invite_link_redeem` both go through
+  `finalize_invite_accept`, which looks the invitation up in `state.invites`
+  before authoring `AddMember` — so they cannot complete either.
+- `groups.create_dm` is the only production path that authors a bare
+  `AddMember`, and only at creation. `test_force_add_member` is `#[cfg(test)]`.
+
+Until the node grows a method that authors `AddMember` for a DM group, a DM
+group's membership is fixed at creation. Leaving works (`Kick` where the target
+is the author), including for the founder.

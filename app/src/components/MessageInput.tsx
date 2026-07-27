@@ -681,13 +681,18 @@ export function MessageInput({
   // Le bouton « + » déplie un menu de création dès qu'un salon de groupe est
   // connu (au moins deux actions : joindre / sonder) ; ailleurs, une seule
   // action possible, le clic ouvre directement le sélecteur de fichiers.
-  const hasCreateMenu = groupId !== null && channelId !== null;
+  //
+  // Un groupe de MP n'a pas de sondage : `PollCreate` est hors de la liste
+  // blanche du nœud (`docs/DM_GROUPS.md` §4). Il se comporte donc ici comme un
+  // MP — le « + » ouvre directement le sélecteur de fichiers.
+  const isDmGroupe = groupState?.is_dm === true;
+  const hasCreateMenu = groupId !== null && channelId !== null && !isDmGroupe;
 
   const ouvrirMenuAjout = (): void => {
     if (sending) return;
     const gid = groupId;
     const cid = channelId;
-    if (gid === null || cid === null) {
+    if (gid === null || cid === null || isDmGroupe) {
       void choisirFichiers();
       return;
     }

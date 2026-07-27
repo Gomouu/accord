@@ -36,6 +36,33 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ### Added
 
+- **Three to twenty people in one thread, filed with the conversations.** DM
+  groups existed in the node since the milestone-5 groundwork and were reachable
+  from nothing: no way to create one, and one created elsewhere landed in the
+  server rail, presented as a server it is not.
+
+  A DM group now lives under "Private groups" in the conversation list, opens
+  straight onto its single thread — no channel list, no categories, no roles tab
+  — and is created by picking friends rather than by naming a server. Its name
+  and icon are editable by any member, and any member can leave, the founder
+  included: there is no moderator to ask.
+
+  What is *not* on screen matters as much as what is. The node hands the founder
+  of a DM group a full permission mask, because permissions are computed without
+  regard to the flag; taken at face value that mask would fill the thread with
+  pinning, bulk deletion, bans and invitations, every one of which the node
+  refuses when the op comes back. The interface therefore presents **no**
+  permissions at all in a DM group and renders the three allowed actions as
+  their own controls. Threads, pins and polls are absent rather than disabled —
+  a control that cannot work should not be drawn.
+
+  Known gap: **adding someone to an existing DM group is not possible yet.** The
+  only RPC that could carry it (`groups.invite`) emits an op the DM whitelist
+  refuses — verified against a running node, which answers *"refusé : opération
+  sans objet dans un groupe de MP"* — and no other method authors a bare
+  `AddMember`. Membership is fixed at creation until the node grows a path for
+  it. Leaving works.
+
 - **Compare safety numbers by QR instead of by voice.** Verifying a contact
   meant reading 60 digits aloud, and transcription error is what actually breaks
   that ceremony. One friend now shows the QR of their safety number, the other

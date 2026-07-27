@@ -74,6 +74,10 @@ test.describe('accessibilité — aucun contrôle anonyme', () => {
     for (const [nom, aller] of [
       ['salon', async () => {}],
       ['MP', async () => barre.mp.click()],
+      // Groupe de MP (jalon 5) : l'en-tête de son fil et la section
+      // « Groupes » de la liste des conversations n'existent nulle part
+      // ailleurs — deux surfaces neuves à contrôles à icône seule.
+      ['groupe de MP', async () => barre.groupeMp.click()],
       ['amis', async () => barre.amis.click()],
     ] as const) {
       await aller();
@@ -87,6 +91,28 @@ test.describe('accessibilité — aucun contrôle anonyme', () => {
     await boutonMenuServeur(page).click();
     await expect(page.getByRole('menu')).toBeVisible();
     expect(await controlesAnonymes(page)).toEqual([]);
+  });
+
+  test('dans les modales de groupe de MP', async ({ page }) => {
+    // Deux surfaces chargées à la demande (`React.lazy`) : elles n'entrent
+    // dans aucun rendu par défaut, donc dans aucune des vues ci-dessus.
+    await ouvrirShowcase(page);
+    const barre = barreDemo(page);
+
+    await barre.mp.click();
+    await page.getByRole('button', { name: 'Créer un groupe privé' }).click();
+    await expect(
+      page.getByRole('dialog', { name: 'Nouveau groupe privé' }),
+    ).toBeVisible();
+    expect(await controlesAnonymes(page), 'création').toEqual([]);
+    await page.keyboard.press('Escape');
+
+    await barre.groupeMp.click();
+    await page.getByRole('button', { name: 'Paramètres du groupe' }).click();
+    await expect(
+      page.getByRole('dialog', { name: 'Paramètres du groupe' }),
+    ).toBeVisible();
+    expect(await controlesAnonymes(page), 'réglages').toEqual([]);
   });
 
   test('dans les réglages', async ({ page }) => {

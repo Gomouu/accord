@@ -18,6 +18,7 @@ export function barreDemo(page: Page) {
   return {
     salon: vues.getByRole('button', { name: 'Salon', exact: true }),
     mp: vues.getByRole('button', { name: 'MP', exact: true }),
+    groupeMp: vues.getByRole('button', { name: 'Groupe MP', exact: true }),
     amis: vues.getByRole('button', { name: 'Amis', exact: true }),
     theme: page.getByLabel('Thème de démonstration'),
   };

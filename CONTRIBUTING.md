@@ -298,7 +298,8 @@ review comments exist:
 🔒 The signing key (`~/.tauri/accord-updater.key`) is **never** committed,
 displayed, or copied anywhere. It is not in the repository and must never enter
 it — not in a test fixture, not in a comment, not in a paste in an issue. See
-[`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md) §6.
+[`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md) §5, which spells out what a
+leak would cost.
 
 ### 5.8 Language
 
@@ -395,7 +396,7 @@ Changes that will not be merged, whatever their quality: anything requiring a
 hosted component (§5.5), anything that breaks an installed client without a
 negotiated migration (§5.1), anything that removes a guard rail (§5.2, §5.3),
 and anything that puts a secret — a passphrase, a recovery phrase, an account
-seed — on the local JSON-RPC channel (see `docs/API_CONTRACT.md` §5).
+seed — on the local JSON-RPC channel (see `docs/API_CONTRACT.md` §3.2).
 
 ### Branches
 

@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "accord-core"
-version = "6.2.0"
+version = "7.1.0"
 dependencies = [
  "accord-crypto",
  "accord-proto",
@@ -16,12 +16,13 @@ dependencies = [
  "sha2",
  "thiserror",
  "tracing",
+ "unicode-normalization",
  "zeroize",
 ]
 
 [[package]]
 name = "accord-crypto"
-version = "6.2.0"
+version = "7.1.0"
 dependencies = [
  "accord-proto",
  "argon2",
@@ -51,7 +52,7 @@ dependencies = [
 
 [[package]]
 name = "accord-proto"
-version = "6.2.0"
+version = "7.1.0"
 dependencies = [
  "thiserror",
 ]

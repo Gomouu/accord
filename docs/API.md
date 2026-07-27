@@ -3,6 +3,13 @@
 > Contract between the UI and the node. The server listens **only** on
 > `127.0.0.1` (ephemeral port by default). The UI reads the address and the token
 > from `<profil>/session.json` written by the daemon at startup.
+>
+> This document is the **detailed** reference: shapes, bounds, semantics, edge
+> cases. [`API_CONTRACT.md`](API_CONTRACT.md) is the **public** contract — the
+> complete method and event index derived from
+> `crates/accord-node/src/service/*.rs`, the stability tiers, the security
+> position, and the list of methods and events implemented here but not yet
+> described below.
 
 ## Transport
 

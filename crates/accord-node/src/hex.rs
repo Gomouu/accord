@@ -23,6 +23,21 @@ pub fn decode<const N: usize>(s: &str) -> Option<[u8; N]> {
     Some(out)
 }
 
+/// Décode une chaîne hexadécimale de longueur libre (corps de message
+/// réimporté, dont la taille n'est pas connue à la compilation).
+pub fn decode_vec(s: &str) -> Option<Vec<u8>> {
+    if s.len() % 2 != 0 || !s.is_ascii() {
+        return None;
+    }
+    let mut out = Vec::with_capacity(s.len() / 2);
+    for chunk in s.as_bytes().chunks(2) {
+        let hi = (chunk[0] as char).to_digit(16)?;
+        let lo = (chunk[1] as char).to_digit(16)?;
+        out.push(((hi << 4) | lo) as u8);
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

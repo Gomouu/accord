@@ -453,6 +453,19 @@ Read before recommending Accord to people whose safety depends on anonymity.
     other `SELF_*` message, and `added_ms` is bounded against a clock in the
     future for the same reason as item 16.
 
+19. **The session file is created restricted, not restricted afterwards.**
+    `session.json` holds the local API token. It was written with
+    `std::fs::write` and `chmod`-ed to `0600` on the next line, which left the
+    token readable by any local user for the interval between the two calls —
+    brief, but a token read once stays valid. It is now created with `0600`
+    already set, so no instant exists where it is more open than it should be.
+    The `chmod` that follows is kept for a file left by an earlier version,
+    which `mode` alone would not repair.
+
+    ⚠️ **Outside Unix nothing restricts that file**, before or after this fix.
+    On Windows it inherits the ACLs of the user's data directory, which keeps
+    other accounts out but not another process of the same account.
+
 ## 6. Accepted v0 trade-offs
 
 Documented in full in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md), with

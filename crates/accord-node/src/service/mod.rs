@@ -29,6 +29,7 @@ mod groups;
 mod helpers;
 mod mentions;
 mod network;
+mod portable;
 mod prefs;
 mod privacy;
 mod profile;
@@ -209,6 +210,9 @@ fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Value, NodeErro
     }
     if method.starts_with("backup.") {
         return backup_schedule::dispatch(node, method, params);
+    }
+    if method.starts_with("portable.") {
+        return portable::dispatch(node, method, params);
     }
     Err(NodeError::Invalid("méthode inconnue"))
 }

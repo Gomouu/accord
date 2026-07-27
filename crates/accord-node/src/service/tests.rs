@@ -990,6 +990,77 @@ async fn group_history_around_centers_on_target() {
     assert_eq!(miss["messages"], json!([]));
 }
 
+// ---- Portabilité des données (jalon 7, §19.4.2) ----
+
+/// L'export se relit : un aller-retour complet remet les mêmes messages, et
+/// une seconde passe n'en duplique aucun.
+#[tokio::test]
+async fn un_export_se_reimporte_sans_doublon() {
+    let (s, ami) = service_with_friend();
+    s.call("dm.send", json!({ "pubkey": ami, "text": "bonjour" }))
+        .await
+        .unwrap();
+
+    let doc = s.call("portable.export", json!({})).await.unwrap();
+    assert_eq!(doc["format"], json!(1));
+    assert!(
+        doc["warning"].as_str().unwrap().contains("NOT encrypted"),
+        "le document doit se dénoncer lui-même comme non chiffré"
+    );
+    let conv = &doc["conversations"][0];
+    assert_eq!(conv["peer"], json!(ami));
+    assert_eq!(conv["messages"][0]["text"], json!("bonjour"));
+
+    // Réimport dans la MÊME base : tout existe déjà, rien n'entre.
+    let bilan = s
+        .call("portable.import", json!({ "document": doc }))
+        .await
+        .unwrap();
+    assert_eq!(bilan["inserted"], json!(0), "aucun message neuf");
+    assert_eq!(bilan["skipped"], json!(1), "le message existait déjà");
+    assert_eq!(bilan["rejected"], json!(0));
+}
+
+/// 🔒 Un fichier d'export est une entrée non authentifiée : il ne peut pas
+/// inventer un correspondant.
+#[tokio::test]
+async fn un_import_naccepte_pas_une_conversation_avec_un_inconnu() {
+    let s = service();
+    let inconnu = "cc".repeat(32);
+    let doc = json!({
+        "format": 1,
+        "conversations": [{
+            "peer": inconnu,
+            "messages": [{
+                "msg_id": "11".repeat(16),
+                "author": inconnu,
+                "lamport": 1,
+                "sent_ms": 1,
+                "kind": 0,
+                "body_hex": "00",
+            }],
+        }],
+    });
+
+    let bilan = s
+        .call("portable.import", json!({ "document": doc }))
+        .await
+        .unwrap();
+    assert_eq!(bilan["inserted"], json!(0), "rien ne doit entrer");
+    assert_eq!(bilan["rejected"], json!(1));
+}
+
+/// Une version de format inconnue est refusée, pas devinée.
+#[tokio::test]
+async fn un_format_inconnu_est_refuse() {
+    let s = service();
+    let doc = json!({ "format": 99, "conversations": [] });
+    assert!(s
+        .call("portable.import", json!({ "document": doc }))
+        .await
+        .is_err());
+}
+
 // ---- Gestion de serveur : groupes, salons, rôles, modération ----
 
 /// Service + `group_id` (hex) d'un groupe fraîchement créé.

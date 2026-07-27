@@ -89,14 +89,42 @@ where
 }
 
 /// Écrit le fichier de session (adresse API + jeton) en 0600.
+///
+/// 🔒 **Le fichier naît en 0600 ; il n'est pas restreint après coup.** Écrire
+/// puis `chmod` laissait le jeton d'API lisible par tout utilisateur local
+/// pendant l'intervalle — bref, mais suffisant, et un jeton lu une fois reste
+/// valable. `OpenOptions::mode` pose les droits à la CRÉATION, donc il n'existe
+/// aucun instant où le fichier est plus ouvert qu'il ne doit l'être.
+///
+/// Le `set_permissions` qui suit n'est pas un doublon : `mode` ne s'applique
+/// qu'à un fichier créé. Un `session.json` laissé par une version antérieure —
+/// justement celle qui pouvait le créer trop ouvert — serait rouvert tel quel,
+/// et garderait ses droits d'origine.
+///
+/// ⚠️ **Hors Unix, rien ne restreint ce fichier**, ni avant ni après ce
+/// correctif. Sous Windows il hérite des ACL du dossier de données de
+/// l'utilisateur, ce qui protège des autres comptes mais pas d'un autre
+/// processus du même compte. Dit ici plutôt que découvert.
 fn write_session(root: &Path, running: &RunningNode) -> std::io::Result<()> {
+    use std::io::Write;
+
     let session = format!(
         "{{\n  \"api\": \"{}\",\n  \"token\": \"{}\"\n}}\n",
         running.api_addr(),
         running.token.expose()
     );
     let path = root.join("session.json");
-    std::fs::write(&path, session)?;
+
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut fichier = options.open(&path)?;
+    fichier.write_all(session.as_bytes())?;
+
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

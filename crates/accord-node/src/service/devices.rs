@@ -37,6 +37,18 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                     "name": d.name,
                     "added_ms": d.added_ms,
                     "is_current": d.is_current,
+                    // `null` tant que l'appareil ne s'est jamais manifesté ici :
+                    // l'écran le dit avec ses mots, plutôt que d'afficher une
+                    // date d'époque Unix que personne ne saurait lire.
+                    "last_seen_ms": d.last_seen_ms,
+                    // 🔒 La ROUTE du dernier contact, jamais une adresse ni un
+                    // lieu. « D'où » se lit ici « par quel chemin » : c'est ce
+                    // qui aide (un appareil joint uniquement par relais est un
+                    // appareil dont la connexion directe ne marche pas), et
+                    // c'est tout ce qui peut s'afficher sans mettre un point
+                    // sur une carte dans la prochaine capture d'écran.
+                    "last_seen_route": d.last_seen_relayed
+                        .map(|relayed| if relayed { "relay" } else { "direct" }),
                 }))
                 .collect::<Vec<_>>() }))
         }

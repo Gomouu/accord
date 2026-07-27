@@ -16,7 +16,7 @@ mod search;
 mod stats;
 
 pub use contacts::{Contact, ContactState};
-pub use devices::{CachedDeviceList, LocalDevice};
+pub use devices::{CachedDeviceList, DeviceSeen, LocalDevice};
 pub use files::{FetchIntent, FileEntry};
 pub use groups::{LocalMembership, StoredGroupKey};
 pub use invites::IncomingInvite;
@@ -39,7 +39,7 @@ use std::path::Path;
 /// la version suffit pour créer les nouvelles tables sur une base existante.
 /// Modifier des colonnes existantes exige en revanche une vraie migration —
 /// voir [`MIGRATIONS`].
-const SCHEMA_VERSION: i64 = 16;
+const SCHEMA_VERSION: i64 = 17;
 
 /// Version au-delà de laquelle les évolutions passent par [`MIGRATIONS`].
 ///
@@ -188,6 +188,47 @@ const MIGRATIONS: &[Migration] = &[
                        ADD COLUMN state_changed_ms INTEGER NOT NULL DEFAULT 0;",
                 )?;
             }
+            Ok(())
+        },
+    },
+    Migration {
+        to: 17,
+        label: "dernière vue des appareils du compte",
+        apply: |conn| {
+            // L'écran « Mes appareils » ne savait dire qu'un nom et une date
+            // d'ajout. Rien n'y distinguait la machine en service de celle
+            // qu'on a prêtée l'an dernier et qu'il faudrait révoquer — la
+            // seule question que cet écran existe pour trancher.
+            //
+            // 🔒 Table LOCALE, et surtout pas un champ de `DeviceList` :
+            // celle-ci est signée par la racine du compte et publiée dans la
+            // DHT, où chaque ami la lit. Une date de dernière vue par
+            // appareil y publierait les horaires de vie de chaque machine du
+            // compte, à tout le carnet d'adresses et pour toujours.
+            //
+            // 🔒 `relayed` — un booléen — et jamais une adresse. « D'où » se
+            // lit ici comme la ROUTE (lien direct ou circuit relais), pas
+            // comme un lieu : une adresse d'appareil affichée à l'écran finit
+            // dans la première capture d'écran envoyée au support, et
+            // l'adresse d'une session tunnelée est de toute façon celle du
+            // RELAIS (`accord_transport::SessionView::addr`) — l'afficher
+            // comme celle de l'appareil serait faux en plus d'être indiscret.
+            //
+            // Table annexe plutôt que colonne : `device_lists` ne stocke que
+            // l'encodage filaire signé, resservi tel quel ; un fait local n'a
+            // aucun endroit où vivre dedans.
+            //
+            // `IF NOT EXISTS` : même raison qu'à l'étape 13 — une version
+            // enregistrée peut redescendre (sauvegarde restaurée, base
+            // recopiée), et une étape qui explose alors transforme une
+            // bizarrerie en application qui ne démarre plus.
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS device_seen (
+                   device  BLOB PRIMARY KEY,
+                   last_ms INTEGER NOT NULL,
+                   relayed INTEGER NOT NULL
+                 );",
+            )?;
             Ok(())
         },
     },
@@ -1092,6 +1133,67 @@ mod tests {
                 "l'index {nom} manque après la migration 14 → 15"
             );
         }
+    }
+
+    #[test]
+    fn une_base_neuve_porte_la_table_de_derniere_vue() {
+        // Le socle idempotent s'arrête au schéma 12 : les tables des étapes
+        // suivantes n'existent que si la séquence de migrations s'applique
+        // aussi sur une base neuve. Une étape oubliée là donnerait une
+        // application qui marche à la mise à jour et pas à l'installation.
+        assert!(Db::open_in_memory(&key(17))
+            .unwrap()
+            .has_table("device_seen")
+            .unwrap());
+    }
+
+    #[test]
+    fn une_base_7_1_recoit_la_table_de_derniere_vue() {
+        // Le pendant, pour l'étape 17, de la vérification faite sur la 15 :
+        // le registre est contrôlé par ailleurs (numéros croissants), ce qui
+        // manque est la preuve que le pas 16 → 17 fait bien le travail sur une
+        // base RÉELLE, arrêtée au schéma que la 7.1 laissait derrière elle.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("core.db");
+        let db_key = key(17);
+        Db::open(&path, &db_key).unwrap();
+
+        // Fabrique une base « telle que la 7.1 la laissait » : la table
+        // retirée, la version ramenée à 16. La retirer est le cœur du test —
+        // rembobiner la seule version laisserait la table en place et le test
+        // passerait quoi qu'il arrive.
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key(&db_key)))
+                .unwrap();
+            conn.execute_batch("DROP TABLE IF EXISTS device_seen;")
+                .unwrap();
+            conn.execute_batch("PRAGMA user_version = 16;").unwrap();
+        }
+
+        let db = Db::open(&path, &db_key).expect("migration d'une base 7.1");
+        assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
+        assert!(
+            db.has_table("device_seen").unwrap(),
+            "la table de dernière vue manque après la migration 16 → 17"
+        );
+        // Présente ET utilisable : une table créée avec les mauvaises colonnes
+        // passerait le contrôle d'existence sans rendre le moindre service.
+        db.note_device_seen(
+            &[3; 32],
+            DeviceSeen {
+                last_ms: 42,
+                relayed: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            db.devices_seen().unwrap().get(&[3u8; 32]),
+            Some(&DeviceSeen {
+                last_ms: 42,
+                relayed: true
+            })
+        );
     }
 
     #[test]

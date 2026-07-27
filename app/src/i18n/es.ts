@@ -129,6 +129,22 @@ export const es: Dict = {
       'Compara este número con el que aparece en la pantalla de {name}, en voz alta o en persona. Si coincide, tu conversación está autenticada: nadie se ha colado en medio.',
     verifyEmojiHint:
       'Comprobación rápida: los 8 emojis deben ser idénticos en ambos lados.',
+    verifyQrShow: 'Mostrar mi QR',
+    verifyQrScan: 'Escanear su QR',
+    verifyQrAlt: 'Código QR del número de seguridad',
+    verifyQrHint:
+      'Pide que escaneen este código desde su propia pantalla de verificación.',
+    verifyScanHint: 'Apunta la cámara al QR que aparece en la pantalla de tu amigo.',
+    verifyScanPreview: 'Vista previa de la cámara',
+    verifyScanForeign: 'Este código no es un número de seguridad de Accord.',
+    verifyScanMatch: 'Los números coinciden: tu conversación está autenticada.',
+    verifyScanMismatch:
+      'Los números no coinciden. No sigas esta conversación hasta saber por qué.',
+    verifyScanAgain: 'Escanear de nuevo',
+    verifyScanDenied:
+      'Acceso a la cámara denegado. Permítelo en los ajustes del sistema o compara los dígitos de arriba.',
+    verifyScanNoCamera:
+      'No hay cámara disponible en este dispositivo. Compara los dígitos de arriba.',
     verifyMark: 'Marcar como verificada',
     verifyUnmark: 'Quitar la verificación',
     verifiedBadge: 'Identidad verificada',

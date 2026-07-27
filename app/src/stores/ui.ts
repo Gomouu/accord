@@ -35,6 +35,11 @@ import {
   saveLastChannelByServer,
   saveLastDm,
 } from '../lib/navPersistence';
+import {
+  mirrorSyncedPref,
+  registerPrefApplier,
+  type SyncedPrefKey,
+} from '../lib/prefSync';
 
 export type View =
   | { kind: 'friends' }
@@ -232,13 +237,24 @@ function readStored(key: string): string | null {
   }
 }
 
-/** Écriture localStorage tolérante (préférence non persistée en cas d'échec). */
+/**
+ * Écriture localStorage tolérante (préférence non persistée en cas d'échec),
+ * puis **miroir vers le nœud** pour les préférences de compte.
+ *
+ * Le miroir est branché ici, dans l'unique point d'écriture du store, et pas
+ * dans chacun des setters : c'est ce qui fait de la synchronisation une couche
+ * additive au lieu d'une réécriture de ce fichier, et c'est ce qui garantit
+ * qu'un setter ajouté demain n'oubliera pas de synchroniser. `mirrorSyncedPref`
+ * ignore de lui-même les clés hors liste blanche — la grande majorité d'entre
+ * elles (voir `accord_core::prefs` pour les refus motivés).
+ */
 function writeStored(key: string, value: string): void {
   try {
     window.localStorage.setItem(key, value);
   } catch {
     // Best effort : la préférence reste appliquée pour la session en cours.
   }
+  mirrorSyncedPref(key, value);
 }
 
 function isTheme(value: string | null): value is Theme {
@@ -441,7 +457,15 @@ function applyTheme(theme: Theme, custom?: CouleursPerso): void {
 
 /** Lecture tolérante du thème personnalisé persisté (repli : défaut). */
 function initialCustomTheme(): CouleursPerso {
-  const brut = readStored(STORAGE_KEYS.customTheme);
+  return parseCustomTheme(readStored(STORAGE_KEYS.customTheme));
+}
+
+/**
+ * Valide une palette personnalisée sérialisée. Extrait d'`initialCustomTheme`
+ * pour être réutilisable sur une valeur qui n'est pas (encore) dans le
+ * `localStorage` : celle qu'un autre appareil vient d'annoncer.
+ */
+function parseCustomTheme(brut: string | null): CouleursPerso {
   if (brut === null) return PERSO_DEFAUT;
   try {
     const lu = JSON.parse(brut) as Partial<CouleursPerso>;
@@ -1081,6 +1105,86 @@ export const useUi = create<UiState>((set, get) => {
     toggleQuickSwitcher: () => set((s) => ({ quickSwitcherOpen: !s.quickSwitcherOpen })),
   };
 });
+
+/**
+ * Applique une préférence annoncée par un AUTRE appareil du compte.
+ *
+ * Passe par les setters publics, pas par `set()` : eux seuls reportent la
+ * valeur sur la racine du document (`data-theme`, `data-density`, `--font-ui`,
+ * `dir`) et chargent le dictionnaire de la nouvelle langue. Écrire l'état sans
+ * eux laisserait l'interface affichée dans l'ancien thème, avec le nouveau
+ * coché dans les réglages.
+ *
+ * 🔒 Chaque valeur repasse par le MÊME validateur que la lecture du
+ * `localStorage` au démarrage. La valeur vient d'une de nos machines, mais
+ * « une de nos machines » inclut une version plus ancienne, une version plus
+ * récente aux énumérations élargies, et une base recopiée à la main. Une valeur
+ * non reconnue est ignorée — pas repliée sur un défaut, ce qui remplacerait le
+ * choix de l'utilisateur par autre chose que son choix.
+ */
+function applySyncedPref(key: SyncedPrefKey, value: string): void {
+  const ui = useUi.getState();
+  const bool = (): boolean | null =>
+    value === 'true' ? true : value === 'false' ? false : null;
+  switch (key) {
+    case 'accord.lang':
+      if (isLang(value)) ui.setLang(value);
+      return;
+    case 'accord.theme':
+      if (isTheme(value)) ui.setTheme(value);
+      return;
+    case 'accord.theme.custom':
+      ui.setCustomTheme(parseCustomTheme(value));
+      return;
+    case 'accord.density':
+      if (isDensity(value)) ui.setDensity(value);
+      return;
+    case 'accord.timeFormat':
+      if (isTimeFormat(value)) ui.setTimeFormat(value);
+      return;
+    case 'accord.appearance.fontUi':
+      if (isFontUi(value)) ui.setFontUi(value);
+      return;
+    case 'accord.media.emojiSize':
+      if (isEmojiSize(value)) ui.setEmojiSize(value);
+      return;
+    case 'accord.media.showPreviews': {
+      const v = bool();
+      if (v !== null) ui.setShowMediaPreviews(v);
+      return;
+    }
+    case 'accord.notifyDms': {
+      const v = bool();
+      if (v !== null) ui.setNotifyDms(v);
+      return;
+    }
+    case 'accord.notifyGroups': {
+      const v = bool();
+      if (v !== null) ui.setNotifyGroups(v);
+      return;
+    }
+    case 'accord.notifyOnlyUnfocused': {
+      const v = bool();
+      if (v !== null) ui.setNotifyOnlyUnfocused(v);
+      return;
+    }
+    case 'accord.notify.soundEnabled': {
+      const v = bool();
+      if (v !== null) ui.setNotifySoundEnabled(v);
+      return;
+    }
+    case 'accord.notify.soundMode':
+      if (isNotifySoundMode(value)) ui.setNotifySoundMode(value);
+      return;
+    case 'accord.privacy.typingIndicator': {
+      const v = bool();
+      if (v !== null) ui.setTypingIndicatorEnabled(v);
+      return;
+    }
+  }
+}
+
+registerPrefApplier(applySyncedPref);
 
 /** Dictionnaire actif (hook de commodité). */
 export function useT(): Dict {

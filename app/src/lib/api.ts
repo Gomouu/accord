@@ -58,6 +58,20 @@ export interface AccountDevice {
   added_ms: number;
   /** Vrai pour l'appareil sur lequel tourne cette application. */
   is_current: boolean;
+  /**
+   * Dernière fois que cet appareil s'est manifesté sur CETTE machine (ms
+   * epoch), ou `null` s'il ne l'a jamais fait. 🔒 Fait purement local : cette
+   * date ne circule pas et ne figure dans aucune liste publiée.
+   */
+  last_seen_ms: number | null;
+  /**
+   * Route de ce dernier contact, ou `null` si jamais joint.
+   *
+   * 🔒 Une route, jamais une adresse ni un lieu : c'est ce que « d'où » veut
+   * dire ici. Une session tunnelée ne connaît de toute façon que l'adresse du
+   * relais, pas celle de l'appareil.
+   */
+  last_seen_route: 'direct' | 'relay' | null;
 }
 
 export interface Contact {
@@ -810,6 +824,11 @@ export type AccordEvent =
       params: { peer: string; msg_id: string; attachments: FileAttachment[] };
     }
   | { method: 'event.dm_typing'; params: { peer: string } }
+  | {
+      /** Un AUTRE appareil du compte a changé une préférence (SPEC §6.6, 0x21). */
+      method: 'event.self_pref';
+      params: { key: string; value: string; at_ms: number };
+    }
   | { method: 'event.friend_request'; params: { peer: string } }
   | { method: 'event.friend_response'; params: { peer: string; accepted: boolean } }
   | { method: 'event.friend_verified'; params: { peer: string; verified: boolean } }
@@ -990,6 +1009,10 @@ export class Api {
    * Un seul pour l'instant, celui de cette machine ; l'appairage en ajoutera
    * d'autres sans que la forme change. `added_ms` vaut `0` pour l'appareil
    * issu de la migration, qui n'a pas de date d'ajout — l'écran l'interprète.
+   *
+   * 🔒 `last_seen_ms` / `last_seen_route` sont des observations LOCALES : elles
+   * ne figurent dans aucune structure signée ni publiée, et la route remplace
+   * délibérément toute adresse.
    */
   devicesList(): Promise<{ devices: AccountDevice[] }> {
     return this.rpc.call('devices.list');
@@ -1322,6 +1345,32 @@ export class Api {
   /** État du réglage d'émission des accusés de lecture. */
   dmGetReadReceipts(): Promise<{ enabled: boolean }> {
     return this.rpc.call('dm.get_read_receipts');
+  }
+
+  /**
+   * Préférences de COMPTE connues du nœud (état fusionné entre les appareils,
+   * cf. `lib/prefSync.ts`). Les clés hors liste blanche du nœud n'y figurent
+   * jamais.
+   */
+  async listPrefs(): Promise<{ key: string; value: string; at_ms: number }[]> {
+    const { prefs } = await this.rpc.call<{
+      prefs: { key: string; value: string; at_ms: number }[];
+    }>('prefs.list');
+    return prefs;
+  }
+
+  /**
+   * Enregistre une préférence de compte et l'annonce aux autres appareils.
+   * Rend l'horodatage retenu par le nœud, que l'appelant conserve pour savoir
+   * au prochain démarrage si la valeur du compte est plus récente que la
+   * sienne. Une clé hors liste blanche est une erreur, pas un silence.
+   */
+  async setPref(key: string, value: string): Promise<number> {
+    const { at_ms: atMs } = await this.rpc.call<{ at_ms: number }>('prefs.set', {
+      key,
+      value,
+    });
+    return atMs;
   }
 
   /**

@@ -5,5 +5,11 @@
 <dict>
   <key>NSMicrophoneUsageDescription</key>
   <string>Accord utilise le microphone pour les salons vocaux et le test du micro.</string>
+  <!-- Sans cette clé, macOS ne refuse pas l'accès caméra : il TUE le processus
+       à la première demande. Il en faut donc une dès qu'un écran appelle
+       getUserMedia({ video }) — la caméra d'appel (v6) et le lecteur de QR de
+       vérification d'identité (§17.4). -->
+  <key>NSCameraUsageDescription</key>
+  <string>Accord utilise la caméra pour la vidéo des appels et pour scanner le QR de vérification d’identité d’un ami.</string>
 </dict>
 </plist>

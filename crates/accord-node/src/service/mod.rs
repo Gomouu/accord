@@ -29,6 +29,7 @@ mod groups;
 mod helpers;
 mod mentions;
 mod network;
+mod prefs;
 mod privacy;
 mod profile;
 mod reminders;
@@ -193,6 +194,9 @@ fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Value, NodeErro
     }
     if method.starts_with("files.") {
         return files::dispatch(node, method, params);
+    }
+    if method.starts_with("prefs.") {
+        return prefs::dispatch(node, method, params);
     }
     if method.starts_with("privacy.") {
         return privacy::dispatch(node, method, params);

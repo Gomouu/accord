@@ -167,7 +167,7 @@ with `friends.*`, which is about other people.
 
 | Method | Parameters | Result |
 |---------|-----------|----------|
-| `devices.list` | — | `{ devices: [{ pubkey, name, added_ms, is_current }] }` — `pubkey` hex-64, `added_ms` epoch ms (`0` for the device produced by the 7.0 migration), `is_current` `bool` |
+| `devices.list` | — | `{ devices: [{ pubkey, name, added_ms, is_current, last_seen_ms, last_seen_route }] }` — `pubkey` hex-64, `added_ms` epoch ms (`0` for the device produced by the 7.0 migration), `is_current` `bool`, `last_seen_ms` epoch ms of the last time that device was reached **from this machine** (`null` if never), `last_seen_route` `"direct" \| "relay" \| null` |
 | `devices.rename` | `{ name }` | `{ name }` — the trimmed name |
 | `devices.pair_start` | — | `{ code, expires_ms }` — opens an offer **on the already-authorised device** |
 | `devices.pair_submit` | `{ code }` | `{ hello }` — hex PAKE message; entering the code **on the new device** |
@@ -176,6 +176,14 @@ with `friends.*`, which is about other people.
 | `devices.pair_cancel` | — | `{}` |
 | `devices.revoke` | `{ pubkey }` | `{}` |
 
+- 🔒 `last_seen_ms` / `last_seen_route` are **local observations**, held in this
+  machine's database and in no signed structure. They are deliberately absent
+  from `DeviceList`, which the account root signs and publishes in the DHT where
+  every friend reads it: a per-device last-seen there would publish each
+  machine's activity pattern to the whole address book. `last_seen_route` says
+  *by which path* the device was reached, and never an address — a tunnelled
+  session only knows the **relay's** address (`SessionView::addr`), so an address
+  would be both wrong and needlessly revealing.
 - `devices.rename` bounds the name at **32 UTF-8 bytes**, which is the wire bound
   (`MAX_DEVICE_NAME`), not 32 characters. Counting characters looks stricter and
   is looser: "é" weighs two bytes, so 32 accented characters would pass here and

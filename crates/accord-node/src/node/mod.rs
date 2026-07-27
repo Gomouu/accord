@@ -88,6 +88,7 @@ pub(crate) mod holepunch;
 mod mentions;
 pub(crate) mod nat;
 pub(crate) mod network;
+mod prefs;
 pub(crate) mod privacy;
 pub(crate) mod relay;
 mod reminders;
@@ -209,6 +210,19 @@ pub struct AccountDevice {
     pub added_ms: u64,
     /// Vrai pour l'appareil sur lequel tourne cette application.
     pub is_current: bool,
+    /// Dernière fois que cet appareil s'est manifesté ICI (ms epoch), ou
+    /// `None` s'il ne l'a jamais fait depuis cette machine. 🔒 Fait purement
+    /// local, jamais publié — voir la migration 17.
+    pub last_seen_ms: Option<u64>,
+    /// Route de ce dernier contact : `Some(true)` par un relais, `Some(false)`
+    /// en direct, `None` si jamais joint.
+    ///
+    /// 🔒 La route, et jamais l'adresse. Sur une session tunnelée, l'adresse
+    /// de la vue de session est celle du RELAIS
+    /// (`accord_transport::SessionView::addr`) : l'afficher comme celle de
+    /// l'appareil serait faux, et l'afficher tout court exposerait un lieu là
+    /// où l'utilisateur n'a besoin que d'un chemin.
+    pub last_seen_relayed: Option<bool>,
 }
 
 /// Nœud Accord déverrouillé.
@@ -1574,6 +1588,10 @@ impl Node {
             return Ok(Vec::new());
         };
         let local = accord_crypto::DeviceIdentity::from_seed(stored.seed).public_key();
+        // Dernières vues chargées d'un coup, puis rapprochées de la liste :
+        // une ligne de `device_seen` sans entrée dans la liste (appareil
+        // révoqué depuis) reste inerte, et n'a donc pas besoin d'être purgée.
+        let seen = self.with_db(|db| Ok(db.devices_seen()?))?;
         // 🔒 Lire la liste plutôt que rendre le seul appareil local : sans
         // ça, un appareil appairé n'apparaîtrait jamais à l'écran, et
         // l'utilisateur n'aurait aucun moyen de constater — ni de révoquer —
@@ -1582,16 +1600,49 @@ impl Node {
             .current_device_list()?
             .devices
             .into_iter()
-            .map(|d| AccountDevice {
-                pubkey: d.pubkey,
-                name: d.name,
-                // Zéro pour l'appareil issu de la migration, qui n'a pas de
-                // date d'ajout : l'écran sait l'interpréter, une date inventée
-                // induirait en erreur.
-                added_ms: d.added_ms,
-                is_current: d.pubkey == local,
+            .map(|d| {
+                let vu = seen.get(&d.pubkey);
+                AccountDevice {
+                    pubkey: d.pubkey,
+                    name: d.name,
+                    // Zéro pour l'appareil issu de la migration, qui n'a pas de
+                    // date d'ajout : l'écran sait l'interpréter, une date inventée
+                    // induirait en erreur.
+                    added_ms: d.added_ms,
+                    is_current: d.pubkey == local,
+                    // `None` — et non zéro — pour un appareil jamais joint :
+                    // même raison, l'absence de fait se dit, elle ne
+                    // s'approxime pas.
+                    last_seen_ms: vu.map(|v| v.last_ms),
+                    last_seen_relayed: vu.map(|v| v.relayed),
+                }
             })
             .collect())
+    }
+
+    /// Note qu'un appareil du compte vient de se manifester sur cette machine,
+    /// et par quelle route (`relayed`) il a été joint.
+    ///
+    /// 🔒 Purement local : cette date ne rejoint jamais la `DeviceList`, qui
+    /// est signée par la racine et publiée dans la DHT. L'y glisser
+    /// publierait le rythme d'activité de chaque machine du compte à tout le
+    /// carnet d'adresses.
+    pub fn note_device_seen(
+        &self,
+        device: &[u8; 32],
+        seen_ms: u64,
+        relayed: bool,
+    ) -> Result<(), NodeError> {
+        self.with_db(|db| {
+            db.note_device_seen(
+                device,
+                accord_core::db::DeviceSeen {
+                    last_ms: seen_ms,
+                    relayed,
+                },
+            )?;
+            Ok(())
+        })
     }
 
     /// Renomme l'appareil de cette machine.
@@ -2051,6 +2102,9 @@ impl Node {
                         // pseudo au pair (D-027).
                         let mut replies = vec![CoreMsg::FriendResponse { accepted: true }];
                         replies.extend(self.own_profile_msg()?);
+                        // …et l'amitié elle-même à NOS appareils, sans quoi les
+                        // autres machines du compte resteront sourdes à ce pair.
+                        self.annoncer_ami(peer_pubkey, &display_name, now_ms());
                         replies
                     }
                     _ => vec![],
@@ -2072,6 +2126,7 @@ impl Node {
                 // Nouvel ami : annoncer notre pseudo en retour (l'accepteur
                 // fait de même de son côté, D-027).
                 if established {
+                    self.annoncer_ami(peer_pubkey, &self.nom_du_contact(peer_pubkey), now_ms());
                     return Ok(self.own_profile_msg()?.into_iter().collect());
                 }
                 Ok(vec![])
@@ -2096,6 +2151,50 @@ impl Node {
                         )?)
                     })?;
                 }
+                Ok(vec![])
+            }
+            CoreMsg::SelfContactAdd {
+                peer,
+                display_name,
+                added_ms,
+            } => {
+                // 🔒 Même porte que `SelfContactState`, et pour une raison de
+                // même nature : c'est la clé authentifiée par la session qui
+                // décide, jamais le contenu. Sans elle, n'importe quel ami
+                // pourrait inscrire n'importe qui dans notre carnet — et donc
+                // se rendre audible en se présentant sous une autre clé.
+                if self.is_own_device(device_pubkey) {
+                    // 🔒 Borne d'horloge, leçon directe du défaut corrigé en
+                    // 7.1 (`SECURITY.md` 16) : une machine à la pile morte ne
+                    // doit pas pouvoir dater une création de l'an 3000. Ici
+                    // `added_ms` ne tranche aucun conflit — l'application ne
+                    // fait que créer — mais il devient la date affichée et le
+                    // point de départ de tout classement futur, et une date
+                    // aberrante y resterait pour toujours.
+                    let plafond = now_ms().saturating_add(accord_dht::store::MAX_CLOCK_SKEW_MS);
+                    if added_ms <= plafond {
+                        let cree = self.with_db(|db| {
+                            Ok(accord_core::friends::apply_remote_add(
+                                db,
+                                &peer,
+                                &display_name,
+                                added_ms,
+                            )?)
+                        })?;
+                        if cree {
+                            self.emit(
+                                "event.friend_response",
+                                json!({ "peer": hex::encode(&peer), "accepted": true }),
+                            );
+                        }
+                    }
+                }
+                Ok(vec![])
+            }
+            CoreMsg::SelfPref { key, value, at_ms } => {
+                // 🔒 Même garde que ci-dessus, appliquée dans
+                // `ingest_self_pref` avec la borne d'horloge qui va avec.
+                self.ingest_self_pref(device_pubkey, &key, &value, at_ms)?;
                 Ok(vec![])
             }
             CoreMsg::SelfReadMark { scope, conv, up_to } => {

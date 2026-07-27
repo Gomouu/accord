@@ -10,9 +10,14 @@
 //! La liste de notre propre compte se recalcule depuis la clé racine ; seule
 //! sa version courante est mémorisée, pour qu'une réémission dépasse toujours
 //! la précédente.
+//!
+//! Une troisième, `device_seen` (migration 17), retient la dernière fois que
+//! chaque appareil du compte s'est manifesté ICI, et par quelle route.
+//! 🔒 Elle est purement locale : rien de ce qu'elle contient ne circule.
 
 use super::Db;
 use crate::error::CoreError;
+use std::collections::HashMap;
 
 /// Graine de l'appareil local et sa preuve de travail.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +44,19 @@ pub struct CachedDeviceList {
     pub encoded: Vec<u8>,
     /// Date de réception locale (ms), pour la fraîcheur du cache.
     pub fetched_ms: u64,
+}
+
+/// Dernier contact observé avec un appareil du compte, vu de CETTE machine.
+///
+/// 🔒 Ni adresse ni lieu : la route, et rien de plus. Voir la migration 17
+/// pour le raisonnement complet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeviceSeen {
+    /// Date du dernier contact (ms epoch).
+    pub last_ms: u64,
+    /// Vrai si ce dernier contact passait par un circuit relais, faux s'il
+    /// était direct.
+    pub relayed: bool,
 }
 
 impl Db {
@@ -141,6 +159,51 @@ impl Db {
             ],
         )?;
         Ok(true)
+    }
+
+    /// Note qu'un appareil du compte vient de se manifester sur cette machine.
+    ///
+    /// **Dernier écrivain gagne**, volontairement : chaque appel décrit un
+    /// contact qui a lieu MAINTENANT, et le champ répond à « quand pour la
+    /// dernière fois ? ». Un garde de monotonie protégerait d'un cas qui
+    /// n'existe pas (personne n'écrit de contact passé) et en créerait un
+    /// vrai : une horloge locale qui recule d'une heure — changement d'heure,
+    /// resynchronisation NTP — figerait la ligne sur une date future, et
+    /// l'écran afficherait pour toujours une machine « vue » demain.
+    pub fn note_device_seen(&self, device: &[u8; 32], seen: DeviceSeen) -> Result<(), CoreError> {
+        self.conn.execute(
+            "INSERT INTO device_seen(device, last_ms, relayed) VALUES (?1, ?2, ?3)
+             ON CONFLICT(device) DO UPDATE SET
+               last_ms = excluded.last_ms,
+               relayed = excluded.relayed",
+            rusqlite::params![&device[..], seen.last_ms as i64, seen.relayed as i64],
+        )?;
+        Ok(())
+    }
+
+    /// Derniers contacts connus, indexés par clé d'appareil.
+    ///
+    /// Toute la table d'un coup : l'écran « Mes appareils » les veut tous, et
+    /// une requête par ligne d'une liste bornée à huit appareils serait du
+    /// travail en plus pour le même résultat. Un appareil absent de la table
+    /// n'a simplement jamais été joint depuis cette machine — l'appelant le
+    /// distingue d'une date à zéro, qui serait un mensonge.
+    pub fn devices_seen(&self) -> Result<HashMap<[u8; 32], DeviceSeen>, CoreError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT device, last_ms, relayed FROM device_seen")?;
+        let mut rows = stmt.query([])?;
+        let mut out = HashMap::new();
+        while let Some(row) = rows.next()? {
+            out.insert(
+                super::blob(row.get::<_, Vec<u8>>(0)?)?,
+                DeviceSeen {
+                    last_ms: row.get::<_, i64>(1)? as u64,
+                    relayed: row.get::<_, i64>(2)? != 0,
+                },
+            );
+        }
+        Ok(out)
     }
 
     /// Oublie la liste d'un compte (retrait d'ami, purge).
@@ -260,6 +323,96 @@ mod tests {
         db.forget_device_list(&[1; 32]).unwrap();
         assert!(db.device_list(&[1; 32]).unwrap().is_none());
         assert!(db.device_list(&[2; 32]).unwrap().is_some());
+    }
+
+    #[test]
+    fn an_unseen_device_has_no_entry_at_all() {
+        // Une ligne absente et une date à zéro ne disent pas la même chose :
+        // « jamais joint depuis cette machine » n'est pas « joint le 1er
+        // janvier 1970 ». L'écran s'appuie sur cette distinction.
+        assert!(db().devices_seen().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_noted_contact_roundtrips_with_its_route() {
+        let db = db();
+        db.note_device_seen(
+            &[9; 32],
+            DeviceSeen {
+                last_ms: 1_700_000_000_000,
+                relayed: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            db.devices_seen().unwrap().get(&[9u8; 32]),
+            Some(&DeviceSeen {
+                last_ms: 1_700_000_000_000,
+                relayed: true,
+            })
+        );
+    }
+
+    #[test]
+    fn a_later_contact_replaces_the_previous_one_route_included() {
+        // Le champ répond à « quand pour la dernière fois, et comment » : une
+        // seconde ligne, ou une route figée sur le premier contact, seraient
+        // deux façons de répondre à une autre question.
+        let db = db();
+        for seen in [
+            DeviceSeen {
+                last_ms: 10,
+                relayed: true,
+            },
+            DeviceSeen {
+                last_ms: 20,
+                relayed: false,
+            },
+        ] {
+            db.note_device_seen(&[4; 32], seen).unwrap();
+        }
+        assert_eq!(
+            db.devices_seen().unwrap().get(&[4u8; 32]),
+            Some(&DeviceSeen {
+                last_ms: 20,
+                relayed: false,
+            })
+        );
+        let n: i64 = db
+            .conn
+            .query_row("SELECT count(*) FROM device_seen", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn devices_do_not_share_a_seen_entry() {
+        let db = db();
+        db.note_device_seen(
+            &[1; 32],
+            DeviceSeen {
+                last_ms: 5,
+                relayed: false,
+            },
+        )
+        .unwrap();
+        db.note_device_seen(
+            &[2; 32],
+            DeviceSeen {
+                last_ms: 7,
+                relayed: true,
+            },
+        )
+        .unwrap();
+        let seen = db.devices_seen().unwrap();
+        assert_eq!(
+            seen.get(&[1u8; 32]).map(|s| (s.last_ms, s.relayed)),
+            Some((5, false))
+        );
+        assert_eq!(
+            seen.get(&[2u8; 32]).map(|s| (s.last_ms, s.relayed)),
+            Some((7, true))
+        );
     }
 
     #[test]

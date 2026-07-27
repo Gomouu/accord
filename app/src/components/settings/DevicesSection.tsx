@@ -9,6 +9,8 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/client';
 import { type AccountDevice } from '../../lib/api';
+import { interpolate } from '../../i18n';
+import { formatEventDateTime } from '../../lib/format';
 import { useSettingsT, useT, useUi } from '../../stores/ui';
 import { SettingsSection } from './controls';
 import { JoinDeviceForm } from './JoinDeviceForm';
@@ -31,6 +33,8 @@ function octets(value: string): number {
 export function DevicesSection() {
   const t = useT();
   const ts = useSettingsT();
+  const lang = useUi((s) => s.lang);
+  const timeFormat = useUi((s) => s.timeFormat);
   const toast = useUi((s) => s.toast);
   const [devices, setDevices] = useState<AccountDevice[] | null>(null);
   const [draft, setDraft] = useState('');
@@ -54,6 +58,41 @@ export function DevicesSection() {
       cancelled = true;
     };
   }, []);
+
+  /**
+   * L'histoire d'un appareil en une ligne : quand il est entré dans le compte,
+   * et quand cette machine l'a joint pour la dernière fois — par quel chemin.
+   *
+   * 🔒 « D'où » se dit ici par la ROUTE (directe ou par relais), jamais par une
+   * adresse : c'est l'information utile (un appareil qu'on ne joint que par
+   * relais est un appareil dont la connexion directe ne passe pas) et c'est la
+   * seule qui puisse s'afficher sans mettre un lieu dans la première capture
+   * d'écran venue.
+   */
+  const historique = (d: AccountDevice): string => {
+    const ajout =
+      d.added_ms > 0
+        ? interpolate(ts.settings.deviceAdded, {
+            date: formatEventDateTime(d.added_ms, lang, timeFormat),
+          })
+        : // Zéro : l'appareil vient de la migration et n'a pas de date d'ajout.
+          ts.settings.deviceAddedUnknown;
+    // La machine qu'on a sous les yeux ne se raconte pas sa propre visite :
+    // « vu il y a deux secondes » n'apprend rien et ferait passer une évidence
+    // pour un fait de réseau.
+    if (d.is_current) return `${ajout} · ${ts.settings.deviceLastSeenHere}`;
+    if (d.last_seen_ms === null || d.last_seen_route === null) {
+      return `${ajout} · ${ts.settings.deviceLastSeenNever}`;
+    }
+    const vu = interpolate(ts.settings.deviceLastSeen, {
+      date: formatEventDateTime(d.last_seen_ms, lang, timeFormat),
+    });
+    const route =
+      d.last_seen_route === 'relay'
+        ? ts.settings.deviceRouteRelay
+        : ts.settings.deviceRouteDirect;
+    return `${ajout} · ${vu} (${route})`;
+  };
 
   const current = devices?.find((d) => d.is_current) ?? null;
   const trimmed = draft.trim();
@@ -95,6 +134,7 @@ export function DevicesSection() {
                 <div className="selectable truncate font-mono text-xs text-muted">
                   {d.pubkey.slice(0, 16)}…
                 </div>
+                <div className="mt-0.5 text-xs text-muted">{historique(d)}</div>
               </div>
               {d.is_current && (
                 <span className="shrink-0 rounded-full bg-blurple/15 px-2 py-0.5 text-xs font-medium text-blurple">

@@ -740,6 +740,9 @@ export const bn: Dict = {
     searchPlaceholder: 'শব্দ খোঁজো',
     noResults: 'কোনো শব্দ মিলছে না।',
   },
+  linkPreview: {
+    cardLabel: 'লিংক প্রিভিউ',
+  },
   calls: {
     startCall: 'ফোন করো',
     callAlreadyOngoing: 'একটা কল আগে থেকেই চলছে',

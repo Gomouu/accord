@@ -750,6 +750,9 @@ export const de: Dict = {
     searchPlaceholder: 'Sound suchen',
     noResults: 'Kein Sound passt.',
   },
+  linkPreview: {
+    cardLabel: 'Linkvorschau',
+  },
   calls: {
     startCall: 'Anrufen',
     callAlreadyOngoing: 'Es läuft bereits ein Anruf',

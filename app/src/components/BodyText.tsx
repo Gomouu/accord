@@ -7,6 +7,7 @@
 import { memo } from 'react';
 import { maskFiltered } from '../lib/automod';
 import { useT } from '../stores/ui';
+import { LinkPreview } from './LinkPreview';
 import { MarkdownText } from './MarkdownText';
 import { displayText, type DisplayMessage } from './messageModel';
 
@@ -52,6 +53,9 @@ function BodyTextInner({
       {message.edited !== null && (
         <span className="ms-1 text-[10px] text-faint">{t.dm.edited}</span>
       )}
+      {/* Le composant ne rend rien tant que le réglage est éteint — c'est lui
+          qui porte la garde, la commande Tauri ne la revérifie pas. */}
+      <LinkPreview texte={masked} />
     </div>
   );
 }

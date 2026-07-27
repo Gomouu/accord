@@ -336,6 +336,10 @@ export const enSettings = {
     // Danger zone (logout).
     dangerZoneTitle: 'Danger zone',
     logoutHint: 'Locks your vault and returns to the unlock screen. No data is deleted.',
+    linkPreviewsTitle: 'Link previews',
+    linkPreviewsLabel: 'Load a preview of links you receive',
+    linkPreviewsHint:
+      'Off by default. To show a preview, your device has to fetch the page — the site then sees your IP address, for a link someone else chose. In a group, a link to a server they control reveals the IP of everyone who turned this on.',
     streamerTitle: 'Streamer mode',
     streamerLabel: 'Hide sensitive information',
     streamerHint:

@@ -762,6 +762,9 @@ export const en: Dict = {
     searchPlaceholder: 'Search sounds',
     noResults: 'No sound matches.',
   },
+  linkPreview: {
+    cardLabel: 'Link preview',
+  },
   calls: {
     startCall: 'Call',
     callAlreadyOngoing: 'A call is already ongoing',

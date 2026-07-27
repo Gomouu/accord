@@ -350,6 +350,10 @@ export const frSettings = {
     dangerZoneTitle: 'Zone de danger',
     logoutHint:
       'Verrouille votre coffre et revient à l’écran de déverrouillage. Aucune donnée n’est supprimée.',
+    linkPreviewsTitle: 'Aperçus de liens',
+    linkPreviewsLabel: 'Charger un aperçu des liens reçus',
+    linkPreviewsHint:
+      'Éteint par défaut. Pour afficher l’aperçu, ton appareil doit aller chercher la page — le site voit alors ton adresse IP, alors que c’est ton interlocuteur qui a choisi le lien. Dans un groupe, un lien vers un serveur contrôlé révèle l’IP de tous ceux qui ont activé ce réglage.',
     streamerTitle: 'Mode streamer',
     streamerLabel: 'Masquer les informations sensibles',
     streamerHint:

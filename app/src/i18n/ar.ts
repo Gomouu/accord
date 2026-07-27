@@ -739,6 +739,9 @@ export const ar: Dict = {
     searchPlaceholder: 'ابحث عن صوت',
     noResults: 'لا صوت يطابق.',
   },
+  linkPreview: {
+    cardLabel: 'معاينة الرابط',
+  },
   calls: {
     startCall: 'اتصل',
     callAlreadyOngoing: 'هناك مكالمة جارية بالفعل',

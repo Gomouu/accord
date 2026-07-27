@@ -30,6 +30,8 @@ export function PrivacyTab() {
   const typingIndicatorEnabled = useUi((s) => s.typingIndicatorEnabled);
   const setTypingIndicatorEnabled = useUi((s) => s.setTypingIndicatorEnabled);
   const streamerMode = useUi((s) => s.streamerMode);
+  const linkPreviews = useUi((s) => s.linkPreviews);
+  const setLinkPreviews = useUi((s) => s.setLinkPreviews);
   const setStreamerMode = useUi((s) => s.setStreamerMode);
   const autoLockMinutes = useUi((s) => s.autoLockMinutes);
   const setAutoLockMinutes = useUi((s) => s.setAutoLockMinutes);
@@ -87,6 +89,15 @@ export function PrivacyTab() {
           hint={ts.settings.streamerHint}
           checked={streamerMode}
           onChange={setStreamerMode}
+        />
+      </SettingsSection>
+
+      <SettingsSection title={ts.settings.linkPreviewsTitle}>
+        <ToggleRow
+          label={ts.settings.linkPreviewsLabel}
+          hint={ts.settings.linkPreviewsHint}
+          checked={linkPreviews}
+          onChange={setLinkPreviews}
         />
       </SettingsSection>
 

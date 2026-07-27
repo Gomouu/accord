@@ -297,6 +297,10 @@ export const zhSettings = {
     backupPassphraseEmpty: '请输入你的口令。',
     dangerZoneTitle: '危险区域',
     logoutHint: '锁上你的保险库并回到解锁界面。不会删除任何数据。',
+    linkPreviewsTitle: '链接预览',
+    linkPreviewsLabel: '加载收到链接的预览',
+    linkPreviewsHint:
+      '默认关闭。显示预览需要你的设备去获取该页面——网站因此会看到你的 IP 地址，而这个链接是别人选的。在群组中，指向对方控制的服务器的链接会暴露所有开启此设置的人的 IP。',
     streamerTitle: '主播模式',
     streamerLabel: '隐藏敏感信息',
     streamerHint:

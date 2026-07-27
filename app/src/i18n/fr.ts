@@ -773,6 +773,9 @@ export const fr = {
     searchPlaceholder: 'Rechercher un son',
     noResults: 'Aucun son ne correspond.',
   },
+  linkPreview: {
+    cardLabel: 'Aperçu du lien',
+  },
   calls: {
     startCall: 'Appeler',
     callAlreadyOngoing: 'Un appel est déjà en cours',

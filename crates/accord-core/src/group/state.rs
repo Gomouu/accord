@@ -1746,9 +1746,23 @@ impl GroupState {
             // salon ne peut s'ajouter : c'est ce qui tient « un seul fil ».
             GroupOpBody::AddChannel { .. } if self.channels.is_empty() => None,
             GroupOpBody::AddChannel { .. } => Some("groupe de MP : un seul fil"),
-            // N'importe quel membre ajoute n'importe qui, comme un fil de
-            // discussion — inventer une hiérarchie serait le premier pas du
-            // retour vers un serveur.
+            // 🔒 **Inviter, jamais enrôler de force.** N'importe quel membre
+            // peut inviter — il n'y a pas de hiérarchie à consulter — mais
+            // l'ajout lui-même n'est accepté qu'accompagné d'un `invite_id`,
+            // c'est-à-dire au bout du protocole de consentement (D-045).
+            //
+            // ⚠️ Une première version de ce fichier acceptait un `AddMember`
+            // NU dans un groupe de MP, au nom de « on ajoute quelqu'un à un fil
+            // de discussion ». C'était exactement le force-join que D-045 avait
+            // supprimé — `AddMember` + op-log + clé de groupe poussés sans
+            // demande ni accord — réintroduit dans une liste blanche écrite
+            // pour être prudente. Un groupe de MP est plus intime qu'un
+            // serveur, pas moins : y être versé sans avoir rien accepté est
+            // pire, pas plus acceptable.
+            GroupOpBody::InviteCreate { .. } => None,
+            GroupOpBody::AddMember {
+                invite_id: None, ..
+            } => Some("groupe de MP : ajout sans consentement refusé (D-045)"),
             GroupOpBody::AddMember { .. } if self.members.len() < MAX_DM_MEMBERS => None,
             GroupOpBody::AddMember { .. } => Some("groupe de MP : plafond de membres"),
             // Partir, oui. Expulser quelqu'un d'autre, non : il n'y a pas de
@@ -1816,6 +1830,31 @@ mod tests {
         st
     }
 
+    /// Admet `membre` dans un groupe de MP par le chemin normal : `invitant`
+    /// crée une invitation, puis le membre est admis avec cet `invite_id`.
+    /// Consomme deux lamports à partir de `lamport`.
+    fn admettre(st: &mut GroupState, invitant: [u8; 32], membre: [u8; 32], lamport: u64) {
+        let invite_id = [lamport as u8; 16];
+        st.apply(&signed(
+            GroupOpBody::InviteCreate {
+                invite_id,
+                code_hash: [0; 32],
+                max_uses: 1,
+                expires_ms: 0,
+            },
+            invitant,
+            lamport,
+        ));
+        st.apply(&signed(
+            GroupOpBody::AddMember {
+                member: membre,
+                invite_id: Some(invite_id),
+            },
+            invitant,
+            lamport + 1,
+        ));
+    }
+
     #[test]
     fn un_groupe_de_mp_se_reconnait_a_sa_creation_et_pas_ailleurs() {
         assert!(groupe_mp().is_dm, "le drapeau doit survivre à la création");
@@ -1835,14 +1874,7 @@ mod tests {
     #[test]
     fn un_groupe_de_mp_refuse_ce_qui_ferait_de_lui_un_serveur() {
         let mut st = groupe_mp();
-        st.apply(&signed(
-            GroupOpBody::AddMember {
-                member: ALICE,
-                invite_id: None,
-            },
-            FOUNDER,
-            3,
-        ));
+        admettre(&mut st, FOUNDER, ALICE, 3);
 
         // 🔒 Un rôle, une catégorie, un bannissement : la liste blanche les
         // écarte tous, y compris demandés par le fondateur.
@@ -1898,16 +1930,48 @@ mod tests {
         assert_eq!(st.channels.len(), 1, "aucun second salon");
     }
 
+    /// 🔒 Un ajout SANS invitation est refusé, même au fondateur : c'est le
+    /// force-join que D-045 a supprimé, et une première version de la liste
+    /// blanche l'avait réintroduit.
     #[test]
-    fn nimporte_quel_membre_ajoute_quelquun_sans_role() {
+    fn un_ajout_sans_consentement_est_refuse() {
         let mut st = groupe_mp();
-        st.apply(&signed(
+        let refus = st.apply(&signed(
             GroupOpBody::AddMember {
                 member: ALICE,
                 invite_id: None,
             },
             FOUNDER,
             3,
+        ));
+        assert!(matches!(refus, Applied::Ignored(_)));
+        assert!(
+            !st.members.contains_key(&ALICE),
+            "personne n'entre sans avoir accepté"
+        );
+    }
+
+    #[test]
+    fn nimporte_quel_membre_peut_inviter_sans_role() {
+        let mut st = groupe_mp();
+        // Le fondateur invite Alice, qui accepte : c'est le chemin normal.
+        st.apply(&signed(
+            GroupOpBody::InviteCreate {
+                invite_id: [0x51; 16],
+                code_hash: [0; 32],
+                max_uses: 1,
+                expires_ms: 0,
+            },
+            FOUNDER,
+            3,
+        ));
+        st.apply(&signed(
+            GroupOpBody::AddMember {
+                member: ALICE,
+                invite_id: Some([0x51; 16]),
+            },
+            FOUNDER,
+            4,
         ));
         // Alice n'a aucun rôle : dans un serveur, `INVITE` lui manquerait.
         assert_eq!(
@@ -1916,15 +1980,33 @@ mod tests {
             "sans rôle, Alice n'aurait pas INVITE dans un serveur"
         );
 
+        assert!(st.members.contains_key(&ALICE), "Alice a accepté et entre");
+
+        // Alice, sans aucun rôle, peut inviter à son tour : c'est la promesse
+        // « n'importe quel membre » — mais elle passe par une invitation.
+        let invitation = st.apply(&signed(
+            GroupOpBody::InviteCreate {
+                invite_id: [0x52; 16],
+                code_hash: [0; 32],
+                max_uses: 1,
+                expires_ms: 0,
+            },
+            ALICE,
+            5,
+        ));
+        assert!(
+            matches!(invitation, Applied::Ok),
+            "tout membre peut inviter, sans rôle"
+        );
         let ajout = st.apply(&signed(
             GroupOpBody::AddMember {
                 member: BOB,
-                invite_id: None,
+                invite_id: Some([0x52; 16]),
             },
             ALICE,
-            4,
+            6,
         ));
-        assert!(matches!(ajout, Applied::Ok), "tout membre peut ajouter");
+        assert!(matches!(ajout, Applied::Ok));
         assert!(st.members.contains_key(&BOB));
     }
 
@@ -1932,29 +2014,21 @@ mod tests {
     fn le_plafond_de_vingt_membres_tient() {
         let mut st = groupe_mp();
         let mut lamport = 3;
-        for i in 0..(MAX_DM_MEMBERS as u8) {
+        // Le fondateur compte déjà : on admet jusqu'au plafond.
+        for i in 0..(MAX_DM_MEMBERS as u8 - 1) {
             let mut membre = [0u8; 32];
             membre[0] = i.wrapping_add(1);
-            st.apply(&signed(
-                GroupOpBody::AddMember {
-                    member: membre,
-                    invite_id: None,
-                },
-                FOUNDER,
-                lamport,
-            ));
-            lamport += 1;
+            admettre(&mut st, FOUNDER, membre, lamport);
+            lamport += 2;
         }
         assert_eq!(st.members.len(), MAX_DM_MEMBERS);
 
-        let refus = st.apply(&signed(
-            GroupOpBody::AddMember {
-                member: [0xEE; 32],
-                invite_id: None,
-            },
-            FOUNDER,
-            lamport,
-        ));
+        admettre(&mut st, FOUNDER, [0xEE; 32], lamport);
+        let refus: Applied = if st.members.contains_key(&[0xEE; 32]) {
+            Applied::Ok
+        } else {
+            Applied::Ignored("plafond")
+        };
         assert!(matches!(refus, Applied::Ignored(_)));
         assert_eq!(st.members.len(), MAX_DM_MEMBERS, "le plafond ne bouge pas");
     }
@@ -1962,23 +2036,15 @@ mod tests {
     #[test]
     fn on_peut_partir_mais_pas_expulser_quelquun_dautre() {
         let mut st = groupe_mp();
-        for (l, m) in [(3, ALICE), (4, BOB)] {
-            st.apply(&signed(
-                GroupOpBody::AddMember {
-                    member: m,
-                    invite_id: None,
-                },
-                FOUNDER,
-                l,
-            ));
-        }
+        admettre(&mut st, FOUNDER, ALICE, 3);
+        admettre(&mut st, FOUNDER, BOB, 5);
 
         // 🔒 C'est le FONDATEUR qu'il faut essayer, pas Alice : Alice est
         // déjà arrêtée par le contrôle de hiérarchie qui existait avant les
         // groupes de MP, si bien qu'un test sur elle passerait même sans la
         // liste blanche — vérifié par mutation. Le fondateur, lui, franchit la
         // hiérarchie et la permission ; seule la liste blanche l'arrête.
-        let expulsion = st.apply(&signed(GroupOpBody::Kick { member: ALICE }, FOUNDER, 5));
+        let expulsion = st.apply(&signed(GroupOpBody::Kick { member: ALICE }, FOUNDER, 7));
         assert!(
             matches!(expulsion, Applied::Ignored(_)),
             "pas de modérateur dans un groupe de MP, pas même celui qui l'a ouvert"
@@ -1986,12 +2052,12 @@ mod tests {
         assert!(st.members.contains_key(&ALICE), "Alice reste");
 
         // Et Alice non plus ne peut expulser Bob.
-        let entre_pairs = st.apply(&signed(GroupOpBody::Kick { member: BOB }, ALICE, 6));
+        let entre_pairs = st.apply(&signed(GroupOpBody::Kick { member: BOB }, ALICE, 8));
         assert!(matches!(entre_pairs, Applied::Ignored(_)));
         assert!(st.members.contains_key(&BOB), "Bob reste");
 
         // Alice part d'elle-même : accepté.
-        let depart = st.apply(&signed(GroupOpBody::Kick { member: ALICE }, ALICE, 7));
+        let depart = st.apply(&signed(GroupOpBody::Kick { member: ALICE }, ALICE, 9));
         assert!(
             matches!(depart, Applied::Ok),
             "partir est toujours possible"

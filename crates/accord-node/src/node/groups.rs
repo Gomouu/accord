@@ -299,10 +299,17 @@ impl Node {
     /// fil unique, puis les membres — dans cet ordre, parce qu'un membre ajouté
     /// avant le fil arriverait dans un groupe où il n'y a rien à lire.
     ///
-    /// ⚠️ Aucune invitation, aucun ticket signé : dans un groupe de MP, un
-    /// membre ajoute directement, comme on ajoute quelqu'un à un fil de
-    /// discussion. C'est la décision de `docs/DM_GROUPS.md` §5, et elle est
-    /// tenue par [`accord_core::group::state`], pas seulement ici.
+    /// 🔒 **Les membres sont INVITÉS, pas enrôlés.** Chacun reçoit un ticket
+    /// signé et n'entre dans le groupe qu'après avoir accepté (D-045), comme
+    /// pour un serveur. Une première version de cette fonction les ajoutait
+    /// directement, au nom de « on ajoute quelqu'un à un fil de discussion » :
+    /// c'était le force-join que D-045 avait supprimé, réintroduit là où il
+    /// fait le plus de dégâts — un groupe de MP est plus intime qu'un serveur,
+    /// pas moins.
+    ///
+    /// Conséquence assumée : le groupe existe d'abord avec son seul fondateur,
+    /// et se peuple à mesure des acceptations. L'interface le montre tel quel
+    /// plutôt que d'afficher des membres qui n'ont rien accepté.
     pub fn dm_group_create(&self, name: &str, membres: &[[u8; 32]]) -> Result<String, NodeError> {
         validate_label(name)?;
         // Le fondateur compte déjà : on refuse ici ce que l'état refuserait de
@@ -321,13 +328,7 @@ impl Node {
         let group_id = created.group_id;
         self.group_channel_add(&group_id, name, ChannelKind::Text, None)?;
         for membre in membres {
-            self.group_author(
-                &group_id,
-                GroupOpBody::AddMember {
-                    member: *membre,
-                    invite_id: None,
-                },
-            )?;
+            self.group_invite_create(&group_id, membre)?;
         }
         self.emit_group_state(&group_id);
         Ok(hex::encode(&group_id))

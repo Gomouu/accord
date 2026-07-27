@@ -1105,10 +1105,19 @@ async fn un_groupe_de_mp_a_trois_se_cree_avec_un_seul_fil() {
         1,
         "un groupe de MP n'a qu'un fil"
     );
+    // 🔒 Un seul membre : le fondateur. Les deux autres ont reçu une
+    // INVITATION et n'entreront qu'après l'avoir acceptée (D-045). Une
+    // première version de `create_dm` les ajoutait d'office — c'était le
+    // force-join que D-045 avait supprimé.
     assert_eq!(
         etat["members"].as_array().unwrap().len(),
-        3,
-        "le fondateur et les deux invités"
+        1,
+        "personne n'est membre avant d'avoir accepté"
+    );
+    assert_eq!(
+        etat["invites"].as_array().unwrap().len(),
+        2,
+        "une invitation en attente par personne conviée"
     );
     assert!(
         etat["roles"].as_array().unwrap().is_empty(),

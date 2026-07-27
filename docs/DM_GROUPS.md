@@ -64,15 +64,41 @@ merely against our own UI:
 | Rule | Why |
 |---|---|
 | At most 20 members | Beyond that a server is the right shape. The roadmap's proposal, kept. |
-| Any member may add a member | Like a thread. No roles exist to consult. |
+| Any member may **invite** | Like a thread. No roles exist to consult. But inviting is not enrolling — see §4.1. |
 | No roles, no categories, no extra channels | The ops are refused outright rather than hidden in the UI. A DM group has exactly one channel, created with it. |
 | No bans, no timeouts, no moderation ops | There is no moderator. Leaving is the remedy. |
 | The `dm` flag is set once, by `CREATE` | Nothing can promote a server to a DM group or the reverse. |
 
+### 4.1 🔴 Consent, and the mistake that made this section necessary
+
+The first version of this design said: *"a member adds directly, the way one
+adds someone to a discussion thread"*, and the whitelist accepted a bare
+`AddMember`. **That was the force-join D-045 had removed** — `AddMember`, the
+whole op-log and the group key pushed to somebody who had asked for nothing and
+agreed to nothing — reintroduced inside a whitelist written to be careful.
+
+It was found by an agent probing whether the promised "any member may add
+someone" was reachable from the API. It was not: every RPC path to membership
+goes through an invitation, and the whitelist refused invitations. The gap that
+looked like a missing feature was in fact the design being wrong in the safer
+direction, and the API being right.
+
+So a DM group now uses the same two-step consent as a server: any member may
+create an invitation, and nobody becomes a member until they have accepted.
+`AddMember` **without** an `invite_id` is refused outright.
+
+⚠️ The consequence is deliberate and visible: a freshly created DM group holds
+its founder alone, and fills as invitations are accepted. The interface shows
+that rather than displaying members who agreed to nothing.
+
+A DM group is *more* intimate than a server, not less. Being placed in one
+without consent is worse there, not more acceptable.
+
 ## 5. Open questions from the roadmap, decided
 
-- **Who can add someone?** Any member. A DM group has no hierarchy to consult,
-  and inventing one would be the first step back towards a server.
+- **Who can add someone?** Any member may *invite*; the invitee decides. A DM
+  group has no hierarchy to consult, and inventing one would be the first step
+  back towards a server — but no hierarchy is not the same as no consent.
 - **Can you leave, and what do you see afterwards?** Yes, via the existing
   member-removal op applied to oneself. History already received stays local —
   the same rule as removing a friend, which keeps the DM history. Nothing is

@@ -1991,6 +1991,44 @@ pub enum CoreMsg {
         /// coûteux quand on ne sait pas.
         at_ms: u64,
     },
+    /// 0x21 — Une préférence de compte, propagée aux AUTRES APPAREILS du même
+    /// compte (feuille de route §17.4).
+    ///
+    /// Générique **par clé**, et non un champ par réglage : sinon chaque
+    /// préférence future serait un changement de format filaire, avec la
+    /// négociation de parc que cela traîne. Ici, ajouter une préférence
+    /// n'ajoute qu'une entrée à une liste blanche.
+    ///
+    /// ⚠️ Ne porte que ce qui décrit la PERSONNE (langue, thème, politique de
+    /// notification). Ce qui décrit la MACHINE — périphérique audio, géométrie
+    /// des panneaux, verrouillage automatique, port réseau — ne voyage pas :
+    /// la liste blanche et ses refus motivés vivent dans
+    /// `accord_core::prefs`.
+    SelfPref {
+        /// Identifiant de la préférence, opaque au protocole.
+        ///
+        /// 🔒 Borné à [`MAX_SELF_PREF_KEY`] **au décodage** : le récepteur n'a
+        /// donc jamais à se méfier de sa taille. Reste des octets bruts plutôt
+        /// qu'une `str` — une clé mal formée n'est pas une erreur de
+        /// protocole, elle est simplement absente de la liste blanche et
+        /// ignorée là-haut ; la rejeter ici jetterait tout le datagramme pour
+        /// un octet UTF-8 de travers.
+        key: Vec<u8>,
+        /// Valeur, opaque au protocole : l'interface y met la chaîne qu'elle
+        /// persistait déjà localement, à l'octet près.
+        ///
+        /// 🔒 Bornée à [`MAX_SELF_PREF_VALUE`] au décodage, même raison.
+        value: Vec<u8>,
+        /// Horloge murale du changement, sur la machine qui l'a décidé.
+        ///
+        /// 🔒 Bornée à l'ingestion (pas ici : « maintenant » n'existe pas au
+        /// décodage) à `now + accord_dht::store::MAX_CLOCK_SKEW_MS`. Sans
+        /// cette borne, une machine à l'horloge déréglée — pile CMOS morte,
+        /// fuseau faux — écrit une date lointaine que plus aucun changement
+        /// légitime ne peut dépasser : sa préférence gagne pour toujours.
+        /// Même leçon que la liste d'appareils (`SECURITY.md` §5, items 16-17).
+        at_ms: u64,
+    },
     /// 0x22 — Une amitié existe sur cette machine ; qu'elle existe aussi sur
     /// les AUTRES APPAREILS du même compte.
     ///
@@ -2049,6 +2087,22 @@ pub const SELF_READ_SCOPE_DM: u8 = 0;
 /// qu'un rattrapage transfère par conversation et par passe : le répondeur ne
 /// sert jamais au-delà de sa propre fenêtre, qui a la même taille.
 pub const MAX_SELF_SYNC_ITEMS: u16 = 64;
+
+/// Longueur maximale d'une [`CoreMsg::SelfPref::key`].
+///
+/// 🔒 Borne filaire, appliquée au décodage comme [`MAX_SELF_SYNC_ITEMS`]. Les
+/// clés réellement acceptées sont bien plus courtes (la plus longue de la
+/// liste blanche fait 30 octets) ; la marge laisse de la place aux
+/// préférences futures sans ouvrir la porte à une clé-tampon.
+pub const MAX_SELF_PREF_KEY: usize = 64;
+
+/// Longueur maximale d'une [`CoreMsg::SelfPref::value`].
+///
+/// 🔒 Même borne au décodage. Un kibioctet couvre largement la plus grosse
+/// valeur synchronisée (la palette d'un thème personnalisé, quelques centaines
+/// d'octets de JSON) sans qu'une préférence puisse servir de canal de
+/// transfert entre appareils.
+pub const MAX_SELF_PREF_VALUE: usize = 1024;
 
 /// Raison d'un [`CoreMsg::CallDecline`] : refus explicite de l'utilisateur.
 pub const CALL_DECLINE_REJECTED: u8 = 0;
@@ -2360,6 +2414,12 @@ impl WireEncode for CoreMsg {
                 w.put_u8(*state);
                 w.put_u64(*at_ms);
             }
+            CoreMsg::SelfPref { key, value, at_ms } => {
+                w.put_u8(0x21);
+                w.put_lbytes(key);
+                w.put_lbytes(value);
+                w.put_u64(*at_ms);
+            }
             CoreMsg::SelfContactAdd {
                 peer,
                 display_name,
@@ -2632,6 +2692,20 @@ impl WireDecode for CoreMsg {
                 },
                 at_ms: r.u64()?,
             }),
+            0x21 => Ok(CoreMsg::SelfPref {
+                // 🔒 Les deux longueurs sont bornées ICI, comme
+                // `self_sync.max_items`, et pas au moment de s'en servir : le
+                // code qui applique la préférence n'a alors plus aucune
+                // vérification de taille à se rappeler, et un appelant futur
+                // ne peut pas oublier celle qu'il n'a pas à faire.
+                key: r.lbytes(MAX_SELF_PREF_KEY, "self_pref.key")?,
+                value: r.lbytes(MAX_SELF_PREF_VALUE, "self_pref.value")?,
+                // ⚠️ Pas de borne sur `at_ms` au décodage : la tolérance se
+                // mesure par rapport à « maintenant », qui n'a pas de sens
+                // dans un décodeur pur (et rendrait le round-trip dépendant de
+                // l'horloge). Elle est appliquée à l'ingestion.
+                at_ms: r.u64()?,
+            }),
             0x22 => Ok(CoreMsg::SelfContactAdd {
                 peer: r.arr()?,
                 display_name: r.str(MAX_NAME, "self_contact.name")?,
@@ -2787,6 +2861,58 @@ mod tests {
         w.put_u8(0x7F);
         w.put_u64(1);
         assert!(CoreMsg::from_bytes(&w.into_bytes()).is_err());
+    }
+
+    #[test]
+    fn self_pref_roundtrips_and_bounds_both_lengths_at_decode() {
+        let msg = CoreMsg::SelfPref {
+            key: b"accord.theme".to_vec(),
+            value: b"midnight".to_vec(),
+            at_ms: 1_700_000_000_123,
+        };
+        let mut w = Writer::new();
+        msg.encode(&mut w);
+        let bytes = w.into_bytes();
+        // Opcode gelé : le déplacer casserait la compatibilité en silence.
+        assert_eq!(bytes.first(), Some(&0x21));
+        assert_eq!(CoreMsg::from_bytes(&bytes).unwrap(), msg);
+
+        // Une valeur vide reste un message valide : c'est ainsi qu'une
+        // préférence remise à son défaut voyage.
+        let vide = CoreMsg::SelfPref {
+            key: b"accord.lang".to_vec(),
+            value: Vec::new(),
+            at_ms: 7,
+        };
+        let mut w = Writer::new();
+        vide.encode(&mut w);
+        assert_eq!(CoreMsg::from_bytes(&w.into_bytes()).unwrap(), vide);
+
+        // 🔒 Les deux bornes tiennent AU DÉCODAGE. Construites à la main :
+        // l'encodeur ne produit jamais ces messages, seul un pair les produit.
+        let mut trop_longue_cle = Writer::new();
+        trop_longue_cle.put_u8(0x21);
+        trop_longue_cle.put_lbytes(&vec![b'k'; MAX_SELF_PREF_KEY + 1]);
+        trop_longue_cle.put_lbytes(b"v");
+        trop_longue_cle.put_u64(1);
+        assert!(CoreMsg::from_bytes(&trop_longue_cle.into_bytes()).is_err());
+
+        let mut trop_longue_valeur = Writer::new();
+        trop_longue_valeur.put_u8(0x21);
+        trop_longue_valeur.put_lbytes(b"accord.theme");
+        trop_longue_valeur.put_lbytes(&vec![b'v'; MAX_SELF_PREF_VALUE + 1]);
+        trop_longue_valeur.put_u64(1);
+        assert!(CoreMsg::from_bytes(&trop_longue_valeur.into_bytes()).is_err());
+
+        // Pile sur la borne : accepté (la borne est inclusive des deux côtés).
+        let pile = CoreMsg::SelfPref {
+            key: vec![b'k'; MAX_SELF_PREF_KEY],
+            value: vec![b'v'; MAX_SELF_PREF_VALUE],
+            at_ms: 1,
+        };
+        let mut w = Writer::new();
+        pile.encode(&mut w);
+        assert_eq!(CoreMsg::from_bytes(&w.into_bytes()).unwrap(), pile);
     }
 
     #[test]

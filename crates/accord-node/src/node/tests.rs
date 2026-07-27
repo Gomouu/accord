@@ -3335,3 +3335,132 @@ fn une_liste_non_enregistree_ne_passe_pas_pour_un_succes() {
         "un enregistrement refusé doit remonter une erreur, pas un Ok(())"
     );
 }
+
+// ---- Préférences de compte (lot 7.2, feuille de route §17.4) ----
+
+/// Valeur de la préférence `key` telle que la base la porte.
+fn pref_of(n: &Node, key: &str) -> Option<String> {
+    n.synced_prefs()
+        .unwrap()
+        .into_iter()
+        .find(|p| p.key == key)
+        .map(|p| p.value)
+}
+
+/// Construit une annonce de préférence.
+fn pref_msg(key: &str, value: &str, at_ms: u64) -> CoreMsg {
+    CoreMsg::SelfPref {
+        key: key.as_bytes().to_vec(),
+        value: value.as_bytes().to_vec(),
+        at_ms,
+    }
+}
+
+#[test]
+fn a_preference_from_a_key_that_is_not_our_device_is_ignored() {
+    // 🔒 LE test de ce lot. La décision se prend sur la clé que la session a
+    // authentifiée, jamais sur le contenu : sans ce contrôle, n'importe quel
+    // ami réécrirait la langue, le thème et la politique de notification de
+    // n'importe qui en envoyant une cinquantaine d'octets.
+    let n = node();
+    let etranger = Identity::generate_with_pow_bits(1);
+    let quand = crate::node::now_ms();
+    n.ingest_core_from(
+        &etranger.public_key(),
+        &etranger.public_key(),
+        pref_msg("accord.theme", "crimson", quand),
+    )
+    .unwrap();
+    assert_eq!(pref_of(&n, "accord.theme"), None);
+
+    // La même préférence, sous NOTRE clé de compte, passe : c'est bien le
+    // contrôle d'identité qui a écarté la première, et rien d'autre.
+    n.ingest_core_from(
+        &n.public_key(),
+        &n.public_key(),
+        pref_msg("accord.theme", "crimson", quand),
+    )
+    .unwrap();
+    assert_eq!(pref_of(&n, "accord.theme"), Some("crimson".into()));
+}
+
+#[test]
+fn a_future_dated_preference_beyond_the_skew_tolerance_is_refused() {
+    // ⚠️ Leçon directe du bug expédié en 7.0 et corrigé en 7.1 : sur un champ
+    // « dernier écrivain gagne », un horodatage non borné ne gagne pas une
+    // fois, il gagne POUR TOUJOURS. Une pile CMOS morte suffit.
+    let n = node();
+    let maintenant = crate::node::now_ms();
+    let skew = accord_dht::store::MAX_CLOCK_SKEW_MS;
+    n.ingest_core_from(
+        &n.public_key(),
+        &n.public_key(),
+        pref_msg("accord.lang", "de", maintenant + skew + 60_000),
+    )
+    .unwrap();
+    assert_eq!(pref_of(&n, "accord.lang"), None);
+
+    // Dans la tolérance : accepté. Deux machines n'ont pas la même horloge, et
+    // refuser la moindre avance casserait le cas normal.
+    n.ingest_core_from(
+        &n.public_key(),
+        &n.public_key(),
+        pref_msg("accord.lang", "fr", maintenant + skew - 60_000),
+    )
+    .unwrap();
+    assert_eq!(pref_of(&n, "accord.lang"), Some("fr".into()));
+
+    // Et la date refusée n'a rien laissé derrière elle : un changement
+    // ultérieur ordinaire reprend la main, ce qui serait impossible si la date
+    // lointaine avait été écrite.
+    n.ingest_core_from(
+        &n.public_key(),
+        &n.public_key(),
+        pref_msg("accord.lang", "es", maintenant + skew - 30_000),
+    )
+    .unwrap();
+    assert_eq!(pref_of(&n, "accord.lang"), Some("es".into()));
+}
+
+#[test]
+fn an_unknown_preference_key_is_ignored_without_error() {
+    let n = node();
+    // Une clé qu'une version future enverrait, et une clé de MACHINE qu'on
+    // refuse de faire voyager : les deux sont ignorées sans casser le message.
+    for key in ["accord.inventee", "accord.autoLockMinutes"] {
+        let out = n
+            .ingest_core_from(
+                &n.public_key(),
+                &n.public_key(),
+                pref_msg(key, "1", crate::node::now_ms()),
+            )
+            .unwrap();
+        assert!(out.is_empty());
+    }
+    assert!(n.synced_prefs().unwrap().is_empty());
+}
+
+#[test]
+fn setting_a_preference_announces_it_to_the_account() {
+    let id = Identity::generate_with_pow_bits(1);
+    let db = Db::open_in_memory(&[1u8; 32]).unwrap();
+    let (sink, mut rx) = OutboundSink::channel(8);
+    let n = Node::new(id, db, sink);
+
+    let at_ms = n.set_synced_pref("accord.density", "compact").unwrap();
+    assert_eq!(pref_of(&n, "accord.density"), Some("compact".into()));
+
+    match rx.try_recv().expect("annonce émise") {
+        crate::outbound::Outbound::Core { to, msg } => {
+            // Adressé au COMPTE, comme `SelfContactState` : c'est la couche
+            // réseau qui développe en un envoi par appareil joignable.
+            assert_eq!(to, n.public_key());
+            assert_eq!(*msg, pref_msg("accord.density", "compact", at_ms));
+        }
+        autre => panic!("action inattendue : {autre:?}"),
+    }
+
+    // Une clé de machine ne part pas non plus : refusée avant l'annonce.
+    assert!(n.set_synced_pref("accord.network.port", "4000").is_err());
+    assert!(rx.try_recv().is_err());
+}

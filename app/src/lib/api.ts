@@ -824,6 +824,11 @@ export type AccordEvent =
       params: { peer: string; msg_id: string; attachments: FileAttachment[] };
     }
   | { method: 'event.dm_typing'; params: { peer: string } }
+  | {
+      /** Un AUTRE appareil du compte a changé une préférence (SPEC §6.6, 0x21). */
+      method: 'event.self_pref';
+      params: { key: string; value: string; at_ms: number };
+    }
   | { method: 'event.friend_request'; params: { peer: string } }
   | { method: 'event.friend_response'; params: { peer: string; accepted: boolean } }
   | { method: 'event.friend_verified'; params: { peer: string; verified: boolean } }
@@ -1340,6 +1345,34 @@ export class Api {
   /** État du réglage d'émission des accusés de lecture. */
   dmGetReadReceipts(): Promise<{ enabled: boolean }> {
     return this.rpc.call('dm.get_read_receipts');
+  }
+
+  /**
+   * Préférences de COMPTE connues du nœud (état fusionné entre les appareils,
+   * cf. `lib/prefSync.ts`). Les clés hors liste blanche du nœud n'y figurent
+   * jamais.
+   */
+  async listPrefs(): Promise<
+    { key: string; value: string; at_ms: number }[]
+  > {
+    const { prefs } = await this.rpc.call<{
+      prefs: { key: string; value: string; at_ms: number }[];
+    }>('prefs.list');
+    return prefs;
+  }
+
+  /**
+   * Enregistre une préférence de compte et l'annonce aux autres appareils.
+   * Rend l'horodatage retenu par le nœud, que l'appelant conserve pour savoir
+   * au prochain démarrage si la valeur du compte est plus récente que la
+   * sienne. Une clé hors liste blanche est une erreur, pas un silence.
+   */
+  async setPref(key: string, value: string): Promise<number> {
+    const { at_ms: atMs } = await this.rpc.call<{ at_ms: number }>('prefs.set', {
+      key,
+      value,
+    });
+    return atMs;
   }
 
   /**

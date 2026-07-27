@@ -22,6 +22,7 @@ import {
   type SessionInfo,
 } from '../lib/bridge';
 import { clearPendingConversation } from '../lib/notifications';
+import { hydrateSyncedPrefs } from '../lib/prefSync';
 import { useDms } from './dms';
 import { useGroups } from './groups';
 import { useFriends } from './friends';
@@ -186,7 +187,15 @@ interface SessionState {
 
 async function attach(session: SessionInfo): Promise<SelfProfile> {
   await rpc.connect(session.port, session.token);
-  return api.identitySelf();
+  // Préférences de compte adoptées AVANT le premier rendu applicatif : cette
+  // machine a déjà appliqué ses propres valeurs depuis le `localStorage` à la
+  // construction du store, et une valeur plus récente venue d'un autre appareil
+  // arrivant après coup se verrait comme un changement de thème à l'écran.
+  // En parallèle du profil : deux appels indépendants, aucune latence ajoutée.
+  // `hydrateSyncedPrefs` ne rejette jamais — un nœud muet laisse simplement
+  // cette machine sur ce qu'elle affichait déjà.
+  const [self] = await Promise.all([api.identitySelf(), hydrateSyncedPrefs()]);
+  return self;
 }
 
 /**

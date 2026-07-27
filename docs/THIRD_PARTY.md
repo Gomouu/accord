@@ -88,6 +88,8 @@
 | `react-dom` | 18.3.1 | MIT | DOM rendering |
 | `zustand` | 5.0.14 | MIT | State stores (D-009) |
 | `@tauri-apps/api` | 2.11.1 | Apache-2.0 OR MIT | IPC bridge to the Tauri host |
+| `qrcode` | 1.5.4 | MIT | QR **generation**: friend link, safety number (§17.4) — lazy chunk |
+| `jsqr` | 1.4.0 | Apache-2.0 | QR **decoding** from a camera frame: safety-number verification (§17.4) — lazy chunk |
 
 ### Development only (never distributed)
 
@@ -124,6 +126,15 @@
   require the **retention of copyright notices** in binary
   distributions — to be integrated into the "About" screen or a bundled
   license file at the first public distribution.
+- `jsqr` is the only runtime JS dependency whose latest release is old
+  (1.4.0, 24 April 2021). It was taken knowingly: it has **zero transitive
+  dependencies**, no native binding and no WebAssembly, it implements a
+  specification frozen since 2000 (ISO/IEC 18004), and it is still downloaded
+  ~1.8 M times a week. The full comparison against `zxing-wasm`,
+  `@zxing/library`, `qr-scanner` and the native `BarcodeDetector` is written
+  where the import lives, in `app/src/components/SafetyQrScanner.tsx`
+  (ROADMAP §10.3). Note that `cargo deny` does **not** cover JS packages —
+  this inventory is the only written trace on that side.
 - The **transitive** tree is not inventoried here. Before any public
   distribution, run `cargo deny check licenses` (Rust) and
   `npx license-checker` (JS) for the full tree, and `cargo audit` /

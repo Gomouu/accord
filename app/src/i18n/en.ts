@@ -127,6 +127,20 @@ export const en: Dict = {
     verifyIntro:
       'Compare this number with the one shown on {name}’s screen — out loud or in person. If it matches, your conversation is authenticated: nobody slipped in between you.',
     verifyEmojiHint: 'Quick check: the 8 emoji must be identical on both sides.',
+    verifyQrShow: 'Show my QR code',
+    verifyQrScan: 'Scan their QR code',
+    verifyQrAlt: 'Safety number QR code',
+    verifyQrHint: 'Have your friend scan this code from their verification screen.',
+    verifyScanHint: 'Point the camera at the QR code on your friend’s screen.',
+    verifyScanPreview: 'Camera preview',
+    verifyScanForeign: 'This code is not an Accord safety number.',
+    verifyScanMatch: 'Numbers match: your conversation is authenticated.',
+    verifyScanMismatch:
+      'Numbers differ. Do not continue this conversation until you know why.',
+    verifyScanAgain: 'Scan again',
+    verifyScanDenied:
+      'Camera access denied. Allow it in your system settings, or compare the digits above.',
+    verifyScanNoCamera: 'No camera available on this device. Compare the digits above.',
     verifyMark: 'Mark as verified',
     verifyUnmark: 'Remove verification',
     verifiedBadge: 'Identity verified',

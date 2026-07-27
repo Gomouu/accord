@@ -129,6 +129,21 @@ export const fr = {
       'Comparez ce numéro avec celui affiché chez {name} — de vive voix ou en personne. S’il est identique, votre conversation est authentifiée : personne ne s’est glissé entre vous.',
     verifyEmojiHint:
       'Comparaison rapide : les 8 emojis doivent être identiques des deux côtés.',
+    verifyQrShow: 'Afficher mon QR',
+    verifyQrScan: 'Scanner son QR',
+    verifyQrAlt: 'QR du numéro de sécurité',
+    verifyQrHint: 'Faites scanner ce code depuis l’écran de vérification de votre ami.',
+    verifyScanHint: 'Visez le QR affiché sur l’écran de votre ami.',
+    verifyScanPreview: 'Aperçu de la caméra',
+    verifyScanForeign: 'Ce code n’est pas un numéro de sécurité Accord.',
+    verifyScanMatch: 'Numéros identiques : votre conversation est authentifiée.',
+    verifyScanMismatch:
+      'Numéros différents. Ne poursuivez pas cette conversation avant de savoir pourquoi.',
+    verifyScanAgain: 'Scanner à nouveau',
+    verifyScanDenied:
+      'Accès à la caméra refusé. Autorisez-le dans les réglages du système, ou comparez les chiffres ci-dessus.',
+    verifyScanNoCamera:
+      'Aucune caméra disponible sur cet appareil. Comparez les chiffres ci-dessus.',
     verifyMark: 'Marquer comme vérifié',
     verifyUnmark: 'Retirer la vérification',
     verifiedBadge: 'Identité vérifiée',

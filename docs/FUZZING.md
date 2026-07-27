@@ -64,6 +64,41 @@ looks like it does.
 - Four of nine targets were run. The other five have only the nightly's four
   minutes behind them.
 
+## 3bis. Campaign of 2026-07-27, evening — the other six
+
+The campaign above left five targets with only the nightly's four minutes
+behind them, and `core_msg` recorded as interrupted. Ten minutes each, same
+machine.
+
+| Target | Duration | Executions | Crashes |
+|---|---|---|---|
+| `group_op_body` | 601 s | 136 741 712 | **0** |
+| `dht_record` | 601 s | 126 857 208 | **0** |
+| `core_msg` | 601 s | 126 750 559 | **0** |
+| `file_manifest` | 601 s | 120 399 425 | **0** |
+| `proto_decode` | 601 s | 112 857 325 | **0** |
+| `backup_archive` | 601 s | **21 926** | **0** |
+
+**All nine targets have now had a real run.** `core_msg` is no longer
+interrupted.
+
+⚠️ **`backup_archive` is four orders of magnitude below the rest, and that is
+not a coverage gap.** It runs at about 36 executions per second because argon2
+and the zip decryption execute on *every* input; the decoders run at 200 000/s
+because they only parse. A reader skimming the table concludes the opposite of
+the truth, which is why it is spelled out here and not left to §3's general
+warning about comparing columns across rows.
+
+**The first attempt at this campaign died silently** after starting
+`backup_archive`, and it was self-inflicted: several `./ci.sh` runs, a
+`cargo bench` and a dozen branch switches in the same working tree while it
+ran. Re-run alone, the target was fine. If a campaign stops without an
+artifact, suspect the machine it shares before suspecting the target.
+
+**The corpus grew by 1 021 entries (4 MB)** and is deliberately **not
+committed**: that would more than double the 674 tracked seeds with unminimized
+input. `cargo fuzz cmin` first, then commit what still adds coverage.
+
 ## 4. Running one yourself
 
 ```bash

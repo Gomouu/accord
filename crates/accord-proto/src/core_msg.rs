@@ -1353,7 +1353,7 @@ impl GroupOpBody {
         let body = match kind {
             0x01 => Self::Create {
                 name: r.str(MAX_NAME, "op.name")?,
-                dm: r.opt_tail(|r| Ok(decode_bool(r, "op.create.dm")?))?,
+                dm: r.opt_tail(|r| decode_bool(r, "op.create.dm"))?,
             },
             0x02 => Self::SetMeta {
                 name: r.str(MAX_NAME, "op.name")?,

@@ -885,13 +885,6 @@ impl Db {
         }
     }
 
-    /// Invalide le cache d'un groupe (log modifié).
-    pub(crate) fn group_cache_invalidate(&self, group_id: &[u8; 16]) {
-        if let Ok(mut cache) = self.group_cache.lock() {
-            cache.remove(group_id);
-        }
-    }
-
     // ---- Métadonnées ----
 
     /// Écrit une métadonnée clé/valeur.

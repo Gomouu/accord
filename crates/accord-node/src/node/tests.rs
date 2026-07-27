@@ -1811,6 +1811,78 @@ fn apprendre_une_revocation_vide_ce_qui_attendait_lappareil() {
 }
 
 #[test]
+fn la_derniere_vue_dun_appareil_ressort_par_lecran_mes_appareils() {
+    // Feuille de route §17.4 : « quand » et « d'où » pour chaque appareil du
+    // compte. La chaîne complète est éprouvée ici — écriture locale, puis
+    // lecture par le chemin exact qu'emprunte `devices.list`.
+    let n = node();
+    n.with_db(|db| {
+        crate::device::ensure_local_device(db)
+            .map(|_| ())
+            .map_err(|_| NodeError::Invalid("appareil local"))
+    })
+    .unwrap();
+
+    // Une machine sœur, connue de la liste du compte mais qui n'est pas
+    // celle-ci : c'est la seule dont « vu la dernière fois » veuille dire
+    // quelque chose.
+    let soeur = [0xB1u8; 32];
+    let en_ligne = {
+        let mut list = n.reissue_device_list(None).unwrap();
+        list.devices.push(accord_proto::device::DeviceEntry {
+            pubkey: soeur,
+            pow_nonce: 0,
+            name: "Fixe".into(),
+            added_ms: crate::node::now_ms(),
+            flags: accord_proto::device::DEVICE_FLAG_TRANSPORT_KEY,
+        });
+        list
+    };
+    n.reissue_device_list(Some(&en_ligne)).unwrap();
+
+    let vue = |n: &Node| {
+        n.account_devices()
+            .unwrap()
+            .into_iter()
+            .find(|d| d.pubkey == soeur)
+            .expect("la machine sœur doit figurer à l'écran")
+    };
+
+    // Jamais jointe : rien n'est inventé, ni date ni route.
+    let avant = vue(&n);
+    assert_eq!(avant.last_seen_ms, None);
+    assert_eq!(avant.last_seen_relayed, None);
+
+    // 🔒 Photographie de ce qui est SIGNÉ, avant toute écriture de dernière
+    // vue. La comparaison finale s'y réfère.
+    let signe_avant = n.current_device_list().unwrap().signable_bytes();
+
+    // Un contact par relais.
+    n.note_device_seen(&soeur, 1_700_000_000_000, true).unwrap();
+    let relayee = vue(&n);
+    assert_eq!(relayee.last_seen_ms, Some(1_700_000_000_000));
+    assert_eq!(relayee.last_seen_relayed, Some(true));
+
+    // Puis un contact direct, plus tard : la ligne suit le DERNIER contact,
+    // route comprise. Une route figée au premier contact ferait croire à une
+    // connexion directe impossible bien après qu'elle a été rétablie.
+    n.note_device_seen(&soeur, 1_700_000_060_000, false)
+        .unwrap();
+    let directe = vue(&n);
+    assert_eq!(directe.last_seen_ms, Some(1_700_000_060_000));
+    assert_eq!(directe.last_seen_relayed, Some(false));
+
+    // 🔒 Et l'écriture reste LOCALE : ce que la racine signe — donc ce qui
+    // part dans la DHT et que chaque ami lit — n'a pas bougé d'un octet. C'est
+    // l'invariant du lot : ces dates ne doivent jamais devenir publiques.
+    assert_eq!(
+        n.current_device_list().unwrap().signable_bytes(),
+        signe_avant,
+        "noter une dernière vue ne doit rien changer à ce qui est signé"
+    );
+}
+
+#[test]
 fn un_ami_ne_peut_pas_imposer_la_liste_dun_tiers() {
     // 🔒 Le contrôle qui compte. Sans lui, n'importe quel ami pousserait la
     // liste d'appareils de quelqu'un d'autre — avec sa propre clé dedans — et

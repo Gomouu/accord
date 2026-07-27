@@ -58,6 +58,20 @@ export interface AccountDevice {
   added_ms: number;
   /** Vrai pour l'appareil sur lequel tourne cette application. */
   is_current: boolean;
+  /**
+   * Dernière fois que cet appareil s'est manifesté sur CETTE machine (ms
+   * epoch), ou `null` s'il ne l'a jamais fait. 🔒 Fait purement local : cette
+   * date ne circule pas et ne figure dans aucune liste publiée.
+   */
+  last_seen_ms: number | null;
+  /**
+   * Route de ce dernier contact, ou `null` si jamais joint.
+   *
+   * 🔒 Une route, jamais une adresse ni un lieu : c'est ce que « d'où » veut
+   * dire ici. Une session tunnelée ne connaît de toute façon que l'adresse du
+   * relais, pas celle de l'appareil.
+   */
+  last_seen_route: 'direct' | 'relay' | null;
 }
 
 export interface Contact {
@@ -990,6 +1004,10 @@ export class Api {
    * Un seul pour l'instant, celui de cette machine ; l'appairage en ajoutera
    * d'autres sans que la forme change. `added_ms` vaut `0` pour l'appareil
    * issu de la migration, qui n'a pas de date d'ajout — l'écran l'interprète.
+   *
+   * 🔒 `last_seen_ms` / `last_seen_route` sont des observations LOCALES : elles
+   * ne figurent dans aucune structure signée ni publiée, et la route remplace
+   * délibérément toute adresse.
    */
   devicesList(): Promise<{ devices: AccountDevice[] }> {
     return this.rpc.call('devices.list');

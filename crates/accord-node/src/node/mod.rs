@@ -209,6 +209,19 @@ pub struct AccountDevice {
     pub added_ms: u64,
     /// Vrai pour l'appareil sur lequel tourne cette application.
     pub is_current: bool,
+    /// Dernière fois que cet appareil s'est manifesté ICI (ms epoch), ou
+    /// `None` s'il ne l'a jamais fait depuis cette machine. 🔒 Fait purement
+    /// local, jamais publié — voir la migration 17.
+    pub last_seen_ms: Option<u64>,
+    /// Route de ce dernier contact : `Some(true)` par un relais, `Some(false)`
+    /// en direct, `None` si jamais joint.
+    ///
+    /// 🔒 La route, et jamais l'adresse. Sur une session tunnelée, l'adresse
+    /// de la vue de session est celle du RELAIS
+    /// (`accord_transport::SessionView::addr`) : l'afficher comme celle de
+    /// l'appareil serait faux, et l'afficher tout court exposerait un lieu là
+    /// où l'utilisateur n'a besoin que d'un chemin.
+    pub last_seen_relayed: Option<bool>,
 }
 
 /// Nœud Accord déverrouillé.
@@ -1574,6 +1587,10 @@ impl Node {
             return Ok(Vec::new());
         };
         let local = accord_crypto::DeviceIdentity::from_seed(stored.seed).public_key();
+        // Dernières vues chargées d'un coup, puis rapprochées de la liste :
+        // une ligne de `device_seen` sans entrée dans la liste (appareil
+        // révoqué depuis) reste inerte, et n'a donc pas besoin d'être purgée.
+        let seen = self.with_db(|db| Ok(db.devices_seen()?))?;
         // 🔒 Lire la liste plutôt que rendre le seul appareil local : sans
         // ça, un appareil appairé n'apparaîtrait jamais à l'écran, et
         // l'utilisateur n'aurait aucun moyen de constater — ni de révoquer —
@@ -1582,16 +1599,49 @@ impl Node {
             .current_device_list()?
             .devices
             .into_iter()
-            .map(|d| AccountDevice {
-                pubkey: d.pubkey,
-                name: d.name,
-                // Zéro pour l'appareil issu de la migration, qui n'a pas de
-                // date d'ajout : l'écran sait l'interpréter, une date inventée
-                // induirait en erreur.
-                added_ms: d.added_ms,
-                is_current: d.pubkey == local,
+            .map(|d| {
+                let vu = seen.get(&d.pubkey);
+                AccountDevice {
+                    pubkey: d.pubkey,
+                    name: d.name,
+                    // Zéro pour l'appareil issu de la migration, qui n'a pas de
+                    // date d'ajout : l'écran sait l'interpréter, une date inventée
+                    // induirait en erreur.
+                    added_ms: d.added_ms,
+                    is_current: d.pubkey == local,
+                    // `None` — et non zéro — pour un appareil jamais joint :
+                    // même raison, l'absence de fait se dit, elle ne
+                    // s'approxime pas.
+                    last_seen_ms: vu.map(|v| v.last_ms),
+                    last_seen_relayed: vu.map(|v| v.relayed),
+                }
             })
             .collect())
+    }
+
+    /// Note qu'un appareil du compte vient de se manifester sur cette machine,
+    /// et par quelle route (`relayed`) il a été joint.
+    ///
+    /// 🔒 Purement local : cette date ne rejoint jamais la `DeviceList`, qui
+    /// est signée par la racine et publiée dans la DHT. L'y glisser
+    /// publierait le rythme d'activité de chaque machine du compte à tout le
+    /// carnet d'adresses.
+    pub fn note_device_seen(
+        &self,
+        device: &[u8; 32],
+        seen_ms: u64,
+        relayed: bool,
+    ) -> Result<(), NodeError> {
+        self.with_db(|db| {
+            db.note_device_seen(
+                device,
+                accord_core::db::DeviceSeen {
+                    last_ms: seen_ms,
+                    relayed,
+                },
+            )?;
+            Ok(())
+        })
     }
 
     /// Renomme l'appareil de cette machine.

@@ -105,6 +105,16 @@ const SELFTEST_PROBE_POLL_WAIT: Duration = Duration::from_millis(100);
 /// l'adresse d'un ami évincée est ré-apprise à son prochain message.
 const MAX_BOOK: usize = 8192;
 
+/// Période minimale entre deux écritures de « dernière vue » pour un même
+/// appareil du compte.
+///
+/// L'événement qui nourrit cette trace est aussi émis à CHAQUE message reçu —
+/// trames de voix comprises. Sans ce pas, une conversation vocale coûterait une
+/// transaction SQLite par paquet audio pour rafraîchir une date que l'écran
+/// arrondit à la minute. Une minute est très en dessous de ce qu'un humain
+/// distingue sur « vu le … », et très au-dessus du débit d'écriture acceptable.
+const SIBLING_SEEN_PERIOD_MS: u64 = 60_000;
+
 /// Délai maximal d'une interrogation du moteur voix DEPUIS la boucle
 /// d'événements. Celle-ci est l'unique consommatrice du trafic de TOUS les
 /// pairs : elle ne doit jamais se bloquer indéfiniment sur une autre tâche
@@ -309,6 +319,15 @@ pub struct Runtime {
     /// confondu (direct, relais, vidage d'outbox). Alimente `network.peers`
     /// (D4). Borné façon [`MAX_BOOK`] par éviction du plus ancien.
     last_delivery: Mutex<HashMap<[u8; 32], u64>>,
+    /// Dernière écriture de « dernière vue » par appareil du compte :
+    /// `(ms, relayé)`. Amortit les écritures en base
+    /// ([`SIBLING_SEEN_PERIOD_MS`]) sans amortir les changements de route, qui
+    /// sont justement l'information intéressante.
+    ///
+    /// Non borné explicitement, et ça suffit : n'y entrent que les appareils de
+    /// NOTRE compte, c'est-à-dire ceux d'une liste signée par la racine et
+    /// plafonnée à `accord_proto::device::MAX_DEVICES`.
+    sibling_seen: Mutex<HashMap<[u8; 32], (u64, bool)>>,
 }
 
 /// Signal compact de changement réseau : ne déclenche `event.network` que sur
@@ -365,6 +384,7 @@ impl Runtime {
             tcp_links: OnceLock::new(),
             counters: NetCounters::default(),
             last_delivery: Mutex::new(HashMap::new()),
+            sibling_seen: Mutex::new(HashMap::new()),
         })
     }
 
@@ -762,6 +782,61 @@ impl Runtime {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .insert(pubkey, addr);
+        }
+    }
+
+    /// Vrai si la session courante avec cet appareil passe par un relais, faux
+    /// si elle est directe, `None` si aucune session n'est visible.
+    ///
+    /// 🔒 Ne rend QUE la route. `SessionView` porte aussi une adresse, mais sur
+    /// une session tunnelée c'est celle du RELAIS, pas celle de l'appareil : la
+    /// retenir comme « d'où » serait faux, et l'afficher divulguerait un lieu
+    /// que personne n'a demandé à connaître. La feuille de route dit « d'où » ;
+    /// ce que l'utilisateur peut en faire, c'est le chemin.
+    ///
+    /// La session DIRECTE prime sur une tunnelée (même règle que `peer_links`) :
+    /// après un redémarrage silencieux, une session cadavre coexiste deux
+    /// minutes avec la fraîche.
+    fn link_is_relayed(&self, device: &[u8; 32]) -> Option<bool> {
+        let mut relayed = None;
+        for view in self.endpoint.session_views() {
+            if view.peer_static != *device {
+                continue;
+            }
+            if view.relay_circuit.is_none() {
+                return Some(false);
+            }
+            relayed = Some(true);
+        }
+        relayed
+    }
+
+    /// Note qu'un appareil de NOTRE compte vient de se manifester, et par quelle
+    /// route on l'a joint (feuille de route §17.4).
+    ///
+    /// Best-effort de bout en bout, comme `offer_self_sync` juste à côté : une
+    /// écriture qui échoue est journalisée en debug et n'interrompt rien. Une
+    /// session qui s'établit ne doit pas dépendre d'une ligne de confort.
+    fn note_sibling_seen(&self, device: &[u8; 32]) {
+        // Une route qu'on ne peut pas observer ne s'invente pas : la session
+        // vient de se refermer (course avec l'événement), et le prochain
+        // contact notera la chose correctement. Écrire « direct » par défaut
+        // afficherait une certitude qu'on n'a pas.
+        let Some(relayed) = self.link_is_relayed(device) else {
+            return;
+        };
+        let now = crate::node::now_ms();
+        {
+            let mut ecrites = self.sibling_seen.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some((quand, route)) = ecrites.get(device) {
+                if *route == relayed && now.saturating_sub(*quand) < SIBLING_SEEN_PERIOD_MS {
+                    return;
+                }
+            }
+            ecrites.insert(*device, (now, relayed));
+        }
+        if let Err(e) = self.node.note_device_seen(device, now, relayed) {
+            tracing::debug!(erreur = %e, "dernière vue : écriture impossible");
         }
     }
 
@@ -1376,6 +1451,11 @@ impl Runtime {
                     // minutes après un démarrage laisserait l'utilisateur
                     // devant une conversation trouée.
                     if account == self.node.public_key() {
+                        // … et on retient qu'il s'est manifesté, et par où
+                        // (§17.4). Écrit ici plutôt que dans `offer_self_sync` :
+                        // c'est un fait sur la session, pas sur le rattrapage,
+                        // et il vaut même quand il n'y a rien à rattraper.
+                        self.note_sibling_seen(&static_pub);
                         // Le carnet AVANT les conversations : un appareil au
                         // carnet vide jetterait l'historique qu'on lui sert.
                         self.announce_self_contacts(&static_pub).await;
@@ -1442,6 +1522,15 @@ impl Runtime {
                         account = self.node.account_of_transport_key(&static_pub);
                         self.remember_device(static_pub, account, addr);
                         self.maybe_persist_friend_addr(account, addr);
+                    }
+                    // Jumeau de l'appel sur `Connected` (§17.4). Indispensable
+                    // ici aussi : une session qui vit des heures n'émet
+                    // `Connected` qu'une fois, et la date se figerait au
+                    // premier bonjour. Le pas d'écriture
+                    // ([`SIBLING_SEEN_PERIOD_MS`]) est ce qui rend l'appel
+                    // supportable sur ce bras, traversé par chaque trame reçue.
+                    if account == self.node.public_key() {
+                        self.note_sibling_seen(&static_pub);
                     }
                     // Filet D-052 (voir `profile_reannounced`) : premier
                     // message ENTRANT d'un ami sur cet épisode de session —

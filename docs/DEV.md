@@ -55,10 +55,13 @@ They are not interchangeable, and knowing that saves opening three:
 | `docs/SPEC.md` | what goes on the wire, byte for byte — the contract |
 | `docs/ARCHITECTURE.md` | which layer owns what, and the structural decisions |
 | `docs/API.md` | the UI ↔ node JSON-RPC and Tauri IPC contract |
+| `docs/API_CONTRACT.md` | the same API as a **public** contract: full surface, stability tiers, security position |
+| `docs/REPRODUCIBILITY.md` | what a third party can verify about a published build — and what they cannot |
 | `docs/MULTI_DEVICE.md` | the account/device model, and why the naive one breaks |
 | `docs/VOICE_CALLS.md` | 1-to-1 calls, capture DSP, voice moderation |
 | `docs/COMMUNITY.md` | events, stickers, polls, AutoMod — the D-047 surface |
 | `SECURITY.md` | what is guaranteed, against whom, and what is **not** |
+| `CONTRIBUTING.md` | the same ground for an outside contributor: setup, gate, principles, how to propose |
 
 A wire change touches `SPEC.md` in the same commit; that is the rule, not an
 aspiration (§5).

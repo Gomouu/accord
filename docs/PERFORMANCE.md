@@ -392,7 +392,32 @@ ops, then never populated the cache between inserts, then let a trailing
 `CREATE` reset the cache and hide the corruption. Each version passed with the
 ordering guard deleted. Worth knowing before trusting it.
 
-### 3.5 Assumed limits
+### 3.5 Five servers at once — the budget nobody had measured
+
+ROADMAP §10.2 sets a 400 MB ceiling for five servers and twenty conversations,
+and milestone 6 makes it a completion criterion. It had never been measured.
+The instrument already existed — `large_servers.rs` carries a counting global
+allocator — so this is one function, not a new harness.
+
+**Five servers of 200 members, their states folded and held simultaneously:
+334 828 bytes — 0.3 MB.** Against a 400 MB budget, that is three orders of
+magnitude of room, and it lines up with the per-server figure in §3.1
+(64.6 KiB at 200 members, times five).
+
+⚠️ **What this number is not.** It counts bytes allocated and not returned
+while the five states are folded, with the counter on: the dominant data
+structure, not the process's RSS. A real RSS would include the Tokio runtime,
+transport buffers, the SQLite page cache and the webview — none of which are
+here. Read as "the application's memory", it would be wrong. It bounds the
+group-state cost from below, which is what the criterion was actually asking
+about, and the remaining three orders of magnitude mean the answer does not
+change even if everything else is a hundred times heavier.
+
+The five states are folded inside a single measured closure and dropped after,
+rather than one at a time: folding them in sequence and letting each go would
+measure the largest of the five, not their sum.
+
+### 3.6 Assumed limits
 
 - **The machine was quiet, but not dedicated.** §2.3 applies here too, and this
   is a laptop that other work shares. The run behind the table was started only
@@ -419,7 +444,7 @@ ordering guard deleted. Worth knowing before trusting it.
   members"; measuring it needs a fixture with several servers, which this bench
   does not build.
 
-### 3.6 Not measured here
+### 3.7 Not measured here
 
 - **Everything past the socket.** Session sealing, the UDP write, retransmission
   and the anti-entropy round trip that precedes a join are all outside the

@@ -621,7 +621,51 @@ fn mesures_statiques(serveur: &Serveur) {
 /// de 500 membres écrit un millier d'ops signées et validées une à une, ce qui
 /// se paie en secondes — le refaire pour chaque groupe de mesure triplerait le
 /// temps d'exécution sans rien changer aux chiffres.
+/// Cinq serveurs de 200 membres tenus EN MÊME TEMPS.
+///
+/// Critère de fin du jalon 6 : « la mémoire reste sous le budget avec 5
+/// serveurs de 200 membres » (budget §10.2 : 400 Mo). Il était non mesuré, et
+/// l'instrument existait déjà — d'où cette fonction plutôt qu'un banc neuf.
+///
+/// ⚠️ **Ce que ce chiffre est, et n'est pas.** Il compte les octets alloués et
+/// non rendus pendant le repli des cinq états, compteur allumé : la structure
+/// dominante, pas la RSS du processus. Une vraie RSS inclurait le runtime
+/// Tokio, les tampons du transport, la webview — rien de tout ça n'est ici.
+/// Lire ce nombre comme « la mémoire de l'application » serait faux ; il borne
+/// par le bas, et c'est déjà ce qu'on cherchait à savoir.
+fn mesure_cinq_serveurs() {
+    const SERVEURS: usize = 5;
+    const MEMBRES: usize = 200;
+
+    let serveurs: Vec<Serveur> = (0..SERVEURS).map(|_| peupler(MEMBRES)).collect();
+    // Les cinq états vivent ensemble jusqu'à la fin de la mesure : les replier
+    // l'un après l'autre en laissant tomber le précédent mesurerait le plus
+    // gros des cinq, pas leur somme.
+    let (etats, octets) = memoire_de(|| {
+        serveurs
+            .iter()
+            .map(|s| GroupState::fold(&s.ops))
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(etats.len(), SERVEURS, "cinq états tenus ensemble");
+    for etat in &etats {
+        assert_eq!(etat.members.len(), MEMBRES + 1, "membres attendus");
+    }
+
+    let mo = octets as f64 / (1024.0 * 1024.0);
+    println!(
+        "  {SERVEURS} serveurs x {MEMBRES} membres, etats replies simultanes : \
+{octets} octets ({mo:.1} Mo) — budget 400 Mo (ROADMAP 10.2)"
+    );
+    // Aucune assertion sur le budget : un banc qui échoue sur un seuil devient
+    // un test, et un test de perf sur une machine partagée est instable. Le
+    // chiffre est imprimé, sa lecture appartient à `docs/PERFORMANCE.md`.
+    drop(etats);
+}
+
 fn bench_grande_echelle(c: &mut Criterion) {
+    mesure_cinq_serveurs();
+
     for membres in PALIERS {
         let serveur = peupler(membres);
         mesures_statiques(&serveur);

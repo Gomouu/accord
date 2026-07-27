@@ -126,11 +126,14 @@ external audit yet** — treat it accordingly for high-stakes use.
 
 | Document | Contents |
 |----------|----------|
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to build, test and propose a change |
 | [SECURITY.md](SECURITY.md) | Threat model — guarantees and limits |
 | [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) | Accepted trade-offs, in depth |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Layer architecture |
 | [docs/SPEC.md](docs/SPEC.md) | Wire protocol |
 | [docs/API.md](docs/API.md) | UI ↔ node API |
+| [docs/API_CONTRACT.md](docs/API_CONTRACT.md) | The same API as a public contract — full surface, stability policy, security position |
+| [docs/REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md) | What you can verify about a published build, and what you cannot |
 | [docs/DEV.md](docs/DEV.md) | Developer guide |
 | [docs/MULTI_DEVICE.md](docs/MULTI_DEVICE.md) | Multi-device design (account/device model) |
 

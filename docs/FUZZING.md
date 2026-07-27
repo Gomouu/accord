@@ -95,9 +95,23 @@ warning about comparing columns across rows.
 ran. Re-run alone, the target was fine. If a campaign stops without an
 artifact, suspect the machine it shares before suspecting the target.
 
-**The corpus grew by 1 021 entries (4 MB)** and is deliberately **not
-committed**: that would more than double the 674 tracked seeds with unminimized
-input. `cargo fuzz cmin` first, then commit what still adds coverage.
+**The corpus grew by 1 021 entries (4 MB).** Minimized with `cargo fuzz cmin`
+on a copy — never in place, it rewrites the directory and would delete tracked
+seeds — the four enriched targets came down 1 468 → 1 276 files. Only 13 %
+redundant, so most of what the campaign found does carry coverage.
+
+**Only `backup_archive`'s corpus was committed**, and the reason is the same
+number that makes its row look bad. A corpus is worth permanent repository
+weight in proportion to what re-deriving it costs. `proto_decode` and its
+fellow decoders run at 200 000 executions/s: they rebuild an equivalent corpus
+in seconds, so storing 1 200 files for them buys nothing. `backup_archive` runs
+at 36/s — re-deriving its 51 coverage-bearing inputs is expensive, and those
+inputs are the campaign's real product. 674 → 717 tracked seeds, 2.8 MB.
+
+🔒 Every seed is a libFuzzer SHA-1 name; none is hand-written. That is what
+made `cmin`'s deletions safe here — a hand-crafted regression input could be
+dropped for being redundant on coverage while still being the case someone
+wanted kept. Check that before minimizing a corpus that has hand-named files.
 
 ## 4. Running one yourself
 

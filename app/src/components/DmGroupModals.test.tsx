@@ -5,10 +5,18 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 vi.mock('../lib/files', () => ({
   lireFichier: vi.fn(() => new Promise(() => {})),
+}));
+
+// Le module exporte aussi `rpc`, dont d'autres modules de l'arbre dépendent :
+// on remplace la seule méthode utilisée ici et on laisse le reste intact.
+vi.mock('../lib/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/client')>()),
+  api: { groupsInviteCreate: vi.fn(async () => ({ invite_id: 'inv1' })) },
 }));
 
 import type { Contact, GroupStateJson, SelfProfile } from '../lib/api';
@@ -16,7 +24,10 @@ import { useFriends } from '../stores/friends';
 import { useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
 import { useUi } from '../stores/ui';
+import { api } from '../lib/client';
 import { CreateDmGroupModal, DmGroupModal } from './DmGroupModals';
+
+const inviteMock = api.groupsInviteCreate as unknown as Mock;
 
 const SELF: SelfProfile = {
   node_id: 'n',
@@ -166,6 +177,62 @@ describe('CreateDmGroupModal', () => {
   });
 });
 
+describe('DmGroupModal — inviter', () => {
+  it('🔒 invite, et ne prétend pas avoir ajouté', async () => {
+    // Charlie est ami et n'est pas dans le groupe : il est invitable.
+    useFriends.setState({
+      contacts: [
+        contact('alice', 'Alice'),
+        contact('bob', 'Bob'),
+        contact('charlie', 'Charlie'),
+      ],
+    });
+    useGroups.setState({
+      ids: ['mp1'],
+      states: { mp1: dmState() },
+      loadState: vi.fn(async () => {}),
+    });
+
+    render(<DmGroupModal groupId="mp1" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Inviter' }));
+
+    await waitFor(() => expect(inviteMock).toHaveBeenCalledWith('mp1', 'charlie'));
+    // Le message parle d'invitation ENVOYÉE, pas de membre ajouté : promettre
+    // l'ajout mentirait sur ce qui vient de se passer, et l'attente peut durer.
+    await waitFor(() =>
+      expect(useUi.getState().toasts.at(-1)?.text).toBe('Invitation envoyée à Charlie'),
+    );
+  });
+
+  it('n’offre pas d’inviter quelqu’un qui est déjà membre', () => {
+    useFriends.setState({ contacts: [contact('alice', 'Alice'), contact('bob', 'Bob')] });
+    useGroups.setState({ ids: ['mp1'], states: { mp1: dmState() } });
+
+    render(<DmGroupModal groupId="mp1" />);
+
+    expect(screen.queryByRole('button', { name: 'Inviter' })).toBeNull();
+    expect(
+      screen.getByText('Tous vos amis sont déjà dans ce groupe.'),
+    ).toBeInTheDocument();
+  });
+
+  it('refuse d’inviter quand le groupe est complet', () => {
+    const membres = Array.from({ length: 20 }, (_, i) => ({
+      pubkey: `m${i}`,
+      roles: [] as string[],
+    }));
+    useFriends.setState({ contacts: [contact('charlie', 'Charlie')] });
+    useGroups.setState({ ids: ['mp1'], states: { mp1: dmState({ members: membres }) } });
+
+    render(<DmGroupModal groupId="mp1" />);
+
+    expect(screen.queryByRole('button', { name: 'Inviter' })).toBeNull();
+    expect(
+      screen.getByText('Le groupe est complet (20 membres au plus).'),
+    ).toBeInTheDocument();
+  });
+});
+
 describe('DmGroupModal', () => {
   it('renomme le groupe — aucun rôle consulté', async () => {
     const rename = vi.fn(async () => {});
@@ -205,7 +272,9 @@ describe('DmGroupModal', () => {
     render(<DmGroupModal groupId="mp1" />);
 
     expect(screen.getByText('Membres (3)')).toBeInTheDocument();
-    const liste = screen.getByRole('list');
+    // Deux listes coexistent depuis l'ajout de la section d'invitation : on
+    // vise celle des membres par son nom accessible.
+    const liste = screen.getByRole('list', { name: 'Membres (3)' });
     expect(within(liste).getByText('Alice')).toBeInTheDocument();
     expect(within(liste).getByText('Bob')).toBeInTheDocument();
     expect(within(liste).getByText('vous')).toBeInTheDocument();

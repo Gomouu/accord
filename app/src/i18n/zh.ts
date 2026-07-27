@@ -170,6 +170,12 @@ export const zh: Dict = {
     stale: '邀请已过期或已处理',
   },
   dmGroups: {
+    inviteSection: '邀请他人',
+    inviteHint: '对方会收到邀请，接受后即可加入。',
+    inviteAction: '邀请',
+    invited: '已向 {name} 发送邀请',
+    inviteFull: '群组已满（最多 20 人）。',
+    inviteNobody: '你的好友都已在此群组中。',
     section: '私聊群组',
     create: '创建私聊群组',
     createTitle: '新建私聊群组',

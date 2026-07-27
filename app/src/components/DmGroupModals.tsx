@@ -13,6 +13,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { interpolate } from '../i18n';
+import { api } from '../lib/client';
 import { lireFichier } from '../lib/files';
 import { displayNameOf, useFriends } from '../stores/friends';
 import { dmThreadId, useGroups } from '../stores/groups';
@@ -305,6 +306,114 @@ function IconSection({ groupId }: { groupId: string }) {
   );
 }
 
+/** Membres d'un groupe de MP, au plus — miroir de `MAX_DM_MEMBERS` côté nœud. */
+const MAX_DM_MEMBERS = 20;
+
+/**
+ * Inviter quelqu'un dans un groupe de MP existant.
+ *
+ * 🔒 **Inviter, pas ajouter.** La personne reçoit un ticket signé et n'entre
+ * qu'après avoir accepté (D-045). C'est pourquoi le libellé dit « invitation
+ * envoyée » et non « membre ajouté » : promettre l'ajout serait mentir sur ce
+ * qui vient de se passer, et l'attente peut durer.
+ *
+ * N'importe quel membre le peut : un groupe de MP n'a pas de hiérarchie à
+ * consulter. Le plafond, lui, est réel et vérifié aussi côté nœud.
+ */
+function InviteSection({ groupId }: { groupId: string }) {
+  const t = useT();
+  const toast = useUi((s) => s.toast);
+  const contacts = useFriends((s) => s.contacts);
+  const state = useGroups((s) => s.states[groupId]);
+  const reload = useGroups((s) => s.loadState);
+  const [query, setQuery] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
+
+  if (state === undefined) return null;
+
+  const membres = new Set(state.members.map((m) => m.pubkey));
+  const invitables = contacts.filter(
+    (c) => c.state === 'friend' && !membres.has(c.pubkey),
+  );
+  const q = query.trim().toLowerCase();
+  const visibles =
+    q === ''
+      ? invitables
+      : invitables.filter((c) =>
+          displayNameOf(contacts, c.pubkey).toLowerCase().includes(q),
+        );
+  const complet = state.members.length >= MAX_DM_MEMBERS;
+
+  const inviter = async (pubkey: string) => {
+    setBusy(pubkey);
+    try {
+      await api.groupsInviteCreate(groupId, pubkey);
+      toast(
+        'success',
+        interpolate(t.dmGroups.invited, { name: displayNameOf(contacts, pubkey) }),
+      );
+      await reload(groupId);
+    } catch (e) {
+      toast('error', messageOf(e, t.errors.actionFailed));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <>
+      <h3 className="mt-5 text-xs font-medium uppercase tracking-wide text-faint">
+        {t.dmGroups.inviteSection}
+      </h3>
+      <p className="mt-1 text-xs text-muted">{t.dmGroups.inviteHint}</p>
+      {complet ? (
+        <p className="mt-2 text-sm text-muted">{t.dmGroups.inviteFull}</p>
+      ) : invitables.length === 0 ? (
+        <p className="mt-2 text-sm text-muted">{t.dmGroups.inviteNobody}</p>
+      ) : (
+        <>
+          <input
+            aria-label={t.dmGroups.searchPlaceholder}
+            placeholder={t.dmGroups.searchPlaceholder}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="mt-2 w-full rounded-md border border-transparent bg-input px-3 py-2 text-sm text-norm placeholder-faint outline-none transition-colors duration-fast focus:border-blurple/50"
+          />
+          {visibles.length === 0 ? (
+            <p className="mt-2 text-sm text-muted">{t.dmGroups.noResults}</p>
+          ) : (
+            <ul
+              aria-label={t.dmGroups.inviteSection}
+              className="mt-2 max-h-40 space-y-1 overflow-y-auto"
+            >
+              {visibles.map((c) => (
+                <li key={c.pubkey} className="flex items-center gap-3 px-2 py-1">
+                  <Avatar
+                    id={c.pubkey}
+                    name={displayNameOf(contacts, c.pubkey)}
+                    size={28}
+                  />
+                  <span className="min-w-0 flex-1 truncate text-sm text-norm">
+                    {displayNameOf(contacts, c.pubkey)}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={busy !== null}
+                    onClick={() => void inviter(c.pubkey)}
+                    className="shrink-0 rounded-md bg-blurple px-3 py-1.5 text-sm font-medium text-white transition-opacity duration-fast hover:opacity-90 disabled:opacity-50"
+                  >
+                    {t.dmGroups.inviteAction}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
 /**
  * Réglages d'un groupe de MP : nom, icône, membres, départ. Tout est ouvert à
  * tout membre — il n'y a pas de modérateur à consulter, et partir est le seul
@@ -389,10 +498,17 @@ export function DmGroupModal({ groupId }: { groupId: string }) {
 
       <IconSection groupId={groupId} />
 
+      <InviteSection groupId={groupId} />
+
       <h3 className="mt-5 text-xs font-medium uppercase tracking-wide text-faint">
         {interpolate(t.dmGroups.members, { count: String(state.members.length) })}
       </h3>
-      <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto">
+      <ul
+        aria-label={interpolate(t.dmGroups.members, {
+          count: String(state.members.length),
+        })}
+        className="mt-2 max-h-48 space-y-1 overflow-y-auto"
+      >
         {state.members.map((m) => (
           <li key={m.pubkey} className="flex items-center gap-3 rounded-md px-2 py-1.5">
             <Avatar

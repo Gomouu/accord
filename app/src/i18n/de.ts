@@ -180,6 +180,12 @@ export const de: Dict = {
     stale: 'Einladung abgelaufen oder bereits bearbeitet',
   },
   dmGroups: {
+    inviteSection: 'Jemanden einladen',
+    inviteHint: 'Die Person erhält eine Einladung und tritt bei, wenn sie annimmt.',
+    inviteAction: 'Einladen',
+    invited: 'Einladung an {name} gesendet',
+    inviteFull: 'Die Gruppe ist voll (höchstens 20 Mitglieder).',
+    inviteNobody: 'Alle deine Freunde sind bereits in dieser Gruppe.',
     section: 'Private Gruppen',
     create: 'Private Gruppe erstellen',
     createTitle: 'Neue private Gruppe',

@@ -17,6 +17,7 @@ import { api } from '../lib/client';
 import { lireFichier } from '../lib/files';
 import { displayNameOf, useFriends } from '../stores/friends';
 import { dmThreadId, useGroups } from '../stores/groups';
+import { serverLevel, useMute, type NotifLevel } from '../stores/mute';
 import { selfDisplayName, useSession } from '../stores/session';
 import { useUi, useT } from '../stores/ui';
 import { Avatar } from './Avatar';
@@ -320,6 +321,56 @@ const MAX_DM_MEMBERS = 20;
  * N'importe quel membre le peut : un groupe de MP n'a pas de hiérarchie à
  * consulter. Le plafond, lui, est réel et vérifié aussi côté nœud.
  */
+/**
+ * Niveau de notification du groupe (jalon 5, « réglage indépendant »).
+ *
+ * La tuyauterie existait déjà et couvrait les groupes de MP sans le savoir :
+ * `isConversationSilenced` interroge `channelLevel`, qui retombe sur le niveau
+ * du groupe, et `AppShell` l'appelle avant toute notification. Il ne manquait
+ * qu'une surface pour le régler — le rail des serveurs et le menu d'en-tête,
+ * qui la portent pour un serveur, n'existent pas pour un groupe de MP.
+ */
+function NotifSection({ groupId }: { groupId: string }) {
+  const t = useT();
+  const serverLevels = useMute((s) => s.serverLevels);
+  const courant = serverLevel({ serverLevels, channelLevels: {} }, groupId);
+  const niveaux: ReadonlyArray<{ id: NotifLevel; label: string }> = [
+    { id: 'all', label: t.notifLevel.all },
+    { id: 'mentions', label: t.notifLevel.mentions },
+    { id: 'none', label: t.notifLevel.none },
+  ];
+
+  return (
+    <>
+      <h3 className="mt-5 text-xs font-medium uppercase tracking-wide text-faint">
+        {t.notifLevel.title}
+      </h3>
+      <div
+        role="radiogroup"
+        aria-label={t.notifLevel.title}
+        className="mt-2 flex flex-wrap gap-2"
+      >
+        {niveaux.map((n) => (
+          <button
+            key={n.id}
+            type="button"
+            role="radio"
+            aria-checked={courant === n.id}
+            onClick={() => useMute.getState().setServerLevel(groupId, n.id)}
+            className={`rounded-md px-3 py-1.5 text-sm transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal ${
+              courant === n.id
+                ? 'bg-blurple text-white'
+                : 'bg-input text-muted hover:text-norm'
+            }`}
+          >
+            {n.label}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
 function InviteSection({ groupId }: { groupId: string }) {
   const t = useT();
   const toast = useUi((s) => s.toast);
@@ -499,6 +550,8 @@ export function DmGroupModal({ groupId }: { groupId: string }) {
       <IconSection groupId={groupId} />
 
       <InviteSection groupId={groupId} />
+
+      <NotifSection groupId={groupId} />
 
       <h3 className="mt-5 text-xs font-medium uppercase tracking-wide text-faint">
         {interpolate(t.dmGroups.members, { count: String(state.members.length) })}

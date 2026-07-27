@@ -23,6 +23,7 @@ import type { Contact, GroupStateJson, SelfProfile } from '../lib/api';
 import { useFriends } from '../stores/friends';
 import { useGroups } from '../stores/groups';
 import { useSession } from '../stores/session';
+import { isConversationSilenced, useMute } from '../stores/mute';
 import { useUi } from '../stores/ui';
 import { api } from '../lib/client';
 import { CreateDmGroupModal, DmGroupModal } from './DmGroupModals';
@@ -101,6 +102,7 @@ beforeEach(() => {
     ],
   });
   useGroups.setState({ ids: [], states: {} });
+  useMute.setState({ serverLevels: {}, channelLevels: {} });
 });
 
 describe('CreateDmGroupModal', () => {
@@ -230,6 +232,35 @@ describe('DmGroupModal — inviter', () => {
     expect(
       screen.getByText('Le groupe est complet (20 membres au plus).'),
     ).toBeInTheDocument();
+  });
+});
+
+describe('DmGroupModal — notifications', () => {
+  it('règle le niveau, et ce niveau fait taire la conversation', async () => {
+    useGroups.setState({ ids: ['mp1'], states: { mp1: dmState() } });
+    render(<DmGroupModal groupId="mp1" />);
+
+    // Par défaut, un message ordinaire notifie.
+    const ref = { kind: 'group', groupId: 'mp1', channelId: 'fil' } as const;
+    expect(isConversationSilenced(ref, false)).toBe(false);
+
+    fireEvent.click(screen.getByRole('radio', { name: '@mentions seulement' }));
+
+    // 🔒 On n'assère pas sur l'apparence du bouton : le test passerait avec un
+    // réglage purement décoratif. C'est `isConversationSilenced` — celui
+    // qu'`AppShell` interroge avant de notifier — qui doit changer d'avis.
+    expect(isConversationSilenced(ref, false)).toBe(true);
+    expect(isConversationSilenced(ref, true)).toBe(false);
+  });
+
+  it('reflète le niveau déjà enregistré à l’ouverture', () => {
+    useMute.setState({ serverLevels: { mp1: 'none' }, channelLevels: {} });
+    useGroups.setState({ ids: ['mp1'], states: { mp1: dmState() } });
+
+    render(<DmGroupModal groupId="mp1" />);
+
+    expect(screen.getByRole('radio', { name: 'Rien' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Tout' })).not.toBeChecked();
   });
 });
 

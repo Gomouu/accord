@@ -64,6 +64,18 @@ The **first** request on every connection must be `auth`:
 - Re-sending `auth` on an already-authenticated connection is idempotent and
   returns the same result.
 
+### `Origin`, and what it means for a script
+
+The server checks the `Origin` header (defence in depth against DNS rebinding
+and WebSocket CSRF). A **missing** `Origin` is allowed — that is the native
+WebView's case, and it is also a command-line client's case, so a script works
+without doing anything special. `null` (opaque origin) is allowed too. Any
+other explicit web origin than the application's own is refused at the
+handshake, which is what stops a web page you visit from driving your node.
+
+A runnable client that puts this whole section into practice lives in
+[`examples/client-minimal/`](../examples/client-minimal/).
+
 `protocole` is the API protocol version (`API_VERSION`,
 `crates/accord-api/src/server.rs`). It is **1** and has always been 1. It is
 your only machine-readable handle on compatibility — see §4.

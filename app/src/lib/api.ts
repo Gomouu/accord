@@ -1352,9 +1352,7 @@ export class Api {
    * cf. `lib/prefSync.ts`). Les clés hors liste blanche du nœud n'y figurent
    * jamais.
    */
-  async listPrefs(): Promise<
-    { key: string; value: string; at_ms: number }[]
-  > {
+  async listPrefs(): Promise<{ key: string; value: string; at_ms: number }[]> {
     const { prefs } = await this.rpc.call<{
       prefs: { key: string; value: string; at_ms: number }[];
     }>('prefs.list');

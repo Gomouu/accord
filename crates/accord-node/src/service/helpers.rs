@@ -419,6 +419,9 @@ fn channel_kind_str(kind: ChannelKind) -> &'static str {
 pub(super) fn group_state_json(group_id: &[u8; 16], s: &GroupState, me: &[u8; 32]) -> Value {
     json!({
         "group_id": hex::encode(group_id),
+        // Groupe de MP (jalon 5) : l'interface le range dans les
+        // conversations, pas dans la barre des serveurs.
+        "is_dm": s.is_dm,
         "name": s.name,
         "icon": s.icon.as_ref().map(|h| hex::encode(h)),
         // Server banner color `0xRRGGBB` (D-047), or null when unset.

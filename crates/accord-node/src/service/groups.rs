@@ -402,6 +402,21 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
             let name = param_str(params, "name")?;
             Ok(json!({ "group_id": node.group_create(name)? }))
         }
+        "groups.create_dm" => {
+            let name = param_str(params, "name")?;
+            let membres = params
+                .get("members")
+                .and_then(Value::as_array)
+                .ok_or(NodeError::Invalid("members manquant"))?
+                .iter()
+                .map(|v| {
+                    v.as_str()
+                        .and_then(hex::decode::<32>)
+                        .ok_or(NodeError::Invalid("clé de membre invalide"))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(json!({ "group_id": node.dm_group_create(name, &membres)? }))
+        }
         "groups.list" => {
             // Purge des appartenances `Accepted` fantômes (lien d'invitation
             // mort/révoqué jamais abouti) avant de lister — balayage léger à la

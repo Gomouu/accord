@@ -1002,6 +1002,58 @@ async fn service_with_group() -> (NodeService, String) {
     (s, created["group_id"].as_str().unwrap().to_string())
 }
 
+/// 🔴 Le cœur du jalon 5 : un groupe à trois existe, avec un seul fil, et
+/// refuse ce qui ferait de lui un serveur.
+#[tokio::test]
+async fn un_groupe_de_mp_a_trois_se_cree_avec_un_seul_fil() {
+    let s = service();
+    let alice = "a1".repeat(32);
+    let bob = "b0".repeat(32);
+
+    let cree = s
+        .call(
+            "groups.create_dm",
+            json!({ "name": "Nous trois", "members": [alice, bob] }),
+        )
+        .await
+        .unwrap();
+    let gid = cree["group_id"].as_str().unwrap().to_string();
+
+    let etat = s
+        .call("groups.state", json!({ "group_id": gid }))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        etat["is_dm"],
+        json!(true),
+        "l'interface doit pouvoir le ranger dans les conversations"
+    );
+    assert_eq!(
+        etat["channels"].as_array().unwrap().len(),
+        1,
+        "un groupe de MP n'a qu'un fil"
+    );
+    assert_eq!(
+        etat["members"].as_array().unwrap().len(),
+        3,
+        "le fondateur et les deux invités"
+    );
+    assert!(
+        etat["roles"].as_array().unwrap().is_empty(),
+        "aucun rôle n'est créé"
+    );
+
+    // Un second salon est refusé — la règle vit dans l'état, pas dans l'écran.
+    let second = s
+        .call(
+            "groups.add_channel",
+            json!({ "group_id": gid, "name": "second" }),
+        )
+        .await;
+    assert!(second.is_err(), "un second fil doit être refusé");
+}
+
 #[tokio::test]
 async fn group_state_enriched_exact_shape() {
     let (s, gid) = service_with_group().await;
@@ -1024,6 +1076,7 @@ async fn group_state_enriched_exact_shape() {
             "group_id",
             "icon",
             "invites",
+            "is_dm",
             "members",
             "my_permissions",
             "name",

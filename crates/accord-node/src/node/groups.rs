@@ -295,6 +295,44 @@ impl Node {
         Ok(hex::encode(&created.group_id))
     }
 
+    /// Crée un **groupe de MP** (jalon 5, `docs/DM_GROUPS.md`) : le groupe, son
+    /// fil unique, puis les membres — dans cet ordre, parce qu'un membre ajouté
+    /// avant le fil arriverait dans un groupe où il n'y a rien à lire.
+    ///
+    /// ⚠️ Aucune invitation, aucun ticket signé : dans un groupe de MP, un
+    /// membre ajoute directement, comme on ajoute quelqu'un à un fil de
+    /// discussion. C'est la décision de `docs/DM_GROUPS.md` §5, et elle est
+    /// tenue par [`accord_core::group::state`], pas seulement ici.
+    pub fn dm_group_create(&self, name: &str, membres: &[[u8; 32]]) -> Result<String, NodeError> {
+        validate_label(name)?;
+        // Le fondateur compte déjà : on refuse ici ce que l'état refuserait de
+        // toute façon, mais avec un message qui dit ce qui s'est passé.
+        if membres.len() + 1 > accord_core::group::state::MAX_DM_MEMBERS {
+            return Err(NodeError::Invalid("trop de membres pour un groupe de MP"));
+        }
+        let created = self.with_db(|db| {
+            let created = group::create_group_kind(db, &self.identity, name, true, now_ms())?;
+            db.set_group_membership(&created.group_id, LocalMembership::Joined)?;
+            Ok(created)
+        })?;
+        self.outbound.send(Outbound::GroupOp {
+            op: Box::new(created.op),
+        });
+        let group_id = created.group_id;
+        self.group_channel_add(&group_id, name, ChannelKind::Text, None)?;
+        for membre in membres {
+            self.group_author(
+                &group_id,
+                GroupOpBody::AddMember {
+                    member: *membre,
+                    invite_id: None,
+                },
+            )?;
+        }
+        self.emit_group_state(&group_id);
+        Ok(hex::encode(&group_id))
+    }
+
     /// Identifiants des groupes connus.
     pub fn group_ids(&self) -> Result<Vec<String>, NodeError> {
         self.with_db(|db| Ok(db.group_ids()?.iter().map(|g| hex::encode(g)).collect()))

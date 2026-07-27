@@ -164,7 +164,10 @@ describe('SafetyQrScanner', () => {
 
     // Assert — désaccord affiché tel quel…
     expect(alerte).toHaveTextContent(fr.friends.verifyScanMismatch);
-    // …et la boucle est bien arrêtée : rien ne se redécode ensuite.
+    // …la caméra est coupée — sans quoi « la boucle est arrêtée » ne tiendrait
+    // qu'au démontage de l'aperçu, pas à une décision du composant…
+    await waitFor(() => expect(pistes[0]?.stop).toHaveBeenCalled());
+    // …et rien ne se redécode ensuite.
     const appels = jsQRMock.mock.calls.length;
     await new Promise((resolve) => setTimeout(resolve, 500));
     expect(jsQRMock.mock.calls.length).toBe(appels);

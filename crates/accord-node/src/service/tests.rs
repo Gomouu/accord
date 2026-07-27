@@ -4096,3 +4096,35 @@ async fn backup_schedule_status_and_run_roundtrip() {
         .unwrap_err();
     assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
 }
+
+#[tokio::test]
+async fn prefs_set_and_list_exact_shape() {
+    let s = service();
+    assert_eq!(
+        s.call("prefs.list", json!({})).await.unwrap(),
+        json!({ "prefs": [] })
+    );
+
+    let at = s
+        .call("prefs.set", json!({ "key": "accord.lang", "value": "fr" }))
+        .await
+        .unwrap();
+    let at_ms = at["at_ms"].as_u64().unwrap();
+
+    let v = s.call("prefs.list", json!({})).await.unwrap();
+    assert_eq!(
+        v,
+        json!({ "prefs": [{ "key": "accord.lang", "value": "fr", "at_ms": at_ms }] })
+    );
+
+    // A machine-level setting is refused at the boundary rather than quietly
+    // stored: our own UI calling it is a bug worth seeing now.
+    let err = s
+        .call(
+            "prefs.set",
+            json!({ "key": "accord.autoLockMinutes", "value": "5" }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+}

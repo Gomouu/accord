@@ -88,6 +88,7 @@ pub(crate) mod holepunch;
 mod mentions;
 pub(crate) mod nat;
 pub(crate) mod network;
+mod prefs;
 pub(crate) mod privacy;
 pub(crate) mod relay;
 mod reminders;
@@ -2096,6 +2097,12 @@ impl Node {
                         )?)
                     })?;
                 }
+                Ok(vec![])
+            }
+            CoreMsg::SelfPref { key, value, at_ms } => {
+                // 🔒 Même garde que ci-dessus, appliquée dans
+                // `ingest_self_pref` avec la borne d'horloge qui va avec.
+                self.ingest_self_pref(device_pubkey, &key, &value, at_ms)?;
                 Ok(vec![])
             }
             CoreMsg::SelfReadMark { scope, conv, up_to } => {

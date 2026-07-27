@@ -97,7 +97,10 @@ fn audit_entry_json(op: &GroupOp) -> Value {
     };
     let (kind, params) = match GroupOpBody::decode_body(op.kind, &op.body) {
         Ok(body) => match body {
-            GroupOpBody::Create { name } => ("create", json!({ "name": name })),
+            GroupOpBody::Create { name, dm } => (
+                "create",
+                json!({ "name": name, "dm": dm.unwrap_or(false) }),
+            ),
             GroupOpBody::SetMeta {
                 name,
                 icon,

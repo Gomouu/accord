@@ -366,6 +366,13 @@ pub struct Thread {
 /// État matérialisé d'un groupe après repli de l'op-log.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct GroupState {
+    /// Vrai pour un **groupe de MP** (jalon 5, `docs/DM_GROUPS.md`) : trois à
+    /// vingt personnes, un seul fil, aucun rôle.
+    ///
+    /// 🔒 Posé par la CRÉATION seule, jamais modifié ensuite. C'est ce qui rend
+    /// les refus de [`GroupState::refus_groupe_mp`] tenables : ils s'appuient
+    /// sur une valeur qu'aucune opération ne peut retourner.
+    pub is_dm: bool,
     /// Nom du groupe.
     pub name: String,
     /// Icône (racine Merkle) éventuelle.
@@ -674,12 +681,15 @@ impl GroupState {
         let author = op.author;
 
         // CREATE : uniquement comme toute première op.
-        if let GroupOpBody::Create { name } = &body {
+        if let GroupOpBody::Create { name, dm } = &body {
             if self.founder.is_some() {
                 return self.ignore("groupe déjà créé");
             }
             self.founder = Some(author);
             self.name = name.clone();
+            // 🔒 Fixé ici et jamais ailleurs : la nature du groupe est signée
+            // avec sa création. Voir `docs/DM_GROUPS.md` §3.
+            self.is_dm = dm.unwrap_or(false);
             self.members.insert(
                 author,
                 Member {
@@ -1738,6 +1748,7 @@ mod tests {
             signed(
                 GroupOpBody::Create {
                     name: "Salon".into(),
+                    dm: None,
                 },
                 FOUNDER,
                 1,
@@ -1777,6 +1788,7 @@ mod tests {
         ops.push(signed(
             GroupOpBody::Create {
                 name: "Usurpé".into(),
+                dm: None,
             },
             ALICE,
             10,
@@ -1859,7 +1871,7 @@ mod tests {
     #[test]
     fn invites_enforce_uses_and_expiry() {
         let mut ops = vec![
-            signed(GroupOpBody::Create { name: "G".into() }, FOUNDER, 1),
+            signed(GroupOpBody::Create { name: "G".into(), dm: None }, FOUNDER, 1),
             signed(
                 GroupOpBody::InviteCreate {
                     invite_id: [9; 16],

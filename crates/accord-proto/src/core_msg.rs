@@ -532,6 +532,25 @@ pub enum GroupOpBody {
     Create {
         /// Nom du groupe.
         name: String,
+        /// Nature du groupe : `Some(true)` pour un **groupe de MP** (jalon 5),
+        /// `Some(false)` ou `None` pour un serveur ordinaire.
+        ///
+        /// Champ **additif de fin de variant** (D-047, comme
+        /// [`GroupOpBody::SetMeta::banner_color`]) : un émetteur antérieur à son
+        /// introduction n'écrit aucun octet pour lui et le décodage rend `None`.
+        ///
+        /// 🔒 Porté par la CRÉATION, et nulle part ailleurs. La nature d'un
+        /// groupe est fixée à sa naissance et signée avec elle : aucune
+        /// opération ultérieure ne peut promouvoir un groupe de MP en serveur
+        /// ni l'inverse, ce qui ferait sauter d'un coup toutes les règles que
+        /// [`accord_core::group::state`] fait respecter aux groupes de MP.
+        ///
+        /// ⚠️ Un client antérieur voit un groupe de MP comme un **serveur
+        /// ordinaire** : les messages arrivent, les membres sont les bons, seul
+        /// l'endroit où il l'affiche est faux. C'est la dégradation honnête
+        /// d'un champ additif, et elle est écrite dans `docs/DM_GROUPS.md` §3
+        /// plutôt que découverte.
+        dm: Option<bool>,
     },
     /// 0x02 — Métadonnées (nom, icône, couleur de bannière).
     SetMeta {
@@ -1081,7 +1100,14 @@ impl GroupOpBody {
     pub fn encode_body(&self) -> Vec<u8> {
         let mut w = Writer::new();
         match self {
-            Self::Create { name } => w.put_str(name),
+            Self::Create { name, dm } => {
+                w.put_str(name);
+                // N'écrit rien quand la nature n'est pas précisée : les octets
+                // d'un serveur ordinaire restent EXACTEMENT ceux d'avant.
+                if let Some(dm) = dm {
+                    w.put_opt(Some(dm), |w, d| w.put_u8(u8::from(*d)));
+                }
+            }
             Self::SetMeta {
                 name,
                 icon,
@@ -1327,6 +1353,7 @@ impl GroupOpBody {
         let body = match kind {
             0x01 => Self::Create {
                 name: r.str(MAX_NAME, "op.name")?,
+                dm: r.opt_tail(|r| Ok(decode_bool(r, "op.create.dm")?))?,
             },
             0x02 => Self::SetMeta {
                 name: r.str(MAX_NAME, "op.name")?,

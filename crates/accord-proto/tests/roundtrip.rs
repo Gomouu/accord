@@ -365,6 +365,13 @@ fn group_op_bodies_roundtrip() {
     let bodies = [
         GroupOpBody::Create {
             name: "Mon serveur".into(),
+            dm: None,
+        },
+        // Le groupe de MP passe par le MÊME round-trip : le champ additif doit
+        // survivre, pas seulement son absence.
+        GroupOpBody::Create {
+            name: "Nous trois".into(),
+            dm: Some(true),
         },
         GroupOpBody::SetMeta {
             name: "Renommé".into(),
@@ -599,7 +606,11 @@ fn core_msgs_roundtrip() {
         wall_ms: 4,
         author: [5; 32],
         kind: 0x01,
-        body: GroupOpBody::Create { name: "G".into() }.encode_body(),
+        body: GroupOpBody::Create {
+            name: "G".into(),
+            dm: None,
+        }
+        .encode_body(),
         sig: [6; 64],
     };
     let msgs = [

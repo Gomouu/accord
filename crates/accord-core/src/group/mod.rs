@@ -108,11 +108,27 @@ pub fn create_group(
     name: &str,
     now_ms: u64,
 ) -> Result<CreatedGroup, CoreError> {
+    create_group_kind(db, identity, name, false, now_ms)
+}
+
+/// [`create_group`] en précisant la nature : `dm = true` crée un **groupe de
+/// MP** (jalon 5, `docs/DM_GROUPS.md`), qui refusera ensuite rôles, catégories,
+/// salons supplémentaires et modération.
+pub fn create_group_kind(
+    db: &Db,
+    identity: &Identity,
+    name: &str,
+    dm: bool,
+    now_ms: u64,
+) -> Result<CreatedGroup, CoreError> {
     if name.is_empty() || name.len() > 100 {
         return Err(CoreError::Invalid("nom de groupe vide ou trop long"));
     }
     let body = GroupOpBody::Create {
         name: name.to_string(),
+        // `None` plutôt que `Some(false)` pour un serveur : les octets d'une
+        // création ordinaire restent identiques à ceux d'avant ce champ.
+        dm: dm.then_some(true),
     };
     let mut op = GroupOp {
         op_id: [0u8; 16],
@@ -594,6 +610,7 @@ mod tests {
             &group_id,
             &GroupOpBody::Create {
                 name: "Vieux".into(),
+                dm: None,
             },
             1,
             new_id16(),
@@ -641,6 +658,7 @@ mod tests {
             &group_id,
             &GroupOpBody::Create {
                 name: "Vieux".into(),
+                dm: None,
             },
             1,
             new_id16(),
@@ -686,6 +704,7 @@ mod tests {
             &created.group_id,
             &GroupOpBody::Create {
                 name: "usurpé".into(),
+                dm: None,
             },
             0,
             new_id16(),
@@ -704,6 +723,7 @@ mod tests {
             &created.group_id,
             &GroupOpBody::Create {
                 name: "encore".into(),
+                dm: None,
             },
             0,
             new_id16(),
@@ -728,6 +748,7 @@ mod tests {
             &group_id,
             &GroupOpBody::Create {
                 name: "Vieux".into(),
+                dm: None,
             },
             1,
             new_id16(),
@@ -776,6 +797,7 @@ mod tests {
             &created.group_id,
             &GroupOpBody::Create {
                 name: "usurpé".into(),
+                dm: None,
             },
             created.op.lamport + 1,
             new_id16(),

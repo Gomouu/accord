@@ -435,6 +435,15 @@ export interface GroupThread {
 
 export interface GroupStateJson {
   group_id: string;
+  /**
+   * Vrai pour un **groupe de MP** (jalon 5) : trois à vingt personnes, un seul
+   * fil, aucun rôle. L'interface le range dans les conversations plutôt que
+   * dans la barre des serveurs.
+   *
+   * Optionnel par tolérance : un nœud antérieur au jalon 5 ne l'envoie pas, et
+   * son absence vaut « serveur » — la même dégradation que côté filaire.
+   */
+  is_dm?: boolean;
   name: string;
   /** Racine Merkle de l'icône (hex 64), ou `null` sans icône. */
   icon: string | null;
@@ -1388,6 +1397,14 @@ export class Api {
 
   groupsCreate(name: string): Promise<{ group_id: string }> {
     return this.rpc.call('groups.create', { name });
+  }
+
+  /**
+   * Crée un **groupe de MP** avec `members` (clés publiques hex). Le fondateur
+   * s'ajoute lui-même : `members` ne le contient pas.
+   */
+  groupsCreateDm(name: string, members: string[]): Promise<{ group_id: string }> {
+    return this.rpc.call('groups.create_dm', { name, members });
   }
 
   /**

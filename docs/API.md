@@ -15,7 +15,15 @@
 
 - WebSocket, JSON **text** messages only (binary ignored).
 - Single request (no batching). `id` numeric, string, or `null`.
-- Maximum message size: 1 MiB.
+- Maximum message size: **16 MiB** (`MAX_WS_MESSAGE`,
+  `crates/accord-api/src/server.rs`), frames included. Sized so that
+  `files.share_bytes` / `files.read` — 8 MiB of bytes, about 11 MiB once
+  base64'd inside a JSON envelope — go through in one frame.
+- **Message body: 64 KiB** (`MAX_BODY`, `crates/accord-proto/src/core_msg.rs`).
+  This is the wire bound on the *encoded* body of a direct message, a group
+  message, a group op and a self-sync item, enforced at decode. It is far below
+  the frame limit above, and it is the one a client sending text will hit
+  first — attachments travel as references, not inside the body.
 
 ## Authentication
 

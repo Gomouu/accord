@@ -48,6 +48,12 @@ frames are capped at **16 MiB** (`MAX_WS_MESSAGE`), sized so that
 `files.share_bytes` / `files.read` (8 MiB of bytes, ~11 MiB once base64'd
 inside a JSON envelope) fit.
 
+Distinct from that, and much lower: a **message body is bounded to 64 KiB**
+(`MAX_BODY`, `crates/accord-proto/src/core_msg.rs`) — the encoded body of a
+direct message, a group message, a group op or a self-sync item, enforced when
+decoding. That is the bound a client sending text meets first; attachments
+travel as references, not inside the body.
+
 The **first** request on every connection must be `auth`:
 
 ```json

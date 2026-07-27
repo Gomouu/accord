@@ -80,6 +80,12 @@ if [ -d app ] && [ -f app/package.json ]; then
   step "Cliquet des fichiers de plus de 800 lignes"
   node scripts/check-file-size.mjs
 
+  # docs/API.md a annoncé « 1 MiB » de taille maximale de message alors que le
+  # code dit 16 MiB — non par dérive, mais faux depuis le premier commit. Un
+  # auteur de client tiers y lisait une contrainte inexistante.
+  step "Constantes publiques citées dans les docs"
+  node scripts/check-doc-constants.mjs
+
   # Les e2e d'interface étaient hors du gate : « Marquer comme lu » a disparu
   # du menu serveur à la refonte 4.5.0 et la régression a été publiée, alors
   # que le test qui la couvrait existait déjà et échouait dans son coin.

@@ -49,6 +49,10 @@ export type View =
 export type Modal =
   | null
   | { kind: 'createGroup' }
+  /** Création d'un groupe de MP (jalon 5) : choix des amis puis nom. */
+  | { kind: 'createDmGroup' }
+  /** Réglages d'un groupe de MP : nom, icône, membres, départ. */
+  | { kind: 'dmGroup'; groupId: string }
   | { kind: 'createChannel'; groupId: string }
   | { kind: 'createCategory'; groupId: string }
   | { kind: 'invite'; groupId: string }

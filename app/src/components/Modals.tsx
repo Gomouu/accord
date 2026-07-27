@@ -1035,12 +1035,37 @@ const EventsModal = lazy(async () => ({
   default: (await import('./EventsModal')).EventsModal,
 }));
 
+// Groupes de MP : deux surfaces qu'une session peut ne jamais ouvrir, et le
+// recadreur d'image qu'elles embarquent pèse à lui seul plus que les deux.
+const CreateDmGroupModal = lazy(async () => ({
+  default: (await import('./DmGroupModals')).CreateDmGroupModal,
+}));
+const DmGroupModal = lazy(async () => ({
+  default: (await import('./DmGroupModals')).DmGroupModal,
+}));
+
 export function Modals() {
   const modal = useUi((s) => s.modal);
   if (modal === null) return null;
   switch (modal.kind) {
     case 'createGroup':
       return <CreateGroupModal />;
+    case 'createDmGroup':
+      return (
+        <ErrorBoundary>
+          <Suspense fallback={null}>
+            <CreateDmGroupModal />
+          </Suspense>
+        </ErrorBoundary>
+      );
+    case 'dmGroup':
+      return (
+        <ErrorBoundary>
+          <Suspense fallback={null}>
+            <DmGroupModal groupId={modal.groupId} />
+          </Suspense>
+        </ErrorBoundary>
+      );
     case 'createChannel':
       return <CreateChannelModal groupId={modal.groupId} />;
     case 'createCategory':

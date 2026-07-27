@@ -6,7 +6,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { Contact, GroupStateJson } from '../lib/api';
 import { lireFichier } from '../lib/files';
 import { useContextMenu } from '../stores/contextMenu';
@@ -101,7 +101,7 @@ function groupState(over: Partial<GroupStateJson> = {}): GroupStateJson {
 }
 
 beforeEach(() => {
-  useUi.setState({ lang: 'fr', view: { kind: 'friends' } });
+  useUi.setState({ lang: 'fr', view: { kind: 'friends' }, modal: null });
   useSession.setState({ self: null });
   useFriends.setState({ contacts: [] });
   useGroups.setState({ ids: [], states: {}, unread: {} });
@@ -804,5 +804,84 @@ describe('Sidebar — accessibilité clavier des salons', () => {
       'aria-current',
       'page',
     );
+  });
+});
+
+describe('Sidebar — groupes de MP (jalon 5)', () => {
+  /** Groupe de MP « Nous trois », son fil unique et ses non-lus. */
+  function dmState(): GroupStateJson {
+    return groupState({
+      group_id: 'mp1',
+      name: 'Nous trois',
+      is_dm: true,
+      channels: [
+        {
+          channel_id: 'fil',
+          name: 'Nous trois',
+          kind: 'text',
+          category: null,
+          position: 0,
+          topic: '',
+        },
+      ],
+    });
+  }
+
+  it('liste le groupe de MP avec les conversations et ouvre son fil unique', () => {
+    useGroups.setState({
+      ids: ['mp1'],
+      states: { mp1: dmState() },
+      unread: { mp1: { fil: 4 } },
+    });
+
+    render(<Sidebar />);
+
+    const ligne = screen.getByRole('button', { name: /Nous trois/ });
+    expect(ligne).toBeInTheDocument();
+    expect(within(ligne).getByLabelText('4 message(s) non lu(s)')).toBeInTheDocument();
+
+    fireEvent.click(ligne);
+
+    // Le fil s'ouvre directement : aucun salon à choisir.
+    expect(useUi.getState().view).toEqual({
+      kind: 'group',
+      groupId: 'mp1',
+      channelId: 'fil',
+    });
+  });
+
+  it('garde la barre d’accueil sur un groupe de MP ouvert — aucune liste de salons', () => {
+    useGroups.setState({ ids: ['mp1'], states: { mp1: dmState() } });
+    useUi.setState({ view: { kind: 'group', groupId: 'mp1', channelId: 'fil' } });
+
+    render(<Sidebar />);
+
+    // Repères de la barre d'accueil, absents de la barre de serveur.
+    expect(screen.getByRole('button', { name: 'Amis' })).toBeInTheDocument();
+    // Repères de la barre de serveur, que le groupe de MP n'a pas.
+    expect(screen.queryByText('Salons')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('server-header')).not.toBeInTheDocument();
+  });
+
+  it('bascule sur la barre de serveur quand le même groupe n’est pas un MP', () => {
+    // Contrôle négatif : c'est bien `is_dm` qui décide, pas la vue.
+    useGroups.setState({
+      ids: ['mp1'],
+      states: { mp1: { ...dmState(), is_dm: false } },
+    });
+    useUi.setState({ view: { kind: 'group', groupId: 'mp1', channelId: 'fil' } });
+
+    render(<Sidebar />);
+
+    expect(screen.getByTestId('server-header')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Amis' })).not.toBeInTheDocument();
+  });
+
+  it('offre la création même sans aucun groupe', () => {
+    render(<Sidebar />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Créer un groupe privé' }));
+
+    expect(useUi.getState().modal).toEqual({ kind: 'createDmGroup' });
   });
 });

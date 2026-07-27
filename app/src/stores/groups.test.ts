@@ -11,6 +11,7 @@ vi.mock('../lib/client', () => ({
   rpc: { call: vi.fn() },
   api: {
     groupsList: vi.fn(),
+    groupsCreateDm: vi.fn(),
     groupsMarkRead: vi.fn(),
     groupsState: vi.fn(),
     groupsRename: vi.fn(),
@@ -71,8 +72,13 @@ import {
   canModerateVoice,
   channelKey,
   channelsByCategory,
+  displayedPermissions,
+  dmThreadId,
+  groupUnreadTotal,
   handleMentionNodeEvent,
   hasPerm,
+  isDmGroup,
+  splitGroups,
   highestRolePosition,
   isChannelReadOnly,
   isChannelRestricted,
@@ -96,6 +102,7 @@ import {
 } from './groups';
 
 const listMock = api.groupsList as unknown as Mock;
+const createDmMock = api.groupsCreateDm as unknown as Mock;
 const channelEditMock = api.groupsChannelEdit as unknown as Mock;
 const channelPermsMock = api.groupsChannelPerms as unknown as Mock;
 const categoryEditMock = api.groupsCategoryEdit as unknown as Mock;
@@ -188,6 +195,7 @@ beforeEach(() => {
   });
   for (const mock of [
     listMock,
+    createDmMock,
     markReadMock,
     stateMock,
     renameMock,
@@ -1654,5 +1662,121 @@ describe('useGroups — sondages (D-048)', () => {
 
     expect(pollCloseMock).toHaveBeenCalledWith('g1', 'p1');
     expect(stateMock).toHaveBeenCalledWith('g1');
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Groupes de MP (jalon 5, `docs/DM_GROUPS.md`).                       */
+/* ------------------------------------------------------------------ */
+
+describe('groupes de MP — aides pures', () => {
+  it('isDmGroup ne reconnaît que le drapeau explicitement vrai', () => {
+    expect(isDmGroup({ is_dm: true })).toBe(true);
+    expect(isDmGroup({ is_dm: false })).toBe(false);
+    // Nœud antérieur au jalon 5 : le champ manque, et son absence vaut
+    // « serveur » — la dégradation décrite au §3 de la conception.
+    expect(isDmGroup({})).toBe(false);
+    expect(isDmGroup(undefined)).toBe(false);
+  });
+
+  it('splitGroups range les groupes de MP hors du rail, l’ordre du nœud gardé', () => {
+    const states = {
+      s1: groupState({ group_id: 's1' }),
+      mp: groupState({ group_id: 'mp', is_dm: true }),
+      s2: groupState({ group_id: 's2', is_dm: false }),
+    };
+
+    const { servers, dms } = splitGroups(['s1', 'mp', 's2'], states);
+
+    expect(servers).toEqual(['s1', 's2']);
+    expect(dms).toEqual(['mp']);
+  });
+
+  it('splitGroups compte un groupe encore inconnu comme serveur', () => {
+    // Entre `groups.list` et `groups.state`, l'état manque : le rail garde son
+    // repli « … » historique plutôt que d'escamoter l'entrée.
+    const { servers, dms } = splitGroups(['pasEncoreCharge'], {});
+
+    expect(servers).toEqual(['pasEncoreCharge']);
+    expect(dms).toEqual([]);
+  });
+
+  it('dmThreadId rend le fil unique, celui de position la plus basse', () => {
+    const state = groupState({
+      is_dm: true,
+      channels: [
+        {
+          channel_id: 'tard',
+          name: 'z',
+          kind: 'text',
+          category: null,
+          position: 3,
+          topic: '',
+        },
+        {
+          channel_id: 'fil',
+          name: 'a',
+          kind: 'text',
+          category: null,
+          position: 0,
+          topic: '',
+        },
+      ],
+    });
+
+    expect(dmThreadId(state)).toBe('fil');
+    expect(dmThreadId(groupState({ channels: [] }))).toBeNull();
+    expect(dmThreadId(undefined)).toBeNull();
+  });
+
+  it('displayedPermissions annule le masque complet du fondateur d’un groupe de MP', () => {
+    // 🔒 Le nœud rend bel et bien 1023 au fondateur d'un groupe de MP
+    // (`base_permissions` ne connaît pas `is_dm`) : sans cette remise à zéro,
+    // l'écran offrirait épingles, purges et bannissements, tous refusés au
+    // rejeu par la liste blanche.
+    const mp = groupState({ is_dm: true, my_permissions: 0x3ff });
+    expect(displayedPermissions(mp)).toBe(0);
+    expect(hasPerm(displayedPermissions(mp), PERMISSIONS.MANAGE_MESSAGES)).toBe(false);
+
+    // Un serveur garde exactement le masque du nœud.
+    expect(displayedPermissions(groupState({ my_permissions: 0x3ff }))).toBe(0x3ff);
+    expect(displayedPermissions(undefined)).toBe(0);
+  });
+
+  it('groupUnreadTotal additionne les salons et vaut 0 sans compteur', () => {
+    expect(groupUnreadTotal({ c1: 2, c2: 5 })).toBe(7);
+    expect(groupUnreadTotal({})).toBe(0);
+    expect(groupUnreadTotal(undefined)).toBe(0);
+  });
+});
+
+describe('groupes de MP — création', () => {
+  it('createDm passe le nom et les membres au nœud puis relit la liste', async () => {
+    createDmMock.mockResolvedValueOnce({ group_id: 'mp1' });
+    listMock.mockResolvedValueOnce({ groups: ['mp1'] });
+    stateMock.mockResolvedValueOnce(groupState({ group_id: 'mp1', is_dm: true }));
+    invitesListMock.mockResolvedValueOnce({ invites: [] });
+
+    const id = await useGroups.getState().createDm('Nous trois', ['alice', 'bob']);
+
+    expect(id).toBe('mp1');
+    expect(createDmMock).toHaveBeenCalledWith('Nous trois', ['alice', 'bob']);
+    // La liste est relue : sans ça le groupe n'apparaîtrait nulle part avant
+    // le prochain `event.group_op`.
+    expect(listMock).toHaveBeenCalled();
+    expect(useGroups.getState().ids).toEqual(['mp1']);
+    expect(useGroups.getState().states.mp1?.is_dm).toBe(true);
+  });
+
+  it('createDm propage le refus du nœud sans toucher à la liste', async () => {
+    useGroups.setState({ ids: ['deja'] });
+    createDmMock.mockRejectedValueOnce(new Error('trop de membres pour un groupe de MP'));
+
+    await expect(useGroups.getState().createDm('Foule', ['a'])).rejects.toThrow(
+      'trop de membres',
+    );
+
+    expect(listMock).not.toHaveBeenCalled();
+    expect(useGroups.getState().ids).toEqual(['deja']);
   });
 });

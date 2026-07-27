@@ -21,9 +21,13 @@ import {
   useGroups,
   channelKey,
   channelsByCategory,
+  dmThreadId,
+  groupUnreadTotal,
   hasPerm,
   isChannelRestricted,
   isChannelVisible,
+  isDmGroup,
+  splitGroups,
   upcomingEvents,
   PERMISSIONS,
 } from '../stores/groups';
@@ -43,6 +47,7 @@ import {
   DeleteMenuIcon,
   EditMenuIcon,
   PhoneOffIcon,
+  PlusMenuIcon,
 } from './ContextMenu';
 import { MentionInbox } from './MentionInbox';
 import { SavedMessages } from './SavedMessages';
@@ -150,6 +155,98 @@ function Chevron({ open }: { open: boolean }) {
   );
 }
 
+/**
+ * Rangée d'un groupe de MP dans la liste des conversations : icône du groupe
+ * (initiales en repli), nom, brouillon et pastille de non-lus. Un clic ouvre
+ * le fil unique directement — un groupe de MP n'a pas de liste de salons.
+ */
+function DmGroupRow({ groupId }: { groupId: string }) {
+  const t = useT();
+  const view = useUi((s) => s.view);
+  const setView = useUi((s) => s.setView);
+  const state = useGroups((s) => s.states[groupId]);
+  const unread = useGroups((s) => s.unread[groupId]);
+  const mentions = useGroups((s) => s.mentions[groupId]) ?? 0;
+  const draftKeys = useDrafts((s) => s.keys);
+  if (state === undefined) return null;
+
+  const channelId = dmThreadId(state);
+  const active = view.kind === 'group' && view.groupId === groupId;
+  const draft =
+    !active &&
+    channelId !== null &&
+    hasDraft(draftKeys, draftKey({ kind: 'group', groupId, channelId }));
+
+  return (
+    <button
+      type="button"
+      aria-current={active ? 'page' : undefined}
+      onClick={() => setView({ kind: 'group', groupId, channelId })}
+      className={`flex h-9 w-full items-center gap-2.5 rounded-md px-2 transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar ${
+        active
+          ? 'bg-blurple/15 text-header ring-1 ring-inset ring-blurple/20'
+          : 'text-muted hover:bg-chat-hover hover:text-norm'
+      }`}
+    >
+      <span className="shrink-0">
+        <Avatar id={groupId} name={state.name} size={32} avatarHash={state.icon} />
+      </span>
+      <span className="min-w-0 flex-1 truncate text-start font-medium">{state.name}</span>
+      {draft && (
+        <span
+          role="img"
+          aria-label={t.dm.draftBadge}
+          title={t.dm.draftBadge}
+          className="shrink-0 text-faint"
+        >
+          <DraftIcon />
+        </span>
+      )}
+      {/* Une mention prime sur le simple non-lu, comme partout ailleurs. */}
+      {mentions > 0 ? (
+        <MentionBadge count={mentions} />
+      ) : (
+        <UnreadBadge count={groupUnreadTotal(unread)} />
+      )}
+    </button>
+  );
+}
+
+/**
+ * Section « Groupes » de l'accueil : les groupes de MP rejoints, et le bouton
+ * de création. L'en-tête reste visible sans aucun groupe — c'est le seul
+ * chemin vers la création, il ne doit pas dépendre d'en avoir déjà un.
+ */
+function DmGroupsSection() {
+  const t = useT();
+  const openModal = useUi((s) => s.openModal);
+  const ids = useGroups((s) => s.ids);
+  const states = useGroups((s) => s.states);
+  const { dms } = splitGroups(ids, states);
+
+  return (
+    <>
+      <div className="flex items-center justify-between px-2 pb-1 pt-4">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted">
+          {t.dmGroups.section}
+        </span>
+        <HeaderIconButton
+          label={t.dmGroups.create}
+          onClick={() => openModal({ kind: 'createDmGroup' })}
+        >
+          {/* « + » du jeu de menu partagé : déjà dans le bundle initial. */}
+          <PlusMenuIcon />
+        </HeaderIconButton>
+      </div>
+      {dms.length === 0 ? (
+        <p className="px-2 py-1 text-sm text-faint">{t.dmGroups.empty}</p>
+      ) : (
+        dms.map((id) => <DmGroupRow key={id} groupId={id} />)
+      )}
+    </>
+  );
+}
+
 function HomeSidebar({
   onOpenInbox,
   onOpenSaved,
@@ -203,6 +300,8 @@ function HomeSidebar({
           </span>
           {t.friends.title}
         </button>
+
+        <DmGroupsSection />
 
         <div className="flex items-center justify-between px-2 pb-1 pt-4">
           <span className="text-[11px] font-medium uppercase tracking-wide text-muted">
@@ -948,6 +1047,14 @@ export function Sidebar() {
   const t = useT();
   const view = useUi((s) => s.view);
   const sidebarWidth = useUi((s) => s.sidebarWidth);
+  /**
+   * Un groupe de MP garde la barre latérale d'accueil : pas de liste de
+   * salons, pas de catégories, pas de bannière de serveur — sa conversation
+   * se lit depuis la liste des conversations, où elle est rangée.
+   */
+  const isDm = useGroups((s) =>
+    view.kind === 'group' ? isDmGroup(s.states[view.groupId]) : false,
+  );
   const [inboxOpen, setInboxOpen] = useState(false);
   const [savedOpen, setSavedOpen] = useState(false);
   const openInbox = (): void => setInboxOpen(true);
@@ -958,7 +1065,7 @@ export function Sidebar() {
       className="theme-surface-sidebar accord-sidebar flex h-full shrink-0 flex-col bg-sidebar"
       style={{ width: sidebarWidth }}
     >
-      {view.kind === 'group' ? (
+      {view.kind === 'group' && !isDm ? (
         <GroupSidebar groupId={view.groupId} />
       ) : (
         <HomeSidebar onOpenInbox={openInbox} onOpenSaved={openSaved} />

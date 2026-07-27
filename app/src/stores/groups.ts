@@ -312,6 +312,82 @@ export function isChannelVisible(
   return hasPerm(myChannelPermissions(state, channelId, selfPubkey), PERMISSIONS.VIEW);
 }
 
+/* ------------------------------------------------------------------ */
+/* Groupes de MP (jalon 5, `docs/DM_GROUPS.md`).                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Vrai pour un **groupe de MP** : trois à vingt personnes, un seul fil, aucun
+ * rôle. L'interface le range dans les conversations plutôt que dans le rail
+ * des serveurs.
+ *
+ * `is_dm` absent (nœud antérieur au jalon 5) vaut « serveur » : c'est la
+ * dégradation honnête d'un champ additif, décrite au §3 du document de
+ * conception — un client plus ancien voit un serveur ordinaire.
+ */
+export function isDmGroup(state: Pick<GroupStateJson, 'is_dm'> | undefined): boolean {
+  return state?.is_dm === true;
+}
+
+/**
+ * Sépare les groupes rejoints en serveurs (rail de gauche) et groupes de MP
+ * (liste des conversations), l'ordre du nœud conservé de part et d'autre.
+ *
+ * Un groupe dont l'état n'est pas encore chargé compte comme serveur : c'est
+ * le repli d'affichage existant (icône « … » dans le rail), et il rejoint les
+ * conversations dès que `groups.state` répond.
+ */
+export function splitGroups(
+  ids: readonly string[],
+  states: Readonly<Record<string, GroupStateJson>>,
+): { servers: string[]; dms: string[] } {
+  const servers: string[] = [];
+  const dms: string[] = [];
+  for (const id of ids) {
+    if (isDmGroup(states[id])) dms.push(id);
+    else servers.push(id);
+  }
+  return { servers, dms };
+}
+
+/**
+ * Le fil unique d'un groupe de MP, ou `null` tant que l'état n'est pas chargé.
+ * Le nœud n'accepte `AddChannel` qu'une fois dans un tel groupe : il n'y a rien
+ * à choisir, la conversation s'ouvre directement.
+ */
+export function dmThreadId(state: GroupStateJson | undefined): string | null {
+  if (state === undefined) return null;
+  return sortChannels(state.channels)[0]?.channel_id ?? null;
+}
+
+/**
+ * Permissions à présenter pour ce groupe : celles du nœud pour un serveur,
+ * **aucune** pour un groupe de MP.
+ *
+ * 🔒 Le fondateur d'un groupe de MP reçoit pourtant `my_permissions` complet
+ * (`base_permissions` rend `ALL_PERMS` au fondateur, quel que soit le genre du
+ * groupe — vérifié : 1023 sur un groupe fraîchement créé). Recopier ce masque
+ * à l'écran peuplerait la conversation d'épingles, de purges, de bannissements
+ * et d'invitations que la liste blanche du nœud refuse toutes. Les trois seules
+ * actions permises — renommer, ajouter, partir — sont offertes à TOUT membre
+ * et rendues par des contrôles dédiés, jamais par un bit de permission.
+ */
+export function displayedPermissions(
+  state: Pick<GroupStateJson, 'my_permissions' | 'is_dm'> | undefined,
+): number {
+  if (state === undefined || isDmGroup(state)) return 0;
+  return state.my_permissions;
+}
+
+/** Total des non-lus d'un groupe, tous salons confondus (pastille de liste). */
+export function groupUnreadTotal(
+  perChannel: Readonly<Record<string, number>> | undefined,
+): number {
+  let total = 0;
+  for (const n of Object.values(perChannel ?? {})) total += n;
+  return total;
+}
+
 /** Section de salons : `category` vaut `null` pour les sans-catégorie. */
 export interface ChannelGroup {
   category: GroupCategory | null;
@@ -554,6 +630,12 @@ interface GroupsState {
    */
   jumpTo: (groupId: string, channelId: string, msgId: string) => Promise<boolean>;
   create: (name: string, defaultChannel: string) => Promise<string>;
+  /**
+   * Crée un **groupe de MP** avec `members` (clés publiques hex, soi-même
+   * exclu — le nœud s'ajoute lui-même). Le nœud crée aussi le fil unique et
+   * ajoute les membres : un seul aller-retour, puis la liste est relue.
+   */
+  createDm: (name: string, members: string[]) => Promise<string>;
   rename: (groupId: string, name: string) => Promise<void>;
   setIcon: (groupId: string, dataB64: string, mime: string) => Promise<void>;
   /**
@@ -1016,6 +1098,12 @@ export const useGroups = create<GroupsState>((set, get) => ({
   create: async (name, defaultChannel) => {
     const { group_id } = await api.groupsCreate(name);
     await api.groupsChannelAdd(group_id, defaultChannel);
+    await get().loadList();
+    return group_id;
+  },
+
+  createDm: async (name, members) => {
+    const { group_id } = await api.groupsCreateDm(name, members);
     await get().loadList();
     return group_id;
   },

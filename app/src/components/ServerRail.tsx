@@ -9,7 +9,13 @@ import { copyToClipboard } from '../lib/clipboard';
 import { useContextMenu, type ContextMenuItem } from '../stores/contextMenu';
 import { folderOfServer, useFolders, type ServerFolder } from '../stores/folders';
 import { totalDmMentions, totalDmUnread, useFriends } from '../stores/friends';
-import { useGroups, sortChannels, hasPerm, PERMISSIONS } from '../stores/groups';
+import {
+  useGroups,
+  sortChannels,
+  hasPerm,
+  splitGroups,
+  PERMISSIONS,
+} from '../stores/groups';
 import { marquerServeurLu } from '../lib/markServerRead';
 import { serverLevel, useMute } from '../stores/mute';
 import { useSession } from '../stores/session';
@@ -264,7 +270,18 @@ export function ServerRail() {
   const toast = useUi((s) => s.toast);
   const folders = useFolders((s) => s.folders);
 
-  const isHome = view.kind === 'friends' || view.kind === 'dm';
+  /**
+   * Le rail ne montre QUE les serveurs : un groupe de MP se range avec les
+   * conversations (`HomeSidebar`), jamais ici — c'est toute la différence que
+   * le drapeau `is_dm` fait à l'écran (voir `docs/DM_GROUPS.md` §2). Le bouton
+   * Accueil reste donc actif tant qu'un groupe de MP est ouvert : sa
+   * conversation vit sous cet accueil-là.
+   */
+  const { servers: serverIds } = splitGroups(ids, states);
+  const isHome =
+    view.kind === 'friends' ||
+    view.kind === 'dm' ||
+    (view.kind === 'group' && !serverIds.includes(view.groupId));
 
   /**
    * Pastille du bouton Accueil/MP : agrège tous les MP — une mention prime
@@ -305,7 +322,7 @@ export function ServerRail() {
     | { kind: 'folder'; folder: ServerFolder; memberIds: string[] }
   > = [];
   const seenFolders = new Set<string>();
-  for (const id of ids) {
+  for (const id of serverIds) {
     const folder = folderOfServer(folders, id);
     if (folder === null) {
       railEntries.push({ kind: 'server', id });
@@ -314,7 +331,7 @@ export function ServerRail() {
       railEntries.push({
         kind: 'folder',
         folder,
-        memberIds: ids.filter((memberId) => folder.serverIds.includes(memberId)),
+        memberIds: serverIds.filter((memberId) => folder.serverIds.includes(memberId)),
       });
     }
   }

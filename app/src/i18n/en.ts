@@ -171,6 +171,12 @@ export const en: Dict = {
     stale: 'Invitation expired or already handled',
   },
   dmGroups: {
+    inviteSection: 'Invite someone',
+    inviteHint: 'The person receives an invitation and joins if they accept it.',
+    inviteAction: 'Invite',
+    invited: 'Invitation sent to {name}',
+    inviteFull: 'The group is full (20 members at most).',
+    inviteNobody: 'All your friends are already in this group.',
     section: 'Private groups',
     create: 'Create a private group',
     createTitle: 'New private group',

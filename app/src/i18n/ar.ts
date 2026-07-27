@@ -174,6 +174,12 @@ export const ar: Dict = {
     stale: 'انتهت صلاحية الدعوة أو عُولجت من قبل',
   },
   dmGroups: {
+    inviteSection: 'دعوة شخص ما',
+    inviteHint: 'يتلقّى الشخص دعوة وينضمّ إذا قبلها.',
+    inviteAction: 'دعوة',
+    invited: 'أُرسلت دعوة إلى {name}',
+    inviteFull: 'المجموعة ممتلئة (20 عضوًا كحدّ أقصى).',
+    inviteNobody: 'جميع أصدقائك موجودون بالفعل في هذه المجموعة.',
     section: 'المجموعات الخاصة',
     create: 'إنشاء مجموعة خاصة',
     createTitle: 'مجموعة خاصة جديدة',

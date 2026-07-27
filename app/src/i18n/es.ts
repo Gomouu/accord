@@ -175,6 +175,12 @@ export const es: Dict = {
     stale: 'Invitación caducada o ya gestionada',
   },
   dmGroups: {
+    inviteSection: 'Invitar a alguien',
+    inviteHint: 'La persona recibe una invitación y se une si la acepta.',
+    inviteAction: 'Invitar',
+    invited: 'Invitación enviada a {name}',
+    inviteFull: 'El grupo está completo (20 miembros como máximo).',
+    inviteNobody: 'Todos tus amigos ya están en este grupo.',
     section: 'Grupos privados',
     create: 'Crear un grupo privado',
     createTitle: 'Nuevo grupo privado',

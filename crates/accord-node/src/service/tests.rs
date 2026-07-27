@@ -1134,6 +1134,38 @@ async fn un_groupe_de_mp_a_trois_se_cree_avec_un_seul_fil() {
     assert!(second.is_err(), "un second fil doit être refusé");
 }
 
+/// 🔒 La promesse « n'importe quel membre peut inviter » doit être atteignable
+/// depuis l'API, pas seulement acceptée par l'état. Une première version de la
+/// liste blanche refusait `InviteCreate` dans un groupe de MP, si bien que le
+/// seul chemin vers l'appartenance était fermé — trouvé en sondant l'API, pas
+/// en la lisant.
+#[tokio::test]
+async fn on_peut_inviter_dans_un_groupe_de_mp_existant() {
+    let s = service();
+    let alice = "a1".repeat(32);
+    let cree = s
+        .call("groups.create_dm", json!({ "name": "Nous", "members": [] }))
+        .await
+        .unwrap();
+    let gid = cree["group_id"].as_str().unwrap().to_string();
+
+    let invitation = s
+        .call("groups.invite", json!({ "group_id": gid, "pubkey": alice }))
+        .await
+        .expect("inviter doit être possible dans un groupe de MP");
+    assert!(invitation["invite_id"].is_string());
+
+    let etat = s
+        .call("groups.state", json!({ "group_id": gid }))
+        .await
+        .unwrap();
+    assert_eq!(
+        etat["invites"].as_array().unwrap().len(),
+        1,
+        "l'invitation figure dans l'état du groupe"
+    );
+}
+
 #[tokio::test]
 async fn group_state_enriched_exact_shape() {
     let (s, gid) = service_with_group().await;

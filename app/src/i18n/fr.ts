@@ -174,6 +174,13 @@ export const fr = {
     stale: 'Invitation expirée ou déjà traitée',
   },
   dmGroups: {
+    inviteSection: "Inviter quelqu'un",
+    inviteHint:
+      "La personne reçoit une invitation et rejoint le groupe si elle l'accepte.",
+    inviteAction: 'Inviter',
+    invited: 'Invitation envoyée à {name}',
+    inviteFull: 'Le groupe est complet (20 membres au plus).',
+    inviteNobody: 'Tous vos amis sont déjà dans ce groupe.',
     section: 'Groupes privés',
     create: 'Créer un groupe privé',
     createTitle: 'Nouveau groupe privé',

@@ -179,6 +179,12 @@ export const pt: Dict = {
     stale: 'Convite expirado ou já tratado',
   },
   dmGroups: {
+    inviteSection: 'Convidar alguém',
+    inviteHint: 'A pessoa recebe um convite e entra se aceitar.',
+    inviteAction: 'Convidar',
+    invited: 'Convite enviado a {name}',
+    inviteFull: 'O grupo está cheio (no máximo 20 membros).',
+    inviteNobody: 'Todos os seus amigos já estão neste grupo.',
     section: 'Grupos privados',
     create: 'Criar um grupo privado',
     createTitle: 'Novo grupo privado',

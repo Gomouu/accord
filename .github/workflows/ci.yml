@@ -176,6 +176,16 @@ jobs:
       - name: Frontend initial-chunk budget
         run: node scripts/check-bundle-budget.mjs
 
+      # Ces deux-là ne tournaient QUE dans `ci.sh`, donc sur la machine du
+      # développeur — un garde-fou sans destinataire, exactement la panne que
+      # les e2e d'interface ont déjà produite (commentaire suivant). Ils sont
+      # hermétiques (Node pur, aucun réseau), rien ne justifiait leur absence.
+      - name: Fichiers de plus de 800 lignes (cliquet)
+        run: node scripts/check-file-size.mjs
+
+      - name: Constantes publiques citées dans les docs
+        run: node scripts/check-doc-constants.mjs
+
       # Les e2e d'interface vivaient hors du gate. Résultat : « Marquer comme
       # lu » a disparu du menu serveur à la refonte 4.5.0 et la régression a
       # été publiée, alors que le test qui la couvrait existait déjà et

@@ -24,11 +24,18 @@ import { join } from 'node:path';
  * 139.8 kB to 134.1 kB, and `SettingsDict` being a type distinct from `Dict`
  * means the shell cannot pull those strings back in without failing to compile.
  *
- * The 6 kB of headroom is deliberate, and it is what the 150 kB ceiling was
+ * The 6 kB of headroom was deliberate, and it is what the 150 kB ceiling was
  * really buying: the same commit measured 139.7 kB on macOS and 140.0 kB on the
  * CI runner, so a ceiling that sits a few hundred bytes above the measurement
  * fails on the difference between two gzip builds rather than on anything a
  * developer did.
+ *
+ * ⚠️ **That cushion is gone.** Measured 2026-07-27 evening: 138.7 kB, so 1.3 kB
+ * left — and about 1.0 kB once the CI runner's usual 0.3 kB is taken off. The
+ * next feature that touches the shell fails on CI while passing on macOS, which
+ * is the worst way for this to break. That is why the check now prints the
+ * remaining headroom on every run instead of only the measurement: a margin
+ * nobody sees is a margin nobody defends.
  */
 const ENTRY_BUDGET = 140 * 1024;
 
@@ -78,7 +85,14 @@ if (gzipped > ENTRY_BUDGET) {
   process.exit(1);
 }
 
-console.log(`bundle-budget: entry chunk ${kb(gzipped)} gzipped (budget ${kb(ENTRY_BUDGET)})`);
+// La marge, pas seulement la mesure : « 138.7 kB (budget 140.0 kB) » se lit
+// comme un succès, « reste 1.3 kB » se lit comme un avertissement. C'est le
+// même chiffre, et seul le second se remarque.
+const marge = ENTRY_BUDGET - gzipped;
+const alerte = marge < 4 * 1024 ? '  ⚠️ marge faible' : '';
+console.log(
+  `bundle-budget: entry chunk ${kb(gzipped)} gzipped, ${kb(marge)} left of ${kb(ENTRY_BUDGET)}${alerte}`,
+);
 
 // The entry stylesheet is the one Vite links from index.html; the rest are lazy.
 const css = files.find((name) => /^index-.*\.css$/.test(name));
@@ -99,5 +113,5 @@ if (cssGzipped > CSS_BUDGET) {
 }
 
 console.log(
-  `bundle-budget: entry stylesheet ${kb(cssGzipped)} gzipped (budget ${kb(CSS_BUDGET)})`,
+  `bundle-budget: entry stylesheet ${kb(cssGzipped)} gzipped, ${kb(CSS_BUDGET - cssGzipped)} left of ${kb(CSS_BUDGET)}`,
 );

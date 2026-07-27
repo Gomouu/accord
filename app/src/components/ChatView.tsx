@@ -20,6 +20,7 @@ import {
 } from '../stores/groups';
 import { selfDisplayName, useSession } from '../stores/session';
 import { groupTypingKey } from '../stores/typing';
+import { useVoice } from '../stores/voice';
 import {
   useUi,
   useT,
@@ -28,7 +29,7 @@ import {
   MEMBERS_WIDTH_MAX,
 } from '../stores/ui';
 import { Avatar } from './Avatar';
-import { CloseIcon, GearMenuIcon } from './ContextMenu';
+import { CloseIcon, GearMenuIcon, PhoneIcon } from './ContextMenu';
 import { MemberList } from './chat/MemberList';
 import { PinnedPanel, SelectionBar, ThreadsListPanel, PURGE_MAX } from './chat/panels';
 import { MessageInput } from './MessageInput';
@@ -125,6 +126,16 @@ export function GroupView({
    */
   const isDm = isDmGroup(state);
   const canModerate = hasPerm(displayedPermissions(state), PERMISSIONS.MANAGE_MESSAGES);
+  /**
+   * Appel de groupe en MP (critère de fin du jalon 5). Le salon vocal d'un
+   * groupe porte déjà `channel_id == group_id` — il ne dépend d'aucun salon
+   * déclaré. Un groupe de MP peut donc appeler sans qu'on touche à la règle
+   * « un seul fil » qui l'empêche d'ajouter un second salon.
+   */
+  const voiceActive = useVoice((s) => s.active);
+  const voiceJoin = useVoice((s) => s.join);
+  const voiceLeave = useVoice((s) => s.leave);
+  const inDmCall = voiceActive !== null && voiceActive.groupId === groupId;
   const closeMembers = (): void => {
     setMembersOpen(false);
     membersButtonRef.current?.focus();
@@ -490,6 +501,18 @@ export function GroupView({
                   </svg>
                 </HeaderIconButton>
               </>
+            )}
+            {isDm && (
+              <HeaderIconButton
+                label={inDmCall ? t.calls.hangup : t.calls.startCall}
+                active={inDmCall}
+                onClick={() => {
+                  const action = inDmCall ? voiceLeave() : voiceJoin(groupId, groupId);
+                  action.catch(() => toast('error', t.errors.actionFailed));
+                }}
+              >
+                <PhoneIcon />
+              </HeaderIconButton>
             )}
             {isDm && (
               <HeaderIconButton

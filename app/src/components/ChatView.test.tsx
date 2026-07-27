@@ -54,6 +54,7 @@ import {
   TYPING_EXPIRY_MS,
 } from '../stores/typing';
 import { useUi } from '../stores/ui';
+import { useVoice } from '../stores/voice';
 import { DmView, GroupView } from './ChatView';
 
 const callMock = rpc.call as unknown as Mock;
@@ -874,6 +875,33 @@ describe('GroupView — groupe de MP (jalon 5)', () => {
     expect(
       screen.getByRole('button', { name: 'Paramètres du groupe' }),
     ).toBeInTheDocument();
+  });
+
+  it('appelle sur le groupe lui-même, pas sur un salon vocal', async () => {
+    // Le critère de fin du jalon 5. Un groupe de MP n'a qu'un fil texte et la
+    // liste blanche du nœud lui refuse tout second salon : l'appel vise donc
+    // `channel_id == group_id`, la convention déjà en vigueur pour le salon
+    // vocal d'un serveur. Viser `channelId` ferait rejoindre le fil texte.
+    const join = vi.fn(async () => {});
+    useVoice.setState({ active: null, join });
+
+    render(<GroupView groupId="g1" channelId="fil" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Appeler' }));
+
+    await waitFor(() => expect(join).toHaveBeenCalledWith('g1', 'g1'));
+  });
+
+  it('raccroche quand l’appel de ce groupe est en cours', async () => {
+    const leave = vi.fn(async () => {});
+    useVoice.setState({
+      active: { groupId: 'g1', channelId: 'g1', muted: false, isCall: false },
+      leave,
+    });
+
+    render(<GroupView groupId="g1" channelId="fil" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Raccrocher' }));
+
+    await waitFor(() => expect(leave).toHaveBeenCalled());
   });
 
   it('ouvre la modale de réglages depuis l’en-tête', () => {

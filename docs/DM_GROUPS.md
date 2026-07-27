@@ -1,0 +1,88 @@
+# DM groups — design
+
+> Milestone 5 (10.0). Three to twenty people in one thread, without creating a
+> server with channels and roles for it.
+
+## 1. The problem
+
+Direct messages are strictly two-party. Talking to three people means creating a
+server — disproportionate, and it changes the nature of the relationship. This
+is the most visible gap in messaging once multi-device is delivered.
+
+## 2. The decision, and where it departs from the roadmap
+
+The roadmap proposed two options and recommended **(b) a dedicated lightweight
+group**: a new structure with a signed member list, no roles, no channels, one
+thread. The alternative **(a)** was a real group created internally without
+being presented as a server.
+
+**This implementation takes (a).** The reasoning, since the roadmap recommends
+otherwise:
+
+- Option (b) re-derives what already exists. A DM group needs signed membership,
+  replication, conflict resolution, catch-up, encryption, calls, notifications
+  and moderation of its own history. Every one of those exists for groups, is
+  tested, and has had its edge cases found the hard way. A parallel structure
+  would be a second implementation of each — a second place for the same bug.
+- The stated drawback of (a) is that "the full op-log is oversized for three
+  people". Measured against what a DM group actually does, that is theoretical:
+  a three-person group performs about five operations in its life (create, one
+  channel, three member additions). The op-log's cost follows the number of
+  operations, not the number of features the structure *could* express.
+- Milestone 6 compacts the op-log by snapshots. A DM group built on the op-log
+  inherits that work; a parallel structure would need its own.
+- 🔒 New wire surface is new attack surface. Reusing a path that already refuses
+  what it must refuse is worth more than a smaller path that has to learn.
+
+**What (a) costs, stated plainly**: a DM group carries fields it never uses —
+roles, categories, bans, emojis. They stay empty. The waste is a few empty
+`BTreeMap`s per group, and the risk is that a future change to servers leaks
+into DM groups; §4 below is the guard against that.
+
+## 3. Wire
+
+`GroupOpBody::Create` gains one **additive tail field**, the mechanism D-047
+already established for `SetMeta::banner_color`:
+
+```
+0x01 CREATE { name: str, dm: opt<u8> }     // absent or 0 = server, 1 = DM group
+```
+
+A sender predating the field writes no bytes for it and `Reader::opt_tail`
+decodes it as `None`. ⚠️ The consequence is worth stating rather than
+discovering: **an older client shown a DM group sees an ordinary server.** It is
+not broken — messages arrive, the members are right — it is merely presented in
+the wrong place. That is the honest degradation for an additive field, and it is
+why the flag lives in `CREATE` rather than in a later op: a group's nature must
+be fixed at birth and signed, never something a later operation can flip.
+
+## 4. What a DM group refuses
+
+Enforced where ops are applied, so the rules hold against a hostile peer and not
+merely against our own UI:
+
+| Rule | Why |
+|---|---|
+| At most 20 members | Beyond that a server is the right shape. The roadmap's proposal, kept. |
+| Any member may add a member | Like a thread. No roles exist to consult. |
+| No roles, no categories, no extra channels | The ops are refused outright rather than hidden in the UI. A DM group has exactly one channel, created with it. |
+| No bans, no timeouts, no moderation ops | There is no moderator. Leaving is the remedy. |
+| The `dm` flag is set once, by `CREATE` | Nothing can promote a server to a DM group or the reverse. |
+
+## 5. Open questions from the roadmap, decided
+
+- **Who can add someone?** Any member. A DM group has no hierarchy to consult,
+  and inventing one would be the first step back towards a server.
+- **Can you leave, and what do you see afterwards?** Yes, via the existing
+  member-removal op applied to oneself. History already received stays local —
+  the same rule as removing a friend, which keeps the DM history. Nothing is
+  retroactively erased, because nothing can be: the messages are already on the
+  machine.
+- **What happens when the last member leaves?** The group stops being replicated
+  by anyone and simply ceases to exist for the network. No tombstone is
+  broadcast: there is nobody left to tell.
+- **How many members at most?** 20.
+- **What does someone added later see?** The thread from their arrival. Existing
+  members do not re-send history — that is `GROUP_SYNC`'s existing behaviour and
+  it is the privacy-preserving default: joining a conversation should not hand
+  over everything said before you were there.

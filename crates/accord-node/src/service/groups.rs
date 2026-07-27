@@ -97,7 +97,9 @@ fn audit_entry_json(op: &GroupOp) -> Value {
     };
     let (kind, params) = match GroupOpBody::decode_body(op.kind, &op.body) {
         Ok(body) => match body {
-            GroupOpBody::Create { name } => ("create", json!({ "name": name })),
+            GroupOpBody::Create { name, dm } => {
+                ("create", json!({ "name": name, "dm": dm.unwrap_or(false) }))
+            }
             GroupOpBody::SetMeta {
                 name,
                 icon,
@@ -399,6 +401,21 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
         "groups.create" => {
             let name = param_str(params, "name")?;
             Ok(json!({ "group_id": node.group_create(name)? }))
+        }
+        "groups.create_dm" => {
+            let name = param_str(params, "name")?;
+            let membres = params
+                .get("members")
+                .and_then(Value::as_array)
+                .ok_or(NodeError::Invalid("members manquant"))?
+                .iter()
+                .map(|v| {
+                    v.as_str()
+                        .and_then(hex::decode::<32>)
+                        .ok_or(NodeError::Invalid("clé de membre invalide"))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(json!({ "group_id": node.dm_group_create(name, &membres)? }))
         }
         "groups.list" => {
             // Purge des appartenances `Accepted` fantômes (lien d'invitation

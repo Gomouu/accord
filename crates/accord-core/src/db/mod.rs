@@ -868,6 +868,16 @@ impl Db {
             return;
         };
         let mut suivant = (**etat).clone();
+        // Verdict volontairement ignoré, et ce n'est pas une erreur avalée :
+        // `Applied::Ignored` est une issue normale (op refusée par les
+        // permissions ou la validation). Un repli complet la traverse de la
+        // même façon — état inchangé, on continue — donc la reproduire ici
+        // donne bien le même résultat.
+        //
+        // 🔒 Le repère avance MALGRÉ un refus, et c'est nécessaire : l'op a été
+        // examinée. Ne pas l'avancer laisserait le repère sous une op déjà
+        // traitée, et la suivante serait alors jugée « en dessous » à tort,
+        // invalidant le cache sans raison.
         let _ = suivant.apply(op);
         e.state = Some(std::sync::Arc::new(suivant));
         e.repere = Some(cle);

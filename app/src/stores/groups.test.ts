@@ -454,6 +454,48 @@ describe('useGroups.handleGroupState', () => {
     expect(useGroups.getState().pins[channelKey('g1', 'c1')]).toEqual(['m1', 'm2']);
   });
 
+  it('regroupe une rafale d’événements en deux rechargements au plus', async () => {
+    // Le nœud émet `event.group_state` par op insérée : une adhésion à 500
+    // membres en produit ~1 092 d'affilée. Sans coalescence, c'est 1 092
+    // rechargements complets de la liste des membres (`PERFORMANCE.md` §3.2).
+    let debloquer = (): void => {};
+    const premier = new Promise<GroupStateJson>((r) => {
+      debloquer = () => r(groupState({ name: 'après la rafale' }));
+    });
+    stateMock.mockReturnValueOnce(premier);
+    stateMock.mockResolvedValue(groupState({ name: 'après la rafale' }));
+
+    // Cinq événements pendant que le premier rechargement est en vol.
+    const rafale = [
+      useGroups.getState().handleGroupState('g1'),
+      useGroups.getState().handleGroupState('g1'),
+      useGroups.getState().handleGroupState('g1'),
+      useGroups.getState().handleGroupState('g1'),
+      useGroups.getState().handleGroupState('g1'),
+    ];
+    debloquer();
+    await Promise.all(rafale);
+
+    // Deux, pas cinq : celui en vol, plus un dernier qui rattrape ce que les
+    // trois autres auraient rechargé. Et l'état final est bien le frais.
+    expect(stateMock).toHaveBeenCalledTimes(2);
+    expect(useGroups.getState().states['g1']?.name).toBe('après la rafale');
+  });
+
+  it('ne coalesce pas des groupes différents', async () => {
+    // Contrôle négatif : la coalescence est par groupe, sinon un serveur
+    // bavard ferait taire les événements de tous les autres.
+    stateMock.mockResolvedValue(groupState());
+
+    await Promise.all([
+      useGroups.getState().handleGroupState('g1'),
+      useGroups.getState().handleGroupState('g2'),
+    ]);
+
+    expect(stateMock).toHaveBeenCalledWith('g1');
+    expect(stateMock).toHaveBeenCalledWith('g2');
+  });
+
   it('repart de groups.list quand l’état n’est plus accessible', async () => {
     stateMock.mockRejectedValueOnce(new Error('refusé : non membre'));
     listMock.mockResolvedValueOnce({ groups: [] });

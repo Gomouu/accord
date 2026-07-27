@@ -29,6 +29,12 @@ pub const ALL_PERMS: u32 = perms::VIEW
     | perms::ADMIN
     | perms::MANAGE_EMOJIS;
 
+/// Membres d'un **groupe de MP**, au plus (jalon 5, `docs/DM_GROUPS.md`).
+///
+/// Au-delà, un serveur est la forme juste : il faut alors des rôles, des salons
+/// et une modération — précisément ce qu'un groupe de MP refuse d'avoir.
+pub const MAX_DM_MEMBERS: usize = 20;
+
 /// Nombre maximal d'émojis de serveur (au-delà, un nouvel ajout est ignoré ;
 /// le remplacement d'un émoji existant reste possible).
 pub const MAX_EMOJIS: usize = 50;
@@ -707,9 +713,32 @@ impl GroupState {
             return self.ignore("auteur non membre");
         }
 
+        // 🔒 Les règles propres aux GROUPES DE MP s'appliquent avant tout le
+        // reste, et ici plutôt que dans l'interface : elles doivent tenir face
+        // à un pair qui compose l'op à la main, pas seulement face à notre
+        // propre écran. Voir `docs/DM_GROUPS.md` §4.
+        if self.is_dm {
+            if let Some(raison) = self.refus_en_groupe_mp(&body, &author) {
+                return self.ignore(raison);
+            }
+        }
+
         let perms_of_author = self.base_permissions(&author);
-        let has = |p: u32| {
-            perms_of_author & (p | perms::ADMIN) != 0 || self.founder.as_ref() == Some(&author)
+        let fondateur = self.founder.as_ref() == Some(&author);
+        // Un groupe de MP n'a pas de hiérarchie à consulter : tout membre peut
+        // inviter et renommer. Tout le reste lui est refusé au-dessus, jamais
+        // permis ici — c'est ce qui garde la liste blanche comme seule porte.
+        // ⚠️ `KICK` y figure, et c'est une composition à ne pas défaire : la
+        // liste blanche ci-dessus n'a laissé passer qu'un `Kick` dont la cible
+        // EST l'auteur (partir). Ouvrir `KICK` ici ne permet donc rien d'autre
+        // que ce départ — mais retirer la garde de la liste blanche sans
+        // retirer aussi cette permission rendrait l'expulsion possible.
+        let dm_ouvert = self
+            .is_dm
+            .then_some(perms::INVITE | perms::MANAGE_CHANNELS | perms::KICK);
+        let has = move |p: u32| match dm_ouvert {
+            Some(ouvert) => p & ouvert != 0,
+            None => perms_of_author & (p | perms::ADMIN) != 0 || fondateur,
         };
 
         match body {
@@ -894,10 +923,20 @@ impl GroupState {
                 if !has(needed) {
                     return self.ignore(label);
                 }
-                if self.founder.as_ref() == Some(&member) {
+                // Le fondateur d'un groupe de MP peut partir comme les
+                // autres : il n'y est pas un administrateur, seulement celui
+                // qui a ouvert le fil. L'intouchabilité protège un serveur de
+                // la décapitation ; ici elle enfermerait quelqu'un.
+                if self.founder.as_ref() == Some(&member) && !(self.is_dm && member == author) {
                     return self.ignore("le fondateur est intouchable");
                 }
-                if self.top_position(&author) <= self.top_position(&member)
+                // Partir n'est jamais une question de hiérarchie. Dans un
+                // groupe de MP personne n'a de rôle, donc les deux positions
+                // sont égales et ce contrôle enfermerait tout le monde ; la
+                // liste blanche a déjà garanti que la cible EST l'auteur.
+                let depart_volontaire = self.is_dm && member == author;
+                if !depart_volontaire
+                    && self.top_position(&author) <= self.top_position(&member)
                     && self.founder.as_ref() != Some(&author)
                 {
                     return self.ignore("hiérarchie insuffisante");
@@ -1691,6 +1730,34 @@ impl GroupState {
         self.top_position(author) > position as u32
     }
 
+    /// Raison du refus d'une opération dans un **groupe de MP**, ou `None` si
+    /// elle y a sa place.
+    ///
+    /// 🔒 **Liste blanche, jamais liste noire.** Une opération inventée demain
+    /// est refusée par défaut dans un groupe de MP, jusqu'à ce que quelqu'un se
+    /// demande si elle y a sa place. L'inverse ferait entrer les rôles, les
+    /// bannissements ou la modération par simple oubli d'ajouter une ligne — et
+    /// un groupe de MP qui se met à avoir des rôles n'est plus un groupe de MP.
+    fn refus_en_groupe_mp(&self, body: &GroupOpBody, author: &[u8; 32]) -> Option<&'static str> {
+        match body {
+            // Nom et icône : n'importe quel membre les change.
+            GroupOpBody::SetMeta { .. } => None,
+            // Le fil unique, créé AVEC le groupe. Une fois qu'il existe, aucun
+            // salon ne peut s'ajouter : c'est ce qui tient « un seul fil ».
+            GroupOpBody::AddChannel { .. } if self.channels.is_empty() => None,
+            GroupOpBody::AddChannel { .. } => Some("groupe de MP : un seul fil"),
+            // N'importe quel membre ajoute n'importe qui, comme un fil de
+            // discussion — inventer une hiérarchie serait le premier pas du
+            // retour vers un serveur.
+            GroupOpBody::AddMember { .. } if self.members.len() < MAX_DM_MEMBERS => None,
+            GroupOpBody::AddMember { .. } => Some("groupe de MP : plafond de membres"),
+            // Partir, oui. Expulser quelqu'un d'autre, non : il n'y a pas de
+            // modérateur, et le recours est de partir soi-même.
+            GroupOpBody::Kick { member } if member == author => None,
+            _ => Some("opération sans objet dans un groupe de MP"),
+        }
+    }
+
     fn ignore(&self, reason: &'static str) -> Applied {
         tracing::debug!(reason, "op de groupe ignorée");
         Applied::Ignored(reason)
@@ -1718,6 +1785,218 @@ mod tests {
             body: kind_body.encode_body(),
             sig: [0; 64],
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Groupes de MP (jalon 5, `docs/DM_GROUPS.md`)
+    // ------------------------------------------------------------------
+
+    /// État d'un groupe de MP créé par [`FOUNDER`], avec son fil unique.
+    fn groupe_mp() -> GroupState {
+        let mut st = GroupState::default();
+        st.apply(&signed(
+            GroupOpBody::Create {
+                name: "Nous trois".into(),
+                dm: Some(true),
+            },
+            FOUNDER,
+            1,
+        ));
+        st.apply(&signed(
+            GroupOpBody::AddChannel {
+                channel_id: [0x11; 16],
+                name: "fil".into(),
+                category: None,
+                kind: ChannelKind::Text,
+                position: 0,
+            },
+            FOUNDER,
+            2,
+        ));
+        st
+    }
+
+    #[test]
+    fn un_groupe_de_mp_se_reconnait_a_sa_creation_et_pas_ailleurs() {
+        assert!(groupe_mp().is_dm, "le drapeau doit survivre à la création");
+
+        let mut serveur = GroupState::default();
+        serveur.apply(&signed(
+            GroupOpBody::Create {
+                name: "Serveur".into(),
+                dm: None,
+            },
+            FOUNDER,
+            1,
+        ));
+        assert!(!serveur.is_dm, "l'absence du champ vaut « serveur »");
+    }
+
+    #[test]
+    fn un_groupe_de_mp_refuse_ce_qui_ferait_de_lui_un_serveur() {
+        let mut st = groupe_mp();
+        st.apply(&signed(
+            GroupOpBody::AddMember {
+                member: ALICE,
+                invite_id: None,
+            },
+            FOUNDER,
+            3,
+        ));
+
+        // 🔒 Un rôle, une catégorie, un bannissement : la liste blanche les
+        // écarte tous, y compris demandés par le fondateur.
+        for (lamport, op) in [
+            (
+                4,
+                GroupOpBody::AddRole {
+                    role_id: [0x22; 16],
+                    name: "Admin".into(),
+                    permissions: perms::ADMIN,
+                    color: 0,
+                    position: 0,
+                },
+            ),
+            (
+                5,
+                GroupOpBody::AddCategory {
+                    category_id: [0x33; 16],
+                    name: "Cat".into(),
+                    position: 0,
+                },
+            ),
+            (6, GroupOpBody::Ban { member: ALICE }),
+        ] {
+            assert!(
+                matches!(st.apply(&signed(op, FOUNDER, lamport)), Applied::Ignored(_)),
+                "op refusée attendue à lamport {lamport}"
+            );
+        }
+        assert!(st.roles.is_empty());
+        assert!(st.categories.is_empty());
+        assert!(st.banned.is_empty());
+        assert!(st.members.contains_key(&ALICE), "Alice reste membre");
+    }
+
+    #[test]
+    fn un_groupe_de_mp_na_quun_seul_fil() {
+        let mut st = groupe_mp();
+        assert_eq!(st.channels.len(), 1, "le fil créé avec le groupe");
+
+        let ajout = st.apply(&signed(
+            GroupOpBody::AddChannel {
+                channel_id: [0x44; 16],
+                name: "second".into(),
+                category: None,
+                kind: ChannelKind::Text,
+                position: 1,
+            },
+            FOUNDER,
+            3,
+        ));
+        assert!(matches!(ajout, Applied::Ignored(_)));
+        assert_eq!(st.channels.len(), 1, "aucun second salon");
+    }
+
+    #[test]
+    fn nimporte_quel_membre_ajoute_quelquun_sans_role() {
+        let mut st = groupe_mp();
+        st.apply(&signed(
+            GroupOpBody::AddMember {
+                member: ALICE,
+                invite_id: None,
+            },
+            FOUNDER,
+            3,
+        ));
+        // Alice n'a aucun rôle : dans un serveur, `INVITE` lui manquerait.
+        assert_eq!(
+            st.base_permissions(&ALICE) & perms::INVITE,
+            0,
+            "sans rôle, Alice n'aurait pas INVITE dans un serveur"
+        );
+
+        let ajout = st.apply(&signed(
+            GroupOpBody::AddMember {
+                member: BOB,
+                invite_id: None,
+            },
+            ALICE,
+            4,
+        ));
+        assert!(matches!(ajout, Applied::Ok), "tout membre peut ajouter");
+        assert!(st.members.contains_key(&BOB));
+    }
+
+    #[test]
+    fn le_plafond_de_vingt_membres_tient() {
+        let mut st = groupe_mp();
+        let mut lamport = 3;
+        for i in 0..(MAX_DM_MEMBERS as u8) {
+            let mut membre = [0u8; 32];
+            membre[0] = i.wrapping_add(1);
+            st.apply(&signed(
+                GroupOpBody::AddMember {
+                    member: membre,
+                    invite_id: None,
+                },
+                FOUNDER,
+                lamport,
+            ));
+            lamport += 1;
+        }
+        assert_eq!(st.members.len(), MAX_DM_MEMBERS);
+
+        let refus = st.apply(&signed(
+            GroupOpBody::AddMember {
+                member: [0xEE; 32],
+                invite_id: None,
+            },
+            FOUNDER,
+            lamport,
+        ));
+        assert!(matches!(refus, Applied::Ignored(_)));
+        assert_eq!(st.members.len(), MAX_DM_MEMBERS, "le plafond ne bouge pas");
+    }
+
+    #[test]
+    fn on_peut_partir_mais_pas_expulser_quelquun_dautre() {
+        let mut st = groupe_mp();
+        for (l, m) in [(3, ALICE), (4, BOB)] {
+            st.apply(&signed(
+                GroupOpBody::AddMember {
+                    member: m,
+                    invite_id: None,
+                },
+                FOUNDER,
+                l,
+            ));
+        }
+
+        // 🔒 C'est le FONDATEUR qu'il faut essayer, pas Alice : Alice est
+        // déjà arrêtée par le contrôle de hiérarchie qui existait avant les
+        // groupes de MP, si bien qu'un test sur elle passerait même sans la
+        // liste blanche — vérifié par mutation. Le fondateur, lui, franchit la
+        // hiérarchie et la permission ; seule la liste blanche l'arrête.
+        let expulsion = st.apply(&signed(GroupOpBody::Kick { member: ALICE }, FOUNDER, 5));
+        assert!(
+            matches!(expulsion, Applied::Ignored(_)),
+            "pas de modérateur dans un groupe de MP, pas même celui qui l'a ouvert"
+        );
+        assert!(st.members.contains_key(&ALICE), "Alice reste");
+
+        // Et Alice non plus ne peut expulser Bob.
+        let entre_pairs = st.apply(&signed(GroupOpBody::Kick { member: BOB }, ALICE, 6));
+        assert!(matches!(entre_pairs, Applied::Ignored(_)));
+        assert!(st.members.contains_key(&BOB), "Bob reste");
+
+        // Alice part d'elle-même : accepté.
+        let depart = st.apply(&signed(GroupOpBody::Kick { member: ALICE }, ALICE, 7));
+        assert!(
+            matches!(depart, Applied::Ok),
+            "partir est toujours possible"
+        );
+        assert!(!st.members.contains_key(&ALICE));
     }
 
     const FOUNDER: [u8; 32] = [0xF0; 32];
@@ -1871,7 +2150,14 @@ mod tests {
     #[test]
     fn invites_enforce_uses_and_expiry() {
         let mut ops = vec![
-            signed(GroupOpBody::Create { name: "G".into(), dm: None }, FOUNDER, 1),
+            signed(
+                GroupOpBody::Create {
+                    name: "G".into(),
+                    dm: None,
+                },
+                FOUNDER,
+                1,
+            ),
             signed(
                 GroupOpBody::InviteCreate {
                     invite_id: [9; 16],

@@ -353,7 +353,46 @@ quantities, not a measurement — see §3.5.
    preceded by 200 *database writes*, paid whether or not the recipient is
    reachable, and multiplied by the number of devices per account.
 
-### 3.4 Assumed limits
+### 3.4 What was then fixed, and what it bought
+
+§3.2 found the cost was not where the roadmap expected: not the replay, not the
+cryptography, but the state being **re-derived from the database after every
+single op**. `insert_group_op` invalidated the cache, and the next `group_state`
+re-read the whole log out of SQLite and refolded it — about 596 000 row reads for
+a 1 092-op join.
+
+The cache now remembers a **watermark**: the highest canonical key
+`(lamport, node_id(author), op_id)` already folded. An op sorting strictly above
+it would have been applied last in a full fold, so applying it on top of the
+cached state is demonstrably the same thing. An op sorting below has to be
+inserted in the middle, and there only a full fold is right — the cache is
+dropped. A `CREATE` always drops it, because `fold` hoists the committed root out
+of canonical order.
+
+| Join | Before | After | |
+|---|---|---|---|
+| 50 members | 34.4 ms | **22.1 ms** | 1.6× |
+| 200 members | 188 ms | **70.0 ms** | 2.7× |
+| 500 members | 827 ms | **172.6 ms** | **4.8×** |
+
+The gain grows with size, which is the signature of the quadratic re-reading
+being gone rather than a constant being shaved.
+
+⚠️ **What this does not do.** It does not compact the op-log, which the roadmap
+proposed and which remains unbuilt — a new member still replays everything, it
+is simply no longer re-read from disk once per op. And nothing here touches the
+star delivery or the unpaginated `groups.state` JSON, both still as measured in
+§3.2 and §3.3.
+
+🔒 The correctness of the fast path is pinned by
+`le_repli_incremental_rend_le_meme_etat_quel_que_soit_lordre_darrivee`, which
+compares an incrementally built state against a full fold in both arrival
+orders. That test took three attempts to become real — it first used commutative
+ops, then never populated the cache between inserts, then let a trailing
+`CREATE` reset the cache and hide the corruption. Each version passed with the
+ordering guard deleted. Worth knowing before trusting it.
+
+### 3.5 Assumed limits
 
 - **The machine was quiet, but not dedicated.** §2.3 applies here too, and this
   is a laptop that other work shares. The run behind the table was started only
@@ -380,7 +419,7 @@ quantities, not a measurement — see §3.5.
   members"; measuring it needs a fixture with several servers, which this bench
   does not build.
 
-### 3.5 Not measured here
+### 3.6 Not measured here
 
 - **Everything past the socket.** Session sealing, the UDP write, retransmission
   and the anti-entropy round trip that precedes a join are all outside the

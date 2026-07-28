@@ -306,7 +306,7 @@ All notable changes to Accord. This project follows [semantic versioning](https:
   it rather than protecting them.
 
   What this does **not** cover is written down in
-  [SECURITY.md](SECURITY.md) §5.15–5.17, and it matters: only confidentiality is
+  [SECURITY.md](SECURITY.md) §5.20–5.22, and it matters: only confidentiality is
   post-quantum. Every signature is still Ed25519, so an attacker holding a
   quantum computer *while you are online* could still impersonate an identity.
   Group keys and offline mailbox deposits also stay classic for now.

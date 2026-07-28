@@ -267,8 +267,72 @@ impl Node {
             )?)
         })?;
         self.outbound.send(Outbound::GroupOp { op: Box::new(op) });
+        self.rotate_key_after_removal(group_id, &body);
         self.emit_group_state(group_id);
         Ok(())
+    }
+
+    /// Tourne la clé d'epoch et la distribue, si une op vient de retirer un
+    /// membre ET que l'identité locale est le membre responsable (§6.4).
+    ///
+    /// 🔒 **Sans cet appel, l'expulsion ne protège rien.** `SECURITY.md`,
+    /// `SPEC.md` et `THREAT-MODEL.md` promettent tous trois une rotation
+    /// obligatoire à chaque retrait ; `group::rotate_key` existait, la moitié
+    /// réception (`CoreMsg::GroupKey`) aussi — mais **rien n'appelait la
+    /// rotation** hors de ses propres tests unitaires. Un membre expulsé
+    /// gardait donc la clé et déchiffrait la suite. Trouvé en préparant le
+    /// dossier d'audit du jalon 8.
+    ///
+    /// Un seul membre est responsable (`rotation_responsible`, règle
+    /// déterministe) : deux rotations concurrentes produiraient deux epochs
+    /// rivaux pour le même retrait. Les autres ne font rien ici.
+    ///
+    /// Best effort : un échec de rotation ne doit pas annuler le retrait
+    /// lui-même, qui est déjà dans le journal et diffusé. Il est journalisé,
+    /// et la prochaine op de retrait retentera.
+    pub(super) fn rotate_key_after_removal(&self, group_id: &[u8; 16], body: &GroupOpBody) {
+        if !matches!(
+            body,
+            GroupOpBody::Kick { .. } | GroupOpBody::Ban { .. } | GroupOpBody::Leave
+        ) {
+            return;
+        }
+        let rotation = self.with_db(|db| {
+            let state = group::group_state(db, group_id)?;
+            if !group::is_rotation_responsible(&state, &self.identity) {
+                return Ok(None);
+            }
+            Ok(Some(group::rotate_key(db, &self.identity, group_id)?))
+        });
+        let rotation = match rotation {
+            Ok(Some(r)) => r,
+            Ok(None) => return,
+            Err(e) => {
+                tracing::warn!(cible = "groupes", "rotation de clé impossible : {e}");
+                return;
+            }
+        };
+        for (membre, scellee) in rotation.sealed {
+            // Se scelle la clé à soi-même aussi : `rotate_key` l'a déjà
+            // persistée localement, donc on saute notre propre entrée.
+            if membre == self.identity.public_key() {
+                continue;
+            }
+            self.outbound.send(Outbound::Core {
+                to: membre,
+                msg: Box::new(CoreMsg::GroupKey {
+                    group_id: *group_id,
+                    key_epoch: rotation.key_epoch,
+                    sealed_key: scellee,
+                }),
+            });
+        }
+    }
+
+    /// Epoch de la dernière clé de groupe détenue localement (0 si aucune).
+    /// Sert aux tests à constater qu'un retrait a bien fait avancer la clé.
+    pub fn latest_group_key_epoch(&self, group_id: &[u8; 16]) -> Result<u32, NodeError> {
+        self.with_db(|db| Ok(db.latest_group_key(group_id)?.map_or(0, |k| k.key_epoch)))
     }
 
     /// Émet `event.group_state { group_id }` (l'UI recharge `groups.state`).

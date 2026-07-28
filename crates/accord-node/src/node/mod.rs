@@ -2359,6 +2359,9 @@ impl Node {
             }
             CoreMsg::GroupOpMsg { op } => {
                 let group_id = op.group_id;
+                // Conservés avant que `op` ne soit consommée par l'ingestion :
+                // la rotation a besoin de savoir de quelle op il s'agissait.
+                let (op_kind, op_body) = (op.kind, op.body.clone());
                 // Porte de consentement (D-045) : un op-log poussé sans
                 // intention locale de rejoindre (ni fondateur, ni invitation
                 // acceptée) est ignoré en silence — un pair malveillant ne
@@ -2381,6 +2384,16 @@ impl Node {
                         self.with_db(|db| {
                             Ok(db.set_group_membership(&group_id, LocalMembership::Joined)?)
                         })?;
+                    }
+                    // 🔒 La rotation incombe au membre RESPONSABLE, pas à
+                    // l'auteur du retrait : un départ volontaire n'a pas
+                    // d'auteur restant, et un expulseur peut très bien ne pas
+                    // être le responsable. C'est donc à l'ingestion que ça se
+                    // décide, chez chacun, et un seul agit.
+                    if let Ok(body) =
+                        accord_proto::core_msg::GroupOpBody::decode_body(op_kind, &op_body)
+                    {
+                        self.rotate_key_after_removal(&group_id, &body);
                     }
                     self.emit_group_state(&group_id);
                 }
@@ -2499,8 +2512,32 @@ impl Node {
                 if membership == LocalMembership::None {
                     return Ok(vec![]);
                 }
-                // La clé n'est acceptée que si elle s'ouvre avec notre clé
-                // privée ; un tiers ne peut pas nous en imposer une fausse.
+                // 🔒 **L'expéditeur doit être membre.** Le commentaire qui
+                // tenait ici disait que la boîte scellée suffisait — « un tiers
+                // ne peut pas nous imposer une fausse clé ». C'est un
+                // non-sequitur : `sealed::seal` est une boîte scellée anonyme,
+                // elle ne prend que la clé publique du DESTINATAIRE, laquelle
+                // est le code ami, public. L'ouvrir prouve qu'on est bien la
+                // cible, pas que l'émetteur a le droit d'envoyer.
+                //
+                // Sans cette porte, un ami qui n'est PAS dans le groupe peut
+                // pousser une epoch arbitrairement haute ; `latest_group_key`
+                // trie par `key_epoch DESC`, donc elle gagne, et nos messages
+                // suivants partent chiffrés sous une clé que le groupe n'a
+                // pas. Déni ciblé sur nos envois, silencieux des deux côtés.
+                //
+                // ⚠️ La garde ne s'applique QUE si l'état est déjà matérialisé.
+                // Pendant une adhésion, la clé arrive légitimement avant les
+                // ops qui font de l'émetteur un membre à nos yeux : exiger
+                // l'appartenance là casserait l'invitation. La fenêtre reste
+                // donc ouverte le temps de rejoindre, ce qui est aussi le
+                // moment où l'on n'a rien à envoyer.
+                let etat = self.with_db(|db| Ok(group::group_state(db, &group_id).ok()));
+                if let Ok(Some(etat)) = etat {
+                    if !etat.members.contains_key(peer_pubkey) {
+                        return Ok(vec![]);
+                    }
+                }
                 self.with_db(|db| {
                     Ok(group::accept_sealed_key(
                         db,

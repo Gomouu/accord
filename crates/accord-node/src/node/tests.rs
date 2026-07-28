@@ -584,9 +584,20 @@ fn group_replication_hierarchy_and_moderation_between_nodes() {
     assert!(hist_b[0].deleted, "tombstone de modération répliqué");
 
     // Bob quitte le groupe ; Alice l'apprend par l'op répliquée.
+    //
+    // 🔒 Et la clé tourne CHEZ ALICE, qui n'est pas l'autrice de l'op : un
+    // départ volontaire n'a pas d'auteur restant, c'est donc au membre
+    // responsable (§6.4) de tourner, à l'ingestion. Sans ça, Bob garde
+    // l'epoch courant et déchiffre tout ce qui suit son départ.
+    let epoch_avant = alice.latest_group_key_epoch(&gid).unwrap();
     bob.group_leave(&gid).unwrap();
     deliver(&mut rx_b, &bob_pub, &alice, &alice_pub);
     assert!(!alice.group_state(&gid).unwrap().is_member(&bob_pub));
+    let epoch_apres = alice.latest_group_key_epoch(&gid).unwrap();
+    assert!(
+        epoch_apres > epoch_avant,
+        "un départ doit tourner la clé chez le responsable : {epoch_avant} -> {epoch_apres}"
+    );
 }
 
 #[test]
@@ -1305,6 +1316,46 @@ fn unsolicited_group_push_never_surfaces_as_joined() {
         .unwrap()
         .is_empty());
     assert!(bob.group_ids().unwrap().is_empty());
+}
+
+#[test]
+fn a_group_key_from_a_non_member_is_refused() {
+    // 🔒 Le commentaire qui gardait ce chemin affirmait qu'une boîte scellée
+    // suffisait — « un tiers ne peut pas nous imposer une fausse clé ». C'est
+    // faux : `sealed::seal` est anonyme et ne prend que la clé publique du
+    // DESTINATAIRE, qui est son code ami. L'ouvrir prouve qu'on est la cible,
+    // pas que l'émetteur ait le droit d'émettre.
+    //
+    // Ce que la faille donnait : `latest_group_key` trie par `key_epoch DESC`,
+    // donc une epoch arbitrairement haute poussée par un ami HORS du groupe
+    // gagne, et les envois suivants partent sous une clé que le groupe n'a
+    // pas. Déni ciblé, silencieux des deux côtés.
+    let (alice, _rx_a) = node_with_channel();
+    let (mallory, _rx_m) = node_with_channel();
+    let mallory_pub = mallory.public_key();
+
+    let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
+    let epoch_avant = alice.latest_group_key_epoch(&gid).unwrap();
+
+    // Mallory n'est pas membre : sa clé doit être ignorée, quelle que soit
+    // l'epoch annoncée.
+    assert!(alice
+        .ingest_core(
+            &mallory_pub,
+            CoreMsg::GroupKey {
+                group_id: gid,
+                key_epoch: 99,
+                sealed_key: [0u8; 80],
+            },
+        )
+        .unwrap()
+        .is_empty());
+
+    assert_eq!(
+        alice.latest_group_key_epoch(&gid).unwrap(),
+        epoch_avant,
+        "l'epoch ne doit pas bouger sur une clé venue d'un non-membre"
+    );
 }
 
 #[test]

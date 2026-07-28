@@ -4,6 +4,72 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ## [Unreleased]
 
+## [8.0.0] — 2026-07-28
+
+### Added
+
+- **Post-quantum encryption, hybrid — your conversations resist a quantum
+  computer that does not exist yet.** A session key now derives from *two*
+  independent mechanisms, X25519 and ML-KEM, concatenated. Breaking the session
+  means breaking both. Nothing is replaced: X25519 keeps doing exactly what it
+  did, ML-KEM is added beside it.
+
+  The word to hold on to is *hybrid*. If ML-KEM turns out to be flawed — it is
+  young, and this implementation is unaudited — you are exactly as protected as
+  you were yesterday. Hybrid is a hedge, not a bet.
+
+  🔒 **What it does NOT protect.** Only confidentiality is post-quantum.
+  Authentication is not: signatures stay Ed25519, so a future quantum computer
+  could forge an identity even though it could not read the past. And a session
+  is hybrid only when both sides support it — talking to a friend on an older
+  build gives you a classic session, silently, because refusing would cut you
+  off from them. The connection card tells you which one you got.
+
+  Settings → Security carries an advanced switch to *require* the hybrid and
+  refuse classic sessions. It is off by default: turning it on cuts you off from
+  every friend who has not updated.
+
+- **Group members can be read in pages** (`groups.members`) for third-party
+  clients. `groups.state` still returns everyone, unchanged.
+
+### Fixed
+
+- **🔒 A group key could be installed by anyone you had a session with.** Not
+  just group members — any friend. The check only asked whether *you* had joined
+  the group, never whether the *sender* belonged to it, and the comment
+  defending that argued a sealed box was proof enough. It is not: an anonymous
+  sealed box only proves the sender knew your public key, which is your friend
+  code and public by design.
+
+  Consequence: a friend outside the group could push an arbitrarily high key
+  epoch, win, and make every message you sent afterwards unreadable by the
+  group — silently, on both sides. The sender must now be a member.
+
+- **Kicking someone from your own screen now rotates the group key here too.**
+  It already did when you learned of a departure from another member; the local
+  path was untested, and untested is how it would have quietly stopped working.
+
+### Performance
+
+- **Joining a large server is four to five times faster.** A 500-member server
+  went from 827 ms to 173 ms. The cost was never the replay: the group state was
+  being re-derived from the database after *every single operation*, about
+  596 000 row reads for a 1 092-operation join.
+
+- Group state is no longer copied in full on every ingested operation — about
+  15 % of a long join on top of the above.
+
+### Security notes
+
+- The signing recipe in `ROADMAP.md` no longer records that the update key
+  carries no password. The key was never in the repository; saying it is
+  unprotected still helped anyone who obtained it.
+
+- `scripts/check-log-secrets.mjs` now runs in the gate and in CI. "Secrets are
+  never logged" had been a promise held up by a convention on call sites and
+  nothing else, across 201 logging calls.
+
+
 ### Fixed
 
 - **🔴 A freshly paired device received nothing, and looked perfectly

@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "accord-api"
-version = "7.1.0"
+version = "8.0.0"
 dependencies = [
  "futures-util",
  "rand 0.8.6",
@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "accord-app"
-version = "7.1.0"
+version = "8.0.0"
 dependencies = [
  "accord-macos",
  "accord-node",
@@ -43,7 +43,7 @@ dependencies = [
 
 [[package]]
 name = "accord-core"
-version = "7.1.0"
+version = "8.0.0"
 dependencies = [
  "accord-crypto",
  "accord-proto",
@@ -64,7 +64,7 @@ dependencies = [
 
 [[package]]
 name = "accord-crypto"
-version = "7.1.0"
+version = "8.0.0"
 dependencies = [
  "accord-proto",
  "argon2",
@@ -89,7 +89,7 @@ dependencies = [
 
 [[package]]
 name = "accord-dht"
-version = "7.1.0"
+version = "8.0.0"
 dependencies = [
  "accord-crypto",
  "accord-proto",
@@ -105,7 +105,7 @@ dependencies = [
 
 [[package]]
 name = "accord-macos"
-version = "7.1.0"
+version = "8.0.0"
 dependencies = [
  "block2",
  "objc2",
@@ -114,7 +114,7 @@ dependencies = [
 
 [[package]]
 name = "accord-node"
-version = "7.1.0"
+version = "8.0.0"
 dependencies = [
  "accord-api",
  "accord-core",
@@ -145,7 +145,7 @@ dependencies = [
 
 [[package]]
 name = "accord-proto"
-version = "7.1.0"
+version = "8.0.0"
 dependencies = [
  "criterion",
  "proptest",
@@ -155,7 +155,7 @@ dependencies = [
 
 [[package]]
 name = "accord-transport"
-version = "7.1.0"
+version = "8.0.0"
 dependencies = [
  "accord-crypto",
  "accord-proto",
@@ -170,7 +170,7 @@ dependencies = [
 
 [[package]]
 name = "accord-voice"
-version = "7.1.0"
+version = "8.0.0"
 dependencies = [
  "accord-proto",
  "cpal",

@@ -863,11 +863,16 @@ impl Db {
             cache.remove(&op.group_id);
             return;
         }
-        let Some(etat) = e.state.as_ref() else {
+        let Some(etat) = e.state.as_mut() else {
             cache.remove(&op.group_id);
             return;
         };
-        let mut suivant = (**etat).clone();
+        // `make_mut` plutôt qu'un clone systématique : le cache détient
+        // généralement seul cet `Arc` (les lecteurs reçoivent une copie de
+        // l'état, pas une part de l'`Arc`), donc l'extension se fait en place.
+        // Cloner à chaque op coûtait la taille entière de l'état — à 200
+        // membres et dix mille ops, c'est le poste dominant d'une adhésion.
+        let suivant = std::sync::Arc::make_mut(etat);
         // Verdict volontairement ignoré, et ce n'est pas une erreur avalée :
         // `Applied::Ignored` est une issue normale (op refusée par les
         // permissions ou la validation). Un repli complet la traverse de la
@@ -879,7 +884,6 @@ impl Db {
         // traitée, et la suivante serait alors jugée « en dessous » à tort,
         // invalidant le cache sans raison.
         let _ = suivant.apply(op);
-        e.state = Some(std::sync::Arc::new(suivant));
         e.repere = Some(cle);
     }
 

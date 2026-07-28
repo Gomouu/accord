@@ -601,6 +601,69 @@ fn group_replication_hierarchy_and_moderation_between_nodes() {
 }
 
 #[test]
+#[ignore = "trou connu : la garde naïve casse l'adhésion — voir le commentaire"]
+fn ops_pushed_by_a_non_member_never_enter_the_log() {
+    // 🔒 `ingest_op` ne vérifie pas l'auteur d'une op, et c'est délibéré :
+    // l'anti-entropie livre dans le désordre, si bien qu'une op d'un membre
+    // peut arriver AVANT l'`AddMember` qui le fait membre à nos yeux. Juger
+    // l'auteur creuserait un trou de convergence.
+    //
+    // On a donc essayé de juger l'EXPÉDITEUR de la session, qui semblait sans
+    // ce risque. **Ça ne marche pas non plus**, et c'est le résultat que ce
+    // test conserve : la porte a été écrite, et elle casse TREIZE tests
+    // d'adhésion. La raison est structurelle — l'op qui fait de Bob un membre
+    // est précisément relayée par Bob. Au moment du handshake d'invitation,
+    // l'expéditeur n'est légitimement pas encore membre.
+    //
+    // 🔴 **Le trou reste donc ouvert** : un inconnu peut pousser des ops
+    // signées qui remplissent notre journal et se répliquent ensuite chez tous
+    // les membres. Le coût est le stockage et la bande passante, jamais
+    // l'état — deux gardes indépendantes le refusent au repli, voir
+    // `an_outsiders_signed_op_is_stored_but_changes_nothing`.
+    //
+    // Ce qu'une correction juste devra traiter, et qui n'était pas prévu :
+    // exempter le pair qui présente une invitation valide, sans que cette
+    // exemption devienne elle-même la porte d'entrée (« prétendre rejoindre »).
+    // C'est un changement du chemin de réplication, pas une ligne de garde.
+    //
+    // Le test est `#[ignore]` plutôt que supprimé : il documente le trou, et il
+    // passera au vert le jour où quelqu'un le bouche — `cargo test -- --ignored`.
+    let (alice, mut rx_a) = node_with_channel();
+    let (bob, mut rx_b) = node_with_channel();
+    let (mallory, _rx_m) = node_with_channel();
+    let alice_pub = alice.public_key();
+    let bob_pub = bob.public_key();
+    let mallory_pub = mallory.public_key();
+
+    let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
+    invite_and_join(
+        &alice, &mut rx_a, &alice_pub, &bob, &mut rx_b, &bob_pub, &gid,
+    );
+    let ops_de = |n: &Node, g: &[u8; 16]| n.with_db(|db| Ok(db.group_ops(g)?)).unwrap().len();
+    let ops_avant = ops_de(&alice, &gid);
+
+    // Mallory fabrique un groupe à elle pour en tirer une op signée valide,
+    // puis la pousse dans le groupe d'Alice en usurpant le `group_id`.
+    let gid_m = hex::decode::<16>(&mallory.group_create("Chez Mallory").unwrap()).unwrap();
+    let mut op = mallory
+        .with_db(|db| Ok(db.group_ops(&gid_m)?))
+        .unwrap()
+        .remove(0);
+    op.group_id = gid;
+
+    assert!(alice
+        .ingest_core(&mallory_pub, CoreMsg::GroupOpMsg { op })
+        .unwrap()
+        .is_empty());
+
+    assert_eq!(
+        ops_de(&alice, &gid),
+        ops_avant,
+        "le journal ne doit pas grossir d'une op poussée par un non-membre"
+    );
+}
+
+#[test]
 fn kicking_a_member_locally_rotates_the_key_here_too() {
     // 🔒 Le chemin LOCAL de la rotation n'était gardé par rien.
     //

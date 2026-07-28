@@ -441,36 +441,6 @@ Read before recommending Accord to people whose safety depends on anonymity.
     exposes, to anyone who can resolve your friend code, **how many devices your
     account has, the names you gave them ("Work laptop") and when each was
     added**. Name devices accordingly.
-15. **Only confidentiality is post-quantum. Authentication is not.** Every
-    signature in Accord is **Ed25519**, which a sufficiently large quantum
-    computer breaks. Identities, the device list, DHT records and the handshake
-    transcripts are all signed with it. So the guarantee is asymmetric, and the
-    asymmetry matters:
-    - Traffic **recorded today** and attacked later stays protected by the
-      ML-KEM half, because the attacker must break the key agreement of a
-      session that is already over.
-    - An attacker who **holds a quantum computer while you are online** can
-      forge signatures, and therefore impersonate an identity or sit in the
-      middle of a *new* handshake. The hybrid key agreement does not help
-      against that; nothing in the current protocol does.
-    Post-quantum signatures (ML-DSA) are not implemented. Until they are, treat
-    "post-quantum" in this project as meaning *confidentiality of past traffic*,
-    not *authenticity of future traffic*.
-16. **A hybrid session requires both sides, and most sessions are not yours to
-    decide.** The initiator is the only party that can open hybrid mode (SPEC
-    §2.2.2), so a contact on an older version yields a classic session no matter
-    what you do; requiring hybrid removes those contacts instead of protecting
-    them. Beyond that, the hybrid covers the **transport session** only. It does
-    **not** cover data sealed to a *static* X25519 key: group epoch keys and
-    offline mailbox deposits (§3.3) are still sealed classically, so a recorded
-    mailbox deposit does not benefit from ML-KEM. Nor does it change anything
-    about the metadata in §5.1–§5.3 — the identity public keys still travel in
-    cleartext in HELLO/WELCOME, and encrypting *those* is a separate problem.
-17. **The ML-KEM implementation is unaudited and unproven.** See §2. It is one
-    of two halves of the key agreement, which bounds the consequence of a flaw
-    to "no better than today", but it is a real difference in assurance from the
-    rest of the primitive set.
-
 15. **Blocking is eventually consistent, and ordered by wall clocks.** Blocking
     someone now propagates to the other devices of the account, so a block set
     on the laptop protects the desktop too. Two limits follow from how it is
@@ -529,6 +499,36 @@ Read before recommending Accord to people whose safety depends on anonymity.
     On Windows it inherits the ACLs of the user's data directory, which keeps
     other accounts out but not another process of the same account.
 
+20. **Only confidentiality is post-quantum. Authentication is not.** Every
+    signature in Accord is **Ed25519**, which a sufficiently large quantum
+    computer breaks. Identities, the device list, DHT records and the handshake
+    transcripts are all signed with it. So the guarantee is asymmetric, and the
+    asymmetry matters:
+    - Traffic **recorded today** and attacked later stays protected by the
+      ML-KEM half, because the attacker must break the key agreement of a
+      session that is already over.
+    - An attacker who **holds a quantum computer while you are online** can
+      forge signatures, and therefore impersonate an identity or sit in the
+      middle of a *new* handshake. The hybrid key agreement does not help
+      against that; nothing in the current protocol does.
+    Post-quantum signatures (ML-DSA) are not implemented. Until they are, treat
+    "post-quantum" in this project as meaning *confidentiality of past traffic*,
+    not *authenticity of future traffic*.
+21. **A hybrid session requires both sides, and most sessions are not yours to
+    decide.** The initiator is the only party that can open hybrid mode (SPEC
+    §2.2.2), so a contact on an older version yields a classic session no matter
+    what you do; requiring hybrid removes those contacts instead of protecting
+    them. Beyond that, the hybrid covers the **transport session** only. It does
+    **not** cover data sealed to a *static* X25519 key: group epoch keys and
+    offline mailbox deposits (§3.3) are still sealed classically, so a recorded
+    mailbox deposit does not benefit from ML-KEM. Nor does it change anything
+    about the metadata in §5.1–§5.3 — the identity public keys still travel in
+    cleartext in HELLO/WELCOME, and encrypting *those* is a separate problem.
+22. **The ML-KEM implementation is unaudited and unproven.** See §2. It is one
+    of two halves of the key agreement, which bounds the consequence of a flaw
+    to "no better than today", but it is a real difference in assurance from the
+    rest of the primitive set.
+
 ## 6. Accepted v0 trade-offs
 
 Documented in full in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md), with
@@ -577,9 +577,13 @@ Recommended entry points for an auditor, from most critical to least critical:
   the seed, BIP39 checksum, non-storage of the phrase.
 - [ ] **Strict decoding** (`crates/accord-proto`): size bounds (SPEC §13),
   rejection of excess, absence of panic on arbitrary input — now covered by a
-  `cargo-fuzz` harness (`fuzz/fuzz_targets/`: `proto_decode`, `core_msg`,
-  `handshake_decode`, `dht_record`, `group_op_body`, `group_state`,
-  `file_manifest`, `backup_archive`).
+  `cargo-fuzz` harness — **nine** targets in `fuzz/fuzz_targets/`:
+  `proto_decode`, `core_msg`, `handshake_decode`, `dht_record`,
+  `group_op_body`, `group_state`, `file_manifest`, `backup_archive` and
+  `device_list`. The last was missing from this list, which mattered: it is the
+  structure at the heart of multi-device identity and revocation
+  (`docs/FUZZING.md` §2), and a checklist that omits it invites an auditor to
+  conclude it was never fuzzed.
 - [ ] **Device pairing** (`crates/accord-crypto/src/pairing.rs`,
   `crates/accord-node/src/pairing.rs`): what a completed symmetric SPAKE2
   exchange does and does not prove, the sealed payload as the only

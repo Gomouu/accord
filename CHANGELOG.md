@@ -4,6 +4,8 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ## [Unreleased]
 
+## [8.1.0] — 2026-07-28
+
 ### Fixed
 
 - **Ten controls were too small to hit reliably.** The worst were the two

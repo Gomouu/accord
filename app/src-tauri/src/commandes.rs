@@ -656,7 +656,10 @@ mod tests {
             }
         });
         // L'échec est nommé…
-        assert!(texte.contains("illisible"), "l'échec doit être dit : {texte}");
+        assert!(
+            texte.contains("illisible"),
+            "l'échec doit être dit : {texte}"
+        );
         assert!(texte.contains("absent"), "avec sa cause : {texte}");
         // …et ce qui suit est quand même exporté. Un fichier manquant est le
         // cas NORMAL au premier lancement ; interrompre là priverait

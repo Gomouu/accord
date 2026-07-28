@@ -232,7 +232,8 @@ error when the node was built without one.
 |---|---|---|---|
 | `groups.create` | `{ name }` | `{ group_id }` | S |
 | `groups.list` | — | `{ groups, unread, mentions, channel_mentions }` | S · see §7 |
-| `groups.state` | `{ group_id, channel_id? }` | full state — see `API.md`, plus `read_marks` | S · see §7 |
+| `groups.state` | `{ group_id, channel_id? }` | full state — see `API.md`, plus `read_marks`; `members` is always the **whole** list | S · see §7 |
+| `groups.members` | `{ group_id, offset?, limit? }` | `{ members, total }` — bounded slice of `groups.state.members`, same order and same per-member object; `limit` clamped to [1, **200**] (default 50), `total` is the whole list | S |
 | `groups.rename` | `{ group_id, name }` | `{ ok: true }` | S |
 | `groups.set_icon` | `{ group_id, data_b64, mime }` | `{ icon }` | S |
 | `groups.set_topic` | `{ group_id, channel_id, topic }` | `{ ok: true }` | S |
@@ -276,6 +277,15 @@ Every management action emits a **signed op** in the group's replicated op-log.
 The caller's permission is checked *before* emission, by replaying the op
 against materialised state — the same rule peers apply on ingestion. An
 unauthorised action returns an application error `refusé : …`.
+
+⚠️ **`groups.state` stays whole.** `groups.members` is additive: it does not
+shrink, truncate or paginate `groups.state`, whose `members` array still carries
+every member on every call. A client written before `groups.members` existed
+keeps working unchanged. Prefer `groups.members` when you display members and
+the server may be large — at 500 members `groups.state` is 115.8 KiB of JSON
+(`docs/PERFORMANCE.md` §3.1) and the node emits `event.group_state` after every
+applied op. Note that paging bounds the reply, not the node's fold of the group
+state, which happens in full either way.
 
 ⚠️ `groups.audit`'s `ADMIN`/founder gate is a **UX gate, not a confidentiality
 boundary**: the op-log is replicated to every member, so any member already
@@ -557,7 +567,8 @@ particular method's *effect* changed under a stable name.
 
 - **Error message strings.** French, human-facing, rewordable. Branch on codes.
 - **Ordering of array elements**, unless a method's documentation states it
-  (`groups.state.emojis` is lexicographic by name; `schedule.list` and
+  (`groups.state.emojis` is lexicographic by name; `groups.state.members` and
+  `groups.members` are ascending by public key; `schedule.list` and
   `reminders.list` are soonest-first; histories are newest-first).
 - **Timing.** Nothing here is a real-time guarantee. Events are best-effort and
   a slow client is told it fell behind (`event.desynchronise`) rather than

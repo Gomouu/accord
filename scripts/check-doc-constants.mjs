@@ -52,6 +52,14 @@ const SURVEILLEES = [
     source: 'crates/accord-api/src/server.rs',
     docs: ['docs/API.md'],
   },
+  {
+    // Plafond d'une page de `groups.members` : la borne annoncée à un client
+    // qui pagine la liste des membres. Sa valeur EST le contrat — un client
+    // qui la lit dans la doc dimensionne ses requêtes dessus.
+    nom: 'MAX_MEMBERS_PAGE',
+    source: 'crates/accord-node/src/service/groups_members.rs',
+    docs: ['docs/API.md', 'docs/API_CONTRACT.md'],
+  },
 ];
 
 /** Valeur d'une constante Rust, expressions arithmétiques simples résolues. */

@@ -76,7 +76,10 @@ const DETTE = new Map([
   ["crates/accord-node/src/device.rs", 1256],
   ["app/src/stores/ui.ts", 1154],
   ["crates/accord-node/src/node/dm.rs", 1181],
-  ["crates/accord-node/src/service/groups.rs", 1129],
+  // 1129 → 836 : le journal d'audit est parti dans `groups_audit.rs` et la
+  // liste des membres dans `groups_members.rs` (jalon 6). Le plafond suit le
+  // fichier, comme l'avertissement ci-dessus le demande.
+  ["crates/accord-node/src/service/groups.rs", 836],
   ["app/src/components/Modals.tsx", 1112],
   ["crates/accord-core/src/group/mod.rs", 1009],
   ["app/src/components/Sidebar.tsx", 1078],

@@ -386,7 +386,8 @@ After each applied op (local or remote), the node emits
 |---------|-----------|----------|
 | `groups.create` | `{ name }` | `{ group_id }` |
 | `groups.list` | — | `{ groups: [group_id], unread, mentions }` — `unread`: `{ group_id: { channel_id: n } }`, unread per channel (others' messages after the `groups.mark_read` mark), **AutoMod-masked messages deducted** (see "AutoMod"); only channels with at least one unread appear. `mentions`: `{ group_id: n }`, unread mentions per group (all channels combined); only groups with at least one appear |
-| `groups.state` | `{ group_id, channel_id? }` | full state, see below — with `channel_id`, `my_permissions` becomes the **effective** bitfield in that channel (overrides folded in, `deny` > `allow`) |
+| `groups.state` | `{ group_id, channel_id? }` | full state, see below — with `channel_id`, `my_permissions` becomes the **effective** bitfield in that channel (overrides folded in, `deny` > `allow`). `members` is the **whole** list, always; see `groups.members` to read it in slices |
+| `groups.members` | `{ group_id, offset?, limit? }` | `{ members: [...], total }` — one bounded slice of the same member list `groups.state` returns, in the same order and with the same per-member object. `offset` (default 0) counts members from the start of that order; `limit` bounded to [1, **200**] (default 50), out-of-range values are clamped rather than refused. `total` is the size of the **whole** list, not of the page, so a caller knows when to stop. An `offset` at or past `total` is an empty page and the right `total` — an end of list, not an error. No permission gate: `groups.state` already exposes the same data to any member |
 | `groups.rename` | `{ group_id, name }` | `{ ok: true }` — 1-100 characters |
 | `groups.set_icon` | `{ group_id, data_b64, mime }` | `{ icon }` — image ≤ 512 KiB decoded, published in the file store; `icon` = hex-64 Merkle root |
 | `groups.set_topic` | `{ group_id, channel_id, topic }` | `{ ok: true }` — ≤ 2048 bytes |
@@ -477,7 +478,10 @@ never too low).
   "founder": "<hex64>",        // public key, or null
   "members": [{ "pubkey": "<hex64>", "roles": ["<role_id>"],
                 "nickname": "Capitaine"∣null,   // per-server display name
-                "timeout_until_ms": 0 }],        // active mute deadline (wall ms), 0 = none
+                "avatar": "<hex64>"∣null,        // per-server avatar, Merkle root
+                "timeout_until_ms": 0,           // active mute deadline (wall ms), 0 = none
+                "voice_muted": false,            // server-side voice moderation
+                "voice_deafened": false }],
   "bans": ["<hex64>"],
   "channels": [{ "channel_id": "<hex32>", "name": "général", "kind": "text",
                  "category": "<hex32>"∣null, "position": 0, "topic": "" }],
@@ -492,6 +496,52 @@ never too low).
   "my_permissions": 1023       // effective bitfield of the local identity
 }
 ```
+
+`members`: stable order (ascending by `pubkey`), the same order `groups.members`
+pages through.
+
+#### Reading members in pages (`groups.members`)
+
+`groups.state` returns the **entire** member list on every call, and it always
+will — nothing about this method changes for a client that ignores
+`groups.members`. That is also its cost: at 500 members the reply is
+**115.8 KiB of JSON**, and the node emits `event.group_state` after every op it
+applies, so a client that reloads the state on that event re-reads the whole
+list each time (`docs/PERFORMANCE.md` §3.1 and §3.2).
+
+`groups.members` returns one bounded slice of that same list:
+
+```json
+// groups.members { "group_id": "<hex32>", "offset": 100, "limit": 50 }
+{
+  "members": [ /* same objects as groups.state.members, same order */ ],
+  "total": 500                 // size of the whole list, not of the page
+}
+```
+
+- **The member objects are the same objects** — the node builds both through one
+  function, so a client that already decodes `groups.state.members` needs no
+  second decoder.
+- **The order is the same** and stable (ascending by `pubkey`), so concatenating
+  the pages of a group whose membership did not change in the meantime yields
+  exactly `groups.state.members`.
+- `limit` is bounded to **[1, 200]** (default 50) and out-of-range values are
+  clamped, never refused. `limit: 0` yields one member, not zero.
+- An `offset` at or past `total` is an empty page with a correct `total`, not an
+  error: a client paging while someone leaves the server must not get a failure
+  for it.
+
+**When to prefer it.** Use `groups.members` for anything that displays members —
+a member sidebar, a mention picker, a moderation list — on servers that may grow
+past a few dozen people. Keep `groups.state` for everything else it carries
+(channels, roles, categories, invites, permissions); it remains the way to read
+a server's structure.
+
+⚠️ **What paging does not buy.** It bounds the *reply*, not the node's work: the
+group state is folded in full either way (that fold is memoised per database
+handle and invalidated by every incoming op — `docs/PERFORMANCE.md` §3.4). The
+saving is serialised bytes and client-side work, which is what was measured to
+be unbounded here; it is not a fix for the fold.
 
 `emojis`: stable order (lexicographic by `name`). A custom emoji is written
 `:name:` in a message's text and `":name:"` as a reaction value

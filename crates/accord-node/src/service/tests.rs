@@ -4405,3 +4405,170 @@ async fn prefs_set_and_list_exact_shape() {
         .unwrap_err();
     assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
 }
+
+// ---- `groups.members` : lecture paginée de la liste des membres (jalon 6) ----
+
+/// Clé publique du `i`-ième membre forcé. Croissante avec `i`, donc l'ordre du
+/// `BTreeMap` d'état (croissant par clé) est l'ordre de `i` — sauf pour le
+/// fondateur, dont la clé est aléatoire et peut tomber n'importe où. Aucun test
+/// ci-dessous ne suppose de position absolue, pour cette raison.
+fn membre_force(i: usize) -> [u8; 32] {
+    let mut pk = [0u8; 32];
+    let v = i + 1;
+    pk[0] = u8::try_from(v >> 8).unwrap();
+    pk[1] = u8::try_from(v & 0xFF).unwrap();
+    pk
+}
+
+/// Service adossé à un groupe peuplé de `n` membres forcés, en plus du
+/// fondateur (soit `n + 1` membres au total).
+fn service_with_members(n: usize) -> (NodeService, String) {
+    let id = Identity::generate_with_pow_bits(1);
+    let db = Db::open_in_memory(&[1u8; 32]).unwrap();
+    let node = Arc::new(Node::new(id, db, OutboundSink::null()));
+    let gid_hex = node.group_create("Guilde").unwrap();
+    let gid = hex::decode::<16>(&gid_hex).unwrap();
+    for i in 0..n {
+        node.test_force_add_member(&gid, &membre_force(i)).unwrap();
+    }
+    (NodeService::new(node), gid_hex)
+}
+
+/// 🔴 La promesse centrale de la pagination : recoller les pages redonne
+/// **exactement** `groups.state.members`, même contenu et même ordre. Un `skip`
+/// ou un `take` manquant, ou un ordre instable, échoue ici.
+#[tokio::test]
+async fn group_members_pages_concatenate_back_to_group_state_members() {
+    let (s, gid) = service_with_members(6);
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    let entier = state["members"].as_array().unwrap().clone();
+    assert_eq!(entier.len(), 7);
+
+    // Offsets explicites plutôt qu'une boucle « jusqu'à la page vide » : une
+    // pagination cassée doit rendre le test rouge, pas le faire tourner sans
+    // fin.
+    let mut recolle: Vec<Value> = Vec::new();
+    for offset in [0, 2, 4, 6] {
+        let page = s
+            .call(
+                "groups.members",
+                json!({"group_id": gid, "offset": offset, "limit": 2}),
+            )
+            .await
+            .unwrap();
+        // `total` compte la liste entière, jamais la page.
+        assert_eq!(page["total"], json!(7));
+        let membres = page["members"].as_array().unwrap();
+        assert!(membres.len() <= 2, "page de {} membres", membres.len());
+        recolle.extend(membres.iter().cloned());
+    }
+    assert_eq!(recolle, entier);
+}
+
+/// 🔴 La borne haute est une promesse publique (`MAX_MEMBERS_PAGE = 200`,
+/// citée dans `docs/API.md`) : un `limit` démesuré ne doit pas rendre la liste
+/// entière par la porte de derrière.
+#[tokio::test]
+async fn group_members_limit_is_clamped_to_the_documented_bound() {
+    let (s, gid) = service_with_members(204);
+    let page = s
+        .call("groups.members", json!({"group_id": gid, "limit": 10_000}))
+        .await
+        .unwrap();
+    assert_eq!(page["total"], json!(205));
+    assert_eq!(page["members"].as_array().unwrap().len(), 200);
+
+    // Borne basse : `limit: 0` vaut 1, pas une page vide — une demande absurde
+    // rend le minimum utile plutôt que rien.
+    let une = s
+        .call("groups.members", json!({"group_id": gid, "limit": 0}))
+        .await
+        .unwrap();
+    assert_eq!(une["members"].as_array().unwrap().len(), 1);
+}
+
+/// 🔴 Paginer pendant qu'un membre s'en va ne doit pas rendre d'erreur : au
+/// delà de la fin, la page est vide et `total` reste juste.
+#[tokio::test]
+async fn group_members_offset_past_the_end_is_an_empty_page_not_an_error() {
+    let (s, gid) = service_with_members(3);
+    let apres = s
+        .call("groups.members", json!({"group_id": gid, "offset": 4}))
+        .await
+        .unwrap();
+    assert_eq!(apres, json!({ "members": [], "total": 4 }));
+
+    let loin = s
+        .call(
+            "groups.members",
+            json!({"group_id": gid, "offset": u64::MAX}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(loin, json!({ "members": [], "total": 4 }));
+}
+
+/// 🔴 Compatibilité ascendante : `groups.state` rend TOUJOURS la liste
+/// entière, et le membre lu par la méthode paginée est le **même objet**, champ
+/// pour champ. Un client tiers qui ignore `groups.members` ne perd rien, et
+/// celui qui l'adopte n'a pas de second décodeur à écrire.
+#[tokio::test]
+async fn group_state_still_carries_every_member_and_groups_members_repeats_the_shape() {
+    let (s, gid) = service_with_members(3);
+    // Un membre décoré, pour que la forme comparée porte autre chose que des
+    // valeurs par défaut.
+    let cible = hex::encode(&membre_force(0));
+    s.call(
+        "groups.set_nickname",
+        json!({"group_id": gid, "member": cible, "name": "Capitaine"}),
+    )
+    .await
+    .unwrap();
+    s.call(
+        "groups.timeout",
+        json!({"group_id": gid, "pubkey": cible, "until_ms": 4_102_444_800_000u64}),
+    )
+    .await
+    .unwrap();
+
+    let state = s
+        .call("groups.state", json!({"group_id": gid}))
+        .await
+        .unwrap();
+    let entier = state["members"].as_array().unwrap();
+    assert_eq!(entier.len(), 4);
+
+    let depuis_state = entier.iter().find(|m| m["pubkey"] == json!(cible)).unwrap();
+    assert_eq!(
+        sorted_keys(depuis_state),
+        [
+            "avatar",
+            "nickname",
+            "pubkey",
+            "roles",
+            "timeout_until_ms",
+            "voice_deafened",
+            "voice_muted"
+        ]
+    );
+    assert_eq!(depuis_state["nickname"], json!("Capitaine"));
+    assert_eq!(
+        depuis_state["timeout_until_ms"],
+        json!(4_102_444_800_000u64)
+    );
+
+    let page = s
+        .call("groups.members", json!({"group_id": gid, "limit": 200}))
+        .await
+        .unwrap();
+    let depuis_page = page["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["pubkey"] == json!(cible))
+        .unwrap();
+    assert_eq!(depuis_page, depuis_state);
+}

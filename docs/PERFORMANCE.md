@@ -362,6 +362,15 @@ quantities, not a measurement — see §3.5.
    500 members, built and serialised in full on every call. If member pagination
    is wanted, it is a JSON-RPC and UI question, not a wire one.
 
+   That last sentence is the shape the fix took: `groups.members` (milestone 6)
+   reads the member list in slices of at most 200, over JSON-RPC only, with no
+   wire change and `groups.state` left whole. ⚠️ **Not re-measured.** The table
+   in §3.1 describes `groups.state`, which is unchanged, and no bench calls the
+   paginated method. What can be said without measuring is arithmetic on that
+   table: the member list is what makes the reply grow with the server, so a
+   bounded page bounds the reply. It does **not** bound the fold behind it,
+   which is unchanged (§3.4).
+
 3. **"Delivery is a star from the sender: writing to 200 members is 200 sends."**
    Confirmed, with a detail the roadmap does not mention: the 200 sends are
    preceded by 200 *database writes*, paid whether or not the recipient is
@@ -397,6 +406,10 @@ proposed and which remains unbuilt — a new member still replays everything, it
 is simply no longer re-read from disk once per op. And nothing here touches the
 star delivery or the unpaginated `groups.state` JSON, both still as measured in
 §3.2 and §3.3.
+
+*(Since then, `groups.members` gives a caller a bounded way to read the member
+list — see §3.3, point 2. It changes nothing on this page: `groups.state` is
+untouched, and the fold measured here runs in full for both methods.)*
 
 🔒 The correctness of the fast path is pinned by
 `le_repli_incremental_rend_le_meme_etat_quel_que_soit_lordre_darrivee`, which

@@ -430,21 +430,10 @@ pub(super) fn group_state_json(group_id: &[u8; 16], s: &GroupState, me: &[u8; 32
         // ou null si aucune — même format que `icon`.
         "banner": s.banner.as_ref().map(|h| hex::encode(h)),
         "founder": s.founder.as_ref().map(|f| hex::encode(f)),
-        "members": s.members.iter().map(|(pk, m)| json!({
-            "pubkey": hex::encode(pk),
-            "roles": m.roles.iter().map(|r| hex::encode(r)).collect::<Vec<_>>(),
-            // Per-group display name (overrides the global profile name), or null.
-            "nickname": s.nicknames.get(pk),
-            // Per-group avatar (op 0x26, self-service only), or null.
-            "avatar": s.member_avatars.get(pk).map(|h| hex::encode(h)),
-            // Active timeout deadline (wall ms), or 0 when not muted. The UI
-            // compares it against the current time (expired timeouts are moot).
-            "timeout_until_ms": s.timeouts.get(pk).copied().unwrap_or(0),
-            // Server-side voice moderation (op 0x1F): forced mute/deafen in
-            // every voice channel of the group (both false when unmoderated).
-            "voice_muted": s.voice_moderation_of(pk).mute,
-            "voice_deafened": s.voice_moderation_of(pk).deafen,
-        })).collect::<Vec<_>>(),
+        // Liste ENTIÈRE des membres : forme historique, inchangée. Un client
+        // qui veut la lire par tranches passe par `groups.members` — même
+        // forme de membre (même fonction) et même ordre.
+        "members": super::groups_members::members_json(s),
         "bans": s.banned.iter().map(|pk| hex::encode(pk)).collect::<Vec<_>>(),
         "channels": s.channels.iter().map(|(id, ch)| json!({
             "channel_id": hex::encode(id),

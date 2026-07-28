@@ -26,6 +26,8 @@ mod dm;
 mod files;
 mod friends;
 mod groups;
+mod groups_audit;
+mod groups_members;
 mod helpers;
 mod mentions;
 mod network;

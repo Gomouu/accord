@@ -1044,6 +1044,9 @@ export const fr = {
     logHint:
       'Le fichier accord.log de ce dossier retrace le fonctionnement de l’application. Il ne contient aucun contenu de message ni adresse IP de tes amis : les pairs y figurent par un préfixe court de leur clé, assez pour suivre un échange, pas pour les retrouver. Tu peux le joindre à un rapport de bug.',
     logCopyPath: 'Copier le chemin',
+    logOpenFolder: 'Ouvrir le dossier',
+    logExport: 'Exporter rapport + journal',
+    logExported: 'Export écrit',
     logLevel: 'Niveau',
   },
   errors: {

@@ -527,3 +527,140 @@ pub fn journal_niveau(journal: State<'_, crate::journal::Journal>, niveau: Strin
     }
     change
 }
+
+/// Ouvre le dossier du journal dans le gestionnaire de fichiers.
+///
+/// 🔒 **Aucun paramètre, et c'est le point.** Le chemin ouvert est celui que le
+/// nœud a lui-même calculé au démarrage ; il ne vient jamais de l'appelant.
+/// Une commande `ouvrir(chemin)` exposée à la webview serait une primitive
+/// « ouvrir n'importe quoi sur le disque » offerte à toute injection de
+/// contenu — un aperçu de lien, un nom de fichier reçu, un message rendu.
+/// Le plugin `opener` n'est pas non plus déclaré dans les capacités, donc la
+/// webview ne peut pas le court-circuiter.
+#[tauri::command]
+pub fn journal_reveler(
+    app: tauri::AppHandle,
+    journal: State<'_, crate::journal::Journal>,
+) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let dossier = journal
+        .dossier()
+        .ok_or_else(|| "journal indisponible".to_string())?;
+    app.opener()
+        .open_path(dossier.to_string_lossy(), None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+/// Écrit un fichier unique — rapport de diagnostic **puis** journal — dans le
+/// dossier du journal, et le montre dans le gestionnaire de fichiers. Rend son
+/// chemin.
+///
+/// **Pourquoi un fichier et pas le presse-papiers.** Le rapport seul y tient ;
+/// le journal non. Il tourne à 5 Mio, deux fichiers conservés : jusqu'à 10 Mio
+/// que personne ne colle dans un ticket. Et c'est justement l'enchaînement
+/// rapport + journal qui explique un incident — les compteurs disent *que* ça
+/// a raté, les lignes disent *où*.
+///
+/// 🔒 **Ce que cette commande ne fait pas** : filtrer. Le rapport arrive déjà
+/// expurgé par le nœud (`diagnostics.report` retire clés et adresses d'amis, et
+/// `diagnostics_report_ne_sort_ni_cle_ni_adresse_d_ami` le tient), et le
+/// journal a eu sa propre passe de confidentialité, gardée par
+/// `scripts/check-log-secrets.mjs`. Rien n'est relu ici : ce fichier vaut
+/// exactement ce que valent ces deux garanties en amont, et il est écrit sur le
+/// disque de l'utilisateur, pas envoyé.
+#[tauri::command]
+pub fn journal_exporter(
+    app: tauri::AppHandle,
+    journal: State<'_, crate::journal::Journal>,
+    rapport: String,
+) -> Result<String, String> {
+    use tauri_plugin_opener::OpenerExt;
+
+    let dossier = journal
+        .dossier()
+        .ok_or_else(|| "journal indisponible".to_string())?;
+
+    let contenu = composer_export(&rapport, |nom| std::fs::read_to_string(dossier.join(nom)));
+
+    let sortie = dossier.join("accord-diagnostic.txt");
+    std::fs::write(&sortie, contenu).map_err(|e| e.to_string())?;
+    // Best-effort : le fichier est écrit, c'est l'essentiel. Échouer à le
+    // montrer ne doit pas faire croire à l'utilisateur que l'export a raté,
+    // puisque le chemin lui est rendu de toute façon.
+    let _ = app.opener().reveal_item_in_dir(&sortie);
+    tracing::info!("export de diagnostic écrit");
+    Ok(sortie.to_string_lossy().into_owned())
+}
+
+/// Assemble le corps de l'export : rapport, puis chaque journal dans l'ordre du
+/// temps.
+///
+/// `lire` est injecté pour que la composition soit testable sans disque — c'est
+/// la seule vraie logique de `journal_exporter`, le reste étant de l'écriture
+/// de fichier et un appel au gestionnaire de fichiers.
+fn composer_export<F, E>(rapport: &str, mut lire: F) -> String
+where
+    F: FnMut(&str) -> Result<String, E>,
+    E: std::fmt::Display,
+{
+    use std::fmt::Write as _;
+
+    let mut contenu = String::with_capacity(rapport.len() + 64 * 1024);
+    contenu.push_str("=== RAPPORT DE DIAGNOSTIC ===\n\n");
+    contenu.push_str(rapport);
+    // Le précédent d'abord : lu de haut en bas, le fichier suit alors l'ordre
+    // du temps. Un incident se raconte dans le sens où il s'est produit.
+    for nom in ["accord.log.1", "accord.log"] {
+        let _ = write!(contenu, "\n\n=== {nom} ===\n\n");
+        match lire(nom) {
+            Ok(texte) => contenu.push_str(&texte),
+            // Absent ou illisible : on le DIT dans le fichier. Une section vide
+            // sans explication laisserait croire à une exécution sans trace,
+            // alors que le fichier n'a simplement pas pu être lu.
+            Err(e) => {
+                let _ = write!(contenu, "(illisible : {e})");
+            }
+        }
+    }
+    contenu
+}
+
+#[cfg(test)]
+mod tests {
+    use super::composer_export;
+
+    #[test]
+    fn l_export_suit_l_ordre_du_temps() {
+        let texte = composer_export("RAPPORT", |nom| {
+            Ok::<_, std::io::Error>(match nom {
+                "accord.log.1" => "ancien".to_string(),
+                _ => "recent".to_string(),
+            })
+        });
+        let ancien = texte.find("ancien").expect("le journal précédent");
+        let recent = texte.find("recent").expect("le journal courant");
+        let rapport = texte.find("RAPPORT").expect("le rapport");
+        assert!(
+            rapport < ancien && ancien < recent,
+            "rapport, puis précédent, puis courant : {texte}"
+        );
+    }
+
+    #[test]
+    fn un_journal_illisible_est_dit_et_n_interrompt_pas_l_export() {
+        let texte = composer_export("RAPPORT", |nom| {
+            if nom == "accord.log.1" {
+                Err(std::io::Error::other("absent"))
+            } else {
+                Ok("recent".to_string())
+            }
+        });
+        // L'échec est nommé…
+        assert!(texte.contains("illisible"), "l'échec doit être dit : {texte}");
+        assert!(texte.contains("absent"), "avec sa cause : {texte}");
+        // …et ce qui suit est quand même exporté. Un fichier manquant est le
+        // cas NORMAL au premier lancement ; interrompre là priverait
+        // l'utilisateur du journal courant, le seul qui l'intéresse.
+        assert!(texte.contains("recent"), "la suite doit survivre : {texte}");
+    }
+}

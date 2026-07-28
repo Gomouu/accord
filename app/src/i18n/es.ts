@@ -1045,6 +1045,9 @@ export const es: Dict = {
     logHint:
       'El archivo accord.log de esta carpeta registra el funcionamiento de la aplicación. No contiene el contenido de los mensajes ni las direcciones IP de tus contactos: los pares aparecen como un prefijo corto de su clave, suficiente para seguir un intercambio, no para localizarlos. Puedes adjuntarlo a un informe de error.',
     logCopyPath: 'Copiar la ruta',
+    logOpenFolder: 'Abrir la carpeta',
+    logExport: 'Exportar informe + registro',
+    logExported: 'Exportación escrita',
     logLevel: 'Nivel',
   },
   errors: {

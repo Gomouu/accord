@@ -17,7 +17,12 @@ import type {
   PeerLink,
 } from '../lib/api';
 import { api, rpc } from '../lib/client';
-import { journalDossier, journalNiveau } from '../lib/bridge';
+import {
+  journalDossier,
+  journalExporter,
+  journalNiveau,
+  journalReveler,
+} from '../lib/bridge';
 import { displayNameOf, useFriends } from '../stores/friends';
 import { useT } from '../stores/ui';
 import { SettingsSection } from './settings/controls';
@@ -117,6 +122,7 @@ export function NetworkPanel() {
   const [selftestErreur, setSelftestErreur] = useState(false);
   /** `null` au repos, `'ok'` ou `'echec'` après un clic, le temps du retour. */
   const [rapport, setRapport] = useState<'ok' | 'echec' | null>(null);
+  const [exporte, setExporte] = useState<'ok' | 'echec' | null>(null);
   /** Dossier du journal, `null` tant qu'il n'est pas connu ou indisponible. */
   const [dossierJournal, setDossierJournal] = useState<string | null>(null);
   const [niveauJournal, setNiveauJournal] = useState('info');
@@ -183,6 +189,28 @@ export function NetworkPanel() {
       .catch(() => setRapport('echec'))
       .finally(() => {
         setTimeout(() => setRapport(null), COPY_FEEDBACK_MS * 2);
+      });
+  };
+
+  /**
+   * Écrit rapport + journal dans un fichier et le montre dans le gestionnaire
+   * de fichiers.
+   *
+   * **Pourquoi pas le presse-papiers**, contrairement à `copierRapport` : le
+   * journal pèse jusqu'à 10 Mio (5 Mio × 2 fichiers). Personne ne colle ça dans
+   * un ticket, et c'est justement l'ensemble rapport + journal qui explique un
+   * incident — les compteurs disent *que* ça a raté, les lignes disent *où*.
+   *
+   * 🔒 Même règle que ci-dessus : le rapport part tel que le nœud le rend.
+   */
+  const exporter = (): void => {
+    api
+      .diagnosticsReport()
+      .then((r) => journalExporter(JSON.stringify(r, null, 2)))
+      .then(() => setExporte('ok'))
+      .catch(() => setExporte('echec'))
+      .finally(() => {
+        setTimeout(() => setExporte(null), COPY_FEEDBACK_MS * 2);
       });
   };
 
@@ -485,6 +513,24 @@ export function NetworkPanel() {
                     {dossierJournal}
                   </code>
                   <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void journalReveler()}
+                      className="rounded-md bg-input px-3 py-1.5 text-xs font-medium hover:bg-hover"
+                    >
+                      {t.reseau.logOpenFolder}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={exporter}
+                      className="rounded-md bg-input px-3 py-1.5 text-xs font-medium hover:bg-hover"
+                    >
+                      {exporte === 'ok'
+                        ? t.reseau.logExported
+                        : exporte === 'echec'
+                          ? t.reseau.reportFailed
+                          : t.reseau.logExport}
+                    </button>
                     <button
                       type="button"
                       onClick={() => copier(dossierJournal)}

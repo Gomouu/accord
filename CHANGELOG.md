@@ -4,6 +4,23 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ## [Unreleased]
 
+### Added
+
+- **Getting the diagnostic log out of the app now takes one click.** Settings →
+  Network gained two buttons next to the log folder path: *Open the folder*, and
+  *Export report + log*, which writes a single `accord-diagnostic.txt` — the
+  diagnostic counters followed by both log files, oldest first — and reveals it
+  in your file manager.
+
+  Until now the app showed you the path and left you to find it yourself, which
+  is one demand too many for someone who has just had a crash. The export is a
+  file rather than a clipboard copy because the log runs to 10 MB across two
+  rotations; nobody pastes that into a bug report.
+
+  🔒 The file contains no message content, no keys and no friend IP addresses —
+  the report is scrubbed by the node and the log has its own privacy pass, both
+  enforced by tests. It is written to your disk, not sent anywhere.
+
 ## [8.0.0] — 2026-07-28
 
 ### Added

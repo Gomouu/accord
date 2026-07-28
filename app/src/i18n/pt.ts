@@ -1020,6 +1020,9 @@ export const pt: Dict = {
     logHint:
       'O ficheiro accord.log desta pasta regista o funcionamento da aplicação. Não contém o conteúdo das mensagens nem os endereços IP dos teus amigos: os pares aparecem como um prefixo curto da sua chave, o suficiente para seguir uma troca, não para os encontrar. Podes juntá-lo a um relatório de erro.',
     logCopyPath: 'Copiar o caminho',
+    logOpenFolder: 'Abrir a pasta',
+    logExport: 'Exportar relatório + registo',
+    logExported: 'Exportação escrita',
     logLevel: 'Nível',
   },
   errors: {

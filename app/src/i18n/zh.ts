@@ -998,6 +998,9 @@ export const zh: Dict = {
     logHint:
       '此文件夹中的 accord.log 记录应用的运行情况。其中不含消息内容，也不含好友的 IP 地址：对端仅以密钥的短前缀出现，足以追踪一次交互，但无法据此找到对方。可以附在错误报告中。',
     logCopyPath: '复制路径',
+    logOpenFolder: '打开文件夹',
+    logExport: '导出报告和日志',
+    logExported: '已写出导出文件',
     logLevel: '级别',
   },
   errors: {

@@ -1382,13 +1382,18 @@ reformulées ici en constats de correction, datés.
 - [x] **Niveau réglable dans l'interface, à chaud** — fait
       (`journal_niveau`, sélecteur dans `NetworkPanel`). Un niveau inconnu rend
       `false` au lieu de passer pour « inchangé ».
-- [ ] **Accès depuis l'interface : à moitié.** Le chemin du dossier est affiché
-      et copiable dans le panneau Réseau, ce qui suffit à le trouver. Mais il
-      n'y a **ni bouton « ouvrir le dossier »** (aucun plugin `opener` n'est
-      câblé) **ni export joignant le journal au rapport de diagnostic** — les
-      deux derniers points du périmètre ci-dessous. Copier un chemin puis
-      naviguer à la main reste une demande de trop pour quelqu'un qui vient
-      justement de subir un plantage.
+- [x] **Accès depuis l'interface** — complété le 2026-07-28. Le panneau Réseau
+      porte désormais « Ouvrir le dossier » (`journal_reveler`) et « Exporter
+      rapport + journal » (`journal_exporter`, qui écrit
+      `accord-diagnostic.txt` puis le montre), en plus du chemin copiable.
+      L'export est un fichier et non le presse-papiers : le journal pèse
+      jusqu'à 10 Mio, que personne ne colle dans un ticket.
+      🔒 Le plugin `tauri-plugin-opener` est **volontairement absent de
+      `capabilities/default.json`** : la webview ne peut pas l'invoquer. Les
+      deux commandes ne prennent aucun chemin de l'appelant — un opener
+      joignable avec un chemin arbitraire depuis la webview serait une
+      primitive « ouvrir n'importe quoi » offerte à toute injection de contenu
+      (aperçu de lien, nom de fichier reçu, message rendu).
 
 **Périmètre proposé**, par valeur décroissante :
 

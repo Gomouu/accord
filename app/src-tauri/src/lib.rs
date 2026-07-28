@@ -56,6 +56,12 @@ pub fn executer() -> ExitCode {
         // installation. `process` fournit le redémarrage post-installation.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // Ouverture du dossier de journal dans le gestionnaire de fichiers
+        // (§10.6). 🔒 Volontairement ABSENT de `capabilities/default.json` :
+        // la webview ne peut pas l'invoquer. Seules `journal_reveler` et
+        // `journal_exporter` l'atteignent, et ni l'une ni l'autre n'accepte de
+        // chemin venant de l'appelant.
+        .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
             // Répertoire de données par plateforme (ex. ~/Library/Application
             // Support/fr.accord.desktop) : racine du registre multi-comptes
@@ -81,6 +87,8 @@ pub fn executer() -> ExitCode {
             commandes::apercu_lien,
             commandes::journal_dossier,
             commandes::journal_niveau,
+            commandes::journal_reveler,
+            commandes::journal_exporter,
             commandes::app_quit,
             commandes::create_identity,
             commandes::restore_identity,

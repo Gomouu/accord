@@ -297,6 +297,15 @@ the 5-minute window and by asking for a new code.
   host. Bootstrap and relay addresses are kept — public infrastructure the user
   entered, without which a relay fault cannot be diagnosed. ⚠️ Never rebuild this
   report from `network.peers`, which carries both removed fields.
+- **The file-manager opener is deliberately unreachable from the webview.**
+  `tauri-plugin-opener` is linked, but its permission is **absent from
+  `capabilities/default.json`**, so the front end cannot invoke it. The only two
+  ways to reach it are `journal_reveler` and `journal_exporter`, and **neither
+  accepts a path from the caller** — both operate on the log directory the node
+  computed at startup. An opener callable from the webview with an arbitrary
+  path would be an "open anything on this disk" primitive handed to every
+  content-injection surface the app has: a link preview, a received filename, a
+  rendered message.
 
 ## 4. Attackers considered
 

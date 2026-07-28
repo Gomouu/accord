@@ -1021,6 +1021,9 @@ export const de: Dict = {
     logHint:
       'Die Datei accord.log in diesem Ordner protokolliert, was die App tut. Sie enthält keine Nachrichteninhalte und keine IP-Adressen deiner Freunde: Gegenstellen erscheinen als kurzes Präfix ihres Schlüssels – genug, um einem Austausch zu folgen, nicht um sie zu finden. Du kannst sie einem Fehlerbericht beilegen.',
     logCopyPath: 'Pfad kopieren',
+    logOpenFolder: 'Ordner öffnen',
+    logExport: 'Bericht + Protokoll exportieren',
+    logExported: 'Export geschrieben',
     logLevel: 'Stufe',
   },
   errors: {

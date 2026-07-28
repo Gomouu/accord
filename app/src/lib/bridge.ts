@@ -427,3 +427,23 @@ export async function journalDossier(): Promise<string | null> {
 export async function journalNiveau(niveau: string): Promise<boolean> {
   return invoke<boolean>('journal_niveau', { niveau });
 }
+
+/**
+ * Ouvre le dossier du journal dans le gestionnaire de fichiers.
+ *
+ * 🔒 Sans paramètre à dessein : le chemin ouvert est celui que le nœud a
+ * calculé, jamais un chemin fourni d'ici. Voir `journal_reveler` côté Rust.
+ */
+export async function journalReveler(): Promise<void> {
+  return invoke<void>('journal_reveler');
+}
+
+/**
+ * Écrit rapport + journal dans un fichier unique et le montre. Rend son chemin.
+ *
+ * Le rapport est passé tel que le nœud l'a rendu — il en a déjà retiré les clés
+ * et les adresses d'amis. Ne rien y ajouter ici.
+ */
+export async function journalExporter(rapport: string): Promise<string> {
+  return invoke<string>('journal_exporter', { rapport });
+}

@@ -42,6 +42,15 @@ tauri-plugin-autostart = "2"
 # pour télécharger un blob complet) : le chemin d'envoi/téléchargement non
 # plafonné passe par `files.share`/`files.save`, qui exigent un chemin disque.
 tauri-plugin-dialog = "2"
+# Révélation du dossier de journal dans le gestionnaire de fichiers (§10.6).
+#
+# 🔒 Ce plugin n'est PAS exposé au frontend : sa permission est absente de
+# `capabilities/default.json`, donc la webview ne peut pas l'invoquer
+# directement. Il n'est atteignable que par `journal_reveler`, qui ne prend
+# aucun paramètre et ouvre le seul dossier que le nœud a lui-même calculé. Un
+# opener joignable depuis la webview avec un chemin arbitraire serait une
+# primitive « ouvrir n'importe quoi » offerte à toute injection de contenu.
+tauri-plugin-opener = "2"
 # Mise à jour intégrée (D-049) : vérification du latest.json publié avec
 # chaque release GitHub, artefacts signés minisign (clé publique dans
 # tauri.conf.json), téléchargement/installation pilotés depuis la webview

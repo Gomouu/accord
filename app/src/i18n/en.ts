@@ -1032,6 +1032,9 @@ export const en: Dict = {
     logHint:
       "The accord.log file in this folder records what the app does. It contains no message content and none of your friends' IP addresses: peers appear as a short prefix of their key — enough to follow an exchange, not to find them. You can attach it to a bug report.",
     logCopyPath: 'Copy the path',
+    logOpenFolder: 'Open the folder',
+    logExport: 'Export report + log',
+    logExported: 'Export written',
     logLevel: 'Level',
   },
   errors: {

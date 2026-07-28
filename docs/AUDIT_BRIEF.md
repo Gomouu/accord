@@ -70,11 +70,12 @@ Four project conventions explain things that would otherwise look odd:
    `ci.sh:31` denies `unwrap_used`, `expect_used`, `panic`, `todo`,
    `unimplemented` over `--lib --bins`. The rare proven-infallible exceptions
    carry a justified `#[allow]`, e.g. `crypto/handshake.rs:467`.
-4. **`ROADMAP.md` does not exist in this repository.** It is deliberately
-   untracked (`.gitignore:24`), yet public documents cite it — `docs/FUZZING.md:3`
-   ("ROADMAP §18.5"), `crypto/pq.rs:2` ("ROADMAP §7"), `proto/envelope.rs:450`.
-   Treat every `ROADMAP §x` reference as a dangling pointer; nothing you need is
-   behind it, but do not waste time looking.
+4. **`ROADMAP.md` is in the repository** — since 2026-07-28, precisely because
+   this brief pointed out that public documents cite it while it was untracked.
+   Every `ROADMAP §x` reference now resolves. Sections are numbered as
+   `## Partie N`, so "ROADMAP §7" means part 7, not a sub-heading `7`.
+   ⚠️ It is a working document, not a specification: where it disagrees with
+   `docs/SPEC.md` or the code, it is the one that is wrong.
 
 ---
 
@@ -545,7 +546,8 @@ revocation is eventually consistent and cannot take the root back
    (`node/node/diagnostics.rs:482`); the general property is not. A diagnostic
    log is written on every launch to `<app_data>/logs/accord.log`, outside the
    encrypted database.
-6. **`ROADMAP.md` is cited but untracked** (see §1, item 4).
+6. ~~**`ROADMAP.md` is cited but untracked**~~ — **fixed 2026-07-28**: it is
+   versioned, and every `ROADMAP §x` reference resolves (see §1, item 4).
 
 ---
 

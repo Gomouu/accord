@@ -1023,8 +1023,24 @@ mod tests {
     fn hybrid_hello_and_welcome_stay_under_the_udp_mtu() {
         // Non-régression de taille, mesurée sur les octets réellement encodés
         // par le protocole — pas sur une projection.
+        //
+        // ⚠️ Le seul « ≤ MTU » ne suffit pas. Mesuré le 2026-07-28, le HELLO
+        // hybride pèse 984 o pour une MTU de 1 200 : il reste 216 o, soit 18 %.
+        // Un plafond posé à la MTU laisserait un futur champ manger cette marge
+        // sans un bruit, jusqu'au jour où la fragmentation se déclenche en
+        // production. Le plafond est donc posé à la mesure + une marge nommée,
+        // pour que toute croissance soit une décision consciente et non un
+        // effet de bord. Relever ces chiffres est légitime ; le faire sans
+        // regarder ce qu'il reste ne l'est pas.
         use accord_proto::envelope::Packet;
         use accord_proto::wire::WireEncode;
+        /// Marge de tolérance au-dessus de la taille mesurée, en octets.
+        const TOLERANCE: usize = 64;
+        /// Taille mesurée du HELLO hybride (2026-07-28).
+        const HELLO_MESURE: usize = 984;
+        /// Taille mesurée du WELCOME hybride (2026-07-28).
+        const WELCOME_MESURE: usize = 942;
+
         let (alice, bob) = pair();
         let now = 1_000_000;
         let init = Initiator::start(&alice, now, vec![0u8; 16], POW, None, Some(PQ));
@@ -1037,6 +1053,20 @@ mod tests {
         assert!(
             welcome_len <= mtu,
             "WELCOME hybride {welcome_len} o > MTU {mtu}"
+        );
+        assert!(
+            hello_len <= HELLO_MESURE + TOLERANCE,
+            "HELLO hybride {hello_len} o : +{} o depuis la mesure de référence \
+             ({HELLO_MESURE} o). Il restait {} o sous la MTU. Vérifier la marge \
+             avant de relever la constante.",
+            hello_len - HELLO_MESURE,
+            mtu - HELLO_MESURE
+        );
+        assert!(
+            welcome_len <= WELCOME_MESURE + TOLERANCE,
+            "WELCOME hybride {welcome_len} o : +{} o depuis la mesure de \
+             référence ({WELCOME_MESURE} o).",
+            welcome_len - WELCOME_MESURE
         );
     }
 

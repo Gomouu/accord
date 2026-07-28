@@ -533,9 +533,82 @@ place when the cache holds the only reference, which it normally does.
   implied by §3.2 are multiplication, not measurement. Confirming it needs an
   instrumented UI, and it is the first thing to check before concluding anything
   about what joining a large server *feels* like.
-- **Memory across five servers.** The roadmap's second target ("memory stays
-  under budget with 5 servers of 200 members") is not measured: this bench holds
-  one server at a time.
 - **Voice at scale.** Conference rooms (roadmap item D) are untouched here; the
   full-mesh limit is `VOICE_MAX_PARTICIPANTS = 10` and has nothing to do with
   these numbers.
+
+> Memory across five servers used to be listed here as unmeasured. It is
+> measured — §3.5. The line survived the measurement that refuted it, which is
+> the ordinary way a document starts lying: nobody edits the caveat when the
+> caveat stops being true.
+
+---
+
+## 4. The hybrid post-quantum handshake
+
+**Bench**: `crates/accord-crypto/benches/crypto.rs`, group `handshake_complet`.
+
+```bash
+cargo bench -p accord-crypto --bench crypto -- handshake
+```
+
+Milestone 2's completion criteria ask for the CPU overhead of the hybrid
+handshake to be "measured and documented". This is that number — and the number
+next to it, which turns out to matter more.
+
+### 4.1 Results
+
+Apple M1 Pro, 16 GB, macOS 27.0, `--release`, criterion median of 100 samples.
+Both bars cover the **whole** exchange, both sides: HELLO → WELCOME → key
+derivation, including the Ed25519 signature, the proof-of-work check and both
+HKDF derivations.
+
+| Handshake | CPU | Wire, HELLO | Wire, WELCOME |
+|---|---|---|---|
+| Classic X25519 | 264.8 µs | 180 B | 170 B |
+| Hybrid X25519 + ML-KEM-512 | 319.2 µs | 984 B | 942 B |
+| **Overhead** | **+54.5 µs (+21 %)** | **+804 B (×5.5)** | **+772 B (×5.5)** |
+
+Proof-of-work is pinned to 1 bit in the bench, deliberately: the point is the
+cryptographic cost of the exchange, not the identity puzzle, whose difficulty is
+a separate policy knob and would otherwise swamp everything else.
+
+### 4.2 What the numbers say
+
+**The CPU cost is not the interesting one.** 54 µs is paid once per session, and
+it is paid on a path that already costs a quarter of a millisecond. Against
+anything a session goes on to do — a single UDP round trip is three orders of
+magnitude more — it is not observable. Nobody will feel this.
+
+**The wire cost is the one to watch.** ML-KEM-512 keys and ciphertexts are large
+in a way elliptic-curve material is not: the HELLO grows 5.5×, from 180 B to
+984 B. The application MTU is 1 200 B (SPEC §13), so a hybrid HELLO now occupies
+**82 % of a datagram, leaving 216 B**. It fits, and `hybrid_hello_and_welcome_stay_under_the_udp_mtu`
+proves it fits — but the headroom that used to be a non-question is now a budget
+with a number on it.
+
+That test was tightened on 2026-07-28 for exactly this reason. Asserting only
+"≤ MTU" would let a future field eat the remaining 216 B in silence, and the
+first symptom would be handshake fragmentation in production — on the one
+exchange that has no session yet to retransmit under. It now asserts against the
+measured size plus a named tolerance, so growth has to be a decision.
+
+⚠️ **A second-order effect worth naming.** A larger HELLO is also a larger
+amplification lever: an unauthenticated packet that provokes a 942-byte reply is
+a better reflector than one provoking 170 bytes. The cookie exchange is what
+bounds this — it forces a round trip before the expensive reply — and it is
+unchanged by this milestone. But the ratio it protects against got worse, and
+that is now the reason the cookie path matters more than it did, not less.
+
+### 4.3 Not measured here
+
+- **Key generation amortisation.** The bench generates a fresh ML-KEM keypair
+  per handshake, which is what the code does. Whether an ephemeral keypair could
+  be cached across dials — trading forward secrecy for CPU — is a design
+  question this number does not answer, and the answer is very likely "no".
+- **The classic/hybrid decision on a real network.** These are same-machine
+  figures. What a 5.5× larger HELLO costs on a lossy link, where a lost
+  handshake packet costs a full retry, is a network measurement.
+- **Constant-time behaviour.** Criterion reports a median, not a distribution
+  over secret-dependent inputs. Timing side channels in the ML-KEM
+  implementation are not something a benchmark can rule out.

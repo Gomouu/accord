@@ -639,7 +639,8 @@ Un écran de référence des raccourcis existe. Le compléter (navigation, appel
       intégralement sur échec, et une base écrite par une version plus récente
       est refusée au lieu d'être corrompue.
 - [x] Chunk initial **138 ko gzip** (207 avant), budget vérifié par la CI.
-- [ ] Gate vert, release 6.2.0 publiée, `latest.json` à 9 clés signées.
+- [x] Gate vert, release 6.2.0 publiée, `latest.json` à 9 clés signées — publiée
+      le 2026-07-24, 14 fichiers. La case était restée vide après coup.
 - [x] Aucune branche ni worktree orphelin non documenté (47 branches et
       3 worktrees retirés ; les deux worktrees contenant du travail non commité
       ont été conservés et signalés).
@@ -1094,13 +1095,29 @@ connues à ce jour ».
 
 ### 7.6 Définition de fin du jalon 2
 
-- [ ] Deux nœuds 8.0 négocient l'hybride ; la clé dérive des deux secrets.
-- [ ] Un nœud 8.0 et un nœud 7.0 se parlent en classique, sans friction.
-- [ ] **Toute altération du transcript (capacités ou matériel PQ) fait échouer le handshake** — testé explicitement.
-- [ ] Le HELLO reste sous la MTU, ou la fragmentation est bornée et testée.
-- [ ] Le surcoût CPU du handshake est mesuré et documenté.
-- [ ] `SECURITY.md` à jour, sans promesse excessive.
-- [ ] Gate vert, 8.0.0 publiée.
+**Terminé le 2026-07-28.** Chaque case porte le test ou la mesure qui la tient ;
+le tableau de correspondance complet est dans `docs/AUDIT_BRIEF.md`.
+
+- [x] Deux nœuds 8.0 négocient l'hybride ; la clé dérive des deux secrets —
+      `hybrid_handshake_derives_a_key_from_both_secrets`.
+- [x] Un nœud 8.0 et un nœud 7.0 se parlent en classique, sans friction —
+      `classic_transcript_is_unchanged_by_this_milestone` : sans matériel PQ, la
+      dérivation est **octet pour octet** celle d'avant le jalon.
+- [x] **Toute altération du transcript (capacités ou matériel PQ) fait échouer le
+      handshake** — 4 tests dédiés, dont
+      `stripping_the_pq_capability_bit_breaks_the_handshake` et
+      `unsolicited_pq_ciphertext_is_refused`.
+- [x] Le HELLO reste sous la MTU — `hybrid_hello_and_welcome_stay_under_the_udp_mtu`.
+      ⚠️ Durci le 2026-07-28 : le test n'asserte plus « ≤ MTU » mais « ≤ taille
+      mesurée + tolérance nommée ». À 984 o pour une MTU de 1 200, il ne reste
+      que 216 o, et un plafond posé à la MTU aurait laissé un futur champ les
+      manger en silence.
+- [x] Le surcoût CPU du handshake est mesuré et documenté —
+      `docs/PERFORMANCE.md` §4. **+54,5 µs (+21 %)**, et c'est le chiffre le
+      moins intéressant des deux : le coût *filaire* fait ×5,5 (HELLO 180 → 984 o).
+- [x] `SECURITY.md` à jour, sans promesse excessive — items 20 à 22, et le
+      CHANGELOG 8.0.0 ouvre sur ce que l'hybride **ne** protège pas.
+- [x] Gate vert, 8.0.0 publiée — le 2026-07-28, `latest.json` à 9 clés signées.
 
 ---
 
@@ -1347,17 +1364,31 @@ d'y accéder.
 - [x] Une sortie fichier existe dans `app/src-tauri/src/lib.rs`… **derrière la
       variable d'environnement `ACCORD_LOG_FILE`**. Pour une application
       lancée depuis le Finder ou le menu Démarrer, c'est hors d'atteinte.
-- [ ] **Aucun fichier de log par défaut.** Lancée normalement, l'application
-      écrit sur `stdout`, qui n'existe pas pour un processus graphique. Tout
-      est perdu.
-- [ ] **`File::create` tronque à chaque démarrage.** Même en réglant la
-      variable, la trace du plantage est effacée par le redémarrage qui suit —
-      c'est-à-dire précisément au moment où on va la chercher.
-- [ ] **Le frontend n'écrit rien.** La moitié de l'application est du
-      TypeScript dans une webview ; sa console ne va nulle part en production.
-      Une erreur de rendu ou un rejet de promesse ne laisse aucune trace.
-- [ ] **Aucun accès depuis l'interface** : ni « ouvrir le dossier des logs »,
-      ni export.
+⚠️ Les quatre lignes qui suivent étaient l'énoncé des **défauts** trouvés par
+l'audit, écrits sous forme de cases — une erreur de forme : une case cochée y
+signifie « le défaut est corrigé », pas « le défaut existe ». Elles sont
+reformulées ici en constats de correction, datés.
+
+- [x] **Fichier par défaut, sans variable d'environnement** — corrigé.
+      `journal.rs::attacher_sous` ouvre `<app_data>/logs` au démarrage, et
+      tamponne les lignes émises avant que ce dossier soit connu (un démarrage
+      qui échoue *avant* `setup` laisse quand même une trace).
+- [x] **Plus de troncature au démarrage** — corrigé. Le journal courant est
+      décalé en `.1` à l'ouverture, avec rotation par taille en cours de route.
+      Un seul historique conservé, à dessein : ce qu'on cherche après un
+      incident, c'est l'exécution qui vient de finir.
+- [x] **Le frontend écrit dans le même fichier** — corrigé. `app/src/lib/journal.ts`
+      appelle la commande `journal_ui` ; une seule horloge, un seul fichier.
+- [x] **Niveau réglable dans l'interface, à chaud** — fait
+      (`journal_niveau`, sélecteur dans `NetworkPanel`). Un niveau inconnu rend
+      `false` au lieu de passer pour « inchangé ».
+- [ ] **Accès depuis l'interface : à moitié.** Le chemin du dossier est affiché
+      et copiable dans le panneau Réseau, ce qui suffit à le trouver. Mais il
+      n'y a **ni bouton « ouvrir le dossier »** (aucun plugin `opener` n'est
+      câblé) **ni export joignant le journal au rapport de diagnostic** — les
+      deux derniers points du périmètre ci-dessous. Copier un chemin puis
+      naviguer à la main reste une demande de trop pour quelqu'un qui vient
+      justement de subir un plantage.
 
 **Périmètre proposé**, par valeur décroissante :
 
@@ -2123,9 +2154,37 @@ Quelques orateurs, beaucoup d'auditeurs. Impossible en full mesh pur.
 - [x] Un serveur de 200 membres se rejoint en moins de 10 secondes. **Mesuré à
       70 ms**, soit 140 fois sous la cible — et 173 ms à 500 membres. Le seuil
       de dix secondes était très au-dessus de la réalité.
-- [ ] La mémoire reste sous le budget avec 5 serveurs de 200 membres. Non mesuré.
+- [x] La mémoire reste sous le budget avec 5 serveurs de 200 membres —
+      **mesurée à 334 828 octets (0,3 Mo)** contre un budget de 400 Mo, soit
+      trois ordres de grandeur de marge (`docs/PERFORMANCE.md` §3.5).
+      ⚠️ C'est le coût de l'état de groupe replié, pas le RSS du processus :
+      lu comme « la mémoire de l'application », le chiffre serait faux.
 - [ ] Un instantané d'op-log est vérifiable et remplace l'historique complet.
-      **Non fait**, et c'est le principal reste du jalon.
+      **Non fait — et chiffré plutôt que fait, délibérément.** Voir
+      « La compaction : chiffrée, puis écartée » juste en dessous.
+
+#### La compaction : chiffrée, puis écartée
+
+**Décision du 2026-07-28.** Ce point était présenté comme « le principal reste
+du jalon » sur la foi d'une prémisse que les mesures ont démentie.
+
+Le raisonnement était : l'op-log grossit, donc le repli à froid devient le coût
+dominant d'une adhésion, donc il faut un instantané. Mesuré
+(`docs/PERFORMANCE.md` §3.6), le repli à froid coûte **16,7 ms à 10 000 ops**
+quand l'adhésion elle-même en coûte **1 580**. La compaction s'attaquerait à
+1 % du coût.
+
+Et elle le ferait à un prix qui n'est pas un prix de performance. Un op-log est
+vérifiable de bout en bout : chaque op porte sa signature, n'importe qui peut
+recalculer l'état et constater qu'il découle des ops. Un instantané remplace
+cette vérification par **la parole de celui qui l'a produit**. C'est un
+changement de modèle de confiance, du niveau de §2.5 — pas une optimisation.
+
+🔒 **Ce point reste donc ouvert à dessein, et ne doit pas être « terminé »
+discrètement par quelqu'un qui verrait une case à cocher.** Le rouvrir demande
+un élément neuf : un op-log réellement assez gros pour que les 16,7 ms comptent,
+ou un schéma d'instantané qui reste vérifiable (par exemple signé par un quorum
+de membres, ce qui est un autre chantier).
 - [x] Les mesures avant/après sont documentées — dans `docs/PERFORMANCE.md` §3
       plutôt que le CHANGELOG, avec ce que les chiffres ne disent pas.
 

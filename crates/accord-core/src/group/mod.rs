@@ -639,6 +639,49 @@ mod tests {
         assert_eq!(db_b.group_ops(&created.group_id).unwrap().len(), 1);
     }
 
+    #[test]
+    fn an_outsiders_signed_op_is_stored_but_changes_nothing() {
+        // 🔒 Épingle la frontière dont tout le reste dépend.
+        //
+        // `ingest_op` vérifie la signature, l'intégrité de l'`op_id` et le
+        // décodage du corps — mais **jamais** que l'auteur soit membre. Une op
+        // signée par un inconnu entre donc dans le journal et se réplique par
+        // anti-entropie. Ce qui la rend inoffensive est ailleurs, et c'est
+        // DOUBLE — vérifié en retirant chaque garde tour à tour :
+        //
+        // 1. `GroupState::apply` refuse d'emblée « auteur non membre » ;
+        // 2. `base_permissions` rend 0 pour qui n'est pas dans `members`, donc
+        //    chaque branche permissionnée refuserait de toute façon.
+        //
+        // Aucune des deux n'est porteuse seule : supprimer l'une laisse
+        // l'autre, et ce test ne rougit qu'en enlevant les deux. C'est de la
+        // défense en profondeur réelle, pas une redondance apparente — le dire
+        // ici évite qu'on retire « la garde en trop » un jour, en constatant
+        // que les tests restent verts.
+        //
+        // ⚠️ Ce qu'il ne dit PAS : le journal grossit quand même, et se
+        // réplique chez tous les membres. Le coût résiduel est le stockage et
+        // la bande passante, pas l'intégrité de l'état.
+        let (db, alice) = setup();
+        let created = create_group(&db, &alice, "G", 0).unwrap();
+        let mallory = Identity::from_seed_with_pow_bits([42u8; 32], 0);
+
+        // Mallory signe un renommage du groupe d'Alice, sans y appartenir.
+        let body = GroupOpBody::SetMeta {
+            name: "Détournée".into(),
+            icon: None,
+            banner_color: None,
+        };
+        let op = sign_op(&db, &mallory, &created.group_id, &body, 1_000).unwrap();
+
+        // Elle est bel et bien acceptée dans le journal…
+        assert_eq!(ingest_op(&db, &op).unwrap(), IngestOutcome::Inserted);
+        assert_eq!(db.group_ops(&created.group_id).unwrap().len(), 2);
+
+        // …et n'a strictement aucun effet sur l'état.
+        assert_eq!(group_state(&db, &created.group_id).unwrap().name, "G");
+    }
+
     /// Fabrique une op signée à `op_id` LIBRE (non contenu-adressé), comme
     /// l'émettait un client pré-1.3 — ou comme la forgerait un membre
     /// malveillant cherchant une collision d'`op_id`.

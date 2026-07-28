@@ -601,6 +601,42 @@ fn group_replication_hierarchy_and_moderation_between_nodes() {
 }
 
 #[test]
+fn kicking_a_member_locally_rotates_the_key_here_too() {
+    // 🔒 Le chemin LOCAL de la rotation n'était gardé par rien.
+    //
+    // Le test voisin couvre le cas distant — Bob part, Alice l'apprend par
+    // l'op répliquée et tourne à l'ingestion. Mais l'expulsion depuis son
+    // propre client passe par `Node::group_author`
+    // (`node/groups.rs`), un second site d'appel : retirer la rotation à CET
+    // endroit ne faisait rougir aucun test, alors que c'est le geste le plus
+    // courant — un administrateur qui expulse quelqu'un depuis son écran.
+    //
+    // Sans rotation ici, l'expulsé garde l'epoch courant et déchiffre tout ce
+    // qui suit son expulsion, ce que SECURITY.md et SPEC.md §6.4 promettent
+    // tous deux d'empêcher.
+    let (alice, mut rx_a) = node_with_channel();
+    let (bob, mut rx_b) = node_with_channel();
+    let alice_pub = alice.public_key();
+    let bob_pub = bob.public_key();
+
+    let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
+    invite_and_join(
+        &alice, &mut rx_a, &alice_pub, &bob, &mut rx_b, &bob_pub, &gid,
+    );
+    assert!(alice.group_state(&gid).unwrap().is_member(&bob_pub));
+
+    let epoch_avant = alice.latest_group_key_epoch(&gid).unwrap();
+    alice.group_kick(&gid, &bob_pub).unwrap();
+
+    assert!(!alice.group_state(&gid).unwrap().is_member(&bob_pub));
+    let epoch_apres = alice.latest_group_key_epoch(&gid).unwrap();
+    assert!(
+        epoch_apres > epoch_avant,
+        "une expulsion locale doit tourner la clé ici : {epoch_avant} -> {epoch_apres}"
+    );
+}
+
+#[test]
 fn forum_post_creates_thread_and_first_message_lives_in_it() {
     use accord_proto::core_msg::ChannelKind;
     let (alice, _rx) = node_with_channel();

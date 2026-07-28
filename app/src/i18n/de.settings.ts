@@ -192,6 +192,15 @@ export const deSettings = {
     deviceRouteRelay: 'über ein Relais',
     deviceNameLabel: 'Gerätename',
     deviceRenamed: 'Gerät umbenannt!',
+    historyTransferAction: 'Verlauf von diesem Gerät holen',
+    historyTransferProgressLabel: 'Fortschritt der Verlaufsübertragung',
+    historyTransferRunning:
+      'Übertragung läuft — {done}/{total} Unterhaltung(en), {pages} Seite(n) empfangen.',
+    historyTransferDone:
+      'Verlauf geholt: {pages} Seite(n) aus {conversations} Unterhaltung(en).',
+    historyTransferEmptyBook: 'Nichts anzufragen: Deine Freundesliste ist leer.',
+    historyTransferAmbiguous:
+      'Keine Nachricht empfangen. Zwei Ursachen sind möglich, und nichts hier kann sie unterscheiden: Entweder hat dieses Gerät nichts Älteres als das, was du bereits hast, oder es läuft darauf eine Accord-Version, die älter ist als jene, die auf diese Anfrage antworten kann. Prüfe seine Version, bevor du daraus schließt, dass dein Verlauf vollständig ist.',
     pairAdd: 'Gerät hinzufügen',
     pairHint:
       'Öffne Accord auf dem anderen Gerät und gib diesen Code ein. Er gilt einmal und läuft nach fünf Minuten ab.',

@@ -68,4 +68,33 @@ impl NodeService {
         // pratique) ; repli défensif sur objet vide.
         Ok(serde_json::to_value(status).unwrap_or_else(|_| json!({})))
     }
+
+    /// `devices.transfer_history` — tire tout l'historique depuis un autre
+    /// appareil du compte (feuille de route §17.4).
+    ///
+    /// ⚠️ **Rend la main seulement à la fin**, ce qui peut prendre des
+    /// minutes : une page par aller-retour. L'interface ne doit pas attendre
+    /// cette réponse pour afficher quelque chose — elle suit
+    /// `event.history_transfer`, et se sert de la valeur de retour comme d'un
+    /// résumé final.
+    ///
+    /// 🔒 L'appareil visé doit figurer dans la liste signée du compte. Le
+    /// contrôle vit ici plutôt que dans le pilote : celui-ci sert aussi de
+    /// point d'entrée interne, et un contrôle posé au bord vaut mieux qu'un
+    /// contrôle qu'un futur appelant contournerait sans le savoir.
+    pub(super) async fn transfer_history(&self, params: &Value) -> Result<Value, NodeError> {
+        let ctrl = self
+            .node
+            .network_control()
+            .ok_or(NodeError::NotFound("sous-système réseau indisponible"))?;
+        let device = crate::hex::decode::<32>(param_str(params, "device")?)
+            .ok_or(NodeError::Invalid("clé d'appareil illisible"))?;
+        if !self.node.is_own_listed_device(&device) {
+            return Err(NodeError::Invalid(
+                "cet appareil n'est pas dans la liste du compte",
+            ));
+        }
+        let (conversations, pages) = ctrl.transfer_history(device).await;
+        Ok(json!({ "conversations": conversations, "pages": pages }))
+    }
 }

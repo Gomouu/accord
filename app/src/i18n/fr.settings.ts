@@ -205,6 +205,15 @@ export const frSettings = {
     deviceRouteRelay: 'via un relais',
     deviceNameLabel: "Nom de l'appareil",
     deviceRenamed: 'Appareil renommé !',
+    historyTransferAction: 'Récupérer l’historique depuis cet appareil',
+    historyTransferProgressLabel: 'Progression du transfert d’historique',
+    historyTransferRunning:
+      'Transfert en cours — {done}/{total} conversation(s), {pages} page(s) reçue(s).',
+    historyTransferDone:
+      'Historique récupéré : {pages} page(s) sur {conversations} conversation(s).',
+    historyTransferEmptyBook: 'Rien à demander : votre carnet d’amis est vide.',
+    historyTransferAmbiguous:
+      'Aucun message reçu. Deux causes possibles, que rien ici ne permet de départager : soit cet appareil n’a rien de plus ancien que ce que vous avez déjà, soit il tourne une version d’Accord antérieure à celle qui sait répondre à cette demande. Vérifiez sa version avant d’en conclure que votre historique est complet.',
     pairAdd: 'Ajouter un appareil',
     pairHint:
       'Ouvre Accord sur l’autre appareil et saisis ce code. Il ne sert qu’une fois et expire au bout de cinq minutes.',

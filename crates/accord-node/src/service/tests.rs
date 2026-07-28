@@ -3720,6 +3720,13 @@ impl crate::node::network::NetworkControl for FakeNetwork {
     ) -> Result<crate::node::network::NetworkStatus, NodeError> {
         Err(NodeError::Invalid("non câblé"))
     }
+    async fn transfer_history(&self, _device: [u8; 32]) -> (usize, usize) {
+        // Le transfert exige un lien réel ; ce faux réseau n'en a pas. Ce qui
+        // se teste ici, c'est le CONTRÔLE d'entrée du service (appareil listé
+        // ou non), pas le parcours lui-même — celui-là vit dans les tests de
+        // `node::dm_sync`, qui font passer les messages à la main.
+        (0, 0)
+    }
     fn status(&self) -> crate::node::network::NetworkStatus {
         crate::node::network::NetworkStatus {
             p2p_port: 48016,

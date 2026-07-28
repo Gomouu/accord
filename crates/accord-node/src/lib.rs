@@ -9,6 +9,7 @@ pub mod backup;
 pub mod device;
 pub mod error;
 pub mod hex;
+pub mod history_transfer;
 pub mod identity;
 pub mod maintenance;
 pub mod node;

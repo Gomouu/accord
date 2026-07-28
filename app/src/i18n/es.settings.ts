@@ -197,6 +197,15 @@ export const esSettings = {
     deviceRouteRelay: 'a través de un relé',
     deviceNameLabel: 'Nombre del dispositivo',
     deviceRenamed: '¡Dispositivo renombrado!',
+    historyTransferAction: 'Recuperar el historial desde este dispositivo',
+    historyTransferProgressLabel: 'Progreso de la transferencia del historial',
+    historyTransferRunning:
+      'Transferencia en curso: {done}/{total} conversación(es), {pages} página(s) recibida(s).',
+    historyTransferDone:
+      'Historial recuperado: {pages} página(s) en {conversations} conversación(es).',
+    historyTransferEmptyBook: 'Nada que pedir: tu lista de amigos está vacía.',
+    historyTransferAmbiguous:
+      'No se recibió ningún mensaje. Hay dos causas posibles y nada aquí permite distinguirlas: o bien ese dispositivo no tiene nada más antiguo que lo que ya tienes, o bien ejecuta una versión de Accord anterior a la que sabe responder a esta petición. Comprueba su versión antes de concluir que tu historial está completo.',
     pairAdd: 'Añadir un dispositivo',
     pairHint:
       'Abre Accord en el otro dispositivo e introduce este código. Sirve una sola vez y caduca a los cinco minutos.',

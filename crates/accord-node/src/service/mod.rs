@@ -101,6 +101,16 @@ impl Service for NodeService {
                 .await
                 .map_err(node_error_to_rpc);
         }
+        // Transfert d'historique : seule méthode `devices.*` qui parle au
+        // réseau, donc la seule qui ne peut pas passer par le `dispatch`
+        // synchrone. Détournée ici plutôt que de rendre tout `devices.*`
+        // asynchrone pour une méthode sur douze.
+        if method == "devices.transfer_history" {
+            return self
+                .transfer_history(&params)
+                .await
+                .map_err(node_error_to_rpc);
+        }
         if method.starts_with("network.") || method.starts_with("diagnostics.") {
             return self
                 .call_network(method, &params)

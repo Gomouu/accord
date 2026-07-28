@@ -656,6 +656,39 @@ impl Db {
         rows.into_iter().map(blob).collect()
     }
 
+    /// Position la plus BASSE détenue pour une conversation, ou `None` si on
+    /// n'en détient aucun message.
+    ///
+    /// C'est l'état du transfert d'historique, et il est **déduit de la base**
+    /// plutôt que tenu à part : la prochaine page à demander est « ce qui est
+    /// sous ce qu'on a déjà ». Un curseur mémorisé en parallèle pourrait
+    /// diverger du contenu réel — après une restauration de sauvegarde, ou
+    /// simplement parce qu'une passe a été perdue — et redemanderait alors
+    /// indéfiniment une page déjà reçue, ou pire, sauterait un trou.
+    pub fn dm_lowest_lamport(&self, peer: &[u8; 32]) -> Result<Option<u64>, CoreError> {
+        let mut stmt = self
+            .conn()
+            .prepare("SELECT MIN(lamport) FROM dm_messages WHERE peer = ?1")?;
+        // `MIN` sur un ensemble vide rend NULL, pas zéro : l'absence de message
+        // et un message en position 0 doivent rester distinguables.
+        let bas: Option<i64> = stmt.query_row([peer.as_slice()], |row| row.get(0))?;
+        Ok(bas.map(|v| v as u64))
+    }
+
+    /// Nombre de messages détenus pour une conversation.
+    ///
+    /// Sert au transfert d'historique à savoir qu'il a fini : une page servie
+    /// **incomplète** (moins d'éléments que demandé) prouve que la source n'a
+    /// plus rien de plus ancien. Sans ce compte, la seule fin possible serait
+    /// un minuteur — et un minuteur déclare « terminé » sur un lien lent.
+    pub fn dm_count(&self, peer: &[u8; 32]) -> Result<usize, CoreError> {
+        let mut stmt = self
+            .conn()
+            .prepare("SELECT COUNT(*) FROM dm_messages WHERE peer = ?1")?;
+        let n: i64 = stmt.query_row([peer.as_slice()], |row| row.get(0))?;
+        Ok(n as usize)
+    }
+
     /// Note qu'un message a été **rattrapé** depuis un autre appareil du compte
     /// plutôt que composé ici (idempotent).
     ///

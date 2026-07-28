@@ -868,9 +868,45 @@ milestone of its own, not a sub-task.
    would be dragged backwards by a third device waking up very late, replaying the
    same batch forever, and Lamport positions are not comparable across
    conversations anyway).
-3. **History transfer at pairing** (optional, on request). The new device may
-   ask the original for the full history. Long, explicit, with a progress bar.
-   Not built.
+3. **History transfer at pairing** (optional, on request). The new device asks
+   the original for the whole history, conversation by conversation, walking
+   *backwards* from the newest message it holds. Long, explicit, with a progress
+   bar. Landed in 8.2 — wire in SPEC §6.6, driver in `runtime.rs`.
+
+   🔴 **This needed a new opcode, and the plan said it would not.** The plan
+   held that step 2's machinery could simply be "driven in a loop until
+   exhausted". It cannot, for a reason visible in four lines of
+   `accord-core/src/dm_sync.rs`: `SelfSyncPull` carries `since_lamport`, a
+   **lower** bound, and the responder only ever serves `window()` — the 64 most
+   **recent** messages. Advancing the cursor therefore only shrinks the answer.
+   The second pass returns nothing, and no sequence of pulls ever reaches a
+   message older than the window. A fresh device would have received its 64 most
+   recent messages and stopped, looking complete.
+
+   Nor could the field simply be added to `SelfSyncPull`. Unlike the handshake
+   (D-047, additive tail fields), the `CoreMsg` decoder **rejects trailing
+   bytes**: an older sibling would drop the lengthened pull entirely, breaking
+   the catch-up that does work. `SelfHistoryPull` (0x23) isolates the failure —
+   an older sibling drops that one datagram and nothing else.
+
+   ⚠️ **The cost of that isolation**: the requester cannot tell "my sibling is
+   too old to answer" from "my sibling has nothing older". Both look like a pass
+   that brought nothing. The UI says so in as many words rather than reporting a
+   clean finish.
+
+   🔴 **The loop ends on information, not on a timer** — and the first version
+   did not. It stopped after two waits that brought nothing new, which the plan
+   had proposed and which sounded reasonable. Under load those waits expired
+   while the page was still in flight: the end-to-end test received 64 of 90
+   messages and the transfer announced success. A partial transfer presented as
+   complete is the same class of defect as the one the plan itself contained,
+   and lengthening the timeout would only have moved the threshold.
+
+   What ends a conversation now is a **short page**. The responder always serves
+   as much as it can up to the requested bound, so fewer items than requested
+   can only mean it has nothing older. Waiting is then just a transport
+   allowance — polled in 100 ms steps so a fast link costs nothing, bounded at
+   8 s, and a lost page is retried twice before the conversation is abandoned.
 
 Stopping after step 1 still leaves a working product. That is the point of the
 ordering.

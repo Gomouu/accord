@@ -218,7 +218,10 @@ pub struct Runtime {
     endpoint: Arc<Endpoint>,
     dht: Arc<KademliaNode>,
     rpc: Arc<TransportDhtRpc>,
-    node: Arc<Node>,
+    /// `pub(crate)` pour le pilote de transfert d'historique, extrait dans
+    /// `history_transfer.rs` : `runtime.rs` est un fichier de la dette et ne
+    /// doit pas grossir.
+    pub(crate) node: Arc<Node>,
     book: Mutex<AddressBook>,
     /// Annonces authentifiées reçues (`NODE_ANNOUNCE`) : clé publique →
     /// `(pow_nonce, flags)`. Source de vérité pour reconstruire le `NodeInfo`
@@ -2937,6 +2940,10 @@ impl NetworkControl for Runtime {
 
     fn set_require_post_quantum(&self, require: bool) {
         self.endpoint.set_require_post_quantum(require);
+    }
+
+    async fn transfer_history(&self, device: [u8; 32]) -> (usize, usize) {
+        self.transfer_history_from(&device).await
     }
 }
 

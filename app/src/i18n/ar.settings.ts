@@ -180,6 +180,13 @@ export const arSettings = {
     deviceRouteRelay: 'عبر مُرحِّل',
     deviceNameLabel: 'اسم الجهاز',
     deviceRenamed: 'أُعيدت تسمية الجهاز!',
+    historyTransferAction: 'استرجاع السجل من هذا الجهاز',
+    historyTransferProgressLabel: 'تقدّم نقل السجل',
+    historyTransferRunning: 'النقل جارٍ — {done}/{total} محادثة، {pages} صفحة مستلمة.',
+    historyTransferDone: 'تم استرجاع السجل: {pages} صفحة من {conversations} محادثة.',
+    historyTransferEmptyBook: 'لا شيء لطلبه: قائمة أصدقائك فارغة.',
+    historyTransferAmbiguous:
+      'لم تُستلم أي رسالة. هناك سببان محتملان ولا شيء هنا يميّز بينهما: إما أن هذا الجهاز لا يملك شيئًا أقدم مما لديك بالفعل، وإما أنه يعمل بإصدار من Accord أقدم من الإصدار الذي يعرف الردّ على هذا الطلب. تحقّق من إصداره قبل أن تستنتج أن سجلّك مكتمل.',
     pairAdd: 'أضف جهازًا',
     pairHint:
       'افتح Accord على الجهاز الآخر وأدخل هذا الرمز. يعمل مرة واحدة وتنتهي صلاحيته بعد خمس دقائق.',

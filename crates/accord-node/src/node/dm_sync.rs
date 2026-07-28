@@ -114,6 +114,117 @@ impl Node {
         Ok(items.iter().map(|m| item_msg(conv, m)).collect())
     }
 
+    /// Signale l'avancement d'un transfert d'historique à l'interface.
+    ///
+    /// Sur le patron de `event.file_progress` : mêmes champs `done`/`total`,
+    /// même drapeau `complete`. Une deuxième forme d'événement de progression
+    /// obligerait l'interface à en apprendre deux.
+    pub(crate) fn emit_history_progress(
+        &self,
+        done: usize,
+        total: usize,
+        messages: usize,
+        complete: bool,
+    ) {
+        self.emit(
+            "event.history_transfer",
+            json!({
+                "done": done,
+                "total": total,
+                "messages": messages,
+                "complete": complete,
+            }),
+        );
+    }
+
+    /// Conversations à parcourir pour un transfert d'historique : celles du
+    /// **carnet**, pas celles qui portent déjà un message.
+    ///
+    /// 🔴 C'est la différence qui fait tout le transfert. `dm_conversations`,
+    /// dont se sert le rattrapage, lit `dm_messages GROUP BY peer` — sur un
+    /// appareil fraîchement appairé cette table est VIDE, donc il n'y a rien à
+    /// offrir, rien à demander, et le rattrapage ne démarre jamais de ce côté.
+    /// Le carnet, lui, vient d'être rempli par `SelfContactAdd` : c'est la
+    /// seule liste dont un appareil neuf dispose.
+    ///
+    /// Bornée aux relations, dans le même sens que `ingest_self_sync_item` :
+    /// demander l'historique d'un pair qui n'est pas au carnet ne servirait à
+    /// rien, puisque l'ingestion le refuserait.
+    pub fn history_conversations(&self) -> Result<Vec<[u8; 32]>, NodeError> {
+        let contacts = self.with_db(|db| Ok(db.contacts()?))?;
+        Ok(contacts
+            .into_iter()
+            .filter(|c| self.is_relation(&c.pubkey))
+            .map(|c| c.pubkey)
+            .take(SELF_SYNC_MAX_CONVERSATIONS)
+            .collect())
+    }
+
+    /// Position la plus basse détenue pour `conv` — l'avancement du transfert,
+    /// lu dans la base.
+    ///
+    /// Exposé plutôt que d'ouvrir `with_db` au runtime : le pilote a besoin de
+    /// CE chiffre, pas d'un accès général à la base depuis la couche réseau.
+    pub fn history_floor(&self, conv: &[u8; 32]) -> Option<u64> {
+        self.with_db(|db| Ok(db.dm_lowest_lamport(conv)?))
+            .unwrap_or(None)
+    }
+
+    /// Nombre de messages détenus pour `conv` — sert au pilote à reconnaître
+    /// une page incomplète, donc une fin.
+    pub fn history_count(&self, conv: &[u8; 32]) -> usize {
+        self.with_db(|db| Ok(db.dm_count(conv)?)).unwrap_or(0)
+    }
+
+    /// Prochaine demande d'historique pour `conv`, ou `None` s'il n'y a plus
+    /// rien à demander de plus ancien.
+    ///
+    /// La borne est **ce que la base contient**, pas un curseur mémorisé :
+    /// voir `Db::dm_lowest_lamport`. Rend `None` quand on détient déjà la
+    /// position 0, seul cas où « plus ancien » n'a pas de sens.
+    pub fn next_history_pull(&self, conv: &[u8; 32]) -> Result<Option<CoreMsg>, NodeError> {
+        let bas = self.with_db(|db| Ok(db.dm_lowest_lamport(conv)?))?;
+        let before_lamport = match bas {
+            // Rien en base : on demande le haut de l'historique du frère.
+            None => u64::MAX,
+            // On tient déjà le plancher absolu : il n'existe rien dessous.
+            Some(0) => return Ok(None),
+            Some(l) => l,
+        };
+        Ok(Some(CoreMsg::SelfHistoryPull {
+            conv: *conv,
+            before_lamport,
+            max_items: MAX_SELF_SYNC_ITEMS,
+        }))
+    }
+
+    /// Sert une page d'historique **descendante** à un autre appareil du
+    /// compte (transfert d'historique à l'appairage).
+    ///
+    /// Même garde que [`Self::ingest_self_sync_pull`], et c'est délibéré :
+    /// `is_own_listed_device`, donc la liste signée courante, jamais la clé de
+    /// compte. Un appareil révoqué détient encore la graine ; l'accepter ici
+    /// reviendrait à laisser une machine volée aspirer **tout** l'historique et
+    /// non plus seulement sa fenêtre récente — le même risque qu'au rattrapage,
+    /// en pire.
+    pub(super) fn ingest_self_history_pull(
+        &self,
+        device: &[u8; 32],
+        conv: &[u8; 32],
+        before_lamport: u64,
+        max_items: u16,
+    ) -> Result<Vec<CoreMsg>, NodeError> {
+        if !self.is_own_listed_device(device) {
+            return Ok(vec![]);
+        }
+        // Comme au rattrapage : le décodage a déjà borné, le `min` rend la
+        // borne visible là où l'on sert.
+        let combien = usize::from(max_items.min(MAX_SELF_SYNC_ITEMS));
+        let items =
+            self.with_db(|db| Ok(dm_sync::items_before(db, conv, before_lamport, combien)?))?;
+        Ok(items.iter().map(|m| item_msg(conv, m)).collect())
+    }
+
     /// Ingère un message d'historique servi par un de nos appareils.
     pub(super) fn ingest_self_sync_item(
         &self,
@@ -206,7 +317,12 @@ impl Node {
     /// synchrone, donc incapable d'attendre une réponse DHT. Ce qui est fait ici
     /// est ce qui est faisable : relire la liste PERSISTÉE à chaque demande,
     /// jamais un cache mémoire, et refuser dès qu'elle est illisible.
-    fn is_own_listed_device(&self, key: &[u8; 32]) -> bool {
+    ///
+    /// `pub(crate)` depuis le transfert d'historique : le service s'en sert
+    /// pour refuser une demande visant un appareil qui n'est pas du compte,
+    /// avec un message clair, plutôt que de laisser le pilote parler dans le
+    /// vide pendant plusieurs minutes.
+    pub(crate) fn is_own_listed_device(&self, key: &[u8; 32]) -> bool {
         // Une liste illisible ne prouve rien : on refuse, comme
         // `DeviceList::authorises` refuse une liste incohérente.
         self.current_device_list()
@@ -376,6 +492,131 @@ mod tests {
     }
 
     /// Identifiants de l'historique d'une conversation, triés.
+    /// Une passe de TRANSFERT : la cible demande la page immédiatement plus
+    /// ancienne que ce qu'elle détient, la source la sert, la cible l'ingère.
+    /// Rend le nombre de messages transportés.
+    fn passe_historique(source: &Appareil, cible: &Appareil, conv: &[u8; 32]) -> usize {
+        let Some(demande) = cible.node.next_history_pull(conv).unwrap() else {
+            return 0;
+        };
+        let mut transportes = 0usize;
+        for item in source.node.ingest_core(&cible.key(), demande).unwrap() {
+            transportes += 1;
+            cible.node.ingest_core(&source.key(), item).unwrap();
+        }
+        transportes
+    }
+
+    #[test]
+    fn le_rattrapage_seul_laisse_un_appareil_neuf_avec_une_fenetre_tronquee() {
+        // 🔴 L'état des lieux qui justifie le transfert. La feuille de route
+        // tenait pour acquis qu'une boucle de rattrapage suffisait ; voici ce
+        // qu'un appareil neuf obtient réellement quand on la fait tourner.
+        let (bureau, portable, pair) = deux_appareils();
+        let total = MAX_SELF_SYNC_ITEMS as u64 + 40;
+        for i in 1..=total {
+            ecrit(&bureau, pair, pair, i as u8, i, 1_700_000_000_000 + i);
+        }
+
+        // Autant de passes qu'on veut : le rattrapage ne franchit pas sa fenêtre.
+        for _ in 0..5 {
+            passe(&bureau, &portable);
+        }
+        assert_eq!(
+            ids(&portable, &pair).len(),
+            MAX_SELF_SYNC_ITEMS as usize,
+            "le rattrapage plafonne à sa fenêtre, quel que soit le nombre de passes"
+        );
+    }
+
+    #[test]
+    fn le_transfert_donne_tout_lhistorique_a_un_appareil_neuf() {
+        let (bureau, portable, pair) = deux_appareils();
+        let total = MAX_SELF_SYNC_ITEMS as u64 + 40;
+        for i in 1..=total {
+            ecrit(&bureau, pair, pair, i as u8, i, 1_700_000_000_000 + i);
+        }
+        assert!(ids(&portable, &pair).is_empty(), "le portable part de rien");
+
+        // La boucle du pilote : jusqu'à épuisement, borne déduite de la base.
+        let mut passes = 0;
+        while passe_historique(&bureau, &portable, &pair) > 0 {
+            passes += 1;
+            assert!(passes < 20, "la boucle doit converger, pas tourner");
+        }
+
+        assert_eq!(
+            ids(&portable, &pair),
+            ids(&bureau, &pair),
+            "tout l'historique, à l'identique"
+        );
+        assert_eq!(ids(&portable, &pair).len(), total as usize);
+    }
+
+    #[test]
+    fn un_transfert_repete_ne_duplique_rien_et_sarrete() {
+        let (bureau, portable, pair) = deux_appareils();
+        for i in 1..=20u64 {
+            ecrit(&bureau, pair, pair, i as u8, i, 1_700_000_000_000 + i);
+        }
+        while passe_historique(&bureau, &portable, &pair) > 0 {}
+        let apres_premier = ids(&portable, &pair);
+
+        // Rejouer : le transfert est idempotent (`msg_id` d'origine + INSERT OR
+        // IGNORE), et la borne ne peut plus descendre.
+        assert_eq!(
+            passe_historique(&bureau, &portable, &pair),
+            0,
+            "rien de plus à tirer une fois le plancher atteint"
+        );
+        assert_eq!(ids(&portable, &pair), apres_premier);
+    }
+
+    #[test]
+    fn une_demande_dhistorique_dune_cle_non_autorisee_ne_rend_rien() {
+        // 🔒 Même garde que le rattrapage, et elle compte davantage ici : une
+        // machine révoquée qui passerait aspirerait TOUT l'historique, pas
+        // seulement la fenêtre récente.
+        let (bureau, _portable, pair) = deux_appareils();
+        for i in 1..=10u64 {
+            ecrit(&bureau, pair, pair, i as u8, i, 1_700_000_000_000 + i);
+        }
+        let intrus = DeviceIdentity::generate_with_pow_bits(1).public_key();
+        let servis = bureau
+            .node
+            .ingest_core(
+                &intrus,
+                CoreMsg::SelfHistoryPull {
+                    conv: pair,
+                    before_lamport: u64::MAX,
+                    max_items: MAX_SELF_SYNC_ITEMS,
+                },
+            )
+            .unwrap();
+        assert!(servis.is_empty(), "un appareil non listé n'obtient rien");
+    }
+
+    #[test]
+    fn le_carnet_fournit_les_conversations_dun_appareil_sans_message() {
+        // 🔴 Le point qui distingue le transfert du rattrapage. `dm_conversations`
+        // lit `dm_messages` : sur un appareil neuf elle est vide, donc rien à
+        // parcourir. Le carnet, lui, vient d'être rempli par `SelfContactAdd`.
+        let (_bureau, portable, pair) = deux_appareils();
+        assert!(
+            portable
+                .node
+                .with_db(|db| Ok(db.dm_conversations(64)?))
+                .unwrap()
+                .is_empty(),
+            "aucune conversation ne porte de message"
+        );
+        assert_eq!(
+            portable.node.history_conversations().unwrap(),
+            vec![pair],
+            "le carnet, lui, connaît le pair"
+        );
+    }
+
     fn ids(a: &Appareil, conv: &[u8; 32]) -> Vec<[u8; 16]> {
         let mut v: Vec<[u8; 16]> = a
             .node

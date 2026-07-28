@@ -179,6 +179,13 @@ export const zhSettings = {
     deviceRouteRelay: '经由中继',
     deviceNameLabel: '设备名称',
     deviceRenamed: '设备已重命名！',
+    historyTransferAction: '从此设备取回历史记录',
+    historyTransferProgressLabel: '历史记录传输进度',
+    historyTransferRunning: '正在传输 — 会话 {done}/{total}，已收到 {pages} 页。',
+    historyTransferDone: '历史记录已取回：{conversations} 个会话中共 {pages} 页。',
+    historyTransferEmptyBook: '没有可请求的内容：你的好友列表是空的。',
+    historyTransferAmbiguous:
+      '未收到任何消息。有两种可能的原因，在这里无法区分：要么该设备没有比你现有记录更早的内容，要么它运行的 Accord 版本早于能够响应此请求的版本。在断定历史记录已完整之前，请先确认它的版本。',
     pairAdd: '添加设备',
     pairHint: '在另一台设备上打开 Accord 并输入这个代码。它只能用一次，五分钟后失效。',
     pairCodeLabel: '配对代码',

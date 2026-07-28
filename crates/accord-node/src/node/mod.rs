@@ -2226,6 +2226,11 @@ impl Node {
                 since_lamport,
                 max_items,
             } => self.ingest_self_sync_pull(device_pubkey, &conv, since_lamport, max_items),
+            CoreMsg::SelfHistoryPull {
+                conv,
+                before_lamport,
+                max_items,
+            } => self.ingest_self_history_pull(device_pubkey, &conv, before_lamport, max_items),
             CoreMsg::SelfSyncItem {
                 conv,
                 msg_id,

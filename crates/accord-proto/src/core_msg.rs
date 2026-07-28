@@ -2056,6 +2056,48 @@ pub enum CoreMsg {
         /// Même leçon que la liste d'appareils (`SECURITY.md` §5, items 16-17).
         at_ms: u64,
     },
+    /// 0x23 — Demande les messages d'une conversation **plus anciens** qu'une
+    /// borne, pour le transfert d'historique à l'appairage.
+    ///
+    /// 🔴 **Pourquoi un opcode neuf plutôt qu'un champ de plus sur
+    /// [`CoreMsg::SelfSyncPull`].** La feuille de route affirmait qu'aucun
+    /// nouvel opcode n'était nécessaire, qu'il suffisait de « piloter en boucle
+    /// jusqu'à épuisement » le rattrapage existant. C'est faux, et de deux
+    /// façons.
+    ///
+    /// D'abord, `SelfSyncPull` **ne peut pas descendre** : son `since_lamport`
+    /// est une borne BASSE, et le répondeur ne sert jamais que sa fenêtre —
+    /// `accord_core::dm_sync::window`, les [`MAX_SELF_SYNC_ITEMS`] messages les
+    /// plus RÉCENTS. Faire avancer le curseur ne fait donc que rétrécir le
+    /// résultat : la deuxième passe rend zéro, et rien n'atteint jamais un
+    /// message ancien. La boucle décrite ne pouvait épuiser que la patience.
+    ///
+    /// Ensuite, un champ additif de fin n'aurait pas sauvé la compatibilité :
+    /// contrairement au handshake (D-047), le décodeur `CoreMsg` **rejette les
+    /// octets restants** (`finish`). Un appareil plus ancien recevant un
+    /// `SelfSyncPull` allongé jetterait le message — et casserait donc le
+    /// rattrapage qui, lui, marche. Un opcode neuf isole la panne : un appareil
+    /// qui ne le connaît pas jette ce seul datagramme, sans effet sur le reste,
+    /// et le demandeur le constate à l'absence de réponse.
+    ///
+    /// 🔒 La réponse est faite de [`CoreMsg::SelfSyncItem`] ordinaires : le
+    /// chemin d'ingestion est déjà idempotent (`msg_id` d'origine), déjà
+    /// autorisé (appareil listé **et** pair au carnet) et déjà routé vers la
+    /// MACHINE et non le compte. Inventer un message de réponse aurait dupliqué
+    /// ces trois propriétés, donc trois occasions de les affaiblir.
+    SelfHistoryPull {
+        /// Conversation visée (clé de compte du pair).
+        conv: [u8; 32],
+        /// Ne renvoyer que les messages de position **strictement
+        /// inférieure**. `u64::MAX` demande donc le bas de l'historique connu.
+        before_lamport: u64,
+        /// Nombre de messages demandés au plus.
+        ///
+        /// 🔒 Borné **au décodage** à [`MAX_SELF_SYNC_ITEMS`], zéro refusé —
+        /// même règle que [`CoreMsg::SelfSyncPull`], et pour la même raison :
+        /// le répondeur n'a jamais à se méfier de ce champ.
+        max_items: u16,
+    },
     /// 0x22 — Une amitié existe sur cette machine ; qu'elle existe aussi sur
     /// les AUTRES APPAREILS du même compte.
     ///
@@ -2457,6 +2499,16 @@ impl WireEncode for CoreMsg {
                 w.put_str(display_name);
                 w.put_u64(*added_ms);
             }
+            CoreMsg::SelfHistoryPull {
+                conv,
+                before_lamport,
+                max_items,
+            } => {
+                w.put_u8(0x23);
+                w.put_arr(conv);
+                w.put_u64(*before_lamport);
+                w.put_u16(*max_items);
+            }
         }
     }
 }
@@ -2733,6 +2785,17 @@ impl WireDecode for CoreMsg {
                 // l'horloge). Elle est appliquée à l'ingestion.
                 at_ms: r.u64()?,
             }),
+            0x23 => Ok(CoreMsg::SelfHistoryPull {
+                conv: r.arr()?,
+                before_lamport: r.u64()?,
+                // 🔒 Même borne, au même endroit, que `SelfSyncPull` : dans le
+                // décodeur, pas chez celui qui sert. Un contrôle posé au moment
+                // de servir est un contrôle que le prochain appelant oubliera.
+                max_items: match r.u16()? {
+                    n if (1..=MAX_SELF_SYNC_ITEMS).contains(&n) => n,
+                    _ => return Err(DecodeError::InvalidValue("self_history.max_items")),
+                },
+            }),
             0x22 => Ok(CoreMsg::SelfContactAdd {
                 peer: r.arr()?,
                 display_name: r.str(MAX_NAME, "self_contact.name")?,
@@ -2965,6 +3028,70 @@ mod tests {
         w.put_str(&"a".repeat(MAX_NAME + 1));
         w.put_u64(1);
         assert!(CoreMsg::from_bytes(&w.into_bytes()).is_err());
+    }
+
+    #[test]
+    fn self_history_pull_roundtrips_and_bounds_its_count() {
+        let msg = CoreMsg::SelfHistoryPull {
+            conv: [0x5A; 32],
+            before_lamport: u64::MAX,
+            max_items: MAX_SELF_SYNC_ITEMS,
+        };
+        let mut w = Writer::new();
+        msg.encode(&mut w);
+        let bytes = w.into_bytes();
+        // Opcode gelé, et distinct de 0x1D : descendre dans l'historique et
+        // rattraper le haut sont deux demandes, pas deux valeurs d'un champ.
+        assert_eq!(bytes.first(), Some(&0x23));
+        assert_eq!(CoreMsg::from_bytes(&bytes).unwrap(), msg);
+
+        // 🔒 Le nombre est borné AU DÉCODAGE, des deux côtés.
+        for compte in [0u16, MAX_SELF_SYNC_ITEMS + 1, u16::MAX] {
+            let mut w = Writer::new();
+            w.put_u8(0x23);
+            w.put_arr(&[0x5A; 32]);
+            w.put_u64(u64::MAX);
+            w.put_u16(compte);
+            assert!(
+                CoreMsg::from_bytes(&w.into_bytes()).is_err(),
+                "max_items={compte} devrait être refusé au décodage"
+            );
+        }
+    }
+
+    #[test]
+    fn an_older_peer_drops_only_the_history_pull_datagram() {
+        // 🔴 Ce test fige la raison d'être d'un opcode NEUF plutôt que d'un
+        // champ ajouté à `SelfSyncPull`.
+        //
+        // Le décodeur `CoreMsg` rejette les octets restants — contrairement au
+        // handshake, il n'a pas de champ additif de fin. Un `SelfSyncPull`
+        // allongé serait donc jeté par un appareil plus ancien, et le
+        // rattrapage QUI MARCHE tomberait avec lui. Ici, seul le datagramme
+        // inconnu meurt.
+        let mut w = Writer::new();
+        w.put_u8(0x23);
+        w.put_arr(&[0x5A; 32]);
+        w.put_u64(u64::MAX);
+        w.put_u16(8);
+        let inconnu = w.into_bytes();
+
+        // Ce qu'un décodeur qui ignore 0x23 en fait : une erreur, sur CE
+        // message seulement. (Simulé en tronquant l'opcode à une valeur libre :
+        // le comportement testé est celui du bras par défaut.)
+        let mut jamais_attribue = inconnu.clone();
+        jamais_attribue[0] = 0x7F;
+        assert!(CoreMsg::from_bytes(&jamais_attribue).is_err());
+
+        // Et le rattrapage, lui, décode toujours — c'est tout l'intérêt.
+        let pull = CoreMsg::SelfSyncPull {
+            conv: [0x5A; 32],
+            since_lamport: 3,
+            max_items: 8,
+        };
+        let mut w = Writer::new();
+        pull.encode(&mut w);
+        assert_eq!(CoreMsg::from_bytes(&w.into_bytes()).unwrap(), pull);
     }
 
     #[test]

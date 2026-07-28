@@ -190,6 +190,7 @@ with `friends.*`, which is about other people.
 | `devices.pair_confirm` | — | `{}` — the human confirmed the fingerprint on this side |
 | `devices.pair_cancel` | — | `{}` |
 | `devices.revoke` | `{ pubkey }` | `{}` |
+| `devices.transfer_history` | `{ device }` | `{ conversations, pages }` — pulls the whole history from another device of the account. **Long-running** |
 
 - 🔒 `last_seen_ms` / `last_seen_route` are **local observations**, held in this
   machine's database and in no signed structure. They are deliberately absent
@@ -199,6 +200,21 @@ with `friends.*`, which is about other people.
   *by which path* the device was reached, and never an address — a tunnelled
   session only knows the **relay's** address (`SessionView::addr`), so an address
   would be both wrong and needlessly revealing.
+- ⚠️ `devices.transfer_history` **does not return until the transfer ends**,
+  which can take minutes: one page per round trip, per conversation. Callers must
+  follow `event.history_transfer` (`{ done, total, messages, complete }`, the
+  same shape as `event.file_progress`) rather than waiting on the reply, and
+  treat the reply as a final summary.
+
+  🔒 The target must be in the account's **signed** device list; the check is at
+  this boundary rather than in the driver, so a later caller cannot skip it.
+
+  🔴 A result of `pages: 0` is **ambiguous by construction**: the requester
+  cannot distinguish "that device has nothing older" from "that device runs a
+  version that does not know opcode `0x23` and dropped the request". Interfaces
+  must surface both possibilities rather than reporting a clean finish. See
+  `docs/MULTI_DEVICE.md` §7.
+
 - `devices.rename` bounds the name at **32 UTF-8 bytes**, which is the wire bound
   (`MAX_DEVICE_NAME`), not 32 characters. Counting characters looks stricter and
   is looser: "é" weighs two bytes, so 32 accented characters would pass here and

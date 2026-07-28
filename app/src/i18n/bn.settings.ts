@@ -183,6 +183,15 @@ export const bnSettings = {
     deviceRouteRelay: 'রিলের মাধ্যমে',
     deviceNameLabel: 'যন্ত্রের নাম',
     deviceRenamed: 'যন্ত্রের নাম বদলে গেছে!',
+    historyTransferAction: 'এই যন্ত্র থেকে ইতিহাস আনুন',
+    historyTransferProgressLabel: 'ইতিহাস স্থানান্তরের অগ্রগতি',
+    historyTransferRunning:
+      'স্থানান্তর চলছে — {done}/{total} কথোপকথন, {pages} পৃষ্ঠা পাওয়া গেছে।',
+    historyTransferDone:
+      'ইতিহাস আনা হয়েছে: {conversations} কথোপকথনে মোট {pages} পৃষ্ঠা।',
+    historyTransferEmptyBook: 'চাওয়ার কিছু নেই: আপনার বন্ধু তালিকা খালি।',
+    historyTransferAmbiguous:
+      'কোনো বার্তা পাওয়া যায়নি। দুটি সম্ভাব্য কারণ আছে এবং এখান থেকে সেগুলি আলাদা করা যায় না: হয় এই যন্ত্রে আপনার কাছে যা আছে তার চেয়ে পুরনো কিছু নেই, নয়তো এতে Accord-এর এমন একটি সংস্করণ চলছে যা এই অনুরোধের উত্তর দিতে জানে না। আপনার ইতিহাস সম্পূর্ণ ধরে নেওয়ার আগে সেটির সংস্করণ যাচাই করুন।',
     pairAdd: 'যন্ত্র যোগ করো',
     pairHint:
       'অন্য যন্ত্রে Accord খোলো আর এই কোডটা লেখো। এটা একবারই চলে আর পাঁচ মিনিট পরে ফুরিয়ে যায়।',

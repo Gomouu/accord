@@ -150,6 +150,18 @@ describe('DevicesSection', () => {
     expect(texte).not.toContain(L.deviceLastSeenNever);
   });
 
+  it('n’offre la récupération d’historique que sur les machines sœurs', async () => {
+    // §17.4. Se demander son propre historique n'irait chercher nulle part :
+    // l'action n'a de sens que pointée vers un AUTRE appareil du compte.
+    devicesList.mockResolvedValue({ devices: [APPAREIL, SOEUR] });
+    render(<DevicesSection />);
+
+    await screen.findByText('Fixe');
+    expect(screen.getAllByRole('button', { name: L.historyTransferAction })).toHaveLength(
+      1,
+    );
+  });
+
   it('n’affiche jamais la clé publique en entier', async () => {
     // 🔒 Une clé tronquée suffit à reconnaître un appareil dans une liste.
     // L'afficher entière n'aide personne et encombre une capture d'écran.

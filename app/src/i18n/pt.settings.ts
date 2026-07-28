@@ -194,6 +194,15 @@ export const ptSettings = {
     deviceRouteRelay: 'através de um retransmissor',
     deviceNameLabel: 'Nome do dispositivo',
     deviceRenamed: 'Dispositivo renomeado!',
+    historyTransferAction: 'Recuperar o histórico deste dispositivo',
+    historyTransferProgressLabel: 'Progresso da transferência do histórico',
+    historyTransferRunning:
+      'Transferência em curso — {done}/{total} conversa(s), {pages} página(s) recebida(s).',
+    historyTransferDone:
+      'Histórico recuperado: {pages} página(s) em {conversations} conversa(s).',
+    historyTransferEmptyBook: 'Nada a pedir: a sua lista de amigos está vazia.',
+    historyTransferAmbiguous:
+      'Nenhuma mensagem recebida. Há duas causas possíveis e nada aqui permite distingui-las: ou este dispositivo não tem nada mais antigo do que aquilo que já tem, ou executa uma versão do Accord anterior à que sabe responder a este pedido. Verifique a versão dele antes de concluir que o seu histórico está completo.',
     pairAdd: 'Adicionar um dispositivo',
     pairHint:
       'Abre o Accord no outro dispositivo e introduz este código. Serve uma única vez e expira ao fim de cinco minutos.',

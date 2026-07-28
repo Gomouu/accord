@@ -2,8 +2,8 @@
  * Section « Mes appareils » (multi-appareil, jalon 1).
  *
  * La liste des appareils du compte, et les deux bouts de l'appairage qui
- * l'alimentent. Renommer reste la seule action par ligne : la révocation
- * viendra avec son propre lot.
+ * l'alimentent. Chaque machine SŒUR porte en plus la récupération d'historique
+ * (§17.4) ; la révocation viendra avec son propre lot.
  */
 
 import { useEffect, useState } from 'react';
@@ -13,6 +13,7 @@ import { interpolate } from '../../i18n';
 import { formatEventDateTime } from '../../lib/format';
 import { useSettingsT, useT, useUi } from '../../stores/ui';
 import { SettingsSection } from './controls';
+import { HistoryTransferButton } from './HistoryTransferButton';
 import { JoinDeviceForm } from './JoinDeviceForm';
 import { PairDeviceButton } from './PairDeviceButton';
 
@@ -39,6 +40,15 @@ export function DevicesSection() {
   const [devices, setDevices] = useState<AccountDevice[] | null>(null);
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
+  /**
+   * Appareil dont l'historique est en cours de récupération, ou `null`.
+   *
+   * ⚠️ Un seul transfert à la fois, et c'est cet état qui le tient :
+   * `event.history_transfer` ne nomme PAS l'appareil source, donc deux
+   * transferts menés ensemble mélangeraient leurs avancements dans les deux
+   * barres — chacune racontant la somme des deux.
+   */
+  const [transfert, setTransfert] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -125,21 +135,29 @@ export function DevicesSection() {
       ) : (
         <ul className="flex flex-col gap-2">
           {devices.map((d) => (
-            <li
-              key={d.pubkey}
-              className="flex items-center gap-3 rounded-lg bg-sidebar px-4 py-3"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium">{d.name}</div>
-                <div className="selectable truncate font-mono text-xs text-muted">
-                  {d.pubkey.slice(0, 16)}…
+            <li key={d.pubkey} className="rounded-lg bg-sidebar px-4 py-3">
+              <div className="flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium">{d.name}</div>
+                  <div className="selectable truncate font-mono text-xs text-muted">
+                    {d.pubkey.slice(0, 16)}…
+                  </div>
+                  <div className="mt-0.5 text-xs text-muted">{historique(d)}</div>
                 </div>
-                <div className="mt-0.5 text-xs text-muted">{historique(d)}</div>
+                {d.is_current && (
+                  <span className="shrink-0 rounded-full bg-blurple/15 px-2 py-0.5 text-xs font-medium text-blurple">
+                    {ts.settings.deviceCurrent}
+                  </span>
+                )}
               </div>
-              {d.is_current && (
-                <span className="shrink-0 rounded-full bg-blurple/15 px-2 py-0.5 text-xs font-medium text-blurple">
-                  {ts.settings.deviceCurrent}
-                </span>
+              {/* Jamais sur la machine qu'on tient : se demander son propre
+                  historique n'irait chercher nulle part. */}
+              {!d.is_current && (
+                <HistoryTransferButton
+                  pubkey={d.pubkey}
+                  bloque={transfert !== null && transfert !== d.pubkey}
+                  onActif={(actif) => setTransfert(actif ? d.pubkey : null)}
+                />
               )}
             </li>
           ))}

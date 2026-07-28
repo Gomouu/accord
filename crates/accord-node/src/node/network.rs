@@ -134,6 +134,13 @@ pub trait NetworkControl: Send + Sync {
     fn requires_post_quantum(&self) -> bool;
     /// Pose ou lève cette exigence, à chaud.
     fn set_require_post_quantum(&self, require: bool);
+    /// Tire tout l'historique depuis un autre appareil du compte
+    /// (feuille de route §17.4). Rend `(conversations, pages reçues)`.
+    ///
+    /// Long **par nature** : une page par aller-retour, une attente par page.
+    /// L'avancement passe par `event.history_transfer`, pas par cette valeur de
+    /// retour, qui n'arrive qu'à la fin.
+    async fn transfer_history(&self, device: [u8; 32]) -> (usize, usize);
 }
 
 // ---- Encodage/décodage des valeurs `meta` (pur, testable) ----
@@ -257,7 +264,12 @@ impl Node {
 
     /// Contrôle réseau branché, s'il l'est (absent dans les tests sans réseau,
     /// ou après l'arrêt).
-    pub(crate) fn network_control(&self) -> Option<Arc<dyn NetworkControl>> {
+    ///
+    /// `pub` depuis le transfert d'historique : les tests d'intégration sont
+    /// des crates externes, et le seul moyen d'exercer une opération réseau
+    /// longue de bout en bout est de la déclencher comme le service le fait.
+    /// Le trait rendu était déjà public ; c'est l'accesseur qui manquait.
+    pub fn network_control(&self) -> Option<Arc<dyn NetworkControl>> {
         self.network
             .lock()
             .unwrap_or_else(|e| e.into_inner())

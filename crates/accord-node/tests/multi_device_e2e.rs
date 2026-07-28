@@ -1050,3 +1050,82 @@ async fn un_appareil_au_carnet_vide_apprend_lami_et_recoit() {
     b.shutdown();
     f.shutdown();
 }
+
+/// Un appareil neuf récupère **tout** l'historique, pas seulement la fenêtre du
+/// rattrapage (feuille de route §17.4).
+///
+/// 🔴 Ce test existe parce que la feuille de route se trompait. Elle tenait
+/// pour acquis qu'une boucle de rattrapage suffisait ; le rattrapage ne sert
+/// jamais que ses 64 messages les plus récents, et un appareil neuf se serait
+/// arrêté là **en ayant l'air d'avoir fini**. Le seuil de l'assertion est donc
+/// choisi au-dessus de cette fenêtre : passer avec 64 messages ne prouverait
+/// rien.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn un_appareil_neuf_recupere_plus_que_la_fenetre_de_rattrapage() {
+    /// Au-delà de `MAX_SELF_SYNC_ITEMS` (64) : c'est tout l'objet du test.
+    const MESSAGES: u64 = 90;
+
+    let p = preparer();
+    // Le portable détient l'historique ; le fixe part d'une base vide de
+    // messages, mais avec l'ami au carnet — l'état d'un appareil qui vient
+    // d'être appairé et dont `SelfContactAdd` a déjà fait son travail.
+    {
+        let cle = identity::unlock(&p.paths_a, PASSPHRASE).unwrap();
+        let db = Db::open(&p.paths_a.db(), &cle.db_key).unwrap();
+        for i in 1..=MESSAGES {
+            db.insert_dm(&accord_core::db::DmRecord {
+                msg_id: [i as u8; 16],
+                peer: p.ami,
+                author: p.ami,
+                lamport: i,
+                sent_ms: 1_700_000_000_000 + i,
+                kind: 0,
+                body: accord_proto::core_msg::MsgBody::Text {
+                    text: format!("ancien {i}"),
+                    reply_to: None,
+                    attachments: vec![],
+                }
+                .encode_body(),
+                acked: true,
+                deleted: false,
+                edited: None,
+            })
+            .unwrap();
+        }
+    }
+
+    let liste = liste_signee(
+        &p.root,
+        &[
+            (&p.device_a, "Portable", TRANSPORT),
+            (&p.device_b, "Fixe", TRANSPORT),
+        ],
+        maintenant_ms(),
+    );
+    p.stocker_sur_le_compte(&liste);
+
+    let a = boot(&p.paths_a, maintenance_rapide()).await;
+    let b = boot(&p.paths_b, maintenance_rapide()).await;
+    a.register_peer(p.device_b.public_key(), b.p2p_addr());
+    b.register_peer(p.device_a.public_key(), a.p2p_addr());
+    a.learn_peer(&b).unwrap();
+    b.learn_peer(&a).unwrap();
+
+    // Le fixe demande l'historique au portable, comme le ferait le bouton.
+    let ctrl = b
+        .node
+        .network_control()
+        .expect("sous-système réseau branché");
+    let (conversations, _pages) = ctrl.transfer_history(p.device_a.public_key()).await;
+    assert!(conversations >= 1, "au moins la conversation de l'ami");
+
+    let recus = b.node.dm_history(&p.ami, u64::MAX, 500).unwrap().len() as u64;
+    assert_eq!(
+        recus, MESSAGES,
+        "🔴 le fixe doit récupérer TOUT l'historique ({MESSAGES}), pas la fenêtre \
+         de rattrapage (64) — reçu {recus}"
+    );
+
+    a.shutdown();
+    b.shutdown();
+}

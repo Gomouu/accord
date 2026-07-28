@@ -674,6 +674,7 @@ one account rather than two accounts that happen to share a name.
                        acked: u8(0|1), deleted: u8(0|1), edited: opt<lbytes> }
 0x20 SELF_CONTACT_STATE { peer: bytes<32>, state: u8, at_ms: u64 }
 0x22 SELF_CONTACT_ADD   { peer: bytes<32>, display_name: str, added_ms: u64 }
+0x23 SELF_HISTORY_PULL  { conv: bytes<32>, before_lamport: u64, max_items: u16 }
 ```
 
 🔒 **Reception is gated on the authenticated key, never on the content.** Each of
@@ -698,6 +699,28 @@ block and unblock people in our address book by sending us a byte.
   as a `DIRECT_MSG`: a fresh envelope would break idempotent insertion (duplicating
   the conversation on every pass) and would re-stamp the peer's message as authored
   by the relaying device.
+- **`0x23 SELF_HISTORY_PULL`** — the same shape as `0x1D`, with the bound
+  **inverted**: `before_lamport` is an exclusive **upper** bound, and the
+  responder serves the newest `max_items` messages strictly below it, oldest
+  first. The reply is made of ordinary `0x1E` items.
+
+  🔴 **Why this is a separate opcode and not a field on `0x1D`.** `0x1D` cannot
+  reach into old history at all: its bound is a lower one, and the responder
+  only ever serves the 64 most *recent* messages. Advancing the cursor shrinks
+  the answer to nothing, so no sequence of `0x1D` pulls reaches a message older
+  than that window — a freshly paired device would stop at 64 and look complete.
+  And a trailing field would not have been backward compatible either: unlike
+  `HELLO`/`WELCOME` (§2.2), the `CORE` decoder rejects trailing bytes, so an
+  older sibling would drop the lengthened `0x1D` and lose the catch-up that does
+  work. A distinct opcode fails in exactly one place: an older sibling drops the
+  `0x23` datagram, and nothing else changes.
+
+  ⚠️ **The requester cannot distinguish "sibling too old" from "nothing
+  older"**, since both yield a pass that brings nothing. Implementations must
+  surface that ambiguity rather than report completion. Authorisation is the
+  same as `0x1C`–`0x1E`: the **currently listed** device key, never the account
+  key — a revoked machine still holds the account seed, and accepting it here
+  would hand over the entire history rather than a recent window.
 - **`0x20 SELF_CONTACT_STATE`** — a contact changed state here; apply it there.
   `state` is `0` blocked or `1` absent (an unblock **erases** the contact rather
   than inventing a friendship on the other machine). Any other value is rejected

@@ -196,6 +196,15 @@ export const enSettings = {
     deviceRouteRelay: 'through a relay',
     deviceNameLabel: 'Device name',
     deviceRenamed: 'Device renamed!',
+    historyTransferAction: 'Fetch history from this device',
+    historyTransferProgressLabel: 'History transfer progress',
+    historyTransferRunning:
+      'Transfer under way — {done}/{total} conversation(s), {pages} page(s) received.',
+    historyTransferDone:
+      'History fetched: {pages} page(s) across {conversations} conversation(s).',
+    historyTransferEmptyBook: 'Nothing to ask for: your friend list is empty.',
+    historyTransferAmbiguous:
+      'No message received. Two causes are possible and nothing here can tell them apart: either that device has nothing older than what you already have, or it runs a version of Accord older than the one that knows how to answer this request. Check its version before concluding that your history is complete.',
     pairAdd: 'Add a device',
     pairHint:
       'Open Accord on the other device and enter this code. It works once and expires after five minutes.',

@@ -111,6 +111,39 @@ pub fn items_for_pull(
         .collect())
 }
 
+/// Messages d'une conversation **strictement sous** une borne, du plus ancien
+/// au plus récent, au plus `max`.
+///
+/// 🔴 **Ce n'est pas [`items_for_pull`], et la différence est tout le sujet du
+/// transfert d'historique.** `items_for_pull` sert *dans* [`window`] — les
+/// [`SYNC_WINDOW`] messages les plus RÉCENTS — et filtre par borne BASSE.
+/// Avancer son curseur ne fait donc que rétrécir : il n'existe aucune suite
+/// d'appels qui atteigne un message plus ancien que la fenêtre. C'est correct
+/// pour ce qu'il fait — un rattrapage entre deux appareils déjà garnis — et
+/// inutilisable pour garnir un appareil vide.
+///
+/// Ici la borne est HAUTE et la page descend : appelé à répétition avec la
+/// position la plus basse déjà reçue, on parcourt l'historique entier, du
+/// récent vers l'ancien, sans jamais charger plus de `max` lignes.
+///
+/// ⚠️ Aucune empreinte n'accompagne ce parcours, à dessein. Une empreinte a du
+/// sens sur une fenêtre que les deux côtés peuvent calculer ; sur un historique
+/// entier elle coûterait une lecture complète à chaque page, et le demandeur —
+/// qui part de rien — n'a de toute façon rien à comparer.
+pub fn items_before(
+    db: &Db,
+    conv: &[u8; 32],
+    before_lamport: u64,
+    max: usize,
+) -> Result<Vec<DmRecord>, CoreError> {
+    // `dm_history` est déjà « les N plus récents strictement sous la borne ».
+    let mut msgs = db.dm_history(conv, before_lamport, max)?;
+    // Rendus en ordre croissant, comme `items_for_pull` : une seule convention
+    // d'ordre sur le fil évite d'avoir à se demander laquelle s'applique.
+    msgs.reverse();
+    Ok(msgs)
+}
+
 /// Insère un message rattrapé depuis un autre appareil du compte.
 ///
 /// Rend vrai si la ligne était nouvelle. 🔒 L'insertion est un `INSERT OR
@@ -162,6 +195,84 @@ mod tests {
             attachments: vec![],
         }
         .encode_body()
+    }
+
+    /// Une conversation de `n` messages, positions 1..=n.
+    fn conversation_de(db: &Db, conv: [u8; 32], n: u64) -> Result<(), CoreError> {
+        for i in 1..=n {
+            let r = record(conv, conv, i as u8, i);
+            ingest_item(db, &[3u8; 32], &r)?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn le_rattrapage_ne_peut_pas_descendre_sous_sa_fenetre() {
+        // 🔴 Le test qui justifie tout le transfert d'historique. La feuille de
+        // route affirmait qu'il suffisait de « piloter en boucle » le
+        // rattrapage. Voici ce que cette boucle donne réellement.
+        let db = db();
+        let conv = [0xC0; 32];
+        let total = (SYNC_WINDOW as u64) + 40;
+        conversation_de(&db, conv, total).expect("conversation");
+
+        // Passe 1 : le rattrapage rend le HAUT de l'historique, jamais plus.
+        let p1 = items_for_pull(&db, &conv, 0, SYNC_WINDOW).expect("passe 1");
+        assert_eq!(p1.len(), SYNC_WINDOW);
+        let plus_bas_servi = p1.iter().map(|m| m.lamport).min().expect("non vide");
+        assert_eq!(
+            plus_bas_servi,
+            total - SYNC_WINDOW as u64 + 1,
+            "la fenêtre est ancrée sur le haut"
+        );
+
+        // Passe 2, curseur avancé comme le ferait la boucle décrite : vide.
+        let plus_haut = p1.iter().map(|m| m.lamport).max().expect("non vide");
+        let p2 = items_for_pull(&db, &conv, plus_haut, SYNC_WINDOW).expect("passe 2");
+        assert!(p2.is_empty(), "avancer le curseur ne peut que rétrécir");
+
+        // Et il n'existe AUCUNE valeur de `since_lamport` qui atteigne le bas :
+        // baisser le curseur ne fait que réservir la même fenêtre.
+        let p3 = items_for_pull(&db, &conv, 0, SYNC_WINDOW).expect("passe 3");
+        assert_eq!(
+            p3.iter().map(|m| m.lamport).min(),
+            Some(plus_bas_servi),
+            "les 40 messages du bas sont inatteignables par ce chemin"
+        );
+    }
+
+    #[test]
+    fn la_page_descendante_parcourt_tout_lhistorique() {
+        let db = db();
+        let conv = [0xC1; 32];
+        let total = (SYNC_WINDOW as u64) + 40;
+        conversation_de(&db, conv, total).expect("conversation");
+
+        // La boucle du transfert : partir du haut, redescendre page par page.
+        let mut vus: Vec<u64> = Vec::new();
+        let mut borne = u64::MAX;
+        loop {
+            let page = items_before(&db, &conv, borne, SYNC_WINDOW).expect("page");
+            if page.is_empty() {
+                break;
+            }
+            // Ordre croissant sur le fil, comme `items_for_pull` : une seule
+            // convention, sinon le destinataire doit deviner laquelle.
+            let positions: Vec<u64> = page.iter().map(|m| m.lamport).collect();
+            let mut triees = positions.clone();
+            triees.sort_unstable();
+            assert_eq!(positions, triees, "page rendue en ordre croissant");
+
+            borne = page.iter().map(|m| m.lamport).min().expect("non vide");
+            vus.extend(positions);
+        }
+        vus.sort_unstable();
+
+        assert_eq!(vus, (1..=total).collect::<Vec<_>>(), "tout, sans trou");
+        // Et la borne est bien STRICTE : sans quoi la boucle ne finirait pas.
+        assert!(items_before(&db, &conv, 1, SYNC_WINDOW)
+            .expect("sous le premier")
+            .is_empty());
     }
 
     fn record(conv: [u8; 32], author: [u8; 32], id: u8, lamport: u64) -> DmRecord {

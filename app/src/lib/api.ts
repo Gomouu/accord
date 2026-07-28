@@ -942,6 +942,11 @@ export type AccordEvent =
       method: 'event.file_progress';
       params: { merkle_root: string; done: number; total: number; complete: boolean };
     }
+  /** `done`/`total` comptent des conversations, `messages` des pages reçues. */
+  | {
+      method: 'event.history_transfer';
+      params: { done: number; total: number; messages: number; complete: boolean };
+    }
   | { method: 'event.desynchronise'; params: Record<string, never> }
   | {
       method: 'event.group_event_started';
@@ -1066,6 +1071,18 @@ export class Api {
   /** Annule l'offre d'appairage en cours. */
   devicesPairCancel(): Promise<Record<string, never>> {
     return this.rpc.call('devices.pair_cancel');
+  }
+
+  /**
+   * Tire l'historique depuis un autre appareil du compte (§17.4). ⚠️ Ne rend
+   * la main **qu'à la fin** (des minutes possibles) : rien ne doit l'attendre
+   * pour s'afficher — l'avancement passe par `event.history_transfer`. Voir
+   * `lib/historyTransfer.ts`, notamment pour ce que `pages: 0` ne veut PAS dire.
+   */
+  devicesTransferHistory(
+    device: string,
+  ): Promise<{ conversations: number; pages: number }> {
+    return this.rpc.call('devices.transfer_history', { device });
   }
 
   /**

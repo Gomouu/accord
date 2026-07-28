@@ -186,6 +186,15 @@ export const hiSettings = {
     deviceRouteRelay: 'रिले के ज़रिए',
     deviceNameLabel: 'उपकरण का नाम',
     deviceRenamed: 'उपकरण का नाम बदल गया!',
+    historyTransferAction: 'इस उपकरण से इतिहास प्राप्त करें',
+    historyTransferProgressLabel: 'इतिहास स्थानांतरण की प्रगति',
+    historyTransferRunning:
+      'स्थानांतरण जारी — {done}/{total} बातचीत, {pages} पृष्ठ प्राप्त।',
+    historyTransferDone:
+      'इतिहास प्राप्त हुआ: {conversations} बातचीत में से {pages} पृष्ठ।',
+    historyTransferEmptyBook: 'माँगने को कुछ नहीं: आपकी मित्र सूची खाली है।',
+    historyTransferAmbiguous:
+      'कोई संदेश प्राप्त नहीं हुआ। दो संभावित कारण हैं और यहाँ से उनमें अंतर करना संभव नहीं: या तो इस उपकरण के पास आपके मौजूदा रिकॉर्ड से पुराना कुछ नहीं है, या उस पर Accord का ऐसा संस्करण चल रहा है जो इस अनुरोध का उत्तर देना नहीं जानता। यह मान लेने से पहले कि आपका इतिहास पूरा है, उसका संस्करण जाँच लें।',
     pairAdd: 'उपकरण जोड़ो',
     pairHint:
       'दूसरे उपकरण पर Accord खोलो और यह कोड लिखो। यह एक ही बार चलता है और पाँच मिनट बाद ख़त्म हो जाता है।',

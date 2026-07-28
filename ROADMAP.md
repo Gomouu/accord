@@ -1925,7 +1925,7 @@ Découpage possible en deux versions si le chantier s'étire :
 | Contenu | État au 2026-07-27 |
 |---|---|
 | Synchronisation des préférences entre appareils | ✅ opcode `0x21`, liste blanche explicite |
-| Transfert d'historique à l'appairage | ❌ **pas fait** — voir ci-dessous |
+| Transfert d'historique à l'appairage | ✅ 8.2 — opcode `0x23`, parcours descendant, barre de progression |
 | Historique des appareils connectés (quand, d'où) | ✅ migration 17, table locale, « d'où » = la route |
 | Vérification d'identité par QR | ✅ affichage **et** lecture — un QR seulement affiché ne vérifie rien |
 
@@ -1938,16 +1938,37 @@ Découpage possible en deux versions si le chantier s'étire :
 > silence. Corrigé par `CoreMsg::SelfContactAdd` (0x22) — c'était le prérequis
 > du transfert d'historique : sans carnet, il n'y a rien où transférer.
 >
-> Le transfert lui-même reste à faire. La conception est arrêtée : **aucun
-> nouvel opcode n'est nécessaire**. Le rattrapage (`0x1C`–`0x1E`) sait déjà
-> tirer une conversation ; il lui manque d'être piloté explicitement, en boucle
-> jusqu'à épuisement, sur les conversations que le demandeur énumère depuis
-> **son propre carnet** — puisque `ingest_self_sync_item` refuse de toute façon
-> tout pair qui n'y figure pas. Reste la commande, la barre de progression, et
-> une boucle robuste à la perte (deux passes sans nouveauté = terminé, plutôt
-> qu'un marqueur de fin qu'un datagramme perdu ferait attendre indéfiniment).
+> 🔴 **Ce paragraphe affirmait qu'aucun nouvel opcode n'était nécessaire.
+> C'était faux, et livré le 2026-07-28 avec l'opcode `0x23`.** L'énoncé disait :
+> « le rattrapage sait déjà tirer une conversation ; il lui manque d'être piloté
+> en boucle jusqu'à épuisement ». Deux erreurs, chacune suffisante.
+>
+> **Le rattrapage ne peut pas descendre.** `SelfSyncPull` porte `since_lamport`,
+> une borne **basse**, et le répondeur ne sert jamais que `window()` — les 64
+> messages les plus **récents** (`accord-core/src/dm_sync.rs`). Faire avancer le
+> curseur ne fait donc que rétrécir la réponse : la deuxième passe rend zéro, et
+> aucune suite d'appels n'atteint un message plus ancien que la fenêtre. La
+> boucle décrite aurait donné à un appareil neuf ses 64 derniers messages, puis
+> se serait arrêtée **en ayant l'air d'avoir fini**. C'est le pire mode de
+> panne : un succès apparent.
+>
+> **Et le champ ne pouvait pas simplement s'ajouter.** Contrairement au
+> handshake (D-047 et ses champs additifs de fin), le décodeur `CoreMsg` rejette
+> les octets restants : un appareil plus ancien aurait jeté le `SelfSyncPull`
+> allongé, cassant le rattrapage **qui, lui, marche**. Un opcode neuf isole la
+> panne — un appareil qui l'ignore jette ce seul datagramme.
+>
+> ⚠️ Le prix de cette isolation, à connaître : le demandeur ne distingue pas
+> « mon frère est trop ancien » de « mon frère n'a rien de plus ancien ». Les
+> deux se présentent comme une passe qui ne rapporte rien. L'interface le dit,
+> plutôt que d'annoncer une réussite.
+>
+> Ce qui a été gardé de l'énoncé, en revanche : l'énumération depuis **le
+> carnet** (`dm_conversations` lit `dm_messages`, vide sur un appareil neuf), et
+> **deux passes sans nouveauté valent fin** plutôt qu'un marqueur qu'un
+> datagramme perdu ferait attendre indéfiniment. Ces deux-là étaient justes.
 
-**Estimation restante** : 3 sessions.
+**Estimation restante** : 0 — livré en 8.2.
 
 ### 17.5 v8.0 — Post-quantique
 

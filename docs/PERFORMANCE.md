@@ -431,7 +431,54 @@ The five states are folded inside a single measured closure and dropped after,
 rather than one at a time: folding them in sequence and letting each go would
 measure the largest of the five, not their sum.
 
-### 3.6 Assumed limits
+### 3.6 What compaction would actually buy — and what it would cost
+
+Milestone 6 lists snapshot compaction as *indispensable*, on the premise that a
+long op-log makes joining expensive. The premise is right. Nothing measured it
+until now, so here it is, at 200 members with the log length varied:
+
+| Op-log | Cold fold (restart) | Join (ingest) |
+|---|---|---|
+| 462 ops | 0.99 ms | 76 ms |
+| 2 462 ops | 4.5 ms | 359 ms |
+| 10 462 ops | **16.7 ms** | **1.58 s** |
+
+Joining is linear in the log and reaches seconds where the roadmap said it
+would — a server with years of configuration history. That part of the plan
+holds.
+
+**But the two columns say the cost is not where compaction aims.** Re-folding
+the whole log from a warm database is 16.7 ms at ten thousand ops; joining the
+same log is 1.58 s, ninety-four times more. The fold is not the expense. What
+the joiner pays is **verifying one Ed25519 signature per op**, decoding it, and
+persisting it — work that exists precisely because the joiner does not trust the
+sender.
+
+So a snapshot that "replaces the earlier operations" does not remove
+computation. It removes *verification*. The 1.58 s is the price of checking,
+and the only way a snapshot avoids paying it is by trusting whoever produced
+the snapshot. That is a change to the trust model, not an optimisation:
+
+- **Signed by administrators** introduces an authority into a project whose §2.5
+  claims zero servers, and lets that authority rewrite history — a demotion
+  erased from the log is a demotion nobody can see.
+- **Agreement among K independent peers** on a snapshot hash needs no authority,
+  but it is a protocol addition, and a small group's peers can collude.
+- **Accept provisionally, verify in the background** keeps every guarantee and
+  makes the group usable immediately, but the state is unverified during the
+  window, so it must not be allowed to authorise anything until it settles.
+
+⚠️ **Nothing is implemented here, deliberately.** The choice is a trust-model
+decision, and this document's job is to price it, not to make it. The number to
+weigh is 1.58 s at ten thousand ops — and 76 ms at five hundred, which is what a
+normal server looks like today.
+
+**One thing was fixed** while measuring: the incremental fold cloned the entire
+group state on every ingested op. At 200 members over ten thousand ops that was
+~15 % of the join (1.80 s → 1.52 s in the first run). `Arc::make_mut` extends in
+place when the cache holds the only reference, which it normally does.
+
+### 3.7 Assumed limits
 
 - **The machine was quiet, but not dedicated.** §2.3 applies here too, and this
   is a laptop that other work shares. The run behind the table was started only
@@ -458,7 +505,7 @@ measure the largest of the five, not their sum.
   members"; measuring it needs a fixture with several servers, which this bench
   does not build.
 
-### 3.7 Not measured here
+### 3.8 Not measured here
 
 - **Everything past the socket.** Session sealing, the UDP write, retransmission
   and the anti-entropy round trip that precedes a join are all outside the

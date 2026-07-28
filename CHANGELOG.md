@@ -4,6 +4,30 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ## [Unreleased]
 
+## [8.2.0] — 2026-07-28
+
+### Added
+
+- **A newly paired device can now pull your whole history from an older one.**
+  Settings → Devices, next to each of your other machines: *Get history from this
+  device*. It walks conversation by conversation, oldest-first within each page,
+  with a progress bar, and it is safe to re-run — nothing is duplicated.
+
+  Until now a new device received everything sent *after* it was paired and had
+  no way to obtain what came before. Catching up on reconnect only ever covered
+  the 64 most recent messages per conversation, which looked complete and was not.
+
+  ⚠️ **If the transfer finishes having received nothing, the app says so and
+  names both possible reasons** — either that device genuinely has nothing older
+  than what you already hold, or it runs a version of Accord too old to answer.
+  Nothing in the protocol can tell those apart, and reporting a clean finish
+  would let you believe your history was complete when it might not be. Both
+  machines need this version.
+
+  🔒 The device you pull from must be in your account's signed device list. A
+  revoked machine cannot serve your history, even though it still holds the
+  account seed.
+
 ## [8.1.0] — 2026-07-28
 
 ### Fixed

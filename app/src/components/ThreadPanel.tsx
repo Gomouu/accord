@@ -179,7 +179,12 @@ export function ThreadPanel({
             aria-label={t.dm.cancelReply}
             title={t.dm.cancelReply}
             onClick={() => setReplyTo(null)}
-            className="flex shrink-0 items-center justify-center rounded-full p-0.5 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar active:scale-90"
+            // 16 px de croix dans un bandeau de 28 px : la boîte ne peut pas
+            // grandir sans que l'anneau de focus déborde sur le message
+            // au-dessus et sur le composeur en dessous. `hit-area` étend la
+            // seule zone cliquable — 44 px de large, et toute la hauteur du
+            // bandeau, sans mordre sur les deux.
+            className="hit-area relative flex shrink-0 items-center justify-center rounded-full p-0.5 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar active:scale-90 [--hit-block:6px] [--hit-inline:14px]"
           >
             <CloseIcon size={12} />
           </button>

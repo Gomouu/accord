@@ -4,6 +4,7 @@ import { App } from './App';
 import { loadDictionary } from './i18n';
 import { useUi } from './stores/ui';
 import { armAudioUnlock } from './lib/audio';
+import { installerPiegesGlobaux } from './lib/journal';
 import './styles/global.css';
 import './styles/theme-scenes.css';
 import './styles/figurative-themes.css';
@@ -17,6 +18,12 @@ import './styles/theme-coverage.css';
 // onboarding compris) met le contexte Web Audio partagé en route, pour que
 // blip, sonnerie et soundboard soient audibles dès le premier événement.
 armAudioUnlock();
+
+// Erreurs et rejets de promesse non traités vers le journal du nœud (§10.6).
+// Posé AVANT le rendu : ce qui casse au montage est exactement ce qu'on
+// cherche à lire ensuite, et la console d'une webview de production n'existe
+// pour personne.
+installerPiegesGlobaux();
 
 const root = document.getElementById('root');
 if (root === null) {

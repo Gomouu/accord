@@ -25,6 +25,15 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
 # Notifications système natives, envoyées depuis la webview (D-028).
 tauri-plugin-notification = "2"
+# Aperçu de liens (jalon 5), DÉSACTIVÉ par défaut. Déjà dans l'arbre via le
+# plugin de mise à jour ; déclaré ici parce qu'on l'importe directement, et
+# qu'une dépendance transitive peut disparaître à toute montée de version.
+# `rustls-tls` plutôt que la pile TLS du système : mêmes racines que le
+# vérificateur de mises à jour, un seul comportement à raisonner.
+reqwest = { version = "0.13", default-features = false, features = [
+  "rustls",
+  "http2",
+] }
 # Lancement au démarrage du système (D-047) : gestion officielle, pas de
 # flag `localStorage` seul — l'état vient de l'OS (Registre/LaunchAgent/
 # fichier .desktop selon la plateforme).

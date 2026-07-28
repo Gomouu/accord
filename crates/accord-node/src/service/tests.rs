@@ -990,6 +990,77 @@ async fn group_history_around_centers_on_target() {
     assert_eq!(miss["messages"], json!([]));
 }
 
+// ---- Portabilité des données (jalon 7, §19.4.2) ----
+
+/// L'export se relit : un aller-retour complet remet les mêmes messages, et
+/// une seconde passe n'en duplique aucun.
+#[tokio::test]
+async fn un_export_se_reimporte_sans_doublon() {
+    let (s, ami) = service_with_friend();
+    s.call("dm.send", json!({ "pubkey": ami, "text": "bonjour" }))
+        .await
+        .unwrap();
+
+    let doc = s.call("portable.export", json!({})).await.unwrap();
+    assert_eq!(doc["format"], json!(1));
+    assert!(
+        doc["warning"].as_str().unwrap().contains("NOT encrypted"),
+        "le document doit se dénoncer lui-même comme non chiffré"
+    );
+    let conv = &doc["conversations"][0];
+    assert_eq!(conv["peer"], json!(ami));
+    assert_eq!(conv["messages"][0]["text"], json!("bonjour"));
+
+    // Réimport dans la MÊME base : tout existe déjà, rien n'entre.
+    let bilan = s
+        .call("portable.import", json!({ "document": doc }))
+        .await
+        .unwrap();
+    assert_eq!(bilan["inserted"], json!(0), "aucun message neuf");
+    assert_eq!(bilan["skipped"], json!(1), "le message existait déjà");
+    assert_eq!(bilan["rejected"], json!(0));
+}
+
+/// 🔒 Un fichier d'export est une entrée non authentifiée : il ne peut pas
+/// inventer un correspondant.
+#[tokio::test]
+async fn un_import_naccepte_pas_une_conversation_avec_un_inconnu() {
+    let s = service();
+    let inconnu = "cc".repeat(32);
+    let doc = json!({
+        "format": 1,
+        "conversations": [{
+            "peer": inconnu,
+            "messages": [{
+                "msg_id": "11".repeat(16),
+                "author": inconnu,
+                "lamport": 1,
+                "sent_ms": 1,
+                "kind": 0,
+                "body_hex": "00",
+            }],
+        }],
+    });
+
+    let bilan = s
+        .call("portable.import", json!({ "document": doc }))
+        .await
+        .unwrap();
+    assert_eq!(bilan["inserted"], json!(0), "rien ne doit entrer");
+    assert_eq!(bilan["rejected"], json!(1));
+}
+
+/// Une version de format inconnue est refusée, pas devinée.
+#[tokio::test]
+async fn un_format_inconnu_est_refuse() {
+    let s = service();
+    let doc = json!({ "format": 99, "conversations": [] });
+    assert!(s
+        .call("portable.import", json!({ "document": doc }))
+        .await
+        .is_err());
+}
+
 // ---- Gestion de serveur : groupes, salons, rôles, modération ----
 
 /// Service + `group_id` (hex) d'un groupe fraîchement créé.
@@ -1000,6 +1071,99 @@ async fn service_with_group() -> (NodeService, String) {
         .await
         .unwrap();
     (s, created["group_id"].as_str().unwrap().to_string())
+}
+
+/// 🔴 Le cœur du jalon 5 : un groupe à trois existe, avec un seul fil, et
+/// refuse ce qui ferait de lui un serveur.
+#[tokio::test]
+async fn un_groupe_de_mp_a_trois_se_cree_avec_un_seul_fil() {
+    let s = service();
+    let alice = "a1".repeat(32);
+    let bob = "b0".repeat(32);
+
+    let cree = s
+        .call(
+            "groups.create_dm",
+            json!({ "name": "Nous trois", "members": [alice, bob] }),
+        )
+        .await
+        .unwrap();
+    let gid = cree["group_id"].as_str().unwrap().to_string();
+
+    let etat = s
+        .call("groups.state", json!({ "group_id": gid }))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        etat["is_dm"],
+        json!(true),
+        "l'interface doit pouvoir le ranger dans les conversations"
+    );
+    assert_eq!(
+        etat["channels"].as_array().unwrap().len(),
+        1,
+        "un groupe de MP n'a qu'un fil"
+    );
+    // 🔒 Un seul membre : le fondateur. Les deux autres ont reçu une
+    // INVITATION et n'entreront qu'après l'avoir acceptée (D-045). Une
+    // première version de `create_dm` les ajoutait d'office — c'était le
+    // force-join que D-045 avait supprimé.
+    assert_eq!(
+        etat["members"].as_array().unwrap().len(),
+        1,
+        "personne n'est membre avant d'avoir accepté"
+    );
+    assert_eq!(
+        etat["invites"].as_array().unwrap().len(),
+        2,
+        "une invitation en attente par personne conviée"
+    );
+    assert!(
+        etat["roles"].as_array().unwrap().is_empty(),
+        "aucun rôle n'est créé"
+    );
+
+    // Un second salon est refusé — la règle vit dans l'état, pas dans l'écran.
+    let second = s
+        .call(
+            "groups.add_channel",
+            json!({ "group_id": gid, "name": "second" }),
+        )
+        .await;
+    assert!(second.is_err(), "un second fil doit être refusé");
+}
+
+/// 🔒 La promesse « n'importe quel membre peut inviter » doit être atteignable
+/// depuis l'API, pas seulement acceptée par l'état. Une première version de la
+/// liste blanche refusait `InviteCreate` dans un groupe de MP, si bien que le
+/// seul chemin vers l'appartenance était fermé — trouvé en sondant l'API, pas
+/// en la lisant.
+#[tokio::test]
+async fn on_peut_inviter_dans_un_groupe_de_mp_existant() {
+    let s = service();
+    let alice = "a1".repeat(32);
+    let cree = s
+        .call("groups.create_dm", json!({ "name": "Nous", "members": [] }))
+        .await
+        .unwrap();
+    let gid = cree["group_id"].as_str().unwrap().to_string();
+
+    let invitation = s
+        .call("groups.invite", json!({ "group_id": gid, "pubkey": alice }))
+        .await
+        .expect("inviter doit être possible dans un groupe de MP");
+    assert!(invitation["invite_id"].is_string());
+
+    let etat = s
+        .call("groups.state", json!({ "group_id": gid }))
+        .await
+        .unwrap();
+    assert_eq!(
+        etat["invites"].as_array().unwrap().len(),
+        1,
+        "l'invitation figure dans l'état du groupe"
+    );
 }
 
 #[tokio::test]
@@ -1024,6 +1188,7 @@ async fn group_state_enriched_exact_shape() {
             "group_id",
             "icon",
             "invites",
+            "is_dm",
             "members",
             "my_permissions",
             "name",
@@ -3118,6 +3283,61 @@ async fn camera_share_methods_route_and_validate() {
 }
 
 #[tokio::test]
+async fn video_interest_routes_and_validates() {
+    let (s, _, _, _) = service_with_voice();
+    // Déclaration vide, ou absente : « je n'occulte rien » — l'état par défaut.
+    assert_eq!(
+        s.call("video.interest", json!({})).await.unwrap(),
+        json!({})
+    );
+    assert_eq!(
+        s.call("video.interest", json!({"hidden": []}))
+            .await
+            .unwrap(),
+        json!({})
+    );
+    let peer = "11".repeat(32);
+    assert_eq!(
+        s.call(
+            "video.interest",
+            json!({"hidden": [{"peer": peer, "streams": ["camera"]}]}),
+        )
+        .await
+        .unwrap(),
+        json!({})
+    );
+    // Flux inconnu : ignoré, pas refusé — une UI plus récente ne doit pas voir
+    // sa déclaration entière rejetée à cause d'un nom qu'on ne connaît pas.
+    assert_eq!(
+        s.call(
+            "video.interest",
+            json!({"hidden": [{"peer": peer, "streams": ["hologramme"]}]}),
+        )
+        .await
+        .unwrap(),
+        json!({})
+    );
+    // Clé publique invalide → erreur de paramètre.
+    assert!(s
+        .call("video.interest", json!({"hidden": [{"peer": "zz"}]}))
+        .await
+        .is_err());
+    // Type inattendu → erreur de paramètre.
+    assert!(s
+        .call("video.interest", json!({"hidden": 3}))
+        .await
+        .is_err());
+    // Plus d'entrées qu'un salon ne peut compter de participants → refusé.
+    let too_many: Vec<_> = (0..11)
+        .map(|_| json!({"peer": peer, "streams": ["camera"]}))
+        .collect();
+    assert!(s
+        .call("video.interest", json!({"hidden": too_many}))
+        .await
+        .is_err());
+}
+
+#[tokio::test]
 async fn screen_methods_require_the_subsystem() {
     let s = service();
     let err = s.call("screen.start", json!({})).await.unwrap_err();
@@ -4149,6 +4369,38 @@ async fn backup_schedule_status_and_run_roundtrip() {
     // Unknown cadence is refused.
     let err = s
         .call("backup.schedule", json!({ "cadence": "hourly" }))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);
+}
+
+#[tokio::test]
+async fn prefs_set_and_list_exact_shape() {
+    let s = service();
+    assert_eq!(
+        s.call("prefs.list", json!({})).await.unwrap(),
+        json!({ "prefs": [] })
+    );
+
+    let at = s
+        .call("prefs.set", json!({ "key": "accord.lang", "value": "fr" }))
+        .await
+        .unwrap();
+    let at_ms = at["at_ms"].as_u64().unwrap();
+
+    let v = s.call("prefs.list", json!({})).await.unwrap();
+    assert_eq!(
+        v,
+        json!({ "prefs": [{ "key": "accord.lang", "value": "fr", "at_ms": at_ms }] })
+    );
+
+    // A machine-level setting is refused at the boundary rather than quietly
+    // stored: our own UI calling it is a bug worth seeing now.
+    let err = s
+        .call(
+            "prefs.set",
+            json!({ "key": "accord.autoLockMinutes", "value": "5" }),
+        )
         .await
         .unwrap_err();
     assert_eq!(err.code, accord_api::rpc::INVALID_PARAMS);

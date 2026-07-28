@@ -17,6 +17,7 @@ import type {
   PeerLink,
 } from '../lib/api';
 import { api, rpc } from '../lib/client';
+import { journalDossier, journalNiveau } from '../lib/bridge';
 import { displayNameOf, useFriends } from '../stores/friends';
 import { useT } from '../stores/ui';
 import { SettingsSection } from './settings/controls';
@@ -116,6 +117,9 @@ export function NetworkPanel() {
   const [selftestErreur, setSelftestErreur] = useState(false);
   /** `null` au repos, `'ok'` ou `'echec'` après un clic, le temps du retour. */
   const [rapport, setRapport] = useState<'ok' | 'echec' | null>(null);
+  /** Dossier du journal, `null` tant qu'il n'est pas connu ou indisponible. */
+  const [dossierJournal, setDossierJournal] = useState<string | null>(null);
+  const [niveauJournal, setNiveauJournal] = useState('info');
 
   const rafraichir = useCallback((): void => {
     api
@@ -146,6 +150,13 @@ export function NetworkPanel() {
       .catch(() => setSelftestErreur(true))
       .finally(() => setSelftestEnCours(false));
   };
+
+  useEffect(() => {
+    // Hors Tauri (tests, navigateur), l'appel échoue : le bloc reste masqué.
+    void journalDossier()
+      .then(setDossierJournal)
+      .catch(() => setDossierJournal(null));
+  }, []);
 
   useEffect(() => {
     rafraichir();
@@ -463,6 +474,46 @@ export function NetworkPanel() {
                 </button>
                 <p className="mt-1.5 text-xs text-faint">{t.reseau.reportHint}</p>
               </div>
+
+              {dossierJournal !== null && (
+                <div className="mt-3">
+                  <div className="mb-1 text-xs font-medium uppercase text-faint">
+                    {t.reseau.logTitle}
+                  </div>
+                  <p className="text-xs text-muted">{t.reseau.logHint}</p>
+                  <code className="mt-1 block break-all rounded-md bg-input px-2 py-1 text-xs text-norm">
+                    {dossierJournal}
+                  </code>
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => copier(dossierJournal)}
+                      className="rounded-md bg-input px-3 py-1.5 text-xs font-medium hover:bg-hover"
+                    >
+                      {copiee === dossierJournal ? t.app.copied : t.reseau.logCopyPath}
+                    </button>
+                    <label className="flex items-center gap-1.5 text-xs text-muted">
+                      {t.reseau.logLevel}
+                      <select
+                        value={niveauJournal}
+                        onChange={(e) => {
+                          const n = e.target.value;
+                          void journalNiveau(n).then((ok) => {
+                            // Un niveau refusé ne doit pas rester affiché comme
+                            // actif : l'utilisateur croirait chercher en mode
+                            // détaillé alors que rien n'a changé.
+                            if (ok) setNiveauJournal(n);
+                          });
+                        }}
+                        className="rounded-md bg-input px-2 py-1 text-xs text-norm"
+                      >
+                        <option value="info">info</option>
+                        <option value="debug">debug</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

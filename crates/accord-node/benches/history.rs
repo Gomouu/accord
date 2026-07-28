@@ -166,6 +166,7 @@ fn peupler(n: u64) -> Banc {
         last_seen_ms: 0,
         verified_at: None,
         verified_pubkey: None,
+        state_changed_ms: 0,
     })
     .expect("contact");
 

@@ -866,6 +866,39 @@ pre code .text-yellow {
   animation: fade-rise-in var(--duration-fast) var(--ease-out);
 }
 
+/*
+ * Cible de pointage étendue SANS toucher à l'apparence.
+ *
+ * POURQUOI un pseudo-élément plutôt qu'un rembourrage. Accord est une
+ * application de bureau et sa densité est un choix. Les contrôles qui portent
+ * cette classe vivent dans des bandeaux de 28 à 36 px (« Répondre à… »,
+ * pastille de mot filtré, ligne de recherche récente) ou par-dessus du
+ * contenu (le bouton « Copier » d'un bloc de code). Grossir leur boîte
+ * grossirait aussi ce qui se voit : le fond au survol, l'anneau de focus —
+ * un anneau de 44 px dans un bandeau de 28 px déborde sur le message voisin,
+ * et le bouton « Copier » masquerait les premiers caractères du code. Le
+ * `::before` déborde hors du flux : la boîte visible ne bouge pas d'un pixel,
+ * seule la surface qui reçoit le clic grandit.
+ *
+ * L'élément doit déjà être positionné (`relative`, ou le `absolute` qu'il
+ * avait déjà). La classe ne pose délibérément pas `position` : ce fichier
+ * passe après `@tailwind utilities`, elle écraserait donc le `.absolute` de
+ * Tailwind à spécificité égale.
+ *
+ * Débordement réglé côté par côté, en unités logiques (l'interface se
+ * retourne en RTL), via les propriétés arbitraires Tailwind :
+ * `[--hit-block:6px] [--hit-inline:14px]` pour un débordement symétrique, ou
+ * `[--hit-end:12px]` seul quand le côté opposé est occupé par un contrôle
+ * voisin dont il ne faut pas voler les clics.
+ */
+.hit-area::before {
+  content: '';
+  position: absolute;
+  inset-block: calc(-1 * var(--hit-block, 0px));
+  inset-inline-start: calc(-1 * var(--hit-start, var(--hit-inline, 0px)));
+  inset-inline-end: calc(-1 * var(--hit-end, var(--hit-inline, 0px)));
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

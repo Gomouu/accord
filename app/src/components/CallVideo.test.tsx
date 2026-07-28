@@ -6,7 +6,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useCalls } from '../stores/calls';
 import { useFriends } from '../stores/friends';
@@ -24,12 +24,22 @@ vi.mock('../lib/mediaController', () => ({
   resetRemote: vi.fn(),
   resetAllRemote: vi.fn(),
   pushRemoteFrame: vi.fn(),
+  declareHidden: vi.fn(),
 }));
 
-import { playbackFor, videoSourceSupported } from '../lib/mediaController';
+import { declareHidden, playbackFor, videoSourceSupported } from '../lib/mediaController';
 
 const supportedMock = videoSourceSupported as unknown as Mock;
 const playbackForMock = playbackFor as unknown as Mock;
+const declareHiddenMock = declareHidden as unknown as Mock;
+
+/** Dernière déclaration de vidéo sélective, triée pour comparaison stable. */
+function lastDeclaration(): { peer: string; streams: string[] }[] {
+  const calls = declareHiddenMock.mock.calls;
+  const last = calls[calls.length - 1]?.[0] as
+    { peer: string; streams: string[] }[] | undefined;
+  return [...(last ?? [])].sort((a, b) => a.peer.localeCompare(b.peer));
+}
 
 /** Contact minimal : la grille lit le nom et l'avatar depuis le carnet. */
 function contact(pubkey: string, name: string) {
@@ -82,6 +92,7 @@ beforeEach(() => {
   supportedMock.mockReturnValue(true);
   playbackForMock.mockClear();
   playbackForMock.mockImplementation(() => ({ attach: vi.fn() }));
+  declareHiddenMock.mockClear();
 });
 
 describe('CallVideo', () => {
@@ -206,6 +217,65 @@ describe('CallVideo', () => {
     rerender(<CallVideo />);
 
     expect(screen.getByLabelText('Bob')).toBeInTheDocument();
+  });
+
+  it('ne masque rien tant que tous les flux reçus sont affichés', () => {
+    // Vidéo sélective : la grille complète n'occulte personne — le nœud reste
+    // muet, et chaque émetteur continue d'envoyer comme avant.
+    useCalls.setState({
+      phase: 'active',
+      remoteVideo: {
+        alice: { screen: false, camera: true },
+        bob: { screen: true, camera: true },
+      },
+    });
+    render(<CallVideo />);
+
+    expect(lastDeclaration()).toEqual([
+      { peer: 'alice', streams: [] },
+      { peer: 'bob', streams: [] },
+    ]);
+  });
+
+  it('déclare masqué tout ce que l’épinglage retire de l’écran', async () => {
+    // Le gain de la fonctionnalité : épingler la caméra d'Alice démonte les
+    // trois autres tuiles, dont on ne veut plus ni les octets ni le décodage.
+    const user = userEvent.setup();
+    useCalls.setState({
+      phase: 'active',
+      remoteVideo: {
+        alice: { screen: true, camera: true },
+        bob: { screen: false, camera: true },
+      },
+    });
+    render(<CallVideo />);
+
+    await user.click(screen.getAllByRole('button', { name: 'Épingler' })[0]!);
+
+    expect(lastDeclaration()).toEqual([
+      { peer: 'alice', streams: ['screen'] },
+      { peer: 'bob', streams: ['camera'] },
+    ]);
+
+    // Retirer l'épingle rétablit tout : plus rien n'est masqué.
+    await user.click(screen.getByRole('button', { name: 'Retirer l’épingle' }));
+    expect(lastDeclaration()).toEqual([
+      { peer: 'alice', streams: [] },
+      { peer: 'bob', streams: [] },
+    ]);
+  });
+
+  it('ne masque jamais un flux qui vient d’apparaître', () => {
+    // Sémantique négative : un flux inconnu de l'UI ne peut pas figurer dans la
+    // déclaration, donc sa première image n'attend aucun aller-retour.
+    useCalls.setState({ phase: 'active', remoteVideo: {} });
+    const { rerender } = render(<CallVideo />);
+    act(() => {
+      useCalls.setState({ remoteVideo: { alice: { screen: false, camera: true } } });
+    });
+    rerender(<CallVideo />);
+
+    expect(lastDeclaration()).toEqual([{ peer: 'alice', streams: [] }]);
   });
 
   it('se replie sur les avatars en salon vocal quand personne ne diffuse', () => {

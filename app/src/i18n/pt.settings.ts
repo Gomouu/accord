@@ -185,6 +185,13 @@ export const ptSettings = {
       'Os dispositivos autorizados nesta conta. Cada um tem a sua própria chave; a chave raiz nunca sai do dispositivo que a criou.',
     devicesEmpty: 'Nenhum dispositivo registado.',
     deviceCurrent: 'Este dispositivo',
+    deviceAdded: 'Adicionado a {date}',
+    deviceAddedUnknown: 'Data de adição desconhecida',
+    deviceLastSeen: 'Visto a {date}',
+    deviceLastSeenNever: 'Nunca contactado a partir deste dispositivo',
+    deviceLastSeenHere: 'Está nele neste momento',
+    deviceRouteDirect: 'ligação direta',
+    deviceRouteRelay: 'através de um retransmissor',
     deviceNameLabel: 'Nome do dispositivo',
     deviceRenamed: 'Dispositivo renomeado!',
     pairAdd: 'Adicionar um dispositivo',
@@ -323,6 +330,10 @@ export const ptSettings = {
     dangerZoneTitle: 'Zona de perigo',
     logoutHint:
       'Bloqueia a tua caixa forte e volta ao ecrã de desbloqueio. Nenhum dado é apagado.',
+    linkPreviewsTitle: 'Pré-visualizações de links',
+    linkPreviewsLabel: 'Carregar uma pré-visualização dos links recebidos',
+    linkPreviewsHint:
+      'Desativado por padrão. Para mostrar a pré-visualização, o seu dispositivo precisa buscar a página — o site vê então o seu endereço IP, embora o link tenha sido escolhido por outra pessoa. Num grupo, um link para um servidor controlado revela o IP de todos os que ativaram isto.',
     streamerTitle: 'Modo streamer',
     streamerLabel: 'Ocultar a informação sensível',
     streamerHint:

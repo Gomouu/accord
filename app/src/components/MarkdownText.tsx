@@ -152,7 +152,11 @@ function CodeBlock({ value, lang }: { value: string; lang?: string | undefined }
         onClick={onCopy}
         aria-label={copied ? t.app.copied : t.app.copy}
         title={copied ? t.app.copied : t.app.copy}
-        className="absolute end-1.5 top-1.5 z-10 rounded-md border border-rail/70 bg-input/90 px-2 py-1 text-[0.7rem] font-medium text-muted opacity-0 backdrop-blur-sm transition-opacity duration-fast hover:text-header focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple group-hover/code:opacity-100"
+        // Le bouton flotte PAR-DESSUS le code : le grossir jusqu'à 44 px
+        // masquerait les premiers caractères, puisqu'il est opaque. La
+        // pastille garde donc sa taille et c'est `hit-area`, transparent, qui
+        // descend chercher les 16 px manquants.
+        className="hit-area absolute end-1.5 top-1.5 z-10 rounded-md border border-rail/70 bg-input/90 px-2 py-1 text-[0.7rem] font-medium text-muted opacity-0 backdrop-blur-sm transition-opacity duration-fast hover:text-header focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple group-hover/code:opacity-100 [--hit-block:8px] [--hit-inline:4px]"
       >
         {copied ? t.app.copied : t.app.copy}
       </button>

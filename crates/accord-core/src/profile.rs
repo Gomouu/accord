@@ -678,6 +678,7 @@ mod tests {
             last_seen_ms: 1,
             verified_at: None,
             verified_pubkey: None,
+            state_changed_ms: 0,
         })
         .unwrap();
     }

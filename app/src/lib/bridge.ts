@@ -408,3 +408,22 @@ export async function micPermissionRequest(): Promise<boolean> {
   if (!isTauri()) throw new Error('hors Tauri');
   return invoke<boolean>('micro_autorisation_demander');
 }
+
+/**
+ * Dossier du journal de diagnostic sur disque (§10.6), ou `null` s'il n'a pas
+ * pu être ouvert — l'interface propose alors autre chose plutôt que de
+ * montrer un chemin qui n'existe pas.
+ */
+export async function journalDossier(): Promise<string | null> {
+  return invoke<string | null>('journal_dossier');
+}
+
+/**
+ * Change le niveau de journalisation à chaud, sans redémarrer.
+ *
+ * Rend `false` sur un niveau inconnu : l'appelant doit le dire plutôt que de
+ * laisser l'utilisateur croire qu'il a activé le mode détaillé.
+ */
+export async function journalNiveau(niveau: string): Promise<boolean> {
+  return invoke<boolean>('journal_niveau', { niveau });
+}

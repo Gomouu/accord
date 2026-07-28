@@ -276,6 +276,23 @@ the 5-minute window and by asking for a new code.
   even a local one (D-023, see `API.md` § Identity).
 - The Tauri window CSP restricts connections to `ws://127.0.0.1:*` and to the
   IPC bridge; no remote content is loadable.
+- **A diagnostic log is written on every launch**, at `<app_data>/logs/accord.log`
+  (previous run kept as `.1`, rotated at 5 MiB). It is a plain file, **outside**
+  the encrypted database: it is readable by anything that can read the user's
+  data directory, which disk encryption at rest does not cover once the machine
+  is on. What keeps that acceptable is a rule on `tracing` calls across the whole
+  repository rather than on the file: **never a message body, a key, a friend
+  code, or a friend's address**. A log nobody dares send is a log that does not
+  exist, so it is written to be sendable.
+- **`diagnostics.report` is the only API response designed to leave the machine.**
+  It is redacted in the node, not in the UI: friends become anonymous ranks with
+  no public key (a friend's key *is* their friend code, so a raw report would hand
+  over the address book, and two reports could be cross-referenced to prove that
+  two people know each other) and no address (third-party data from someone who
+  was never asked); the user's own external address keeps its port and loses its
+  host. Bootstrap and relay addresses are kept — public infrastructure the user
+  entered, without which a relay fault cannot be diagnosed. ⚠️ Never rebuild this
+  report from `network.peers`, which carries both removed fields.
 
 ## 4. Attackers considered
 
@@ -453,6 +470,64 @@ Read before recommending Accord to people whose safety depends on anonymity.
     of two halves of the key agreement, which bounds the consequence of a flaw
     to "no better than today", but it is a real difference in assurance from the
     rest of the primitive set.
+
+15. **Blocking is eventually consistent, and ordered by wall clocks.** Blocking
+    someone now propagates to the other devices of the account, so a block set
+    on the laptop protects the desktop too. Two limits follow from how it is
+    ordered. A device that is off, or running a release older than this one,
+    does not learn the block until it is reachable and upgraded — until then it
+    still accepts messages from that person. And concurrent decisions are
+    resolved on the wall clock of the device that made them: if one device's
+    clock runs minutes ahead, an unblock it emitted *before* a block made
+    elsewhere can still carry the larger timestamp and win. Ties go to the
+    block, because an unwanted block is undone with one click and is visible,
+    while an unwanted unblock silently reopens a channel someone closed. There
+    is no logical clock per account today.
+
+16. **A device list dated in the future is refused.** Freshness is judged on
+    `issued_ms + valid_for_s`, and nothing used to bound `issued_ms` — the
+    clock-skew guard that `accord-dht` has always applied to the DHT envelope
+    never looked *inside* the list. A list signed with a far-future date
+    therefore looked fresh for centuries, and since its `version` follows the
+    same clock, no later legitimate list could overtake it: revocation was
+    locked, silently and permanently. It does not take an attacker — a machine
+    with a dead CMOS battery or a misconfigured clock produces exactly the same
+    list. Ingestion now refuses anything more than five minutes ahead, the same
+    tolerance the DHT store uses. Found by the milestone-1 adversarial review.
+
+17. **A refused write is no longer reported as success.** `cache_device_list`
+    rejects any version at or below the one already stored — a deliberate
+    anti-replay guard — and said so through a boolean that the caller discarded.
+    `revoke_device` could therefore return success having persisted nothing: the
+    moderator read "device revoked" while the revocation existed nowhere, and
+    nothing ever corrected them. A silent failure on a security control is worse
+    than no control, because it manufactures a false certainty.
+
+18. **A friendship announced by one of our devices creates, and never
+    modifies.** Until 7.2 nothing propagated the address book between the
+    machines of one account, and a freshly paired device — which starts from an
+    empty database by design — silently discarded every message from every
+    existing friend while looking perfectly connected. `SELF_CONTACT_ADD`
+    (SPEC §6.6) fixes that, and is deliberately the weakest message that can:
+    a contact already present locally is left untouched, name included. A
+    **block** set here therefore survives an announcement from a machine that
+    had not learned about it yet, and the message cannot be used to downgrade
+    anything. Reception is gated on the authenticated device key, like every
+    other `SELF_*` message, and `added_ms` is bounded against a clock in the
+    future for the same reason as item 16.
+
+19. **The session file is created restricted, not restricted afterwards.**
+    `session.json` holds the local API token. It was written with
+    `std::fs::write` and `chmod`-ed to `0600` on the next line, which left the
+    token readable by any local user for the interval between the two calls —
+    brief, but a token read once stays valid. It is now created with `0600`
+    already set, so no instant exists where it is more open than it should be.
+    The `chmod` that follows is kept for a file left by an earlier version,
+    which `mode` alone would not repair.
+
+    ⚠️ **Outside Unix nothing restricts that file**, before or after this fix.
+    On Windows it inherits the ACLs of the user's data directory, which keeps
+    other accounts out but not another process of the same account.
 
 ## 6. Accepted v0 trade-offs
 

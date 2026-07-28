@@ -23,7 +23,14 @@ permissions:
 
 env:
   # audiopus_sys embarque un CMakeLists ancien : CMake >= 4 refuse son
-  # cmake_minimum_required sans cette variable (même contournement que ci.sh).
+  # cmake_minimum_required sans cette variable.
+  #
+  # ⚠️ `ci.sh` ne la pose PAS — le commentaire d'origine annonçait ici « même
+  # contournement que ci.sh », ce qui était faux et coûtait le temps de le
+  # découvrir. En local, la parité s'obtient autrement : soit un libopus
+  # système (`brew install opus pkgconf`), soit cette variable exportée à la
+  # main. Les deux chemins sont écrits dans `docs/DEV.md` § application de
+  # bureau.
   CMAKE_POLICY_VERSION_MINIMUM: "3.5"
 
 jobs:
@@ -168,6 +175,16 @@ jobs:
       # Ce garde-fou rend la dérive visible au commit près.
       - name: Frontend initial-chunk budget
         run: node scripts/check-bundle-budget.mjs
+
+      # Ces deux-là ne tournaient QUE dans `ci.sh`, donc sur la machine du
+      # développeur — un garde-fou sans destinataire, exactement la panne que
+      # les e2e d'interface ont déjà produite (commentaire suivant). Ils sont
+      # hermétiques (Node pur, aucun réseau), rien ne justifiait leur absence.
+      - name: Fichiers de plus de 800 lignes (cliquet)
+        run: node scripts/check-file-size.mjs
+
+      - name: Constantes publiques citées dans les docs
+        run: node scripts/check-doc-constants.mjs
 
       # Les e2e d'interface vivaient hors du gate. Résultat : « Marquer comme
       # lu » a disparu du menu serveur à la refonte 4.5.0 et la régression a

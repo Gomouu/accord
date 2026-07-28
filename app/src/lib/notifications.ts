@@ -33,10 +33,29 @@ export function isNotificationEligible(options: {
    * (comportement historique, avant l'ajout de la fonctionnalité).
    */
   muted?: boolean;
+  /**
+   * Vrai si le message est masqué par l'AutoMod du serveur (`lib/automod.ts`) ;
+   * absent = non filtré.
+   *
+   * 🔒 Un message masqué ne notifie JAMAIS. Sans cette règle, l'AutoMod
+   * remplaçait le mot par des `█` mais faisait quand même sonner la machine et
+   * apparaître une bannière système : le filtre attirait l'attention sur
+   * exactement ce que l'administrateur du serveur avait décidé de cacher, ce
+   * qui est pire que pas de filtre du tout.
+   */
+  filtered?: boolean;
 }): boolean {
-  const { kind, prefs, windowFocused, isOwnMessage, muted = false } = options;
+  const {
+    kind,
+    prefs,
+    windowFocused,
+    isOwnMessage,
+    muted = false,
+    filtered = false,
+  } = options;
   if (isOwnMessage) return false;
   if (muted) return false;
+  if (filtered) return false;
   if (kind === 'dm' && !prefs.dms) return false;
   if (kind === 'group' && !prefs.groups) return false;
   if (prefs.onlyWhenUnfocused && windowFocused) return false;
@@ -95,6 +114,13 @@ export interface SoundEligibilityOptions {
    * (pas d'exception « les mentions notifient quand même »).
    */
   muted?: boolean;
+  /**
+   * Vrai si le message est masqué par l'AutoMod du serveur (`lib/automod.ts`) ;
+   * absent = non filtré. Coupe le blip même sur une mention, pour la même
+   * raison que la notification native : un message qu'on ne peut pas lire n'a
+   * aucune raison de faire du bruit.
+   */
+  filtered?: boolean;
 }
 
 /** Décide si le blip de notification doit jouer pour un message entrant. */
@@ -107,9 +133,11 @@ export function isSoundEligible(options: SoundEligibilityOptions): boolean {
     mode = 'all',
     isMention = false,
     muted = false,
+    filtered = false,
   } = options;
   if (isOwnMessage) return false;
   if (muted) return false;
+  if (filtered) return false;
   if (dnd) return false;
   if (mode === 'none') return false;
   if (mode === 'mentionsOnly' && !isMention) return false;

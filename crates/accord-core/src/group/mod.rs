@@ -90,7 +90,19 @@ pub fn group_state(db: &Db, group_id: &[u8; 16]) -> Result<GroupState, CoreError
         return Err(CoreError::NotFound("groupe inconnu"));
     }
     let state = GroupState::fold(&ops);
-    db.group_cache_put_state(*group_id, std::sync::Arc::new(state.clone()));
+    // Repère : la clé d'ordre la plus haute du journal replié. C'est elle qui
+    // permettra aux insertions suivantes d'étendre l'état sans tout relire.
+    let repere = ops
+        .iter()
+        .map(|op| {
+            (
+                op.lamport,
+                accord_crypto::identity::node_id_of(&op.author).0,
+                op.op_id,
+            )
+        })
+        .max();
+    db.group_cache_put_state(*group_id, std::sync::Arc::new(state.clone()), repere);
     Ok(state)
 }
 
@@ -108,11 +120,27 @@ pub fn create_group(
     name: &str,
     now_ms: u64,
 ) -> Result<CreatedGroup, CoreError> {
+    create_group_kind(db, identity, name, false, now_ms)
+}
+
+/// [`create_group`] en précisant la nature : `dm = true` crée un **groupe de
+/// MP** (jalon 5, `docs/DM_GROUPS.md`), qui refusera ensuite rôles, catégories,
+/// salons supplémentaires et modération.
+pub fn create_group_kind(
+    db: &Db,
+    identity: &Identity,
+    name: &str,
+    dm: bool,
+    now_ms: u64,
+) -> Result<CreatedGroup, CoreError> {
     if name.is_empty() || name.len() > 100 {
         return Err(CoreError::Invalid("nom de groupe vide ou trop long"));
     }
     let body = GroupOpBody::Create {
         name: name.to_string(),
+        // `None` plutôt que `Some(false)` pour un serveur : les octets d'une
+        // création ordinaire restent identiques à ceux d'avant ce champ.
+        dm: dm.then_some(true),
     };
     let mut op = GroupOp {
         op_id: [0u8; 16],
@@ -452,6 +480,90 @@ mod tests {
         )
     }
 
+    /// 🔴 L'invariant du repli incrémental (jalon 6) : quel que soit l'ORDRE
+    /// D'ARRIVÉE des ops, l'état matérialisé doit être exactement celui d'un
+    /// repli complet. Le cache étend quand c'est sûr et se rabat sinon ; si ce
+    /// choix se trompait une seule fois, deux pairs divergeraient en silence.
+    ///
+    /// Le test insère le même journal dans les deux sens — croissant, puis
+    /// décroissant, ce qui force le rabattement à chaque insertion — et compare
+    /// au repli complet du même jeu.
+    #[test]
+    fn le_repli_incremental_rend_le_meme_etat_quel_que_soit_lordre_darrivee() {
+        let (db, id) = setup();
+        let created = create_group(&db, &id, "Guilde", 1_000).unwrap();
+        let gid = created.group_id;
+
+        // ⚠️ Le journal doit être fait d'ops dont l'effet DÉPEND de l'ordre.
+        // Une première version enchaînait des `AddChannel`, qui commutent :
+        // l'état final est le même dans les deux sens, si bien que le test
+        // passait même en supprimant la condition d'ordre du cache. Vérifié par
+        // mutation. Ici, six `SetMeta` successives — le dernier nom gagne, donc
+        // un ordre faussé se voit immédiatement.
+        let mut ops = vec![created.op.clone()];
+        for i in 0..6u8 {
+            let op = author_op(
+                &db,
+                &id,
+                &gid,
+                &GroupOpBody::SetMeta {
+                    name: format!("nom-{i}"),
+                    icon: None,
+                    banner_color: None,
+                },
+                2_000 + u64::from(i),
+            )
+            .unwrap();
+            ops.push(op);
+        }
+        let attendu = GroupState::fold(&ops);
+        assert_eq!(
+            attendu.name, "nom-5",
+            "le repli de référence retient bien la DERNIÈRE méta"
+        );
+
+        // ⚠️ `group_state` est appelé APRÈS CHAQUE insertion, et ce détail est
+        // le test. Le cache n'est peuplé que par une lecture ; une boucle qui
+        // insère tout puis lit une fois ne l'emprunte jamais, et une deuxième
+        // version de ce test passait pour cette raison — l'invariant n'était
+        // pas faux, il n'était pas exercé. C'est aussi la forme du vrai point
+        // chaud : rejoindre un serveur insère et relit, op après op.
+        //
+        // ⚠️ La CREATE entre EN PREMIER, et le reste à l'envers derrière. Une
+        // version précédente insérait tout à l'envers, donc la CREATE en
+        // dernier — or une CREATE invalide toujours le cache, si bien que la
+        // lecture finale repartait d'un repli complet et donnait la bonne
+        // réponse quoi qu'il arrive. Le test passait avec la condition d'ordre
+        // supprimée. Ici la corruption éventuelle reste en cache jusqu'au bout.
+        let (db2, _) = setup();
+        db2.insert_group_op(&ops[0]).unwrap();
+        let _ = group_state(&db2, &gid);
+        for op in ops[1..].iter().rev() {
+            db2.insert_group_op(op).unwrap();
+            let _ = group_state(&db2, &gid);
+        }
+        let a_lenvers = group_state(&db2, &gid).unwrap();
+
+        // Dans l'ordre, chaque op trie au-dessus : le chemin rapide s'applique.
+        let (db3, _) = setup();
+        for op in &ops {
+            db3.insert_group_op(op).unwrap();
+            let _ = group_state(&db3, &gid);
+        }
+        let dans_lordre = group_state(&db3, &gid).unwrap();
+
+        assert_eq!(
+            format!("{a_lenvers:?}"),
+            format!("{attendu:?}"),
+            "ordre d'arrivée décroissant : l'état doit rester celui du repli complet"
+        );
+        assert_eq!(
+            format!("{dans_lordre:?}"),
+            format!("{attendu:?}"),
+            "ordre d'arrivée croissant : le chemin rapide ne doit rien changer"
+        );
+    }
+
     #[test]
     fn create_then_author_ops_builds_consistent_state() {
         let (db, id) = setup();
@@ -594,6 +706,7 @@ mod tests {
             &group_id,
             &GroupOpBody::Create {
                 name: "Vieux".into(),
+                dm: None,
             },
             1,
             new_id16(),
@@ -641,6 +754,7 @@ mod tests {
             &group_id,
             &GroupOpBody::Create {
                 name: "Vieux".into(),
+                dm: None,
             },
             1,
             new_id16(),
@@ -686,6 +800,7 @@ mod tests {
             &created.group_id,
             &GroupOpBody::Create {
                 name: "usurpé".into(),
+                dm: None,
             },
             0,
             new_id16(),
@@ -704,6 +819,7 @@ mod tests {
             &created.group_id,
             &GroupOpBody::Create {
                 name: "encore".into(),
+                dm: None,
             },
             0,
             new_id16(),
@@ -728,6 +844,7 @@ mod tests {
             &group_id,
             &GroupOpBody::Create {
                 name: "Vieux".into(),
+                dm: None,
             },
             1,
             new_id16(),
@@ -776,6 +893,7 @@ mod tests {
             &created.group_id,
             &GroupOpBody::Create {
                 name: "usurpé".into(),
+                dm: None,
             },
             created.op.lamport + 1,
             new_id16(),

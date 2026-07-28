@@ -29,6 +29,8 @@ mod groups;
 mod helpers;
 mod mentions;
 mod network;
+mod portable;
+mod prefs;
 mod privacy;
 mod profile;
 mod reminders;
@@ -90,6 +92,7 @@ impl Service for NodeService {
             || method.starts_with("calls.")
             || method.starts_with("screen.")
             || method.starts_with("camera.")
+            || method.starts_with("video.")
         {
             return self
                 .call_voice(method, &params)
@@ -194,6 +197,9 @@ fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Value, NodeErro
     if method.starts_with("files.") {
         return files::dispatch(node, method, params);
     }
+    if method.starts_with("prefs.") {
+        return prefs::dispatch(node, method, params);
+    }
     if method.starts_with("privacy.") {
         return privacy::dispatch(node, method, params);
     }
@@ -208,6 +214,9 @@ fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Value, NodeErro
     }
     if method.starts_with("backup.") {
         return backup_schedule::dispatch(node, method, params);
+    }
+    if method.starts_with("portable.") {
+        return portable::dispatch(node, method, params);
     }
     Err(NodeError::Invalid("méthode inconnue"))
 }

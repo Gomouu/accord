@@ -73,7 +73,9 @@ impl Db {
             ],
         )?;
         if n > 0 {
-            self.group_cache_invalidate(&op.group_id);
+            // Étend l'état en cache quand c'est démontrablement équivalent à un
+            // repli complet, invalide sinon — voir `Db::group_cache_extend`.
+            self.group_cache_extend(op);
         }
         Ok(n > 0)
     }

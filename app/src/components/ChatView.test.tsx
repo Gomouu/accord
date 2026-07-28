@@ -54,6 +54,7 @@ import {
   TYPING_EXPIRY_MS,
 } from '../stores/typing';
 import { useUi } from '../stores/ui';
+import { useVoice } from '../stores/voice';
 import { DmView, GroupView } from './ChatView';
 
 const callMock = rpc.call as unknown as Mock;
@@ -759,5 +760,171 @@ describe('GroupView — purge (mode sélection)', () => {
     await waitFor(() =>
       expect(screen.queryByText(/sélectionné/)).not.toBeInTheDocument(),
     );
+  });
+});
+
+describe('GroupView — groupe de MP (jalon 5)', () => {
+  /** Groupe de MP à trois, fondé par l'utilisateur local, avec son fil unique. */
+  function dmGroupState(): GroupStateJson {
+    return makeGroupState({
+      name: 'Nous trois',
+      is_dm: true,
+      founder: 'moi',
+      // 🔒 Le nœud rend bien le masque complet au fondateur, y compris ici.
+      my_permissions: 0x3ff,
+      members: [
+        { pubkey: 'moi', roles: [] },
+        { pubkey: PEER, roles: [] },
+        { pubkey: 'carol', roles: [] },
+      ],
+      channels: [
+        {
+          channel_id: 'fil',
+          name: 'Nous trois',
+          kind: 'text',
+          category: null,
+          position: 0,
+          topic: '',
+        },
+      ],
+    });
+  }
+
+  beforeEach(() => {
+    callMock.mockResolvedValue({
+      messages: [
+        {
+          msg_id: 'm1',
+          channel_id: 'fil',
+          author: PEER,
+          lamport: 1,
+          sent_ms: 1000,
+          deleted: false,
+          body: {
+            type: 'text' as const,
+            text: 'message du fil',
+            reply_to: null,
+            attachments: 0,
+          },
+          edited: null,
+        },
+      ],
+    });
+    useSession.setState({
+      self: {
+        node_id: 'n',
+        pubkey: 'moi',
+        friend_code: 'accord-moi',
+        name: 'Moi',
+        bio: null,
+        avatar: null,
+        banner: null,
+      } as SelfProfile,
+    });
+    useUi.setState({
+      view: { kind: 'group', groupId: 'g1', channelId: 'fil' },
+      toasts: [],
+      jump: null,
+      modal: null,
+    });
+    useGroups.setState({ ids: ['g1'], states: { g1: dmGroupState() } });
+  });
+
+  it('n’offre aucune commande de modération malgré le masque complet du nœud', async () => {
+    // 🔒 `my_permissions` vaut 0x3ff : sans `displayedPermissions`, le menu
+    // d'un message proposerait ici épinglage et sélection groupée, deux ops
+    // que la liste blanche du nœud refuse.
+    render(<GroupView groupId="g1" channelId="fil" />);
+    await screen.findByText('message du fil');
+
+    const ligne = screen.getByText('message du fil').closest('[data-msg-id]');
+    fireEvent.contextMenu(ligne as HTMLElement);
+    const items = (useContextMenu.getState().menu?.items ?? []).map((i) => i.label);
+
+    expect(items).not.toContain('Sélectionner des messages');
+    expect(items).not.toContain('Épingler');
+  });
+
+  it('n’ouvre pas le menu « + » : un groupe de MP n’a pas de sondage', () => {
+    // `PollCreate` est hors de la liste blanche : le composeur retombe sur le
+    // sélecteur de fichiers, comme en MP, au lieu d'offrir « Créer un sondage ».
+    render(<GroupView groupId="g1" channelId="fil" />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Joindre des fichiers' }));
+
+    expect(useContextMenu.getState().menu).toBeNull();
+  });
+
+  it('titre le fil du nom du groupe et compte ses membres', () => {
+    render(<GroupView groupId="g1" channelId="fil" />);
+
+    expect(screen.getByTitle('Nous trois')).toBeInTheDocument();
+    expect(screen.getByText('3 membres')).toBeInTheDocument();
+  });
+
+  it('retire fils et épingles, que le nœud refuserait, et offre les réglages', () => {
+    // 🔒 `my_permissions` vaut 0x3ff ci-dessus : sans la remise à zéro de
+    // `displayedPermissions` et la garde `!isDm`, ces boutons seraient bel et
+    // bien rendus — et chaque clic finirait sur un refus du nœud.
+    render(<GroupView groupId="g1" channelId="fil" />);
+
+    expect(screen.queryByRole('button', { name: 'Fils' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Messages épinglés' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Paramètres du groupe' }),
+    ).toBeInTheDocument();
+  });
+
+  it('appelle sur le groupe lui-même, pas sur un salon vocal', async () => {
+    // Le critère de fin du jalon 5. Un groupe de MP n'a qu'un fil texte et la
+    // liste blanche du nœud lui refuse tout second salon : l'appel vise donc
+    // `channel_id == group_id`, la convention déjà en vigueur pour le salon
+    // vocal d'un serveur. Viser `channelId` ferait rejoindre le fil texte.
+    const join = vi.fn(async () => {});
+    useVoice.setState({ active: null, join });
+
+    render(<GroupView groupId="g1" channelId="fil" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Appeler' }));
+
+    await waitFor(() => expect(join).toHaveBeenCalledWith('g1', 'g1'));
+  });
+
+  it('raccroche quand l’appel de ce groupe est en cours', async () => {
+    const leave = vi.fn(async () => {});
+    useVoice.setState({
+      active: { groupId: 'g1', channelId: 'g1', muted: false, isCall: false },
+      leave,
+    });
+
+    render(<GroupView groupId="g1" channelId="fil" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Raccrocher' }));
+
+    await waitFor(() => expect(leave).toHaveBeenCalled());
+  });
+
+  it('ouvre la modale de réglages depuis l’en-tête', () => {
+    render(<GroupView groupId="g1" channelId="fil" />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Paramètres du groupe' }));
+
+    expect(useUi.getState().modal).toEqual({ kind: 'dmGroup', groupId: 'g1' });
+  });
+
+  it('garde fils et épingles sur un serveur ordinaire', () => {
+    // Contrôle négatif : la disparition ci-dessus tient bien à `is_dm`, pas à
+    // la forme de l'état de test.
+    useGroups.setState({
+      states: { g1: { ...dmGroupState(), is_dm: false } },
+    });
+
+    render(<GroupView groupId="g1" channelId="fil" />);
+
+    expect(screen.getByRole('button', { name: 'Fils' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Messages épinglés' })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Paramètres du groupe' }),
+    ).not.toBeInTheDocument();
   });
 });

@@ -177,6 +177,13 @@ export const hiSettings = {
       'इस खाते पर अनुमत उपकरण। हर एक की अपनी कुंजी है; खाते की मूल कुंजी उसे बनाने वाले उपकरण से कभी बाहर नहीं जाती।',
     devicesEmpty: 'कोई उपकरण दर्ज नहीं।',
     deviceCurrent: 'यह उपकरण',
+    deviceAdded: '{date} को जोड़ा गया',
+    deviceAddedUnknown: 'जोड़ने की तारीख़ अज्ञात',
+    deviceLastSeen: '{date} को दिखा',
+    deviceLastSeenNever: 'इस उपकरण से कभी संपर्क नहीं हुआ',
+    deviceLastSeenHere: 'आप अभी इसी पर हैं',
+    deviceRouteDirect: 'सीधा संपर्क',
+    deviceRouteRelay: 'रिले के ज़रिए',
     deviceNameLabel: 'उपकरण का नाम',
     deviceRenamed: 'उपकरण का नाम बदल गया!',
     pairAdd: 'उपकरण जोड़ो',
@@ -311,6 +318,10 @@ export const hiSettings = {
     dangerZoneTitle: 'ख़तरे का इलाक़ा',
     logoutHint:
       'तुम्हारी तिजोरी बंद करके अनलॉक स्क्रीन पर लौटता है। कोई डेटा नहीं मिटता।',
+    linkPreviewsTitle: 'लिंक पूर्वावलोकन',
+    linkPreviewsLabel: 'प्राप्त लिंक का पूर्वावलोकन लोड करें',
+    linkPreviewsHint:
+      'डिफ़ॉल्ट रूप से बंद। पूर्वावलोकन दिखाने के लिए आपके डिवाइस को पेज लाना पड़ता है — तब वह साइट आपका IP पता देख लेती है, जबकि लिंक किसी और ने चुना था। समूह में, नियंत्रित सर्वर का लिंक उन सबका IP उजागर कर देता है जिन्होंने इसे चालू किया है।',
     streamerTitle: 'स्ट्रीमर मोड',
     streamerLabel: 'संवेदनशील जानकारी छिपाओ',
     streamerHint:

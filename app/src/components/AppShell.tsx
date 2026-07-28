@@ -2,7 +2,8 @@
 
 import { Suspense, lazy, useCallback, useEffect, useRef } from 'react';
 import { dictionary, interpolate } from '../i18n';
-import type { AccordEvent, CallEndedReason } from '../lib/api';
+import type { AccordEvent, CallEndedReason, GroupMessage } from '../lib/api';
+import { containsFiltered } from '../lib/automod';
 import { callEndedToast } from '../lib/callToast';
 import { setAppBadge } from '../lib/bridge';
 import { rpc } from '../lib/client';
@@ -46,6 +47,7 @@ import { FriendsView } from './FriendsView';
 import { FriendVerifyModal } from './FriendVerifyModal';
 import { ReminderDialog } from './ReminderDialog';
 import { IncomingCall } from './IncomingCall';
+import { displayText } from './messageModel';
 import { Modals } from './Modals';
 import { CallVideo } from './CallVideo';
 import { ProfilePopover } from './ProfilePopover';
@@ -60,12 +62,13 @@ import { ThemeWorld } from './ThemeWorld';
  * jamais si le niveau de notification du serveur/salon visé le tait
  * (`stores/mute.ts` : niveau 'none', ou 'mentions' sans mention). `mentionsMe`
  * porte le drapeau `mentions_me` du message (sans effet pour un MP, toujours
- * « pour moi »).
+ * « pour moi »). `filtered` coupe tout : voir `estFiltreParAutomod`.
  */
 function notifyNewMessage(
   ref: ConversationRef,
   author: string,
   mentionsMe: boolean,
+  filtered = false,
 ): void {
   const self = useSession.getState().self;
   if (self === null) return;
@@ -82,6 +85,7 @@ function notifyNewMessage(
     windowFocused,
     isOwnMessage: author === self.pubkey,
     muted: isConversationSilenced(ref, mentionsMe),
+    filtered,
   });
   if (!eligible) return;
   const dict = dictionary(ui.lang);
@@ -128,7 +132,12 @@ function dndActif(): boolean {
   );
 }
 
-function maybePlaySound(ref: ConversationRef, author: string, isMention: boolean): void {
+function maybePlaySound(
+  ref: ConversationRef,
+  author: string,
+  isMention: boolean,
+  filtered = false,
+): void {
   const self = useSession.getState().self;
   if (self === null) return;
   const eligible = isSoundEligible({
@@ -139,9 +148,31 @@ function maybePlaySound(ref: ConversationRef, author: string, isMention: boolean
     mode: useUi.getState().notifySoundMode,
     isMention,
     muted: isConversationSilenced(ref, isMention),
+    filtered,
   });
   if (!eligible) return;
   playNotificationSound(isMention ? 'mention' : 'message');
+}
+
+/**
+ * Vrai si ce message de salon est masqué par l'AutoMod du serveur.
+ *
+ * 🔒 La liste de mots vient de l'état RÉPLIQUÉ du groupe (`automod_words`),
+ * celle-là même que `BodyText` applique au rendu : la décision de ne pas
+ * notifier et le masquage à l'écran suivent donc toujours la même règle. Un
+ * message dont le mot est remplacé par des `█` ne doit ni sonner ni faire
+ * apparaître de bannière système — sinon le filtre se contente de piquer la
+ * curiosité au lieu de protéger.
+ *
+ * Le texte examiné est celui qui SERAIT affiché (dernière édition comprise,
+ * via `displayText`) : un message édité pour contenir un mot filtré est
+ * masqué au rendu, il ne doit pas notifier davantage.
+ */
+function estFiltreParAutomod(groupId: string, message: GroupMessage): boolean {
+  const words = useGroups.getState().states[groupId]?.automod_words ?? [];
+  if (words.length === 0) return false;
+  const texte = displayText(message);
+  return texte !== null && containsFiltered(texte, words);
 }
 
 /**
@@ -442,15 +473,18 @@ function useNodeEvents() {
                 (m) => m.msg_id === msgId,
               );
               if (message !== undefined) {
+                const filtre = estFiltreParAutomod(groupId, message);
                 notifyNewMessage(
                   { kind: 'group', groupId, channelId },
                   message.author,
                   message.mentions_me === true,
+                  filtre,
                 );
                 maybePlaySound(
                   { kind: 'group', groupId, channelId },
                   message.author,
                   message.mentions_me === true,
+                  filtre,
                 );
               }
             })

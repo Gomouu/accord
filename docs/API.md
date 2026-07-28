@@ -3,12 +3,27 @@
 > Contract between the UI and the node. The server listens **only** on
 > `127.0.0.1` (ephemeral port by default). The UI reads the address and the token
 > from `<profil>/session.json` written by the daemon at startup.
+>
+> This document is the **detailed** reference: shapes, bounds, semantics, edge
+> cases. [`API_CONTRACT.md`](API_CONTRACT.md) is the **public** contract — the
+> complete method and event index derived from
+> `crates/accord-node/src/service/*.rs`, the stability tiers, the security
+> position, and the list of methods and events implemented here but not yet
+> described below.
 
 ## Transport
 
 - WebSocket, JSON **text** messages only (binary ignored).
 - Single request (no batching). `id` numeric, string, or `null`.
-- Maximum message size: 1 MiB.
+- Maximum message size: **16 MiB** (`MAX_WS_MESSAGE`,
+  `crates/accord-api/src/server.rs`), frames included. Sized so that
+  `files.share_bytes` / `files.read` — 8 MiB of bytes, about 11 MiB once
+  base64'd inside a JSON envelope — go through in one frame.
+- **Message body: 64 KiB** (`MAX_BODY`, `crates/accord-proto/src/core_msg.rs`).
+  This is the wire bound on the *encoded* body of a direct message, a group
+  message, a group op and a self-sync item, enforced at decode. It is far below
+  the frame limit above, and it is the one a client sending text will hit
+  first — attachments travel as references, not inside the body.
 
 ## Authentication
 
@@ -45,11 +60,18 @@ structured JSON (see "Direct messaging"); they are never logged.
 
 | Method | Parameters | Result |
 |---------|-----------|----------|
-| `identity.self` | — | `{ node_id, pubkey, friend_code, name, bio, avatar, banner }` |
+| `identity.self` | — | `{ node_id, pubkey, friend_code, name, bio, avatar, banner, pronouns, accent_color, banner_color, avatar_decoration, profile_effect, profile_frame }` |
 
 `name` is the local nickname (`string`), or `null` if it has never been set
 via `profile.set` (see "Profile"); `bio` (`string` or `null`), `avatar` and
-`banner` (hex-64 hash or `null`) follow the same rules.
+`banner` (hex-64 hash or `null`) follow the same rules. The decoration fields
+(`pronouns` … `profile_frame`) are `null` when unset; colours are integers
+`0xRRGGBB`.
+
+🔒 `pubkey`, `node_id` and `friend_code` are those of the **account**, never of
+this machine's device key (`MULTI_DEVICE.md` §2). The device key is not exposed
+by this method at all — `devices.list` is where machines are named, and its
+`is_current` entry is the only place this machine appears.
 
 `identity.self` is the **only** identity RPC method. The lifecycle
 (creation, restoration, unlocking) does **not** go through JSON-RPC: these
@@ -66,6 +88,17 @@ IPC** (D-023) — the exact contract between `app/src/lib/bridge.ts` and
 | `restore_identity` | `{ phrase, passphrase }` | `{ port, token }` |
 | `unlock` | `{ passphrase }` | `{ port, token }` |
 | `lock` | — | `"absent"` ∣ `"locked"` |
+
+⚠️ This table covers the **identity lifecycle only**, not every registered IPC
+command. `app/src-tauri/src/lib.rs` is the authoritative list; the others are the
+multi-account surface (`accounts_list`, `account_create`, `account_restore`,
+`account_adopt_paired`, `account_unlock`, `session_close`), the encrypted backup
+(`backup_export`, `backup_import`), the diagnostic log (`journal_ui`,
+`journal_dossier`, `journal_niveau` — see `DEV.md`), the microphone permission
+(`micro_autorisation_etat`, `micro_autorisation_demander`,
+`ouvrir_reglages_systeme`) and `app_quit`. 🔒 `account_adopt_paired` is where a
+newly paired machine takes up the account root; like the lifecycle commands it
+handles a seed, which is exactly why it is IPC and not JSON-RPC.
 
 Details of shape and behavior:
 
@@ -100,8 +133,8 @@ Details of shape and behavior:
 
 | Method | Parameters | Result |
 |---------|-----------|----------|
-| `profile.get` | — | `{ name, bio, avatar, banner }` — nickname (`string`∣`null`), bio (`string`∣`null`), avatar and banner hash (hex 64∣`null`) |
-| `profile.set` | `{ name?, bio? }` | `{}` — at least one of the two fields required |
+| `profile.get` | — | `{ name, bio, avatar, banner, pronouns, accent_color, banner_color, avatar_decoration, profile_effect, profile_frame }` — nickname (`string`∣`null`), bio (`string`∣`null`), avatar and banner hash (hex 64∣`null`), pronouns (`string`∣`null`), colours (`0xRRGGBB` integer∣`null`), decoration/effect/frame ids (`string`∣`null`) |
+| `profile.set` | `{ name?, bio?, pronouns?, accent_color?, banner_color?, avatar_decoration?, profile_effect?, profile_frame? }` | `{}` — at least one field required; an explicit `null` clears that field |
 | `profile.set_avatar` | `{ data_b64, mime }` | `{ avatar }` — hex-64 hash of the published blob, or `null` after removal |
 | `profile.set_banner` | `{ data_b64, mime }` | `{ banner }` — hex-64 hash of the published blob, or `null` after removal |
 
@@ -109,8 +142,11 @@ Details of shape and behavior:
 is trimmed, no control characters) and the bio (at most 2048 characters
 after trimming; line breaks and tabs allowed; **empty string = clear**),
 stores locally (trimmed forms) then announces the full profile to all
-confirmed friends (CORE `PROFILE` message, SPEC §6.5). All or nothing: if one
-of the two fields is invalid, neither is written. The profile is also announced
+confirmed friends (CORE `PROFILE` message, SPEC §6.5). The decoration fields
+follow the same shape: `pronouns` at most 40 characters, the two colours
+`0xRRGGBB` integers rejected outright above 24 bits, and the three ids revalidated
+(alphabet and bound) before writing. All or nothing: if any submitted field is
+invalid, **none** is written. The profile is also announced
 automatically on every friendship establishment (in both directions) and
 re-announced periodically by maintenance. As long as no nickname is
 set, nothing is announced (the `PROFILE` message requires a nickname).
@@ -138,6 +174,58 @@ avatar or banner in the announcement **clear** the known value.
 If the received avatar or banner hash matches no local blob, the
 node starts downloading it in the background from the sender. Announcements
 from non-friends are ignored (anti-abuse).
+
+### Devices
+
+The machines of **this** account (design: `MULTI_DEVICE.md`). Not to be confused
+with `friends.*`, which is about other people.
+
+| Method | Parameters | Result |
+|---------|-----------|----------|
+| `devices.list` | — | `{ devices: [{ pubkey, name, added_ms, is_current, last_seen_ms, last_seen_route }] }` — `pubkey` hex-64, `added_ms` epoch ms (`0` for the device produced by the 7.0 migration), `is_current` `bool`, `last_seen_ms` epoch ms of the last time that device was reached **from this machine** (`null` if never), `last_seen_route` `"direct" \| "relay" \| null` |
+| `devices.rename` | `{ name }` | `{ name }` — the trimmed name |
+| `devices.pair_start` | — | `{ code, expires_ms }` — opens an offer **on the already-authorised device** |
+| `devices.pair_submit` | `{ code }` | `{ hello }` — hex PAKE message; entering the code **on the new device** |
+| `devices.pair_status` | — | `{ fingerprint, role, adopted }` |
+| `devices.pair_confirm` | — | `{}` — the human confirmed the fingerprint on this side |
+| `devices.pair_cancel` | — | `{}` |
+| `devices.revoke` | `{ pubkey }` | `{}` |
+
+- 🔒 `last_seen_ms` / `last_seen_route` are **local observations**, held in this
+  machine's database and in no signed structure. They are deliberately absent
+  from `DeviceList`, which the account root signs and publishes in the DHT where
+  every friend reads it: a per-device last-seen there would publish each
+  machine's activity pattern to the whole address book. `last_seen_route` says
+  *by which path* the device was reached, and never an address — a tunnelled
+  session only knows the **relay's** address (`SessionView::addr`), so an address
+  would be both wrong and needlessly revealing.
+- `devices.rename` bounds the name at **32 UTF-8 bytes**, which is the wire bound
+  (`MAX_DEVICE_NAME`), not 32 characters. Counting characters looks stricter and
+  is looser: "é" weighs two bytes, so 32 accented characters would pass here and
+  be refused at decode — a setting that looks accepted and never takes.
+- **Pairing is symmetric.** SPAKE2 has no server side: one machine displays a
+  code (`pair_start`), the other types it (`pair_submit`), and both then sit in
+  the same state waiting for the other's PAKE message. `pair_submit` also
+  broadcasts on the local network — the new device holds the code and nothing
+  else, no session and no address, and the code carries neither; the PAKE fails
+  silently for anyone without it, so greeting everyone tells nobody anything.
+- `pair_status.fingerprint` is `null` until an exchange has succeeded (the screen
+  shows the code and waits rather than inventing a fingerprint). `role` is
+  `"authoriser"` ∣ `"joiner"` ∣ `null` — the two sides do not display the same
+  screen. `adopted` reports that the account root has arrived.
+- 🔒 **`adopted` is a boolean and never the seed.** The host picks the root up
+  through `Node::pairing_take_adoption`, which does not go through this API:
+  nothing crossing this local JSON channel may contain the account, because it is
+  readable by anything running on the machine and it ends up in the traces of
+  whoever is debugging. Same rule as the identity lifecycle above (D-023).
+- Requesting a new code cancels the previous one, and typing a new one replaces
+  the pairing in progress. Someone who clicks again wants to start over, not to
+  hold two valid codes.
+- `devices.revoke` refuses the device it is called from: that would leave the
+  account with no machine able to sign the next list. Revocation is eventually
+  consistent — `SECURITY.md` §5, item 13, says what it does and does not buy.
+- Event: `event.pairing_adopted` `{}` — this machine has just received the
+  account root and is now a full device of the account.
 
 ### Friends
 
@@ -297,7 +385,7 @@ After each applied op (local or remote), the node emits
 | Method | Parameters | Result |
 |---------|-----------|----------|
 | `groups.create` | `{ name }` | `{ group_id }` |
-| `groups.list` | — | `{ groups: [group_id], unread, mentions }` — `unread`: `{ group_id: { channel_id: n } }`, unread per channel (others' messages after the `groups.mark_read` mark); only channels with at least one unread appear. `mentions`: `{ group_id: n }`, unread mentions per group (all channels combined); only groups with at least one appear |
+| `groups.list` | — | `{ groups: [group_id], unread, mentions }` — `unread`: `{ group_id: { channel_id: n } }`, unread per channel (others' messages after the `groups.mark_read` mark), **AutoMod-masked messages deducted** (see "AutoMod"); only channels with at least one unread appear. `mentions`: `{ group_id: n }`, unread mentions per group (all channels combined); only groups with at least one appear |
 | `groups.state` | `{ group_id, channel_id? }` | full state, see below — with `channel_id`, `my_permissions` becomes the **effective** bitfield in that channel (overrides folded in, `deny` > `allow`) |
 | `groups.rename` | `{ group_id, name }` | `{ ok: true }` — 1-100 characters |
 | `groups.set_icon` | `{ group_id, data_b64, mime }` | `{ icon }` — image ≤ 512 KiB decoded, published in the file store; `icon` = hex-64 Merkle root |
@@ -336,6 +424,8 @@ After each applied op (local or remote), the node emits
 | `groups.emoji.del` | `{ group_id, name }` | `{ ok: true }` — `MANAGE_EMOJIS` permission |
 | `groups.typing` | `{ group_id, channel_id }` | `{ ok: true }` — **ephemeral** typing indicator, broadcast only to members presumed online (never persisted or queued); when received, it triggers `event.group_typing` |
 | `groups.mark_read` | `{ group_id, channel_id, lamport }` | `{ ok: true }` — records our local read position in the channel (for `unread` in `groups.list`) |
+| `groups.automod.set` | `{ group_id, words }` | `{ ok: true }` — replaces the server's filtered-word list wholesale (`SetAutoModWords` op, `MANAGE_CHANNELS`). At most **50** words, each 1-32 characters, lowercased by the node, no control or spoofing characters; one malformed word rejects the whole call (never a partial replacement). See "AutoMod" below |
+| `groups.automod.get` | `{ group_id }` | `{ words: [...] }` — the current list (also surfaced as `automod_words` in `groups.state`) |
 | `groups.set_ephemeral` | `{ group_id, ttl_secs? }` | `{ ok: true }` — **local** disappearing-message timer for the whole group (every channel); same contract as `dm.set_ephemeral` (see "Disappearing messages") |
 | `groups.ephemeral` | `{ group_id }` | `{ ttl_secs }` — integer∣`null` |
 | `groups.schedule` | `{ group_id, channel_id, body, fire_at }` | `{ id }` — schedules a **local** deferred send in a channel (see "Planning") |
@@ -344,6 +434,38 @@ After each applied op (local or remote), the node emits
 travel as bodies encrypted with the group key, over the same path
 as `groups.send`; on ingestion at each member, the action is applied
 (author verified) and `event.group_msg` is emitted.
+
+#### AutoMod
+
+A server's filtered-word list (`groups.automod.set`, `MANAGE_CHANNELS`) lives
+in the replicated signed op-log and is surfaced as `automod_words` in
+`groups.state`. It is a **display convention between honest clients**, not
+enforcement: nothing is deleted, nothing is blocked at send time, the list
+itself travels in the clear to every member, and a modified client always sees
+the full text. Treat it as clutter reduction, never as a safety boundary.
+
+What a matching message does on a compliant client:
+
+- its occurrences are replaced by `█` at render time (`app/src/lib/automod.ts`);
+- it raises **no** native notification and plays **no** sound;
+- it is **deducted from the `unread` counters** of `groups.list`.
+
+The last point is why the node also matches: a message whose word is masked
+but whose red badge still lights up points straight at what the filter was
+meant to hide. The node applies the same rule as the UI
+(`crates/accord-core/src/automod.rs`), and re-evaluates it on every count —
+removing a word makes the affected messages count again, without reindexing.
+
+Matching is **case- and accent-insensitive** and bounded to **whole words**
+(Unicode `Alphabetic`, `N` and `_` are word characters): a filter on `con`
+does not mask `concert`. Both precomposed (`é`) and decomposed (`e` + U+0301)
+forms match, so the outcome does not depend on the sender's keyboard. Only
+message text (and its latest edit) is matched: polls, stickers and attachment
+names are not masked at render time, so they are not deducted either.
+
+Per-channel unread deduction scans at most 500 unread messages per channel;
+beyond that the surplus counts as unmasked (the badge can then be too high,
+never too low).
 
 #### Shape of `groups.state`
 
@@ -825,6 +947,7 @@ Pushed to all authenticated clients, without `id`:
 | `event.voice_level` | `{ level, speaking }` — mic level during the test (`voice.mic_test`): normalized RMS peak 0..1 and VAD, at ~10 Hz |
 | `event.file_progress` | `{ merkle_root, done, total, complete }` — progress of a download (steps of about 5% then final state; `complete: false` in the last event = abandon) |
 | `event.network` | `{ connected_peers, dht_nodes }` — the network counters have changed (emitted sparingly, never in bursts) |
+| `event.pairing_adopted` | `{}` — this machine has just received the account root and is now a full device of the account (see "Devices") |
 | `event.desynchronise` | `{}` — the client has fallen behind; re-synchronize via the `*.list`/`*.history` methods |
 
 ## Presence

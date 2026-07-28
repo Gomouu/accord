@@ -1,0 +1,99 @@
+# Campagne de fuzzing LONGUE (jalon 8, ROADMAP §18.5).
+#
+# Le workflow `fuzz.yml` tourne toutes les nuits, 4 minutes par cible : c'est un
+# garde-fou de régression, pas une recherche. Il attrape ce qu'une graine du
+# corpus atteint déjà, et rien de plus profond.
+#
+# Celui-ci cherche. Chaque cible tourne 45 minutes, les neuf en parallèle, donc
+# 6 h 45 de calcul pour 45 minutes d'attente — environ onze fois ce que la nuit
+# couvre, par cible.
+#
+# ⚠️ Ce n'est PAS « plusieurs jours », que la feuille de route appelle de ses
+# vœux. Un job GitHub est coupé à six heures ; une vraie campagne de plusieurs
+# jours demande une machine à soi, et le corpus accumulé ici lui servira de
+# point de départ. Ce qui est écrit ici est ce qui est faisable en CI, dit comme
+# tel plutôt que présenté comme l'équivalent.
+#
+# Déclencheurs : hebdomadaire (dimanche 01:00 UTC) et manuel.
+name: Fuzz — campagne longue
+
+on:
+  schedule:
+    - cron: "0 1 * * 0"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Minutes par cible"
+        required: false
+        default: "45"
+
+permissions:
+  contents: read
+
+jobs:
+  campagne:
+    runs-on: ubuntu-latest
+    # Marge au-dessus des 45 min par défaut : une cible qui trouve un plantage
+    # passe du temps à le minimiser, et ce temps-là est le plus utile de tous.
+    timeout-minutes: 90
+    strategy:
+      # Une cible qui tombe ne doit pas priver les huit autres de leur passe.
+      fail-fast: false
+      matrix:
+        cible:
+          - proto_decode
+          - core_msg
+          - group_op_body
+          - group_state
+          - handshake_decode
+          - dht_record
+          - device_list
+          - file_manifest
+          - backup_archive
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Dépendances système
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libopus-dev libasound2-dev pkg-config cmake
+
+      - name: Toolchain nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Installer cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Campagne sur ${{ matrix.cible }}
+        env:
+          # audiopus_sys embarque un CMakeLists antérieur à CMake 4.
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+        run: |
+          MINUTES="${{ github.event.inputs.minutes || '45' }}"
+          cargo fuzz run "${{ matrix.cible }}" "fuzz/seeds/${{ matrix.cible }}" \
+            -- -max_total_time=$((MINUTES * 60))
+
+      # Le corpus enrichi est le vrai produit d'une campagne : il rend la
+      # suivante plus profonde, et il amorce une campagne locale de plusieurs
+      # jours. Le perdre, c'est refaire le même chemin chaque semaine.
+      - name: Conserver le corpus enrichi
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-${{ matrix.cible }}
+          path: fuzz/corpus/${{ matrix.cible }}
+          retention-days: 30
+          if-no-files-found: ignore
+
+      # Un plantage est le seul résultat qui compte vraiment : il doit sortir de
+      # la machine avant que le runner ne disparaisse.
+      - name: Conserver les plantages
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plantages-${{ matrix.cible }}
+          path: fuzz/artifacts/${{ matrix.cible }}
+          retention-days: 90
+          if-no-files-found: ignore

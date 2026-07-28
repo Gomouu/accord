@@ -1,5 +1,5 @@
 /**
- * Fails when the initial JavaScript chunk exceeds its budget.
+ * Fails when the initial JavaScript or CSS chunk exceeds its budget.
  *
  * The budget guards a trajectory, not a number: every feature adds to the
  * entry chunk unless it is deliberately split, and nothing in the build output
@@ -24,13 +24,37 @@ import { join } from 'node:path';
  * 139.8 kB to 134.1 kB, and `SettingsDict` being a type distinct from `Dict`
  * means the shell cannot pull those strings back in without failing to compile.
  *
- * The 6 kB of headroom is deliberate, and it is what the 150 kB ceiling was
+ * The 6 kB of headroom was deliberate, and it is what the 150 kB ceiling was
  * really buying: the same commit measured 139.7 kB on macOS and 140.0 kB on the
  * CI runner, so a ceiling that sits a few hundred bytes above the measurement
  * fails on the difference between two gzip builds rather than on anything a
  * developer did.
+ *
+ * ⚠️ **That cushion is gone.** Measured 2026-07-27 evening: 138.7 kB, so 1.3 kB
+ * left — and about 1.0 kB once the CI runner's usual 0.3 kB is taken off. The
+ * next feature that touches the shell fails on CI while passing on macOS, which
+ * is the worst way for this to break. That is why the check now prints the
+ * remaining headroom on every run instead of only the measurement: a margin
+ * nobody sees is a margin nobody defends.
  */
 const ENTRY_BUDGET = 140 * 1024;
+
+/**
+ * Gzipped ceiling for the entry stylesheet, in bytes.
+ *
+ * ROADMAP §10.2 has carried a 50 kB CSS budget since the beginning with nothing
+ * enforcing it. Measured on 2026-07-27: 33.2 kB, against 34.5 kB when the budget
+ * was written — so no drift, and this check is a guard rail rather than a fix.
+ *
+ * It measures the entry stylesheet ALONE, not the sum of every .css file. Nine
+ * of the ten stylesheets in the build are lazy chunks — decorations, animated
+ * profiles, the Appearance tab — that a session may never load. Summing them
+ * would make the number grow every time a stylesheet is correctly split out,
+ * which is to say it would penalise exactly the thing the budget exists to
+ * encourage. (The sum is 48.9 kB today; read as a total it looks like a
+ * near-breach, and it means nothing.)
+ */
+const CSS_BUDGET = 50 * 1024;
 
 const assets = join(process.cwd().endsWith('/app') ? '.' : 'app', 'dist', 'assets');
 
@@ -61,4 +85,33 @@ if (gzipped > ENTRY_BUDGET) {
   process.exit(1);
 }
 
-console.log(`bundle-budget: entry chunk ${kb(gzipped)} gzipped (budget ${kb(ENTRY_BUDGET)})`);
+// La marge, pas seulement la mesure : « 138.7 kB (budget 140.0 kB) » se lit
+// comme un succès, « reste 1.3 kB » se lit comme un avertissement. C'est le
+// même chiffre, et seul le second se remarque.
+const marge = ENTRY_BUDGET - gzipped;
+const alerte = marge < 4 * 1024 ? '  ⚠️ marge faible' : '';
+console.log(
+  `bundle-budget: entry chunk ${kb(gzipped)} gzipped, ${kb(marge)} left of ${kb(ENTRY_BUDGET)}${alerte}`,
+);
+
+// The entry stylesheet is the one Vite links from index.html; the rest are lazy.
+const css = files.find((name) => /^index-.*\.css$/.test(name));
+if (css === undefined) {
+  console.error('bundle-budget: no index-*.css entry stylesheet in the build output');
+  process.exit(1);
+}
+
+const cssGzipped = gzipSync(readFileSync(join(assets, css))).length;
+
+if (cssGzipped > CSS_BUDGET) {
+  console.error(
+    `bundle-budget: entry stylesheet is ${kb(cssGzipped)} gzipped, over the ${kb(CSS_BUDGET)} budget.\n` +
+      'Move the offending styles into the lazy chunk of the screen that needs them,\n' +
+      'the way decorations and animated profiles already are.',
+  );
+  process.exit(1);
+}
+
+console.log(
+  `bundle-budget: entry stylesheet ${kb(cssGzipped)} gzipped, ${kb(CSS_BUDGET - cssGzipped)} left of ${kb(CSS_BUDGET)}`,
+);

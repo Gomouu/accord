@@ -9,9 +9,11 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod apercu_lien;
 pub mod commandes;
 pub mod erreur;
 pub mod etat;
+pub mod journal;
 pub mod tray;
 
 use std::process::ExitCode;
@@ -20,46 +22,13 @@ use tauri::Manager;
 
 use etat::EtatHote;
 
-/// Écrivain de logs partagé vers un fichier (diagnostic de support). Cloné à
-/// chaque ligne par `tracing`, sérialisé par le mutex.
-#[derive(Clone)]
-struct FichierLog(std::sync::Arc<std::sync::Mutex<std::fs::File>>);
-
-impl std::io::Write for FichierLog {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).write(buf)
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).flush()
-    }
-}
-
 /// Construit puis lance l'application Tauri. Rend un code de sortie explicite
 /// au lieu de paniquer en cas d'échec de démarrage.
 pub fn executer() -> ExitCode {
-    let filtre = || {
-        tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))
-    };
-    // Journal de diagnostic vers fichier quand `ACCORD_LOG_FILE` est défini
-    // (support des soucis de connexion pair-à-pair, où stdout d'une app GUI est
-    // perdu). Sinon, sortie standard classique. Échec d'ouverture → repli stdout.
-    match std::env::var("ACCORD_LOG_FILE")
-        .ok()
-        .and_then(|chemin| std::fs::File::create(chemin).ok())
-    {
-        Some(fichier) => {
-            let writer = FichierLog(std::sync::Arc::new(std::sync::Mutex::new(fichier)));
-            tracing_subscriber::fmt()
-                .with_env_filter(filtre())
-                .with_ansi(false)
-                .with_writer(move || writer.clone())
-                .init();
-        }
-        None => {
-            tracing_subscriber::fmt().with_env_filter(filtre()).init();
-        }
-    }
+    // Journal sur disque, dans `<app_data>/logs` (§10.6). Le dossier n'est
+    // connu qu'au `setup` ; les premières lignes sont gardées en mémoire d'ici
+    // là — voir `journal`.
+    let journal = journal::init();
 
     let application = tauri::Builder::default()
         // Notifications système natives (D-028) : l'envoi se fait côté
@@ -87,19 +56,31 @@ pub fn executer() -> ExitCode {
         // installation. `process` fournit le redémarrage post-installation.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .setup(|app| {
+        .setup(move |app| {
             // Répertoire de données par plateforme (ex. ~/Library/Application
             // Support/fr.accord.desktop) : racine du registre multi-comptes
             // (D-046) et du profil historique (`profil/`, jamais déplacé).
             // Charge/migre le registre puis active le compte le plus
             // récemment utilisé (voir `EtatHote::depuis_repertoire_app`).
             let app_data_dir = app.path().app_data_dir()?;
+            // Le journal s'ouvre ici, dès que le dossier est connu : les
+            // lignes déjà émises pendant l'amorçage y sont versées.
+            journal.attacher_sous(&app_data_dir);
+            tracing::info!(
+                dossier = ?journal.dossier(),
+                "journal de diagnostic ouvert"
+            );
+            app.manage(journal.clone());
             let etat = EtatHote::depuis_repertoire_app(app_data_dir)?;
             app.manage(etat);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commandes::vault_status,
+            commandes::journal_ui,
+            commandes::apercu_lien,
+            commandes::journal_dossier,
+            commandes::journal_niveau,
             commandes::app_quit,
             commandes::create_identity,
             commandes::restore_identity,

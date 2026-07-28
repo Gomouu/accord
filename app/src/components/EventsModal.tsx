@@ -258,7 +258,9 @@ export function EventsModal({ groupId }: { groupId: string }) {
             type="button"
             aria-label={t.app.close}
             onClick={closeModal}
-            className="rounded-sm p-1 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
+            // 28 → 44 px : le rembourrage grandit dans le `p-5` vide de
+            // l'en-tête, la marge négative le reprend au layout.
+            className="relative -m-2 rounded-sm p-3 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
           >
             <CloseIcon size={20} />
           </button>

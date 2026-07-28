@@ -20,6 +20,7 @@ use std::collections::BTreeSet;
 use accord_core::db::{IncomingInvite, LocalMembership};
 use accord_core::group;
 use accord_core::group::invite as group_invite;
+use accord_core::group::invite::AcceptOutcome;
 use accord_core::group::GroupState;
 use accord_core::messaging;
 use accord_proto::core_msg::{perms, ChannelKind, CoreMsg, FileRef, GroupOp, GroupOpBody};
@@ -175,6 +176,17 @@ fn validate_event_start_ms(start_ms: u64) -> Result<(), NodeError> {
 /// que les autres libellés) : cette frontière ne fait que couper court aux
 /// entrées manifestement invalides avant de signer/diffuser une op qui
 /// serait de toute façon rejetée au rejeu.
+/// Messages non lus examinés au plus par salon pour en retrancher ceux que
+/// l'AutoMod masque.
+///
+/// Décider demande de lire et décoder le corps, là où le comptage brut est un
+/// `COUNT(*)` sur index : sans borne, un salon laissé non lu pendant des mois
+/// ferait relire des dizaines de milliers de corps à chaque `groups.list`.
+/// Au-delà de la borne, le surplus est compté comme non masqué — la pastille
+/// est alors trop haute, jamais trop basse, ce qui est le bon sens du
+/// dépassement : mieux vaut annoncer un message de trop qu'en cacher un.
+const UNREAD_AUTOMOD_SCAN: usize = 500;
+
 fn validate_automod_words(words: &[String]) -> Result<Vec<String>, NodeError> {
     if words.len() > accord_proto::core_msg::MAX_AUTOMOD_WORDS {
         return Err(NodeError::Invalid("trop de mots AutoMod (50 max)"));
@@ -281,6 +293,45 @@ impl Node {
         });
         self.emit_group_state(&created.group_id);
         Ok(hex::encode(&created.group_id))
+    }
+
+    /// Crée un **groupe de MP** (jalon 5, `docs/DM_GROUPS.md`) : le groupe, son
+    /// fil unique, puis les membres — dans cet ordre, parce qu'un membre ajouté
+    /// avant le fil arriverait dans un groupe où il n'y a rien à lire.
+    ///
+    /// 🔒 **Les membres sont INVITÉS, pas enrôlés.** Chacun reçoit un ticket
+    /// signé et n'entre dans le groupe qu'après avoir accepté (D-045), comme
+    /// pour un serveur. Une première version de cette fonction les ajoutait
+    /// directement, au nom de « on ajoute quelqu'un à un fil de discussion » :
+    /// c'était le force-join que D-045 avait supprimé, réintroduit là où il
+    /// fait le plus de dégâts — un groupe de MP est plus intime qu'un serveur,
+    /// pas moins.
+    ///
+    /// Conséquence assumée : le groupe existe d'abord avec son seul fondateur,
+    /// et se peuple à mesure des acceptations. L'interface le montre tel quel
+    /// plutôt que d'afficher des membres qui n'ont rien accepté.
+    pub fn dm_group_create(&self, name: &str, membres: &[[u8; 32]]) -> Result<String, NodeError> {
+        validate_label(name)?;
+        // Le fondateur compte déjà : on refuse ici ce que l'état refuserait de
+        // toute façon, mais avec un message qui dit ce qui s'est passé.
+        if membres.len() + 1 > accord_core::group::state::MAX_DM_MEMBERS {
+            return Err(NodeError::Invalid("trop de membres pour un groupe de MP"));
+        }
+        let created = self.with_db(|db| {
+            let created = group::create_group_kind(db, &self.identity, name, true, now_ms())?;
+            db.set_group_membership(&created.group_id, LocalMembership::Joined)?;
+            Ok(created)
+        })?;
+        self.outbound.send(Outbound::GroupOp {
+            op: Box::new(created.op),
+        });
+        let group_id = created.group_id;
+        self.group_channel_add(&group_id, name, ChannelKind::Text, None)?;
+        for membre in membres {
+            self.group_invite_create(&group_id, membre)?;
+        }
+        self.emit_group_state(&group_id);
+        Ok(hex::encode(&group_id))
     }
 
     /// Identifiants des groupes connus.
@@ -2150,11 +2201,19 @@ impl Node {
                 now_ms(),
             )?)
         });
-        // `Ok(None)` = cette identité n'est pas le créateur de l'invitation
-        // (CRITICAL/HIGH liens publics) : rien à pousser, exactement comme une
-        // preuve invalide (`Err`).
-        let Ok(Some(finalized)) = result else {
-            return;
+        // Trois issues, trois conduites. `NotOurs` : le créateur du lien
+        // finalisera, rien à pousser — exactement comme une preuve invalide.
+        // `Held` : la preuve est bonne mais le serveur exige une validation ;
+        // la demande est en file, on prévient l'interface et on s'arrête là,
+        // sans rien envoyer au candidat (lui dire « tu es en attente »
+        // renseignerait un inconnu sur l'existence du groupe).
+        let finalized = match result {
+            Ok(AcceptOutcome::Admitted(f)) => *f,
+            Ok(AcceptOutcome::Held) => {
+                self.emit_group_state(&group_id);
+                return;
+            }
+            Ok(AcceptOutcome::NotOurs) | Err(_) => return,
         };
         self.outbound.send(Outbound::GroupOp {
             op: Box::new(finalized.add_op),
@@ -2193,6 +2252,80 @@ impl Node {
         secret: [u8; 32],
     ) {
         self.ingest_invite_accept(redeemer, group_id, invite_id, secret);
+    }
+
+    /// Vrai si ce groupe exige une validation avant d'admettre un membre.
+    pub fn group_entry_check(&self, group_id: &[u8; 16]) -> Result<bool, NodeError> {
+        self.with_db(|db| Ok(group_invite::entry_check_enabled(db, group_id)?))
+    }
+
+    /// Active ou coupe la vérification à l'entrée d'un groupe.
+    pub fn group_set_entry_check(&self, group_id: &[u8; 16], actif: bool) -> Result<(), NodeError> {
+        self.with_db(|db| Ok(group_invite::set_entry_check(db, group_id, actif)?))
+    }
+
+    /// Demandes d'entrée en attente de validation, de la plus ancienne à la
+    /// plus récente.
+    pub fn group_pending_members(
+        &self,
+        group_id: &[u8; 16],
+    ) -> Result<Vec<group_invite::PendingMember>, NodeError> {
+        self.with_db(|db| Ok(group_invite::pending_members(db, group_id)?))
+    }
+
+    /// Approuve une demande en attente : admet le membre et lui pousse le
+    /// journal complet et la clé de groupe, exactement comme une admission
+    /// directe.
+    pub fn group_approve_member(
+        &self,
+        group_id: &[u8; 16],
+        member: &[u8; 32],
+    ) -> Result<(), NodeError> {
+        let finalized = self.with_db(|db| {
+            Ok(group_invite::approve_pending_member(
+                db,
+                &self.identity,
+                group_id,
+                member,
+                now_ms(),
+            )?)
+        })?;
+        self.outbound.send(Outbound::GroupOp {
+            op: Box::new(finalized.add_op),
+        });
+        for op in finalized.ops {
+            self.outbound.send(Outbound::Core {
+                to: *member,
+                msg: Box::new(CoreMsg::GroupOpMsg { op }),
+            });
+        }
+        self.outbound.send(Outbound::Core {
+            to: *member,
+            msg: Box::new(CoreMsg::GroupKey {
+                group_id: *group_id,
+                key_epoch: finalized.key_epoch,
+                sealed_key: finalized.sealed_key,
+            }),
+        });
+        self.emit_group_state(group_id);
+        Ok(())
+    }
+
+    /// Refuse une demande : elle quitte la file, rien n'est envoyé au
+    /// candidat.
+    ///
+    /// 🔒 Silence délibéré. Dire « tu as été refusé » confirmerait à un
+    /// inconnu que le groupe existe, que son secret était bon, et qu'un
+    /// humain l'a regardé — trois renseignements qu'un refus n'a pas à
+    /// donner. Il reste sur une attente indistinguable d'un serveur lent.
+    pub fn group_refuse_member(
+        &self,
+        group_id: &[u8; 16],
+        member: &[u8; 32],
+    ) -> Result<(), NodeError> {
+        self.with_db(|db| Ok(group_invite::drop_pending_member(db, group_id, member)?))?;
+        self.emit_group_state(group_id);
+        Ok(())
     }
 
     /// Fixture de test : ajoute directement un membre en contournant le
@@ -2316,15 +2449,45 @@ impl Node {
     }
 
     /// Non-lus par salon d'un groupe : `(channel_id, n)` pour chaque salon
-    /// portant au moins un message d'autrui après la marque de lecture locale.
+    /// portant au moins un message d'autrui après la marque de lecture locale,
+    /// **messages masqués par l'AutoMod déduits**.
+    ///
+    /// 🔒 La déduction est le point : un message dont le mot est remplacé par
+    /// des `█` au rendu mais qui allume quand même la pastille rouge attire
+    /// l'œil sur exactement ce que le filtre prétend cacher. La liste de mots
+    /// vient de l'état répliqué du groupe, la même que l'interface applique au
+    /// rendu (`app/src/lib/automod.ts`), et la règle de correspondance est
+    /// celle de [`accord_core::automod`], jumelle de la sienne.
+    ///
+    /// Liste vide (le cas courant) : aucun corps n'est lu, le comptage reste
+    /// le `COUNT(*)` indexé d'avant.
     pub fn group_unread(&self, group_id: &[u8; 16]) -> Result<Vec<([u8; 16], u64)>, NodeError> {
         let state = self.group_state(group_id)?;
         let me = self.identity.public_key();
+        let filtered_words = accord_core::automod::prepare(&state.automod_words);
         self.with_db(|db| {
             let mut out = Vec::new();
             for channel_id in state.channels.keys() {
                 let mark = read_u64(db.meta(&group_mark_key(group_id, channel_id))?);
                 let n = db.count_group_unread(group_id, channel_id, mark, &me)?;
+                let n = if n == 0 || filtered_words.is_empty() {
+                    n
+                } else {
+                    let scanned =
+                        db.unread_group_msgs(group_id, channel_id, mark, &me, UNREAD_AUTOMOD_SCAN)?;
+                    let masked = scanned
+                        .iter()
+                        .filter(|m| {
+                            accord_core::automod::message_matches(
+                                m.kind,
+                                &m.body,
+                                m.edited.as_deref(),
+                                &filtered_words,
+                            )
+                        })
+                        .count();
+                    n.saturating_sub(masked as u64)
+                };
                 if n > 0 {
                     out.push((*channel_id, n));
                 }

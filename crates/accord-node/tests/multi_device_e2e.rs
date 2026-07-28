@@ -201,6 +201,7 @@ fn inscrire_ami(db: &Db, peer: &[u8; 32], nom: &str) {
         last_seen_ms: 1,
         verified_at: None,
         verified_pubkey: None,
+        state_changed_ms: 0,
     })
     .unwrap();
 }
@@ -906,4 +907,146 @@ async fn un_pair_davant_et_un_pair_bascule_se_parlent_encore() {
 
     ancien.shutdown();
     neuf.shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// Blocage au niveau du COMPTE (feuille de route §9.4, débloqué par le jalon 1)
+// ---------------------------------------------------------------------------
+
+/// 🔒 Bloquer sur une machine doit protéger l'autre.
+///
+/// Sans cela, l'utilisateur qui bloque quelqu'un depuis son portable reste
+/// joignable par cette personne depuis son fixe — et il ne le sait pas. C'est
+/// une promesse de sécurité tenue à moitié, ce qui est pire que pas de
+/// promesse : il croit avoir coupé le lien.
+#[tokio::test]
+async fn un_blocage_pose_sur_une_machine_protege_l_autre() {
+    let p = preparer();
+    let liste = liste_signee(
+        &p.root,
+        &[
+            (&p.device_a, "Portable", TRANSPORT),
+            (&p.device_b, "Fixe", TRANSPORT),
+        ],
+        maintenant_ms(),
+    );
+    p.stocker_sur_le_compte(&liste);
+
+    let a = boot(&p.paths_a, maintenance_rapide()).await;
+    let b = boot(&p.paths_b, maintenance_rapide()).await;
+    a.learn_peer(&b).unwrap();
+    b.learn_peer(&a).unwrap();
+
+    // Les deux machines connaissent l'ami comme ami confirmé (préparé sur
+    // disque par `preparer`).
+    assert!(a.node.friend_pubkeys().unwrap().contains(&p.ami));
+    assert!(b.node.friend_pubkeys().unwrap().contains(&p.ami));
+
+    // Le portable bloque.
+    a.node.friend_block(&p.ami).unwrap();
+    assert!(
+        !a.node.friend_pubkeys().unwrap().contains(&p.ami),
+        "le blocage n'a pas pris sur la machine qui l'a posé"
+    );
+
+    // Le fixe doit suivre.
+    assert!(
+        eventually(|| !b.node.friend_pubkeys().unwrap().contains(&p.ami)).await,
+        "le blocage posé sur le portable n'a jamais atteint le fixe : la \
+         personne bloquée peut encore écrire à l'utilisateur depuis l'autre \
+         machine, sans qu'il le sache"
+    );
+
+    a.shutdown();
+    b.shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// 5. Le carnet suit le compte : un appareil neuf n'est pas sourd
+// ---------------------------------------------------------------------------
+
+/// 🔴 Régression du défaut « appareil sourd ». `ingest_dm` ignore tout message
+/// d'un pair absent du carnet de CETTE machine ; l'appairage part d'un profil
+/// neuf, donc d'un carnet vide, et rien ne le remplissait. La machine ouvrait
+/// ses sessions, figurait dans l'éventail de livraison de l'ami, et jetait en
+/// silence tout ce qu'elle recevait.
+///
+/// Le test reproduit exactement cet état — carnet du fixe effacé — puis vérifie
+/// que l'annonce émise par le portable le rend audible.
+#[tokio::test]
+async fn un_appareil_au_carnet_vide_apprend_lami_et_recoit() {
+    let p = preparer();
+    // L'état d'un appareil qui vient d'être appairé : aucun contact.
+    {
+        let cle = identity::unlock(&p.paths_b, PASSPHRASE).unwrap();
+        let db = Db::open(&p.paths_b.db(), &cle.db_key).unwrap();
+        db.remove_contact(&node_id_of(&p.ami).0).unwrap();
+        assert!(
+            db.contact(&node_id_of(&p.ami).0).unwrap().is_none(),
+            "la sonde doit bien partir d'un carnet vide"
+        );
+    }
+    let liste = liste_signee(
+        &p.root,
+        &[
+            (&p.device_a, "Portable", TRANSPORT),
+            (&p.device_b, "Fixe", TRANSPORT),
+        ],
+        maintenant_ms(),
+    );
+    p.stocker_sur_le_compte(&liste);
+
+    let a = boot(&p.paths_a, maintenance_rapide()).await;
+    let b = boot(&p.paths_b, maintenance_rapide()).await;
+    let f = boot(&p.paths_f, MaintenanceConfig::default()).await;
+    p.faire_connaitre(&f, &liste);
+    f.register_peer(p.device_a.public_key(), a.p2p_addr());
+    f.register_peer(p.device_b.public_key(), b.p2p_addr());
+    a.learn_peer(&f).unwrap();
+    b.learn_peer(&f).unwrap();
+    // Les deux machines du compte doivent pouvoir se joindre : c'est par là que
+    // l'annonce du carnet passe.
+    a.register_peer(p.device_b.public_key(), b.p2p_addr());
+    b.register_peer(p.device_a.public_key(), a.p2p_addr());
+
+    // 1. Ce que le correctif change : le carnet arrive.
+    //
+    // ⚠️ Séquencé exprès, et non couru contre l'envoi. Un message qui arrive
+    // AVANT le carnet n'est pas perdu — `DmEvent::Ignored` n'est pas acquitté,
+    // donc l'expéditeur le garde en file et le réémet (backoff 5 s ×2) jusqu'à
+    // ce que le pair l'accepte. Mais faire dépendre l'assertion de ce backoff
+    // reviendrait à mesurer la vitesse d'un retry sous charge plutôt que la
+    // propagation du carnet, et c'est précisément ainsi que ce test a échoué
+    // dans le gate en passant seul.
+    assert!(
+        eventually_within(Duration::from_secs(30), || {
+            b.node
+                .contacts()
+                .map(|cs| cs.iter().any(|c| c.pubkey == p.ami))
+                .unwrap_or(false)
+        })
+        .await,
+        "🔴 le fixe au carnet vide doit apprendre l'ami depuis l'autre machine du compte"
+    );
+
+    // 2. Sa conséquence : il n'est plus sourd.
+    const TEXTE: &str = "message vers un appareil au carnet vide";
+    f.node.dm_send(&p.compte, TEXTE, None).unwrap();
+
+    assert!(
+        eventually(|| copies_recues(&a, &p.ami, TEXTE) == 1).await,
+        "le portable, dont le carnet est garni, doit recevoir"
+    );
+    assert!(
+        eventually_within(Duration::from_secs(20), || {
+            copies_recues(&b, &p.ami, TEXTE) == 1
+        })
+        .await,
+        "🔴 le fixe au carnet vide doit apprendre l'ami puis recevoir (reçu {} fois)",
+        copies_recues(&b, &p.ami, TEXTE)
+    );
+
+    a.shutdown();
+    b.shutdown();
+    f.shutdown();
 }

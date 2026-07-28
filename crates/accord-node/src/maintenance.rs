@@ -174,6 +174,19 @@ pub fn is_queueable_offline(msg: &CoreMsg) -> bool {
         | CoreMsg::InviteAccept { .. }
         | CoreMsg::InviteDecline { .. }
         | CoreMsg::InviteRedeem { .. }
+        // Préférences de compte (lot 7.2) : sans mise en file, une préférence
+        // changée pendant qu'un appareil est éteint est perdue pour toujours —
+        // rien n'assure d'anti-entropie sur les préférences, contrairement à
+        // l'historique. Or c'est précisément le cas courant : on règle son
+        // thème sur le portable, le fixe est éteint.
+        //
+        // 🔴 Sans danger parce que l'horodatage est celui de la DÉCISION, pas
+        // celui de la livraison : une préférence livrée en retard perd d'office
+        // contre tout ce qui a été décidé après elle (dernier écrivain gagne,
+        // `accord_core::prefs`). Rejouer la file ne peut donc pas ressusciter
+        // un réglage abandonné. C'est ce qui la distingue d'une offre
+        // d'anti-entropie, périmée à la seconde où elle est émise.
+        | CoreMsg::SelfPref { .. }
         | CoreMsg::Profile { .. } => true,
         _ => false,
     }
@@ -1160,6 +1173,7 @@ async fn self_sync_tick(rt: &Runtime, _cfg: &MaintenanceConfig) {
         if rt.addr_of(&frere).is_none() {
             continue; // appareil sans lien connu : rien à offrir cette passe
         }
+        rt.announce_self_contacts(&frere).await;
         rt.offer_self_sync(&frere).await;
     }
 }
@@ -1313,6 +1327,23 @@ mod tests {
         assert!(!is_queueable_offline(&dm(6)));
         // Friendship removal is best-effort: never queued.
         assert!(!is_queueable_offline(&CoreMsg::FriendRemove));
+        // Préférence de compte : mise en file, sinon un réglage changé pendant
+        // qu'un appareil dort ne l'atteint jamais (aucune anti-entropie ne
+        // rattrape les préférences). Sans risque : l'horodatage porté est celui
+        // de la décision, donc une livraison tardive perd contre plus récent.
+        assert!(is_queueable_offline(&CoreMsg::SelfPref {
+            key: b"accord.theme".to_vec(),
+            value: b"ocean".to_vec(),
+            at_ms: 1,
+        }));
+        // Le rattrapage entre appareils, lui, reste hors file : une offre
+        // d'anti-entropie livrée en retard ne décrit plus rien.
+        assert!(!is_queueable_offline(&CoreMsg::SelfSyncOffer {
+            conv: [0; 32],
+            count: 1,
+            max_lamport: 1,
+            digest: [0; 32],
+        }));
         assert!(is_queueable_offline(&CoreMsg::Profile {
             display_name: "Anna".into(),
             bio: String::new(),

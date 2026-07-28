@@ -18,6 +18,12 @@ vi.mock('../../lib/client', () => ({
   api: {
     filesRead: vi.fn(),
     groupsState: vi.fn(),
+    // Vérification à l'entrée (§9.4) : l'onglet Membres l'interroge au montage.
+    groupsEntryCheck: vi.fn().mockResolvedValue({ enabled: false }),
+    groupsSetEntryCheck: vi.fn().mockResolvedValue({ ok: true }),
+    groupsPendingMembers: vi.fn().mockResolvedValue({ entries: [] }),
+    groupsApproveMember: vi.fn().mockResolvedValue({ ok: true }),
+    groupsRefuseMember: vi.fn().mockResolvedValue({ ok: true }),
     groupsList: vi.fn(),
     groupsRename: vi.fn(),
     groupsSetIcon: vi.fn(),

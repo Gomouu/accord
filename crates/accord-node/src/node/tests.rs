@@ -1088,6 +1088,61 @@ fn group_unread_tracks_others_messages_until_mark_read() {
 }
 
 #[test]
+fn group_unread_ignores_automod_masked_messages() {
+    // 🔒 Le correctif : un message dont le mot est remplacé par des `█` au
+    // rendu allumait quand même la pastille rouge. Le filtre désignait alors
+    // précisément ce qu'il prétendait cacher.
+    let (alice, mut rx_a) = node_with_channel();
+    let (bob, mut rx_b) = node_with_channel();
+    let alice_pub = alice.public_key();
+    let bob_pub = bob.public_key();
+
+    let gid = hex::decode::<16>(&alice.group_create("Guilde").unwrap()).unwrap();
+    let chan = hex::decode::<16>(&alice.group_add_channel(&gid, "général").unwrap()).unwrap();
+    invite_and_join(
+        &alice, &mut rx_a, &alice_pub, &bob, &mut rx_b, &bob_pub, &gid,
+    );
+
+    alice
+        .group_automod_set(&gid, vec!["crétin".into()])
+        .unwrap();
+
+    bob.group_send(&gid, &chan, "bonjour").unwrap();
+    // Sans accent et en majuscules : le repli doit quand même l'attraper,
+    // exactement comme le masquage au rendu.
+    bob.group_send(&gid, &chan, "espece de CRETIN").unwrap();
+    // « concert » contient « cretin » ? Non — mais il contient bien un mot
+    // voisin d'un autre filtre : la frontière de mot doit tenir ici aussi.
+    bob.group_send(&gid, &chan, "on va au concert").unwrap();
+    deliver(&mut rx_b, &bob_pub, &alice, &alice_pub);
+
+    // Trois messages reçus, un seul masqué : la pastille en annonce deux.
+    assert_eq!(alice.group_unread(&gid).unwrap(), vec![(chan, 2)]);
+
+    // La liste est relue à CHAQUE comptage : retirer le mot fait réapparaître
+    // le message dans la pastille. Un drapeau figé à l'ingestion ne le
+    // pourrait pas.
+    alice.group_automod_set(&gid, vec![]).unwrap();
+    assert_eq!(alice.group_unread(&gid).unwrap(), vec![(chan, 3)]);
+
+    // Et un filtre qui n'attrape rien laisse le compte entier.
+    alice
+        .group_automod_set(&gid, vec!["absent".into()])
+        .unwrap();
+    assert_eq!(alice.group_unread(&gid).unwrap(), vec![(chan, 3)]);
+
+    // Un salon dont TOUS les non-lus sont masqués disparaît de la liste : pas
+    // de pastille à zéro, pas de serveur qui s'allume pour rien.
+    alice
+        .group_automod_set(
+            &gid,
+            vec!["bonjour".into(), "cretin".into(), "concert".into()],
+        )
+        .unwrap();
+    assert!(alice.group_unread(&gid).unwrap().is_empty());
+}
+
+#[test]
 fn group_typing_reaches_only_online_members() {
     let (alice, mut rx_a) = node_with_channel();
     let (bob, mut rx_b) = node_with_channel();
@@ -1752,6 +1807,78 @@ fn apprendre_une_revocation_vide_ce_qui_attendait_lappareil() {
         n.outbox_for(&garde.public_key()).unwrap().len(),
         1,
         "et rien d'autre ne doit être emporté au passage"
+    );
+}
+
+#[test]
+fn la_derniere_vue_dun_appareil_ressort_par_lecran_mes_appareils() {
+    // Feuille de route §17.4 : « quand » et « d'où » pour chaque appareil du
+    // compte. La chaîne complète est éprouvée ici — écriture locale, puis
+    // lecture par le chemin exact qu'emprunte `devices.list`.
+    let n = node();
+    n.with_db(|db| {
+        crate::device::ensure_local_device(db)
+            .map(|_| ())
+            .map_err(|_| NodeError::Invalid("appareil local"))
+    })
+    .unwrap();
+
+    // Une machine sœur, connue de la liste du compte mais qui n'est pas
+    // celle-ci : c'est la seule dont « vu la dernière fois » veuille dire
+    // quelque chose.
+    let soeur = [0xB1u8; 32];
+    let en_ligne = {
+        let mut list = n.reissue_device_list(None).unwrap();
+        list.devices.push(accord_proto::device::DeviceEntry {
+            pubkey: soeur,
+            pow_nonce: 0,
+            name: "Fixe".into(),
+            added_ms: crate::node::now_ms(),
+            flags: accord_proto::device::DEVICE_FLAG_TRANSPORT_KEY,
+        });
+        list
+    };
+    n.reissue_device_list(Some(&en_ligne)).unwrap();
+
+    let vue = |n: &Node| {
+        n.account_devices()
+            .unwrap()
+            .into_iter()
+            .find(|d| d.pubkey == soeur)
+            .expect("la machine sœur doit figurer à l'écran")
+    };
+
+    // Jamais jointe : rien n'est inventé, ni date ni route.
+    let avant = vue(&n);
+    assert_eq!(avant.last_seen_ms, None);
+    assert_eq!(avant.last_seen_relayed, None);
+
+    // 🔒 Photographie de ce qui est SIGNÉ, avant toute écriture de dernière
+    // vue. La comparaison finale s'y réfère.
+    let signe_avant = n.current_device_list().unwrap().signable_bytes();
+
+    // Un contact par relais.
+    n.note_device_seen(&soeur, 1_700_000_000_000, true).unwrap();
+    let relayee = vue(&n);
+    assert_eq!(relayee.last_seen_ms, Some(1_700_000_000_000));
+    assert_eq!(relayee.last_seen_relayed, Some(true));
+
+    // Puis un contact direct, plus tard : la ligne suit le DERNIER contact,
+    // route comprise. Une route figée au premier contact ferait croire à une
+    // connexion directe impossible bien après qu'elle a été rétablie.
+    n.note_device_seen(&soeur, 1_700_000_060_000, false)
+        .unwrap();
+    let directe = vue(&n);
+    assert_eq!(directe.last_seen_ms, Some(1_700_000_060_000));
+    assert_eq!(directe.last_seen_relayed, Some(false));
+
+    // 🔒 Et l'écriture reste LOCALE : ce que la racine signe — donc ce qui
+    // part dans la DHT et que chaque ami lit — n'a pas bougé d'un octet. C'est
+    // l'invariant du lot : ces dates ne doivent jamais devenir publiques.
+    assert_eq!(
+        n.current_device_list().unwrap().signable_bytes(),
+        signe_avant,
+        "noter une dernière vue ne doit rien changer à ce qui est signé"
     );
 }
 
@@ -3115,4 +3242,225 @@ fn la_liste_dun_inconnu_sans_rien_en_file_reste_ignoree() {
         vec![inconnu.public_key()],
         "rien ne doit avoir été mis en cache"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Révocation : les deux défauts trouvés par la revue adversariale du §10.3
+// ---------------------------------------------------------------------------
+
+/// 🔒 Une liste datée dans le futur est refusée.
+///
+/// Sans cette borne, la fraîcheur (`issued_ms + valid_for_s`) restait vraie
+/// pendant des siècles et la `version` qui l'accompagne devenait indépassable :
+/// plus aucune liste légitime ne pouvait la remplacer, donc plus aucune
+/// révocation ne pouvait être apprise. Et il ne faut pas un attaquant pour y
+/// arriver — une horloge déréglée produit exactement la même liste.
+#[test]
+fn une_liste_datee_dans_le_futur_est_refusee() {
+    let n = node();
+    let inconnu = accord_crypto::Identity::generate_with_pow_bits(1);
+    let appareil = accord_crypto::DeviceIdentity::generate();
+
+    // Un siècle dans le futur : très au-delà de la tolérance d'horloge.
+    let dans_un_siecle = crate::node::now_ms() + 100 * 365 * 24 * 60 * 60 * 1000;
+    let liste = crate::device::build_device_list_with_root(
+        &inconnu,
+        &appareil,
+        "Portable",
+        dans_un_siecle,
+        accord_proto::device::DEVICE_FLAG_TRANSPORT_KEY,
+    );
+
+    // ⚠️ On attaque le chemin de PERSISTANCE directement. Passer par
+    // `ingest_core_from` ne prouverait rien : une annonce d'inconnu n'est de
+    // toute façon jamais persistée, donc le test serait vert même sans la
+    // borne — vérifié par mutation, il l'était.
+    assert!(
+        n.store_peer_device_list_pour_test(&inconnu.public_key(), &liste)
+            .is_err(),
+        "une liste datée dans le futur ne doit jamais entrer en base : \
+         elle y verrouillerait la révocation pour toujours"
+    );
+    assert!(n
+        .with_db(|db| Ok(db.device_list(&inconnu.public_key())?))
+        .unwrap()
+        .is_none());
+}
+
+/// 🔒 Un enregistrement refusé ne doit pas passer pour un succès.
+///
+/// `cache_device_list` refuse toute version inférieure ou égale à celle déjà
+/// en base — protection anti-rejeu voulue — et le disait par un booléen qui
+/// était jeté. `revoke_device` rendait donc « succès » sans avoir rien écrit :
+/// le modérateur lisait « appareil révoqué » alors que la révocation
+/// n'existait nulle part. Un échec silencieux sur un contrôle de sécurité
+/// fabrique une certitude fausse.
+#[test]
+fn une_liste_non_enregistree_ne_passe_pas_pour_un_succes() {
+    let n = node();
+    let appareil = accord_crypto::DeviceIdentity::generate();
+
+    // Une version très haute déjà en base pour NOTRE compte.
+    let haute = crate::device::build_device_list_with_root(
+        &n.identity,
+        &appareil,
+        "Portable",
+        crate::node::now_ms(),
+        accord_proto::device::DEVICE_FLAG_TRANSPORT_KEY,
+    );
+    let mut w = accord_proto::Writer::new();
+    accord_proto::WireEncode::encode(&haute, &mut w);
+    n.with_db(|db| {
+        db.cache_device_list(&accord_core::db::CachedDeviceList {
+            account: n.public_key(),
+            version: u64::MAX,
+            encoded: w.into_bytes(),
+            fetched_ms: crate::node::now_ms(),
+        })?;
+        Ok(())
+    })
+    .unwrap();
+
+    // Toute écriture ultérieure porte une version plus petite : elle est
+    // refusée par la base, et l'appelant doit l'apprendre.
+    let plus_basse = crate::device::build_device_list_with_root(
+        &n.identity,
+        &appareil,
+        "Portable",
+        crate::node::now_ms(),
+        accord_proto::device::DEVICE_FLAG_TRANSPORT_KEY,
+    );
+    assert!(
+        n.store_device_list_pour_test(&plus_basse).is_err(),
+        "un enregistrement refusé doit remonter une erreur, pas un Ok(())"
+    );
+}
+
+// ---- Préférences de compte (lot 7.2, feuille de route §17.4) ----
+
+/// Valeur de la préférence `key` telle que la base la porte.
+fn pref_of(n: &Node, key: &str) -> Option<String> {
+    n.synced_prefs()
+        .unwrap()
+        .into_iter()
+        .find(|p| p.key == key)
+        .map(|p| p.value)
+}
+
+/// Construit une annonce de préférence.
+fn pref_msg(key: &str, value: &str, at_ms: u64) -> CoreMsg {
+    CoreMsg::SelfPref {
+        key: key.as_bytes().to_vec(),
+        value: value.as_bytes().to_vec(),
+        at_ms,
+    }
+}
+
+#[test]
+fn a_preference_from_a_key_that_is_not_our_device_is_ignored() {
+    // 🔒 LE test de ce lot. La décision se prend sur la clé que la session a
+    // authentifiée, jamais sur le contenu : sans ce contrôle, n'importe quel
+    // ami réécrirait la langue, le thème et la politique de notification de
+    // n'importe qui en envoyant une cinquantaine d'octets.
+    let n = node();
+    let etranger = Identity::generate_with_pow_bits(1);
+    let quand = crate::node::now_ms();
+    n.ingest_core_from(
+        &etranger.public_key(),
+        &etranger.public_key(),
+        pref_msg("accord.theme", "crimson", quand),
+    )
+    .unwrap();
+    assert_eq!(pref_of(&n, "accord.theme"), None);
+
+    // La même préférence, sous NOTRE clé de compte, passe : c'est bien le
+    // contrôle d'identité qui a écarté la première, et rien d'autre.
+    n.ingest_core_from(
+        &n.public_key(),
+        &n.public_key(),
+        pref_msg("accord.theme", "crimson", quand),
+    )
+    .unwrap();
+    assert_eq!(pref_of(&n, "accord.theme"), Some("crimson".into()));
+}
+
+#[test]
+fn a_future_dated_preference_beyond_the_skew_tolerance_is_refused() {
+    // ⚠️ Leçon directe du bug expédié en 7.0 et corrigé en 7.1 : sur un champ
+    // « dernier écrivain gagne », un horodatage non borné ne gagne pas une
+    // fois, il gagne POUR TOUJOURS. Une pile CMOS morte suffit.
+    let n = node();
+    let maintenant = crate::node::now_ms();
+    let skew = accord_dht::store::MAX_CLOCK_SKEW_MS;
+    n.ingest_core_from(
+        &n.public_key(),
+        &n.public_key(),
+        pref_msg("accord.lang", "de", maintenant + skew + 60_000),
+    )
+    .unwrap();
+    assert_eq!(pref_of(&n, "accord.lang"), None);
+
+    // Dans la tolérance : accepté. Deux machines n'ont pas la même horloge, et
+    // refuser la moindre avance casserait le cas normal.
+    n.ingest_core_from(
+        &n.public_key(),
+        &n.public_key(),
+        pref_msg("accord.lang", "fr", maintenant + skew - 60_000),
+    )
+    .unwrap();
+    assert_eq!(pref_of(&n, "accord.lang"), Some("fr".into()));
+
+    // Et la date refusée n'a rien laissé derrière elle : un changement
+    // ultérieur ordinaire reprend la main, ce qui serait impossible si la date
+    // lointaine avait été écrite.
+    n.ingest_core_from(
+        &n.public_key(),
+        &n.public_key(),
+        pref_msg("accord.lang", "es", maintenant + skew - 30_000),
+    )
+    .unwrap();
+    assert_eq!(pref_of(&n, "accord.lang"), Some("es".into()));
+}
+
+#[test]
+fn an_unknown_preference_key_is_ignored_without_error() {
+    let n = node();
+    // Une clé qu'une version future enverrait, et une clé de MACHINE qu'on
+    // refuse de faire voyager : les deux sont ignorées sans casser le message.
+    for key in ["accord.inventee", "accord.autoLockMinutes"] {
+        let out = n
+            .ingest_core_from(
+                &n.public_key(),
+                &n.public_key(),
+                pref_msg(key, "1", crate::node::now_ms()),
+            )
+            .unwrap();
+        assert!(out.is_empty());
+    }
+    assert!(n.synced_prefs().unwrap().is_empty());
+}
+
+#[test]
+fn setting_a_preference_announces_it_to_the_account() {
+    let id = Identity::generate_with_pow_bits(1);
+    let db = Db::open_in_memory(&[1u8; 32]).unwrap();
+    let (sink, mut rx) = OutboundSink::channel(8);
+    let n = Node::new(id, db, sink);
+
+    let at_ms = n.set_synced_pref("accord.density", "compact").unwrap();
+    assert_eq!(pref_of(&n, "accord.density"), Some("compact".into()));
+
+    match rx.try_recv().expect("annonce émise") {
+        crate::outbound::Outbound::Core { to, msg } => {
+            // Adressé au COMPTE, comme `SelfContactState` : c'est la couche
+            // réseau qui développe en un envoi par appareil joignable.
+            assert_eq!(to, n.public_key());
+            assert_eq!(*msg, pref_msg("accord.density", "compact", at_ms));
+        }
+        autre => panic!("action inattendue : {autre:?}"),
+    }
+
+    // Une clé de machine ne part pas non plus : refusée avant l'annonce.
+    assert!(n.set_synced_pref("accord.network.port", "4000").is_err());
+    assert!(rx.try_recv().is_err());
 }

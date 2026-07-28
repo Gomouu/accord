@@ -4,7 +4,248 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ## [Unreleased]
 
+### Fixed
+
+- **🔴 A freshly paired device received nothing, and looked perfectly
+  connected.** Not slowly — nothing, from every existing friend, for as long as
+  it ran. It established its sessions, appeared correctly in the friend's
+  delivery fan-out, and discarded every message on arrival.
+
+  A message from someone who is not a friend *in this machine's database* is
+  dropped, which is correct. But pairing starts from a fresh profile — the old
+  database is deleted, by design — so the new device begins with an empty
+  address book, and nothing ever filled it. Friendships were treated as
+  account-level because most account-level state is recomputed from something
+  the account root signed; a friendship is not, it lives in a local table and in
+  no signed structure. That gap is what shipped in 7.0.
+
+  A friendship now travels to the account's other devices, on the same channel
+  as blocking. The rule is that it **creates and never modifies**: a contact
+  already present locally — friend, pending, or blocked — comes out untouched.
+  So an announcement can never undo a block, and the message offers no way to
+  downgrade anything at all. Two paths carry it: one message when a friendship
+  is established, and the whole address book when another of your devices
+  becomes reachable — which is what covers the machine that was switched off,
+  or that did not exist yet.
+
+  A message that arrives before the address book is not lost: it is not
+  acknowledged, so the sender keeps it and re-sends it.
+
+  This was found by probing rather than by reading. The regression test is the
+  probe that first failed.
+
 ### Added
+
+- **Three to twenty people in one thread, filed with the conversations.** DM
+  groups existed in the node since the milestone-5 groundwork and were reachable
+  from nothing: no way to create one, and one created elsewhere landed in the
+  server rail, presented as a server it is not.
+
+  A DM group now lives under "Private groups" in the conversation list, opens
+  straight onto its single thread — no channel list, no categories, no roles tab
+  — and is created by picking friends rather than by naming a server. Its name
+  and icon are editable by any member, and any member can leave, the founder
+  included: there is no moderator to ask.
+
+  What is *not* on screen matters as much as what is. The node hands the founder
+  of a DM group a full permission mask, because permissions are computed without
+  regard to the flag; taken at face value that mask would fill the thread with
+  pinning, bulk deletion, bans and invitations, every one of which the node
+  refuses when the op comes back. The interface therefore presents **no**
+  permissions at all in a DM group and renders the three allowed actions as
+  their own controls. Threads, pins and polls are absent rather than disabled —
+  a control that cannot work should not be drawn.
+
+  Known gap: **adding someone to an existing DM group is not possible yet.** The
+  only RPC that could carry it (`groups.invite`) emits an op the DM whitelist
+  refuses — verified against a running node, which answers *"refusé : opération
+  sans objet dans un groupe de MP"* — and no other method authors a bare
+  `AddMember`. Membership is fixed at creation until the node grows a path for
+  it. Leaving works.
+
+- **Compare safety numbers by QR instead of by voice.** Verifying a contact
+  meant reading 60 digits aloud, and transcription error is what actually breaks
+  that ceremony. One friend now shows the QR of their safety number, the other
+  points the camera at it, and the app answers.
+
+  The comparison is always against the number this machine computed from the two
+  identity keys it already holds. Nothing decoded from a QR is stored, adopted,
+  or displayed as an identity — the payload carries a value to compare and
+  nothing else. "Identical" has a single origin in the code: a well-formed
+  payload *and* strict equality. A failed read exits as "not a safety number" or
+  as nothing at all, never as a match. And a mismatch stops the scan rather than
+  retrying until some frame happens to agree.
+
+  The digits and the emoji stay on screen throughout. A refused camera, an
+  absent camera and a foreign QR each say so plainly and leave the manual
+  comparison exactly as it was.
+
+- **The devices screen says when each machine was last seen, and how it was
+  reached.** It could only show a name and a date added — nothing distinguished
+  the machine in daily use from the one lent out last year that ought to be
+  revoked, which is the one question that screen exists to answer.
+
+  "How" means the route — a direct link or a relay circuit — and never an
+  address. A device address on screen ends up in the first screenshot sent to
+  someone for help, and the address of a tunnelled session is the relay's
+  anyway, so showing it as the device's would be wrong as well as indiscreet.
+  The whole thing is a local table: it is never published, and in particular
+  never joins the signed device list, which every friend can read from the DHT.
+
+- **Language, theme and notification policy follow you between your devices.**
+  Preferences that describe *you* rather than *the machine* now travel to your
+  other devices.
+
+  What deliberately stays put: audio input and output devices (the names are not
+  merely useless on another machine, they are wrong), volumes and the microphone
+  processing (bound to the room and the hardware), interface zoom and panel
+  widths (display geometry), tray behaviour (per-OS semantics), quiet hours
+  (stored as bare local hours with no timezone, so syncing them across
+  timezones would misfire silently), and the inactivity lock — a shared laptop
+  wants a shorter one than a home desktop, and syncing it would weaken the
+  device that needed it most.
+
+  Conflicts are resolved by the wall clock of the machine that decided, per
+  preference. That is unsound under clock drift, and it is accepted here for a
+  reason it would not be for blocking: losing a theme change is visible and you
+  simply set it again, whereas a lost block is silent. A preference dated far in
+  the future is refused outright — the same guard the device list has carried
+  since 7.1, and for the same reason.
+
+## [7.1.0] — 2026-07-27
+
+### Fixed
+
+- **🔴 Revoking a device could silently do nothing.** Found by the adversarial
+  security review the roadmap requires for milestone 1 — and it is in the
+  published 7.0.
+
+  Two defects, one consequence. Nothing bounded a device list's `issued_ms`:
+  the clock-skew guard that has always protected the DHT envelope never looked
+  *inside* the list. A list dated far in the future therefore stayed "fresh"
+  for centuries, and since its version follows the same clock, no later
+  legitimate list could ever overtake it. And the write that would have
+  corrected it reported success even when the database refused it, because the
+  refusal came back as a boolean that the caller discarded.
+
+  Together: the moderator clicked revoke, read "device revoked", and the
+  revocation existed nowhere. Nothing ever told them otherwise.
+
+  It does not take an attacker. A machine with a dead CMOS battery or a
+  misconfigured time zone produces exactly the same list. Ingestion now refuses
+  anything dated more than five minutes ahead — the same tolerance the DHT
+  already used — and a refused write raises an error instead of passing for
+  success. Both are pinned by tests that were verified to fail when the fix is
+  removed; the first one was vacuous on the first attempt and was rewritten
+  until it bit.
+
+### Added
+
+- **Video is only sent to the people who are actually looking at it.** In a
+  10-person call every participant emitted 9 video streams and received 9. The
+  receiving side was worse than it looked: a stream nobody displayed was still
+  received, reassembled and *decoded* — only the final `drawImage` was skipped.
+  The grid already knew which tiles were mounted; that knowledge simply never
+  left the renderer.
+
+  It does now. A receiver tells each sender, individually, which of *that
+  sender's* streams it is not displaying (new VOICE kind `0x07 VIDEO_INTEREST`,
+  SPEC §8.2), and the sender stops emitting them. Pinning one screen share in a
+  full room now costs one incoming stream instead of nine — upstream bandwidth
+  for everyone else, decoding for you.
+
+  The whole design turns on one rule: **saying nothing must never turn a stream
+  off.** So the mask is negative — it lists what is *hidden*, never what is
+  wanted. An older peer that declares nothing keeps receiving everything. A lost
+  datagram means a stream stays on, never that it goes dark. A stream the
+  receiver's build does not know about cannot appear in its hidden list, so a
+  future video kind is always delivered: an unknown kind costs bandwidth, never
+  a black tile. And the declaration is soft state — it expires after 10 s and is
+  reaffirmed every 3 s while something is still hidden, so the worst case for a
+  lost "show it again" message is one expiry of delay rather than a tile that
+  never comes back. Returning to full display also sends an explicit zero, which
+  is the fast path rather than the safety net.
+
+  Stream start/stop announces are deliberately exempt from the filter. They are
+  what makes a tile appear in the first place; filtering them would lock a peer
+  inside its own mask, never learning that a camera had just been switched on.
+
+- **A diagnostic log that actually exists.** A GUI application has no standard
+  output: launched from the Finder or the Start menu, everything `tracing`
+  produced went nowhere. There was a file sink, but only behind an
+  `ACCORD_LOG_FILE` environment variable — out of reach for a normal launch —
+  and it truncated on open, so the restart that follows a crash erased the
+  trace of that crash, at exactly the moment someone went looking for it.
+
+  There is now a log in `<app data>/logs/accord.log`, with no environment
+  variable. The previous run is kept as `accord.log.1`. It also rotates past
+  5 MB, so the footprint is bounded to two files — a log that fills the disk is
+  a bug, not a tool.
+
+  Startup is in it too. `tracing` starts before Tauri knows where the data
+  folder is, so the first lines are held in memory and poured into the file
+  when it opens. Without that, startup — where failed starts happen — would
+  have been the one part missing from the log.
+
+  The webview writes to the same file: unhandled promise rejections and
+  uncaught errors, wired before the first render. One file and one clock, since
+  two logs to reconcile by hand help nobody read a sequence where the interface
+  and the network answer each other. The log level can be switched between
+  `info` and `debug` from the network panel without restarting.
+
+  It is also safe to send, and that was checked rather than claimed. Peer keys
+  were already truncated to four bytes everywhere — a convention that existed
+  and held. Peer *addresses* were not: five sites logged a friend's IP in full,
+  which is third-party data, exactly what the diagnostic report refuses to
+  carry. Those now keep the port and lose the host, for the same reason as
+  there: the port is what diagnoses a NAT, the host is where someone lives. A
+  test pins the rule, including that IPv6 is not mangled by a textual split.
+
+  So the log holds no message content and no friend IP addresses. Peers appear
+  as a short key prefix — enough to follow one exchange, not enough to find
+  anybody.
+
+  Two things it does not do, deliberately. There is no "open folder" button:
+  no Tauri opener plugin is installed, and adding one — or spawning a system
+  process — widens the attack surface for a convenience, so the panel shows the
+  path with a copy button instead. And the log is not folded into the
+  diagnostic report: 5 MB does not belong in a clipboard.
+
+- **The server audit log can leave the app.** The log itself was already
+  there — every moderation action is an entry in the group's signed op-log,
+  with its author and its timestamp, and the Audit tab has been rendering it
+  for a while. What was missing was the one word the roadmap underlines:
+  *exportable*. A button now copies it as a Markdown table.
+
+  It re-walks the pages from the beginning rather than exporting what is on
+  screen: the tab only shows what the moderator scrolled through, and an export
+  that stops where someone's eye stopped is not a register. It is bounded at
+  500 entries, and **says so inside the file** when the bound bites — an
+  incomplete register that does not admit it is worse than a short one, because
+  the reader concludes nothing happened before.
+
+  Unlike the diagnostic report, this export keeps names and details. That is
+  not an inconsistency: this is the server's own register, for its own
+  moderators, and an anonymised register is useless. The reasoning is written
+  where the formatter lives so nobody has to guess which of the two patterns to
+  copy.
+
+- **Blocking someone now protects every device on the account.** It did not.
+  Blocking on the laptop left the desktop accepting that person's messages, and
+  nothing said so — the user believed the link was cut. A block promise kept on
+  one machine out of two is worse than no promise.
+
+  A block, and an unblock, now travel to the account's other devices. The
+  ordering rule is stated where it is implemented and in `SECURITY.md`: last
+  decision wins on the wall clock of the device that made it, **and ties go to
+  the block**. That asymmetry is deliberate — an unwanted block is undone with
+  one click and is visible; an unwanted unblock silently reopens a channel
+  someone closed.
+
+  Two limits are documented rather than hidden. A device that is off, or still
+  on 7.0, does not learn the block until it is reachable and upgraded. And
+  because devices order by their own clocks, a machine running minutes fast can
+  have an earlier unblock beat a later block.
 
 - **A diagnostic report you can actually send to someone.** The network panel
   gains a button that copies a technical summary — counters, network self-test,
@@ -85,6 +326,71 @@ All notable changes to Accord. This project follows [semantic versioning](https:
   only — no table is rewritten, and nothing needs backfilling.
 
 ### Internal
+
+- **The accessibility audit found nothing, so the finding is a guard.** All 319
+  `<button>` elements in the sources already carry an accessible name; contrast
+  is checked on every built-in theme across six surfaces; `prefers-reduced-
+  motion` has a universal floor for both the OS preference and the in-app
+  toggle; the command palette implements the full combobox pattern and the
+  video grid labels its groups and pin buttons. There was nothing to fix.
+
+  What did not exist was anything keeping it true. An icon-only button added
+  tomorrow without a label would be silent to a screen reader and no one would
+  notice, because nothing was looking. A Playwright spec now walks the demo
+  surfaces — channel, DM, friends, server menu, settings, video grid — and
+  fails on any interactive control the browser cannot name.
+
+  It runs on the real accessibility tree rather than a source scan. A first
+  attempt did scan the sources with a regular expression and produced three
+  false positives in two iterations: a `{q}` child read as empty, and a
+  self-closing `<span aria-hidden />` whose next `</span>` belonged to the
+  label. An accessible name is computed from the rendered tree, not from
+  source text. The spec also checks that it can still fail: it injects an
+  unlabelled icon button and demands the guard point at it — otherwise a
+  change in snapshot format would leave five green tests inspecting an empty
+  list.
+
+- **Small controls are easier to hit, and the dense ones stayed dense.** A
+  follow-up audit measured every clickable control: 291 of 321 were under
+  44×44 px. Growing all of them was the obvious move and the wrong one. Accord
+  is a desktop application driven by a mouse, and its density is a decision,
+  not an accident — a uniform 44 px would have turned the hover toolbar on a
+  message into a 264×44 slab floating over the message above it, cost the
+  sidebar a fifth of its visible channels, and added 16 px of height to every
+  message carrying a reaction.
+
+  So the rule was: grow the control only where the room already exists, and
+  everywhere else grow the *target* without touching the drawing. Twenty-four
+  controls moved. The modal close button — one shared component behind every
+  dialog in the app, and the most-clicked cross in the product — went from 28
+  to 44 px, along with the six dialogs that carry their own. Panel and picker
+  closes went from 24 to 40, attachment removal from 32 to 44, and the camera
+  and screen-share buttons in a call from 36 to 44. None of these moved a pixel
+  on screen: the padding grew and an equal negative margin handed the space
+  back to the layout, so the icon stays put, headers keep their height, and
+  only the focus ring gets bigger — which is right, since it should outline the
+  target you can actually hit.
+
+  Six controls could not grow without showing it, and got an invisible
+  extension instead: the box keeps its size, a transparent overlay reaches past
+  it. The worst offender in the whole application was the voice-message
+  playback bar — 6 px tall, and you had to hit it to scrub. It is now a 44 px
+  target wrapped around an unchanged 6 px bar. The same treatment went to the
+  cancel cross on a reply banner and the one on a filtered-word chip (16 px
+  each, inside 28 px strips where a 44 px focus ring would have spilled onto
+  the neighbouring message), to both crosses in the search bar (one has a hover
+  pill that a bigger box would have inflated; the other sits beside the "run
+  this search again" button and must not steal its clicks), and to the "copy"
+  button on a code block, which floats *over* the code and at 44 px would have
+  hidden the first characters.
+
+  What was deliberately left alone: the message hover toolbar, the composer
+  row, the sidebar lists, reaction pills, the role reorder arrows, and roughly
+  a hundred 36 px dialog footer buttons. Each of those would trade room a
+  reader is using for millimetres a mouse does not need. For reference, the
+  accessibility floor (WCAG 2.2 AA) is 24×24 px and 44×44 is the enhanced AAA
+  figure: everything touched here clears the floor, and most of it clears the
+  ceiling.
 
 - **A multi-device test only passed by winning a race.** `un_appareil_eteint_
   rattrape_a_son_retour` ended by asserting the laptop's conversation held

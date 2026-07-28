@@ -183,6 +183,12 @@ pub mod sim {
         nat: HashMap<SocketAddr, NatState>,
         /// Adresse externe d'un mapping → `(interne, destination d'origine)`.
         nat_reverse: HashMap<SocketAddr, (SocketAddr, SocketAddr)>,
+        /// Adresse locale de chaque socket, PARTAGÉE avec le [`SimSocket`]
+        /// correspondant. Une cellule plutôt qu'un champ figé parce qu'un
+        /// déplacement ([`SimNet::rebind`]) doit se voir depuis
+        /// `local_addr()` : c'est elle qui sert d'adresse source aux envois
+        /// suivants, et le nœud déplacé ne se sait mobile que par là.
+        locals: HashMap<SocketAddr, Arc<Mutex<SocketAddr>>>,
     }
 
     /// Réseau simulé partagé entre plusieurs [`SimSocket`].
@@ -206,15 +212,68 @@ pub mod sim {
         /// Enregistre un nœud à `addr` et rend son socket.
         pub fn bind(&self, addr: SocketAddr) -> SimSocket {
             let (tx, rx) = mpsc::unbounded_channel();
+            let local = Arc::new(Mutex::new(addr));
             let mut f = self.fabric.lock().unwrap_or_else(|e| e.into_inner());
             f.inboxes.insert(addr, tx);
             f.conditions.insert(addr, self.default_conditions);
             f.down.insert(addr, false);
+            f.locals.insert(addr, Arc::clone(&local));
             SimSocket {
                 net: self.clone(),
-                local: addr,
+                local,
                 rx: Arc::new(AsyncMutex::new(rx)),
             }
+        }
+
+        /// Déplace un nœud de `from` vers `to` **sans rien détruire d'autre** :
+        /// le portable qui passe du Wi-Fi à la 4G, le NAT qui refait son
+        /// mapping. Le socket garde sa file de réception, donc le nœud garde
+        /// ses sessions, ses clés et son état — seule son adresse change, en
+        /// émission comme en réception. C'est exactement ce qui distingue une
+        /// mobilité d'un redémarrage, et c'est pour cela que ce n'est pas
+        /// exprimable par `bind` + coupure.
+        ///
+        /// La file est DÉPLACÉE et non recréée : un datagramme déjà en vol
+        /// (livré depuis une tâche à part sous latence) en tient un clone et
+        /// arrivera quand même, comme un paquet déjà parti sur l'ancien lien.
+        /// Ce qui disparaît, ce sont les envois FUTURS vers l'ancienne adresse.
+        ///
+        /// Rend `false` — sans rien modifier — si aucun nœud n'est lié à
+        /// `from`, si `to` est déjà occupée, ou si les deux adresses sont
+        /// égales. Un déplacement qui n'a pas eu lieu rendrait vide le scénario
+        /// qui l'appelle : l'appelant doit pouvoir s'en apercevoir.
+        pub fn rebind(&self, from: SocketAddr, to: SocketAddr) -> bool {
+            let mut f = self.fabric.lock().unwrap_or_else(|e| e.into_inner());
+            if from == to || !f.inboxes.contains_key(&from) || f.inboxes.contains_key(&to) {
+                return false;
+            }
+            if let Some(inbox) = f.inboxes.remove(&from) {
+                f.inboxes.insert(to, inbox);
+            }
+            if let Some(cond) = f.conditions.remove(&from) {
+                f.conditions.insert(to, cond);
+            }
+            if let Some(down) = f.down.remove(&from) {
+                f.down.insert(to, down);
+            }
+            // Un nœud NATé emporte son NAT : ses mappings restent ouverts (le
+            // NAT n'a pas de raison de les fermer parce que l'hôte a bougé
+            // derrière lui), mais la traduction inverse doit désormais désigner
+            // la nouvelle adresse interne, sans quoi l'entrant reviendrait à
+            // une adresse que plus personne n'écoute.
+            if let Some(nat) = f.nat.remove(&from) {
+                f.nat.insert(to, nat);
+                for (internal, _) in f.nat_reverse.values_mut() {
+                    if *internal == from {
+                        *internal = to;
+                    }
+                }
+            }
+            if let Some(cell) = f.locals.remove(&from) {
+                *cell.lock().unwrap_or_else(|e| e.into_inner()) = to;
+                f.locals.insert(to, cell);
+            }
+            true
         }
 
         /// Simule une coupure réseau d'un nœud (churn).
@@ -317,7 +376,10 @@ pub mod sim {
     /// Socket rattaché à un [`SimNet`].
     pub struct SimSocket {
         net: SimNet,
-        local: SocketAddr,
+        /// Cellule partagée avec le [`Fabric`] : [`SimNet::rebind`] l'écrit,
+        /// le socket la lit à chaque envoi (adresse source) et à chaque
+        /// `local_addr()`.
+        local: Arc<Mutex<SocketAddr>>,
         rx: Arc<AsyncMutex<mpsc::UnboundedReceiver<Datagram>>>,
     }
 
@@ -325,7 +387,10 @@ pub mod sim {
     impl DatagramSocket for SimSocket {
         async fn send_to(&self, buf: &[u8], dst: SocketAddr) -> io::Result<usize> {
             let n = buf.len();
-            self.net.deliver(self.local, dst, buf.to_vec());
+            // L'adresse source est relue à chaque envoi : après un `rebind`,
+            // c'est la nouvelle qui part sur le fil — c'est précisément ce qui
+            // apprend la mobilité au pair d'en face.
+            self.net.deliver(self.local_addr(), dst, buf.to_vec());
             Ok(n)
         }
 
@@ -337,7 +402,7 @@ pub mod sim {
         }
 
         fn local_addr(&self) -> SocketAddr {
-            self.local
+            *self.local.lock().unwrap_or_else(|e| e.into_inner())
         }
     }
 
@@ -430,6 +495,64 @@ pub mod sim {
             rdv.send_to(b"ok-b", map_b).await.unwrap();
             assert_eq!(recv_or_timeout(&a).await.unwrap().0, b"ok-a");
             assert_eq!(recv_or_timeout(&b).await.unwrap().0, b"ok-b");
+        }
+
+        /// Sémantique du déplacement : l'ancienne adresse meurt, la nouvelle
+        /// reçoit, et les envois du nœud déplacé portent la nouvelle source.
+        /// Ces trois points sont ce qui rend le scénario de mobilité
+        /// exprimable ; si l'un manque, un test de mobilité passe sans rien
+        /// éprouver.
+        #[tokio::test]
+        async fn rebind_deplace_le_noeud_sans_rien_perdre_d_autre() {
+            let net = SimNet::new(11, NetConditions::default());
+            let mobile = net.bind(addr("127.3.0.1:4001"));
+            let fixe = net.bind(addr("127.3.0.2:4002"));
+            let ancienne = mobile.local_addr();
+            let nouvelle = addr("127.3.9.1:6001");
+
+            assert!(net.rebind(ancienne, nouvelle));
+            assert_eq!(mobile.local_addr(), nouvelle, "le socket suit le nœud");
+
+            // L'ancienne adresse ne mène plus nulle part : sans cela, un test
+            // de mobilité passerait alors même que rien n'a bougé.
+            fixe.send_to(b"vers l'ancienne", ancienne).await.unwrap();
+            assert!(recv_or_timeout(&mobile).await.is_none());
+
+            // La nouvelle reçoit, et le nœud a gardé sa file (donc son état) :
+            // c'est bien un déplacement, pas un nouveau nœud.
+            fixe.send_to(b"vers la nouvelle", nouvelle).await.unwrap();
+            let (buf, from) = recv_or_timeout(&mobile).await.expect("reçu après rebind");
+            assert_eq!(&buf, b"vers la nouvelle");
+            assert_eq!(from, fixe.local_addr());
+
+            // En émission, la source vue par le pair est la NOUVELLE adresse :
+            // c'est le seul signal par lequel il peut apprendre la mobilité.
+            mobile
+                .send_to(b"me revoila", fixe.local_addr())
+                .await
+                .unwrap();
+            let (_, source) = recv_or_timeout(&fixe).await.expect("reçu par le fixe");
+            assert_eq!(source, nouvelle);
+        }
+
+        /// Un déplacement impossible est rendu `false` et ne touche à rien :
+        /// une adresse de départ inconnue (faute de frappe dans un test) ou une
+        /// arrivée déjà occupée ne doit pas écraser un nœud vivant en silence.
+        #[tokio::test]
+        async fn rebind_refuse_une_source_inconnue_ou_une_cible_occupee() {
+            let net = SimNet::new(12, NetConditions::default());
+            let a = net.bind(addr("127.4.0.1:4001"));
+            let b = net.bind(addr("127.4.0.2:4002"));
+
+            assert!(!net.rebind(addr("127.4.0.9:9999"), addr("127.4.0.3:4003")));
+            assert!(!net.rebind(a.local_addr(), b.local_addr()), "cible occupée");
+            assert!(!net.rebind(a.local_addr(), a.local_addr()), "sur place");
+
+            // Les deux nœuds sont intacts après ces refus.
+            a.send_to(b"toujours la", b.local_addr()).await.unwrap();
+            let (buf, from) = recv_or_timeout(&b).await.expect("b reçoit encore");
+            assert_eq!(&buf, b"toujours la");
+            assert_eq!(from, a.local_addr());
         }
     }
 }

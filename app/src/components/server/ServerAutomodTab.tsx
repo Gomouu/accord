@@ -4,21 +4,22 @@
  * gouverné par MANAGE_CHANNELS (visibilité gérée par `ServerSettingsModal`).
  * Modèle serverless : les clients honnêtes masquent ces mots au rendu, rien
  * n'est supprimé du réseau.
+ *
+ * 🔒 Les bornes affichées viennent de `lib/automod.ts`, qui reprend celles du
+ * NŒUD. Elles vivaient auparavant en dur ici, à 100 mots, alors que le format
+ * filaire en refuse plus de 50 : passé le cinquantième, l'écran laissait
+ * ajouter puis « Enregistrer » échouait sur une erreur venue du nœud, sans que
+ * rien n'ait prévenu.
  */
 
 import { useState } from 'react';
 import { interpolate } from '../../i18n';
+import { MAX_AUTOMOD_WORDS, MAX_AUTOMOD_WORD_CHARS } from '../../lib/automod';
 import { useGroups } from '../../stores/groups';
 import { useUi, useT } from '../../stores/ui';
 import { CloseIcon } from '../ContextMenu';
 import { SettingsSection } from '../settings/controls';
 import { messageOf } from './controls';
-
-/** Nombre maximal de mots filtrés par serveur. */
-const MAX_AUTOMOD_WORDS = 100;
-
-/** Longueur maximale d'un mot filtré (caractères). */
-const MAX_WORD_LENGTH = 32;
 
 export function ServerAutomodTab({ groupId }: { groupId: string }) {
   const t = useT();
@@ -34,8 +35,13 @@ export function ServerAutomodTab({ groupId }: { groupId: string }) {
   const ajouterMot = (): void => {
     const mot = draft.trim().toLowerCase();
     if (mot === '') return;
-    if (mot.length > MAX_WORD_LENGTH) {
-      setErreur(t.automod.wordTooLong);
+    // Longueur en CARACTÈRES (pas en unités de code) : le nœud compte des
+    // caractères Unicode, et `mot.length` refusait à tort un mot d'emoji ou
+    // d'idéogrammes bien en deçà de la borne réelle.
+    if ([...mot].length > MAX_AUTOMOD_WORD_CHARS) {
+      setErreur(
+        interpolate(t.automod.wordTooLong, { max: String(MAX_AUTOMOD_WORD_CHARS) }),
+      );
       return;
     }
     if (words.includes(mot)) {
@@ -43,7 +49,7 @@ export function ServerAutomodTab({ groupId }: { groupId: string }) {
       return;
     }
     if (words.length >= MAX_AUTOMOD_WORDS) {
-      setErreur(t.automod.limitReached);
+      setErreur(interpolate(t.automod.limitReached, { max: String(MAX_AUTOMOD_WORDS) }));
       return;
     }
     setWords((prev) => [...prev, mot]);
@@ -80,10 +86,18 @@ export function ServerAutomodTab({ groupId }: { groupId: string }) {
 
   return (
     <div>
-      <p className="mb-6 text-sm text-muted">{t.automod.hint}</p>
+      <p className="mb-6 text-sm text-muted">
+        {interpolate(t.automod.hint, {
+          max: String(MAX_AUTOMOD_WORDS),
+          chars: String(MAX_AUTOMOD_WORD_CHARS),
+        })}
+      </p>
 
       <SettingsSection
-        title={interpolate(t.automod.count, { count: String(words.length) })}
+        title={interpolate(t.automod.count, {
+          count: String(words.length),
+          max: String(MAX_AUTOMOD_WORDS),
+        })}
       >
         <div className="rounded-lg bg-sidebar p-3">
           {words.length === 0 ? (
@@ -102,7 +116,12 @@ export function ServerAutomodTab({ groupId }: { groupId: string }) {
                     title={interpolate(t.automod.removeWord, { word: mot })}
                     disabled={busy}
                     onClick={() => retirerMot(mot)}
-                    className="rounded-full p-0.5 text-faint transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
+                    // 16 px de croix dans une pastille de 28 px : grossir la
+                    // boîte déformerait la pastille elle-même. `hit-area`
+                    // étend la seule zone cliquable, sur toute la hauteur de
+                    // la pastille et jusqu'à l'écart qui la sépare de la
+                    // suivante.
+                    className="hit-area relative rounded-full p-0.5 text-faint transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40 [--hit-block:6px] [--hit-inline:14px]"
                   >
                     <CloseIcon size={12} />
                   </button>

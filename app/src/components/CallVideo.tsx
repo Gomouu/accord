@@ -12,11 +12,12 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  declareHidden,
   playbackFor,
   localPreviewStream,
   videoSourceSupported,
 } from '../lib/mediaController';
-import type { VideoSource } from '../lib/mediaController';
+import type { HiddenStreams, VideoSource } from '../lib/mediaController';
 import { useCalls } from '../stores/calls';
 import { displayNameOf, useFriends } from '../stores/friends';
 import { useT } from '../stores/ui';
@@ -244,7 +245,30 @@ export function CallVideo() {
   // Un épinglage sur un flux qui s'est arrêté ne doit pas figer une tuile
   // morte : on retombe sur la grille complète.
   const pinnedTile = tiles.find((tile) => tileKey(tile) === pinned) ?? null;
-  const shown = pinnedTile === null ? tiles : [pinnedTile];
+  const shown = useMemo(
+    () => (pinnedTile === null ? tiles : [pinnedTile]),
+    [tiles, pinnedTile],
+  );
+
+  // Vidéo sélective (§9.1) : `shown` est exactement la liste des flux montés
+  // dans le DOM. Tout flux annoncé qui n'y figure pas est reçu, réassemblé et
+  // décodé pour rien — on le dit à son émetteur, qui cesse de l'envoyer.
+  // Déclaration NÉGATIVE : on ne nomme que ce qu'on masque, si bien qu'un flux
+  // qui vient d'apparaître arrive sans attendre notre accord.
+  const hiddenStreams = useMemo<HiddenStreams[]>(() => {
+    const shownKeys = new Set(shown.map(tileKey));
+    const sources: VideoSource[] = ['camera', 'screen'];
+    return Object.entries(remoteVideo).map(([peer, streams]) => ({
+      peer,
+      streams: sources.filter(
+        (source) => streams[source] && !shownKeys.has(tileKey({ peer, source })),
+      ),
+    }));
+  }, [remoteVideo, shown]);
+
+  useEffect(() => {
+    declareHidden(hiddenStreams);
+  }, [hiddenStreams]);
 
   /** Participants présents sans aucun flux vidéo (repli en avatars). */
   const silent = useMemo(() => {
@@ -280,8 +304,12 @@ export function CallVideo() {
     }
   };
 
+  // Caméra et partage d'écran : deux boutons isolés qui flottent au-dessus de
+  // la grille d'appel, sans voisin à bousculer. 36 → 44 px de haut, c'est le
+  // seul endroit du projet où la cible peut grandir franchement sans coûter
+  // un pixel à quoi que ce soit d'autre.
   const buttonClass = (on: boolean): string =>
-    `pointer-events-auto inline-flex min-h-9 items-center gap-2 rounded-full px-4 py-2 text-sm font-medium shadow-2 transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat disabled:cursor-not-allowed disabled:opacity-50 ${
+    `pointer-events-auto inline-flex min-h-11 items-center gap-2 rounded-full px-4 py-2 text-sm font-medium shadow-2 transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-chat disabled:cursor-not-allowed disabled:opacity-50 ${
       on
         ? 'bg-red text-white hover:bg-red/90'
         : 'bg-blurple text-white hover:bg-blurple/90'

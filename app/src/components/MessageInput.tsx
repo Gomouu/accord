@@ -681,13 +681,18 @@ export function MessageInput({
   // Le bouton « + » déplie un menu de création dès qu'un salon de groupe est
   // connu (au moins deux actions : joindre / sonder) ; ailleurs, une seule
   // action possible, le clic ouvre directement le sélecteur de fichiers.
-  const hasCreateMenu = groupId !== null && channelId !== null;
+  //
+  // Un groupe de MP n'a pas de sondage : `PollCreate` est hors de la liste
+  // blanche du nœud (`docs/DM_GROUPS.md` §4). Il se comporte donc ici comme un
+  // MP — le « + » ouvre directement le sélecteur de fichiers.
+  const isDmGroupe = groupState?.is_dm === true;
+  const hasCreateMenu = groupId !== null && channelId !== null && !isDmGroupe;
 
   const ouvrirMenuAjout = (): void => {
     if (sending) return;
     const gid = groupId;
     const cid = channelId;
-    if (gid === null || cid === null) {
+    if (gid === null || cid === null || isDmGroupe) {
       void choisirFichiers();
       return;
     }
@@ -836,7 +841,12 @@ export function MessageInput({
                   title={interpolate(t.fichiers.retirerPiece, { name: nom })}
                   disabled={sending}
                   onClick={() => retirer(piece.id)}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-faint transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
+                  // 32 → 44 px. Les 6 px de marge négative rendent au layout
+                  // exactement ce que la boîte a pris : la vignette garde sa
+                  // hauteur, et le débordement ne tombe que sur le
+                  // rembourrage de la vignette et sur le nom du fichier, qui
+                  // ne se clique pas.
+                  className="relative -m-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-faint transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:opacity-40"
                 >
                   <CloseIcon size={14} />
                 </button>

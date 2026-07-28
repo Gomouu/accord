@@ -147,7 +147,10 @@ export function ReplyBanner({ name, onCancel }: { name: string; onCancel: () => 
         aria-label={t.dm.cancelReply}
         title={t.dm.cancelReply}
         onClick={onCancel}
-        className="flex shrink-0 items-center justify-center rounded-full p-1 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar active:scale-90"
+        // 22 → 38 px, en débordant dans le `px-4 py-2` du bandeau. Rien ne
+        // bouge à l'écran ; le bandeau porte déjà `z-[1]`, donc les quelques
+        // pixels qui dépassent restent au-dessus du composeur.
+        className="relative -m-2 flex shrink-0 items-center justify-center rounded-full p-3 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar active:scale-90"
       >
         <CloseIcon size={14} />
       </button>

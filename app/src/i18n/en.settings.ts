@@ -187,6 +187,13 @@ export const enSettings = {
       'The devices authorised on this account. Each has its own key; the account root key never leaves the device that created it.',
     devicesEmpty: 'No device registered.',
     deviceCurrent: 'This device',
+    deviceAdded: 'Added {date}',
+    deviceAddedUnknown: 'Date added unknown',
+    deviceLastSeen: 'Seen {date}',
+    deviceLastSeenNever: 'Never reached from this device',
+    deviceLastSeenHere: 'You are on it right now',
+    deviceRouteDirect: 'direct connection',
+    deviceRouteRelay: 'through a relay',
     deviceNameLabel: 'Device name',
     deviceRenamed: 'Device renamed!',
     pairAdd: 'Add a device',
@@ -329,6 +336,10 @@ export const enSettings = {
     // Danger zone (logout).
     dangerZoneTitle: 'Danger zone',
     logoutHint: 'Locks your vault and returns to the unlock screen. No data is deleted.',
+    linkPreviewsTitle: 'Link previews',
+    linkPreviewsLabel: 'Load a preview of links you receive',
+    linkPreviewsHint:
+      'Off by default. To show a preview, your device has to fetch the page — the site then sees your IP address, for a link someone else chose. In a group, a link to a server they control reveals the IP of everyone who turned this on.',
     streamerTitle: 'Streamer mode',
     streamerLabel: 'Hide sensitive information',
     streamerHint:

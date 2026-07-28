@@ -49,6 +49,7 @@ end-to-end encrypted. Nobody can host, read, sell, or lose your conversations.
 | 🛡️ **Communities** | Roles & permissions, moderation (kick/ban/timeout), AutoMod word filter, invitations, scheduled events, server folders |
 | ⌨️ **Comfort** | Ctrl/Cmd+K palette (navigation + commands), right-click menus everywhere, dock unread badge, native notifications, keyboard shortcuts, built-in signed updates |
 | 🎨 **Personalization** | 24 themes (light & dark, 5 animated figurative scenes), animated profile decorations, effects and frames, custom status, message density |
+| 💻 **Several machines** | Pair a second device from the first (scan or type a code, confirm a fingerprint on both). Messages and calls reach every machine, reading on one clears the badge on the other, and a machine that was off catches up when it returns |
 | 👥 **Accounts** | Multi-account, encrypted full backup (`.accordbackup`), English & French |
 
 ## Screenshots
@@ -125,11 +126,14 @@ external audit yet** — treat it accordingly for high-stakes use.
 
 | Document | Contents |
 |----------|----------|
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to build, test and propose a change |
 | [SECURITY.md](SECURITY.md) | Threat model — guarantees and limits |
 | [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) | Accepted trade-offs, in depth |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Layer architecture |
 | [docs/SPEC.md](docs/SPEC.md) | Wire protocol |
 | [docs/API.md](docs/API.md) | UI ↔ node API |
+| [docs/API_CONTRACT.md](docs/API_CONTRACT.md) | The same API as a public contract — full surface, stability policy, security position |
+| [docs/REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md) | What you can verify about a published build, and what you cannot |
 | [docs/DEV.md](docs/DEV.md) | Developer guide |
 | [docs/MULTI_DEVICE.md](docs/MULTI_DEVICE.md) | Multi-device design (account/device model) |
 

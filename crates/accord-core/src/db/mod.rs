@@ -16,7 +16,7 @@ mod search;
 mod stats;
 
 pub use contacts::{Contact, ContactState};
-pub use devices::{CachedDeviceList, LocalDevice};
+pub use devices::{CachedDeviceList, DeviceSeen, LocalDevice};
 pub use files::{FetchIntent, FileEntry};
 pub use groups::{LocalMembership, StoredGroupKey};
 pub use invites::IncomingInvite;
@@ -39,7 +39,7 @@ use std::path::Path;
 /// la version suffit pour créer les nouvelles tables sur une base existante.
 /// Modifier des colonnes existantes exige en revanche une vraie migration —
 /// voir [`MIGRATIONS`].
-const SCHEMA_VERSION: i64 = 15;
+const SCHEMA_VERSION: i64 = 17;
 
 /// Version au-delà de laquelle les évolutions passent par [`MIGRATIONS`].
 ///
@@ -160,6 +160,78 @@ const MIGRATIONS: &[Migration] = &[
             Ok(())
         },
     },
+    Migration {
+        to: 16,
+        label: "horodatage du dernier changement d'état d'un contact",
+        apply: |conn| {
+            // Le blocage se propage désormais aux autres machines du compte
+            // (`CoreMsg::SelfContactState`). Départager deux changements
+            // concurrents demande de savoir QUAND l'état courant a été décidé ;
+            // sans cette date, un déblocage arrivé en retard écraserait un
+            // blocage plus récent.
+            //
+            // Colonne sur la ligne qu'elle décrit, et non table annexe :
+            // contrairement à `dm_synced`, cette date circule sur le fil et
+            // qualifie l'état lui-même. À côté, elle pourrait diverger de ce
+            // qu'elle décrit.
+            //
+            // Défaut 0 pour les contacts existants : leur état est réputé
+            // infiniment ancien, donc toute décision ultérieure le remplace.
+            // C'est le bon sens par défaut — la première décision prise après
+            // la mise à jour fait autorité.
+            if !conn
+                .prepare("SELECT state_changed_ms FROM contacts LIMIT 0")
+                .is_ok()
+            {
+                conn.execute_batch(
+                    "ALTER TABLE contacts
+                       ADD COLUMN state_changed_ms INTEGER NOT NULL DEFAULT 0;",
+                )?;
+            }
+            Ok(())
+        },
+    },
+    Migration {
+        to: 17,
+        label: "dernière vue des appareils du compte",
+        apply: |conn| {
+            // L'écran « Mes appareils » ne savait dire qu'un nom et une date
+            // d'ajout. Rien n'y distinguait la machine en service de celle
+            // qu'on a prêtée l'an dernier et qu'il faudrait révoquer — la
+            // seule question que cet écran existe pour trancher.
+            //
+            // 🔒 Table LOCALE, et surtout pas un champ de `DeviceList` :
+            // celle-ci est signée par la racine du compte et publiée dans la
+            // DHT, où chaque ami la lit. Une date de dernière vue par
+            // appareil y publierait les horaires de vie de chaque machine du
+            // compte, à tout le carnet d'adresses et pour toujours.
+            //
+            // 🔒 `relayed` — un booléen — et jamais une adresse. « D'où » se
+            // lit ici comme la ROUTE (lien direct ou circuit relais), pas
+            // comme un lieu : une adresse d'appareil affichée à l'écran finit
+            // dans la première capture d'écran envoyée au support, et
+            // l'adresse d'une session tunnelée est de toute façon celle du
+            // RELAIS (`accord_transport::SessionView::addr`) — l'afficher
+            // comme celle de l'appareil serait faux en plus d'être indiscret.
+            //
+            // Table annexe plutôt que colonne : `device_lists` ne stocke que
+            // l'encodage filaire signé, resservi tel quel ; un fait local n'a
+            // aucun endroit où vivre dedans.
+            //
+            // `IF NOT EXISTS` : même raison qu'à l'étape 13 — une version
+            // enregistrée peut redescendre (sauvegarde restaurée, base
+            // recopiée), et une étape qui explose alors transforme une
+            // bizarrerie en application qui ne démarre plus.
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS device_seen (
+                   device  BLOB PRIMARY KEY,
+                   last_ms INTEGER NOT NULL,
+                   relayed INTEGER NOT NULL
+                 );",
+            )?;
+            Ok(())
+        },
+    },
 ];
 
 /// Copie la base avant une migration, et purge les copies les plus anciennes.
@@ -263,11 +335,23 @@ pub struct Db {
     group_cache: std::sync::Mutex<HashMap<[u8; 16], GroupCacheEntry>>,
 }
 
+/// Clé d'ordre canonique d'une op : `(lamport, node_id(auteur), op_id)`, la
+/// même que celle du tri de [`crate::group::GroupState::fold`].
+pub(crate) type CleOrdre = (u64, [u8; 32], [u8; 16]);
+
 /// Entrée de cache d'un groupe : état replié et/ou offre de synchronisation.
 #[derive(Default)]
 pub(crate) struct GroupCacheEntry {
     pub(crate) state: Option<std::sync::Arc<crate::group::GroupState>>,
     pub(crate) offer: Option<crate::group::SyncOffer>,
+    /// Clé d'ordre la plus haute déjà repliée dans `state`.
+    ///
+    /// C'est ce qui rend le repli incrémental possible **et sûr** : une op qui
+    /// trie strictement au-dessus de ce repère aurait, dans un repli complet,
+    /// été appliquée en dernier — l'appliquer par-dessus l'état en cache donne
+    /// donc exactement le même résultat. Une op qui trie en dessous doit
+    /// s'insérer au milieu, et là seul un repli complet est juste.
+    pub(crate) repere: Option<CleOrdre>,
 }
 
 impl Db {
@@ -477,7 +561,8 @@ impl Db {
                added_ms        INTEGER NOT NULL,
                last_seen_ms    INTEGER NOT NULL DEFAULT 0,
                verified_at     INTEGER,
-               verified_pubkey BLOB
+               verified_pubkey BLOB,
+               state_changed_ms INTEGER NOT NULL DEFAULT 0
              );
              CREATE TABLE IF NOT EXISTS dm_messages (
                msg_id   BLOB PRIMARY KEY,
@@ -721,15 +806,81 @@ impl Db {
             .and_then(|e| e.state.clone())
     }
 
-    /// Mémorise l'état replié d'un groupe.
+    /// Mémorise l'état replié d'un groupe, avec le repère d'ordre qui permettra
+    /// de l'étendre sans tout relire.
     pub(crate) fn group_cache_put_state(
         &self,
         group_id: [u8; 16],
         state: std::sync::Arc<crate::group::GroupState>,
+        repere: Option<CleOrdre>,
     ) {
         if let Ok(mut cache) = self.group_cache.lock() {
-            cache.entry(group_id).or_default().state = Some(state);
+            let e = cache.entry(group_id).or_default();
+            e.state = Some(state);
+            e.repere = repere;
         }
+    }
+
+    /// Étend l'état en cache avec une op qui vient d'entrer, **si c'est sûr** ;
+    /// invalide sinon.
+    ///
+    /// 🔴 Le point chaud mesuré du jalon 6 : sans cela, chaque insertion
+    /// invalidait, et le `group_state` suivant relisait tout le journal depuis
+    /// SQLite pour le replier. Rejoindre un serveur de 500 membres coûtait
+    /// 827 ms dont ~62 % dans ces relectures — environ 596 000 lignes lues pour
+    /// 1 092 ops. Le rejeu lui-même n'en représentait que 0,5 ms
+    /// (`docs/PERFORMANCE.md` §3).
+    ///
+    /// 🔒 **Trois conditions, et chacune protège une façon de se tromper.**
+    /// - Un état doit déjà être en cache avec son repère : sans lui, on ne sait
+    ///   pas ce qui a été replié, donc on ne peut rien affirmer.
+    /// - L'op doit trier **strictement au-dessus** du repère. En dessous, elle
+    ///   s'insérerait au milieu de l'ordre canonique et changerait le résultat
+    ///   des ops déjà appliquées : seul un repli complet est juste.
+    /// - L'op ne doit pas être une CREATE. `fold` hisse la racine commise en
+    ///   tête, hors de l'ordre canonique ; l'ajouter à la fin ne reproduirait
+    ///   pas ce traitement. Il y en a une par groupe, donc ce cas ne coûte rien.
+    pub(crate) fn group_cache_extend(&self, op: &accord_proto::core_msg::GroupOp) {
+        use accord_proto::core_msg::GroupOpBody;
+
+        let cle: CleOrdre = (
+            op.lamport,
+            accord_crypto::identity::node_id_of(&op.author).0,
+            op.op_id,
+        );
+        let Ok(mut cache) = self.group_cache.lock() else {
+            return;
+        };
+        let Some(e) = cache.get_mut(&op.group_id) else {
+            return;
+        };
+        // L'offre de synchronisation dépend de TOUT le journal : elle est
+        // invalidée dans tous les cas, y compris quand l'état, lui, survit.
+        e.offer = None;
+        let etendable = op.kind != GroupOpBody::CREATE_KIND
+            && matches!((&e.state, e.repere), (Some(_), Some(r)) if r < cle);
+        if !etendable {
+            cache.remove(&op.group_id);
+            return;
+        }
+        let Some(etat) = e.state.as_ref() else {
+            cache.remove(&op.group_id);
+            return;
+        };
+        let mut suivant = (**etat).clone();
+        // Verdict volontairement ignoré, et ce n'est pas une erreur avalée :
+        // `Applied::Ignored` est une issue normale (op refusée par les
+        // permissions ou la validation). Un repli complet la traverse de la
+        // même façon — état inchangé, on continue — donc la reproduire ici
+        // donne bien le même résultat.
+        //
+        // 🔒 Le repère avance MALGRÉ un refus, et c'est nécessaire : l'op a été
+        // examinée. Ne pas l'avancer laisserait le repère sous une op déjà
+        // traitée, et la suivante serait alors jugée « en dessous » à tort,
+        // invalidant le cache sans raison.
+        let _ = suivant.apply(op);
+        e.state = Some(std::sync::Arc::new(suivant));
+        e.repere = Some(cle);
     }
 
     /// Offre de synchronisation en cache, si elle est encore valide.
@@ -741,13 +892,6 @@ impl Db {
     pub(crate) fn group_cache_put_offer(&self, group_id: [u8; 16], offer: crate::group::SyncOffer) {
         if let Ok(mut cache) = self.group_cache.lock() {
             cache.entry(group_id).or_default().offer = Some(offer);
-        }
-    }
-
-    /// Invalide le cache d'un groupe (log modifié).
-    pub(crate) fn group_cache_invalidate(&self, group_id: &[u8; 16]) {
-        if let Ok(mut cache) = self.group_cache.lock() {
-            cache.remove(group_id);
         }
     }
 
@@ -1060,6 +1204,67 @@ mod tests {
                 "l'index {nom} manque après la migration 14 → 15"
             );
         }
+    }
+
+    #[test]
+    fn une_base_neuve_porte_la_table_de_derniere_vue() {
+        // Le socle idempotent s'arrête au schéma 12 : les tables des étapes
+        // suivantes n'existent que si la séquence de migrations s'applique
+        // aussi sur une base neuve. Une étape oubliée là donnerait une
+        // application qui marche à la mise à jour et pas à l'installation.
+        assert!(Db::open_in_memory(&key(17))
+            .unwrap()
+            .has_table("device_seen")
+            .unwrap());
+    }
+
+    #[test]
+    fn une_base_7_1_recoit_la_table_de_derniere_vue() {
+        // Le pendant, pour l'étape 17, de la vérification faite sur la 15 :
+        // le registre est contrôlé par ailleurs (numéros croissants), ce qui
+        // manque est la preuve que le pas 16 → 17 fait bien le travail sur une
+        // base RÉELLE, arrêtée au schéma que la 7.1 laissait derrière elle.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("core.db");
+        let db_key = key(17);
+        Db::open(&path, &db_key).unwrap();
+
+        // Fabrique une base « telle que la 7.1 la laissait » : la table
+        // retirée, la version ramenée à 16. La retirer est le cœur du test —
+        // rembobiner la seule version laisserait la table en place et le test
+        // passerait quoi qu'il arrive.
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key(&db_key)))
+                .unwrap();
+            conn.execute_batch("DROP TABLE IF EXISTS device_seen;")
+                .unwrap();
+            conn.execute_batch("PRAGMA user_version = 16;").unwrap();
+        }
+
+        let db = Db::open(&path, &db_key).expect("migration d'une base 7.1");
+        assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
+        assert!(
+            db.has_table("device_seen").unwrap(),
+            "la table de dernière vue manque après la migration 16 → 17"
+        );
+        // Présente ET utilisable : une table créée avec les mauvaises colonnes
+        // passerait le contrôle d'existence sans rendre le moindre service.
+        db.note_device_seen(
+            &[3; 32],
+            DeviceSeen {
+                last_ms: 42,
+                relayed: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            db.devices_seen().unwrap().get(&[3u8; 32]),
+            Some(&DeviceSeen {
+                last_ms: 42,
+                relayed: true
+            })
+        );
     }
 
     #[test]

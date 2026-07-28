@@ -8,7 +8,7 @@
  * closes, Tab looped, focus returned to the trigger.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { interpolate } from '../i18n';
 import type { SafetyNumberInfo } from '../lib/api';
 import { api } from '../lib/client';
@@ -37,6 +37,56 @@ export function ShieldIcon({ size = 16 }: { size?: number }) {
   );
 }
 
+// Les deux moitiés du QR (§17.4) sont paresseuses, et elles n'ont pas le
+// choix : cette modale est importée statiquement par `AppShell`, donc tout ce
+// qu'elle importe statiquement atterrit dans le chunk initial. Le générateur
+// (`qrcode`) et le décodeur (`jsqr`) ont chacun leur entrée dans le
+// `manualChunks` de `vite.config.ts` ; ils ne descendent qu'au clic.
+const SafetyQrCode = lazy(async () => ({
+  default: (await import('./SafetyQrCode')).SafetyQrCode,
+}));
+const SafetyQrScanner = lazy(async () => ({
+  default: (await import('./SafetyQrScanner')).SafetyQrScanner,
+}));
+
+/** Panneau QR ouvert sous les chiffres — jamais à leur place. */
+type PanneauQr = 'aucun' | 'afficher' | 'scanner';
+
+/** Réservation de place pendant le chargement d'un panneau paresseux. */
+function PanneauEnAttente() {
+  return <div aria-hidden className="h-40 animate-pulse rounded-lg bg-rail/60" />;
+}
+
+/**
+ * Bouton qui ouvre ou referme un panneau QR. Le libellé ne change pas avec
+ * l'état — c'est `aria-pressed` qui le porte, pour que le nom accessible reste
+ * stable (garde `e2e/a11y.spec.ts`).
+ */
+function PanelToggle({
+  label,
+  actif,
+  onClick,
+}: {
+  label: string;
+  actif: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={actif}
+      onClick={onClick}
+      className={`flex-1 rounded-full px-3 py-2 text-xs font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-[0.98] ${
+        actif
+          ? 'bg-blurple text-white hover:bg-blurple-hover'
+          : 'bg-rail text-norm hover:bg-input'
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
 /** 60 digits → 12 space-separated groups of 5 (display form). */
 function groupDigits(digits: string): string[] {
   const groups: string[] = [];
@@ -56,9 +106,11 @@ export function FriendVerifyModal() {
   const ref = useRef<HTMLDivElement>(null);
   const [info, setInfo] = useState<SafetyNumberInfo | null>(null);
   const [busy, setBusy] = useState(false);
+  const [panneau, setPanneau] = useState<PanneauQr>('aucun');
 
   useEffect(() => {
     setInfo(null);
+    setPanneau('aucun');
     if (target === null) return undefined;
     let alive = true;
     api
@@ -131,7 +183,9 @@ export function FriendVerifyModal() {
             type="button"
             aria-label={t.app.close}
             onClick={closeVerify}
-            className="rounded-sm p-1 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
+            // 28 → 44 px : le rembourrage grandit dans le `px-5 pt-5` vide de
+            // l'en-tête, la marge négative le reprend au layout.
+            className="relative -m-2 rounded-sm p-3 text-faint transition-colors duration-fast hover:text-norm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-modal active:scale-95"
           >
             <CloseIcon size={20} />
           </button>
@@ -171,6 +225,37 @@ export function FriendVerifyModal() {
               <p className="text-center text-xs text-faint">
                 {t.friends.verifyEmojiHint}
               </p>
+              {/* Le QR s'ajoute à la cérémonie, il ne la remplace pas : les
+                  chiffres au-dessus restent lisibles et comparables à voix
+                  haute quoi qu'il arrive à la caméra. */}
+              <div className="flex gap-2">
+                <PanelToggle
+                  label={t.friends.verifyQrShow}
+                  actif={panneau === 'afficher'}
+                  onClick={() =>
+                    setPanneau((p) => (p === 'afficher' ? 'aucun' : 'afficher'))
+                  }
+                />
+                <PanelToggle
+                  label={t.friends.verifyQrScan}
+                  actif={panneau === 'scanner'}
+                  onClick={() =>
+                    setPanneau((p) => (p === 'scanner' ? 'aucun' : 'scanner'))
+                  }
+                />
+              </div>
+              {panneau !== 'aucun' && (
+                <Suspense fallback={<PanneauEnAttente />}>
+                  {panneau === 'afficher' ? (
+                    <SafetyQrCode digits={info.digits} />
+                  ) : (
+                    // 🔒 Le scanner compare au numéro calculé localement, et
+                    // c'est le seul point d'entrée : rien de ce qu'il décode
+                    // ne remonte ici.
+                    <SafetyQrScanner localDigits={info.digits} />
+                  )}
+                </Suspense>
+              )}
               <button
                 type="button"
                 disabled={busy}

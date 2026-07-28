@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use accord_core::db::Contact;
 use accord_core::{friends, peer_addr, presence};
 use accord_crypto::{node_id_of, FriendCode};
-use accord_proto::core_msg::CoreMsg;
+use accord_proto::core_msg::{CoreMsg, CONTACT_STATE_ABSENT, CONTACT_STATE_BLOCKED};
 use serde_json::json;
 
 use crate::error::NodeError;
@@ -14,6 +14,15 @@ use crate::hex;
 use crate::outbound::Outbound;
 
 use super::{now_ms, Node};
+
+/// Amis annoncés au plus dans une passe de rattrapage vers un appareil frère.
+///
+/// Généreux à dessein : ce plafond n'est pas là pour économiser du réseau mais
+/// pour qu'un carnet aberrant ne produise pas une rafale sans fin. Un carnet
+/// ordinaire passe entier, et l'appelant journalise le jour où la borne mord —
+/// tronquer en silence rendrait l'appareil sourd à certains amis exactement
+/// comme avant le correctif, sans que rien ne l'indique.
+const MAX_ANNONCE_CARNET: usize = 512;
 
 impl Node {
     /// Liste des contacts.
@@ -56,6 +65,7 @@ impl Node {
         // Demandes croisées : amitié établie, annoncer aussi notre pseudo.
         if action == friends::OutgoingAction::SendAccept {
             self.announce_profile_to(peer_pubkey)?;
+            self.annoncer_ami(peer_pubkey, display_name, now_ms());
         }
         Ok(())
     }
@@ -70,6 +80,10 @@ impl Node {
         });
         if accept {
             self.announce_profile_to(peer_pubkey)?;
+            // Le nom est relu de la base : c'est celui que la demande entrante
+            // y a inscrit, pas un paramètre que cet appel porterait.
+            let nom = self.nom_du_contact(peer_pubkey);
+            self.annoncer_ami(peer_pubkey, &nom, now_ms());
         }
         Ok(())
     }
@@ -111,14 +125,42 @@ impl Node {
         self.with_db(|db| Ok(presence::own_presence(db)?))
     }
 
-    /// Bloque un pair.
+    /// Bloque un pair, et l'annonce aux autres machines du compte.
     pub fn friend_block(&self, peer_pubkey: &[u8; 32]) -> Result<(), NodeError> {
-        self.with_db(|db| Ok(friends::block(db, peer_pubkey, now_ms())?))
+        let at_ms = now_ms();
+        self.with_db(|db| Ok(friends::block(db, peer_pubkey, at_ms)?))?;
+        self.annoncer_etat_contact(peer_pubkey, CONTACT_STATE_BLOCKED, at_ms);
+        Ok(())
     }
 
-    /// Débloque un pair.
+    /// Débloque un pair, et l'annonce aux autres machines du compte.
     pub fn friend_unblock(&self, peer_pubkey: &[u8; 32]) -> Result<(), NodeError> {
-        self.with_db(|db| Ok(friends::unblock(db, peer_pubkey)?))
+        let at_ms = now_ms();
+        self.with_db(|db| Ok(friends::unblock(db, peer_pubkey)?))?;
+        self.annoncer_etat_contact(peer_pubkey, CONTACT_STATE_ABSENT, at_ms);
+        Ok(())
+    }
+
+    /// Annonce aux AUTRES appareils du compte qu'un contact a changé d'état.
+    ///
+    /// 🔒 Sans effet observable en cas d'échec, et c'est voulu : le blocage
+    /// local a déjà pris. Faire échouer `friend_block` parce que l'annonce n'a
+    /// pas pu partir laisserait l'utilisateur devant une erreur alors que la
+    /// protection qu'il demandait est en place sur la machine qu'il regarde.
+    /// L'autre machine rattrapera au prochain blocage, ou restera en retard —
+    /// c'est écrit dans `SECURITY.md`.
+    fn annoncer_etat_contact(&self, peer_pubkey: &[u8; 32], state: u8, at_ms: u64) {
+        self.outbound.send(Outbound::Core {
+            // Adressé au COMPTE : la couche réseau développe en un envoi par
+            // appareil joignable. Nous pouvons y figurer nous-mêmes — sans
+            // conséquence, l'application est idempotente.
+            to: self.public_key(),
+            msg: Box::new(CoreMsg::SelfContactState {
+                peer: *peer_pubkey,
+                state,
+                at_ms,
+            }),
+        });
     }
 
     /// Mémorise la dernière adresse directe connue d'un pair (carnet
@@ -166,6 +208,75 @@ impl Node {
                 }
             }
             Ok(out)
+        })
+    }
+
+    /// Pseudo enregistré pour `peer_pubkey`, ou le code ami à défaut.
+    ///
+    /// Sans voie de panique : un carnet illisible rend le code ami, qui est
+    /// toujours vrai et n'exige aucune base — annoncer une amitié sous un nom
+    /// approximatif vaut mieux que ne pas l'annoncer, puisque c'est l'amitié,
+    /// pas le nom, qui rend l'autre appareil audible.
+    pub(super) fn nom_du_contact(&self, peer_pubkey: &[u8; 32]) -> String {
+        self.with_db(|db| Ok(db.contact(&node_id_of(peer_pubkey).0)?))
+            .ok()
+            .flatten()
+            .map(|c| c.display_name)
+            .filter(|n| !n.trim().is_empty())
+            .unwrap_or_else(|| FriendCode::of_pubkey(peer_pubkey).display())
+    }
+
+    /// Annonce UNE amitié aux autres appareils du compte.
+    ///
+    /// 🔴 Sans cela, un appareil fraîchement appairé reste **sourd** : son
+    /// carnet est vide, et `accord_core::messaging::ingest_dm` jette tout
+    /// message d'un pair qui n'y figure pas. Voir [`CoreMsg::SelfContactAdd`].
+    ///
+    /// Sans effet observable en cas d'échec, pour la même raison que
+    /// [`Node::annoncer_etat_contact`] : l'amitié est déjà nouée ici, et faire
+    /// échouer l'action de l'utilisateur pour une annonce qui n'est pas partie
+    /// signalerait un problème là où ce qu'il demandait est en place.
+    pub(super) fn annoncer_ami(&self, peer_pubkey: &[u8; 32], display_name: &str, added_ms: u64) {
+        self.outbound.send(Outbound::Core {
+            // Adressé au COMPTE : la couche réseau développe en un envoi par
+            // appareil joignable, et nous y figurons — sans conséquence,
+            // l'application ne crée que ce qui manque.
+            to: self.public_key(),
+            msg: Box::new(CoreMsg::SelfContactAdd {
+                peer: *peer_pubkey,
+                display_name: display_name.to_string(),
+                added_ms,
+            }),
+        });
+    }
+
+    /// Annonce TOUT le carnet à un appareil frère qui vient de devenir
+    /// joignable — le chemin de rattrapage, quand l'annonce unitaire ci-dessus
+    /// est passée pendant qu'il était éteint (ou avant qu'il existe).
+    ///
+    /// ⚠️ Borné à [`MAX_ANNONCE_CARNET`], et l'appelant journalise si la borne
+    /// mord : un carnet tronqué en silence laisserait un appareil sourd à
+    /// certains amis sans que rien ne le dise, ce qui est exactement la panne
+    /// que ce message existe pour supprimer.
+    pub fn self_contact_msgs(&self) -> Result<(Vec<CoreMsg>, usize), NodeError> {
+        self.with_db(|db| {
+            let amis: Vec<_> = db
+                .contacts()?
+                .into_iter()
+                .filter(|c| c.state == accord_core::db::ContactState::Friend)
+                .collect();
+            let total = amis.len();
+            Ok((
+                amis.into_iter()
+                    .take(MAX_ANNONCE_CARNET)
+                    .map(|c| CoreMsg::SelfContactAdd {
+                        peer: c.pubkey,
+                        display_name: c.display_name,
+                        added_ms: c.added_ms,
+                    })
+                    .collect(),
+                total,
+            ))
         })
     }
 

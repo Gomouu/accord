@@ -183,6 +183,13 @@ export const deSettings = {
       'Die auf diesem Konto zugelassenen Geräte. Jedes hat seinen eigenen Schlüssel; der Kontoschlüssel verlässt nie das Gerät, das ihn erzeugt hat.',
     devicesEmpty: 'Kein Gerät registriert.',
     deviceCurrent: 'Dieses Gerät',
+    deviceAdded: 'Hinzugefügt am {date}',
+    deviceAddedUnknown: 'Datum der Aufnahme unbekannt',
+    deviceLastSeen: 'Gesehen am {date}',
+    deviceLastSeenNever: 'Von diesem Gerät aus nie erreicht',
+    deviceLastSeenHere: 'Sie sind gerade darauf',
+    deviceRouteDirect: 'direkte Verbindung',
+    deviceRouteRelay: 'über ein Relais',
     deviceNameLabel: 'Gerätename',
     deviceRenamed: 'Gerät umbenannt!',
     pairAdd: 'Gerät hinzufügen',
@@ -321,6 +328,10 @@ export const deSettings = {
     dangerZoneTitle: 'Gefahrenzone',
     logoutHint:
       'Sperrt deinen Tresor und kehrt zum Entsperrbildschirm zurück. Es werden keine Daten gelöscht.',
+    linkPreviewsTitle: 'Linkvorschauen',
+    linkPreviewsLabel: 'Vorschau empfangener Links laden',
+    linkPreviewsHint:
+      'Standardmäßig aus. Für eine Vorschau muss dein Gerät die Seite abrufen — die Website sieht dann deine IP-Adresse, obwohl jemand anderes den Link gewählt hat. In einer Gruppe verrät ein Link zu einem kontrollierten Server die IP aller, die dies aktiviert haben.',
     streamerTitle: 'Streamer-Modus',
     streamerLabel: 'Sensible Informationen verbergen',
     streamerHint:

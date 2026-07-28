@@ -58,6 +58,14 @@ establishment). **Everything else in the protocol lives inside DATA (encrypted).
 - Derived static X25519 key: `xk = clamp(SHA-512(seed_ed25519)[0..32])` — this uses
   the standard Ed25519-to-X25519 conversion (birational map) provided by dalek.
   Used only for sealing mailboxes (§7).
+- **Since 7.0 there are two levels of key, and this section describes the lower
+  one.** The keypair a node presents at the handshake is its **device** key,
+  generated on that machine and never leaving it; the **account** root key is
+  what a friend code resolves to, what signs the device list and group ops, and
+  what a CORE message is addressed to. Everything in §1–§4 and §11 is about
+  devices; §5, §6 and §7 say which of the two applies. The reason the two cannot
+  be collapsed back into one is the one-session-per-identity invariant of the
+  transport — see `MULTI_DEVICE.md` §1.
 
 ### 2.2 Handshake (1-RTT, mutually authenticated)
 
@@ -74,9 +82,11 @@ HELLO  (initiator → responder), packet_class=0x01 :
   nonce_i       : bytes<16>   anti-replay
   cookie        : vbytes      0 bytes or anti-DoS cookie (§2.5)
   sig_i         : bytes<64>   Ed25519(static_i, transcript_1)
+  capabilities  : u32         OPTIONAL, additive tail — §2.2.1
 
   transcript_1 = SHA-256("accord-hs-v1" ‖ version ‖ eph_pub_i ‖ static_pub_i ‖
-                         pow_nonce_i ‖ timestamp_ms ‖ nonce_i)
+                         pow_nonce_i ‖ timestamp_ms ‖ nonce_i
+                         [‖ 0x01 ‖ capabilities_i  if present])
 
 WELCOME (responder → initiator), packet_class=0x02 :
   version:u8=1, class:u8=0x02
@@ -87,9 +97,11 @@ WELCOME (responder → initiator), packet_class=0x02 :
   nonce_r       : bytes<16>
   session_id    : bytes<8>    randomly chosen by the responder
   sig_r         : bytes<64>   Ed25519(static_r, transcript_2)
+  capabilities  : u32         OPTIONAL, additive tail — §2.2.1
 
   transcript_2 = SHA-256("accord-hs-v1" ‖ transcript_1 ‖ eph_pub_r ‖ static_pub_r ‖
-                         pow_nonce_r ‖ timestamp_ms_r ‖ nonce_r ‖ session_id)
+                         pow_nonce_r ‖ timestamp_ms_r ‖ nonce_r ‖ session_id
+                         [‖ 0x01 ‖ capabilities_r  if present])
 ```
 
 Validation (both directions): version, PoW, |timestamp − now| ≤ 90,000 ms,
@@ -206,6 +218,18 @@ Two consequences worth stating explicitly:
 Every *other* bit in the field keeps the plain "what I can do" meaning in both
 messages, and travels between them untouched.
 
+Defined bits: `CAP_DEVICE_KEYS = 1<<0`, `CAP_PQ_HYBRID = 1<<1`,
+`CAP_GROUP_VIDEO_N = 1<<2`; unknown bits are carried and ignored. A 1-to-3-byte
+tail is a decode error, not a future extension.
+
+⚠️ **Emission is a flag day, and this milestone flips it.** Until 8.0 the field
+was read but never written (`EndpointConfig::capabilities = None`), precisely
+because a peer predating 6.2 rejects the trailing bytes outright and can then
+establish no session at all. Announcing `CAP_PQ_HYBRID` means every peer still
+running a pre-6.2 build becomes unreachable — silently, from the user's side.
+See `crates/accord-transport/src/endpoint.rs`, whose own comment still says the
+field must stay `None` until the fleet is ready.
+
 ### 2.3 Session state machine
 
 ```
@@ -295,7 +319,9 @@ DHT body :
   body per kind
 
 NodeInfo = { node_id: bytes<32>, static_pub: bytes<32>, pow_nonce: u64,
-             addrs: list<SockAddr> (≤ 4) }
+             flags: u8, addrs: list<SockAddr> (≤ 4) }
+             // flags bit 0x01 = the node offers itself as a relay (§10);
+             // other bits are reserved, carried and ignored.
 
 FIND_NODE   { target: bytes<32> }
 FOUND_NODES { nodes: list<NodeInfo> (≤ k) }
@@ -308,7 +334,15 @@ DhtRecord   = { key: bytes<32>, kind: u8, value: lbytes (≤ 8 KiB),
 ```
 
 - Record kinds: `0x01 IDENTITY` (friend code → signed identity), `0x02 PRESENCE`
-  (signed current addresses), `0x03 MAILBOX_HINT`, `0x04 FILE_PROVIDER`.
+  (signed current addresses), `0x03 MAILBOX_HINT`, `0x04 FILE_PROVIDER`,
+  `0x05 DEVICE_LIST` (an account's signed device list, `MULTI_DEVICE.md` §3).
+- 🔒 **An unknown record kind never fails a decode.** Records travel in lists
+  inside lookup replies: rejecting the structure over one unrecognised
+  discriminant would cost an older node the *whole reply*, not just the record it
+  cannot read. The decoder keeps the byte as-is (`RecordKind::Unknown(u8)`) — the
+  record's signature covers it, so it can still be relayed — and it is the store
+  that refuses to accept what it cannot validate. `DEVICE_LIST` was introduced
+  one version *after* that tolerance, on purpose.
 - STORE validation: signature, `key` consistent with kind (e.g. IDENTITY:
   key = SHA-256("friendcode-v1" ‖ payload)), size, expiry ≤ 7 days, cost:
   the requester must maintain a session (has already paid handshake + identity PoW).
@@ -327,9 +361,10 @@ DhtRecord   = { key: bytes<32>, kind: u8, value: lbytes (≤ 8 KiB),
 ## 5. Friend codes (resolved via DHT)
 
 - `payload` = first 64 bits of `SHA-256(pubkey_ed25519)` (8 bytes, **no
-  masking**). The 64 bits of entropy make it infeasible to grind a keypair whose
-  code would collide with a victim's (~2^64 attempts; the old 33-bit format was
-  grindable in a few hours on a GPU).
+  masking**), where the key is the **account root** (§2.1) — a friend code names a
+  person, never one of their machines. The 64 bits of entropy make it infeasible
+  to grind a keypair whose code would collide with a victim's (~2^64 attempts;
+  the old 33-bit format was grindable in a few hours on a GPU).
 - Words: **English BIP39** dictionary (2048 words, 11-bit index) — the 64 bits are
   encoded over **6 words** (base 2048): word1 = bits 63–55 (9 useful bits),
   word2 = bits 54–44, word3 = bits 43–33, word4 = bits 32–22, word5 = bits 21–11,
@@ -370,7 +405,14 @@ Body: `msg_type: u8` then a structure. Main types:
                      // the wire. Older nodes sending bare online/offline
                      // (custom absent) interoperate unchanged.
 0x09 PROFILE         { display_name: str (≤ 128 bytes), bio: str,
-                       avatar_hash: opt<bytes<32>>, banner_hash: opt<bytes<32>> }
+                       avatar_hash: opt<bytes<32>>, banner_hash: opt<bytes<32>>,
+                       pronouns: opt<str>, accent_color: opt<u32>,
+                       banner_color: opt<u32>, avatar_decoration: opt<str>,
+                       profile_effect: opt<str>, profile_frame: opt<str> }
+                     // Everything from `pronouns` on is an additive TAIL: an
+                     // older sender simply stops writing, and a malformed
+                     // remainder decodes to None rather than failing the
+                     // message (§6.5).
 0x0A VOICE_SIGNAL    { group_id: bytes<16>, channel_id: bytes<16>, action: u8
                        (0=join,1=leave,2=state), media_kinds: u8, mute: u8 }
                      // media_kinds: bitflags — 0x01 audio (video/screen
@@ -385,7 +427,30 @@ Body: `msg_type: u8` then a structure. Main types:
                      // sides); any other contact state (pending, blocked,
                      // unknown) is left untouched. Distinct from a block:
                      // a new friend request stays possible afterwards.
+0x20 SELF_CONTACT_STATE { peer: bytes<32>, state: u8 (0=blocked,1=absent),
+                          at_ms: u64 }   // §6.6 — never leaves the account
 ```
+
+### 6.0 Opcode registry
+
+The block above spells out the structures a reader needs byte-for-byte. This
+table is the **complete** list, so that no code looks free when it is not.
+🔒 Adding a CORE opcode means adding a row here in the same commit.
+
+| Code | Name | Detailed in |
+|------|------|-------------|
+| `0x01`–`0x0A` | `DIRECT_MSG`, `MSG_ACK`, `FRIEND_REQUEST`, `FRIEND_RESPONSE`, `GROUP_OP`, `GROUP_MSG`, `GROUP_KEY`, `PRESENCE`, `PROFILE`, `VOICE_SIGNAL` | above, §6.1–§6.5 |
+| `0x0B`, `0x0C` | `GROUP_SYNC {group_id, max_lamport, op_count, digest}` then `GROUP_SYNC_PULL {group_id, since_lamport}` — op-log anti-entropy | §6.2 |
+| `0x0D` | `FRIEND_REMOVE` | above |
+| `0x0E`–`0x10`, `0x15` | `INVITE_TICKET`, `INVITE_ACCEPT`, `INVITE_DECLINE`, `INVITE_REDEEM` — group invitations; the ticket is signed under `accord-invite-ticket-v1` | `API.md` § Groups |
+| `0x11`–`0x14`, `0x1A` | `CALL_OFFER`, `CALL_ANSWER`, `CALL_DECLINE`, `CALL_HANGUP`, `CALL_TAKEN` | `VOICE_CALLS.md` §5 |
+| `0x16` | `SOUNDBOARD_PLAY` `{group_id: bytes<16>, channel_id: bytes<16>, sound: bytes<32>}` — `sound` is the Merkle root of a server sound. Honoured only from a group member, in a **voice** channel, for a sound registered in the group state (ops `0x2F`/`0x30`) | ⚠️ nowhere else |
+| `0x17` | `DEVICE_LIST_ANNOUNCE` — the signed device list pushed to a friend rather than fetched from the DHT (§4) | `MULTI_DEVICE.md` §3 |
+| `0x18`, `0x19`, `0x1F` | `PAIRING_HELLO`, `PAIRING_SEALED`, `PAIRING_SEED` — SPAKE2 pairing of a new device, then the sealed account seed | `MULTI_DEVICE.md` §4 |
+| `0x1B`–`0x1E`, `0x20`, `0x22` | `SELF_READ_MARK`, `SELF_SYNC_OFFER`, `SELF_SYNC_PULL`, `SELF_SYNC_ITEM`, `SELF_CONTACT_STATE`, `SELF_CONTACT_ADD` | §6.6 |
+
+`0x21` is reserved. No code above `0x22` is assigned; an unknown one is a decode
+error that drops the message, not the session.
 
 ### 6.1 Direct messages
 
@@ -456,6 +521,18 @@ Kinds: 0x01 CREATE, 0x02 SET_META, 0x03 ADD_CHANNEL, 0x04 EDIT_CHANNEL,
 0x1C SET_CHANNEL_CATEGORY `{ channel_id: bytes<16>, category: opt<bytes<16>> }`,
 0x1D TIMEOUT_MEMBER `{ member: bytes<32>, until_ms: u64 }`,
 0x1E SET_NICKNAME `{ member: bytes<32>, name: str }`.
+
+Beyond `0x1E` the op space continues and the details live elsewhere, but the
+range is listed here so that no discriminant looks free:
+`0x1F VOICE_MODERATE` (`VOICE_CALLS.md` §3); `0x20`–`0x2C` events, stickers,
+member avatar, polls, AutoMod and slow mode (`COMMUNITY.md`); then
+`0x2D CREATE_THREAD { thread_id, parent_channel, root_msg, name }` (the
+`thread_id` doubles as the `channel_id` its messages use, and permissions and
+slow mode resolve through `parent_channel`),
+`0x2E SET_THREAD_ARCHIVED`, `0x2F ADD_SOUND { name: str, file: bytes<32> }` and
+`0x30 DEL_SOUND { name: str }` (server soundboard, same rules as the emoji ops
+`0x18`/`0x19`; played over the wire by CORE `0x16`), and
+`0x31 SET_BANNER { banner: opt<bytes<32>> }`. `0x31` is the highest assigned.
 
 - Total order: `(lamport, author_node_id)` ascending. Deterministic application;
   an op not authorized by the current state ⇒ ignored (all honest peers converge).
@@ -546,13 +623,18 @@ Kinds: 0x01 CREATE, 0x02 SET_META, 0x03 ADD_CHANNEL, 0x04 EDIT_CHANNEL,
 
 ### 6.5 User profile (D-027)
 
-`0x09 PROFILE` carries the sender's public profile; only `display_name`
-(the nickname) is used today — `bio`, `avatar_hash` and `banner_hash`
-are reserved and constitute the message's versioning path.
+`0x09 PROFILE` carries the sender's public profile. `display_name`, `bio`,
+`avatar_hash` and `banner_hash` are all in use; the fields from `pronouns`
+onwards were added by D-047 and are the message's versioning path.
 
 - **Bounds**: `display_name` ≤ 128 UTF-8 bytes at decode (strict rejection,
   anti-abuse); 2 to 32 characters after trim, without control characters, at
   ingestion.
+- **Additive tail**: every field after `banner_hash` is optional *at the end of
+  the structure*. A sender that predates a field writes nothing; a reader that
+  runs out of bytes decodes `None`, and a malformed remainder degrades that one
+  field to `None` instead of failing the whole message. Colours are `0xRRGGBB`
+  and anything above 24 bits is rejected outright.
 - **Emission**: on every change of the local nickname, to all confirmed
   friends; and on every friendship establishment, in both directions
   (the accepter sends it with their response, the requester in reply to
@@ -563,6 +645,92 @@ are reserved and constitute the message's versioning path.
   rendered by `friends.list`) and the API emits `event.profile { pubkey, name }`.
 - **Delivery**: queued offline like the stateful messages (§7) so that
   disconnected friends converge.
+
+### 6.6 Account-internal messages (`SELF_*`)
+
+Six opcodes addressed to **our own account**, so that delivery (§7) fans them
+out to our other machines and to nobody else. They are what makes two devices
+one account rather than two accounts that happen to share a name.
+
+```
+0x1B SELF_READ_MARK  { scope: u8 (0=DM), conv: bytes<32>, up_to: bytes<16> }
+0x1C SELF_SYNC_OFFER { conv: bytes<32>, count: u32, max_lamport: u64,
+                       digest: bytes<32> }
+0x1D SELF_SYNC_PULL  { conv: bytes<32>, since_lamport: u64, max_items: u16 }
+0x1E SELF_SYNC_ITEM  { conv: bytes<32>, msg_id: bytes<16>, author: bytes<32>,
+                       lamport: u64, sent_ms: u64, kind: u8, body: lbytes,
+                       acked: u8(0|1), deleted: u8(0|1), edited: opt<lbytes> }
+0x20 SELF_CONTACT_STATE { peer: bytes<32>, state: u8, at_ms: u64 }
+0x22 SELF_CONTACT_ADD   { peer: bytes<32>, display_name: str, added_ms: u64 }
+```
+
+🔒 **Reception is gated on the authenticated key, never on the content.** Each of
+these is honoured only when the session's device key belongs to *our* account.
+Without that check any friend could move our read marks, inject history, or
+block and unblock people in our address book by sending us a byte.
+
+- **`0x1B SELF_READ_MARK`** — `conv` is the peer's account key; `up_to` is a
+  `msg_id`, deliberately not a lamport. A lamport read off our own clock would,
+  on the other machine, cover messages from the peer we never saw. An id does not
+  translate: the receiving device advances only to a message it already holds and
+  ignores a mark that means nothing to it. Distinct from the read *receipt*
+  (§6.1, `DIRECT_MSG` kind 6), which tells the peer; this one never leaves the
+  account, so disabling receipts must not silence it.
+- **`0x1C`–`0x1E` catch-up** — the same offer/pull shape as `GROUP_SYNC`, scoped
+  to **one conversation**: two devices of one account legitimately differ on their
+  *outgoing* messages until they converge, so a whole-database digest would never
+  match and would re-trigger a full catch-up forever. `digest` is SHA-256 of the
+  window's `msg_id`s in ascending `(lamport, msg_id)` order. `max_items` is bounded
+  at **decode** to `1..=64`, so a responder never has to distrust it. An item
+  carries the **original** `msg_id` and real `author` rather than being re-emitted
+  as a `DIRECT_MSG`: a fresh envelope would break idempotent insertion (duplicating
+  the conversation on every pass) and would re-stamp the peer's message as authored
+  by the relaying device.
+- **`0x20 SELF_CONTACT_STATE`** — a contact changed state here; apply it there.
+  `state` is `0` blocked or `1` absent (an unblock **erases** the contact rather
+  than inventing a friendship on the other machine). Any other value is rejected
+  at decode: this message drives a security control, and defaulting an
+  unrecognised state would be picking between "blocked" and "not blocked" at
+  random. Emission is best-effort and its failure is never surfaced — the local
+  block has already taken effect, and failing the user's click over an
+  announcement would report a problem where the protection they asked for is in
+  place.
+
+  ⚠️ `at_ms` is the wall clock of whichever machine decided, and that is the weak
+  part: two devices of one account do not share a clock, so an unblock emitted by
+  a machine running fast can outrank a block decided after it. Ties go to the
+  block — the cheaper direction when we do not know. There is no logical clock per
+  account today (`SECURITY.md` §5, item 15).
+
+  ⚠️ It never leaves the account, and that is a confidentiality requirement rather
+  than a routing detail: it carries a third party's key, so sending it anywhere
+  else would reveal both that this person exists to us and what we think of them.
+- **`0x22 SELF_CONTACT_ADD`** — a friendship exists here; let it exist on the
+  other machines too. Without it a freshly paired device is **deaf**: `ingest_dm`
+  drops every message from a peer that is not `Friend` in *that machine's*
+  database, pairing starts from a fresh profile and therefore an empty address
+  book, and nothing filled it. The device opened its sessions, appeared in the
+  friend's delivery fan-out, and silently discarded everything it received.
+
+  🔒 **It creates, it never modifies** — and that is the whole conflict rule.
+  There is nothing to arbitrate: a contact already present locally comes out
+  unchanged, name included. In particular a **block** set here cannot be undone
+  by a machine of the account that had not learned about it yet, which is exactly
+  the accident `0x20` goes to some length to make expensive. Blocking and
+  unblocking keep their own message and their own timestamp; this one needs no
+  clock, only a creation date to record.
+
+  `added_ms` is bounded on ingestion to `now + MAX_CLOCK_SKEW_MS`, the same
+  tolerance the DHT uses. It arbitrates nothing, but it becomes the displayed
+  date and the starting point of any later ordering, and a machine with a dead
+  clock would leave an absurd one there for good (`SECURITY.md` 16).
+
+  Two paths carry it: one message when a friendship is established, and the whole
+  address book when a sibling device becomes reachable — the second is what
+  covers a device that was switched off, or that did not exist yet. The bulk pass
+  is capped at 512 and **logs a warning when the cap bites**: a silently truncated
+  address book would leave the device deaf to some friends, which is the very
+  failure this message removes.
 
 ## 7. Offline: queues and mailboxes
 
@@ -592,9 +760,18 @@ are reserved and constitute the message's versioning path.
 ## 8. Voice (channel 0x03)
 
 ```
-  vkind : u8   0x01 = AUDIO_FRAME, 0x02 = VOICE_PING
-  AUDIO_FRAME { room: bytes<16>, media_type: u8 (0x01=opus-audio),
-                seq: u16, ts_ms: u32, payload: vbytes (20 ms Opus frame) }
+  vkind : u8   0x01 AUDIO_FRAME, 0x02 VOICE_PING, 0x03 SCREEN_FRAME,
+               0x04 SCREEN_CONTROL, 0x05 CAMERA_FRAME, 0x06 CAMERA_CONTROL,
+               0x07 VIDEO_INTEREST
+
+AUDIO_FRAME    { room: bytes<16>, media_type: u8 (0x01=opus-audio),
+                 seq: u16, ts_ms: u32, payload: vbytes (20 ms Opus frame) }
+VOICE_PING     { loss_pct: u8, rtt_ms: u16 }
+SCREEN_FRAME   { room: bytes<16>, frame_id: u32, frag_count: u16,
+                 frag_idx: u16, flags: u8, payload: vbytes }   // since 5.0
+SCREEN_CONTROL { room: bytes<16>, on: u8(0|1) }                // since 5.0
+CAMERA_FRAME   { … identical layout to SCREEN_FRAME … }        // since 6.0
+CAMERA_CONTROL { room: bytes<16>, on: u8(0|1) }                // since 6.0
 ```
 
 - Sent full mesh to each participant via their UDP session. Loss measured by gaps
@@ -602,6 +779,69 @@ are reserved and constitute the message's versioning path.
   the encoder adapts the bitrate: ≥ 10% ⇒ 16k; ≥ 5% ⇒ 24k; ≥ 2% ⇒ 32k; otherwise
   up to 64k in steps.
 - VAD: gate at −50 dBFS with 200 ms hysteresis; optional push-to-talk on the UI side.
+- **Video** (screen and camera) is a separate opcode pair rather than a flag on
+  `SCREEN_FRAME`, so that a 5.0 client rejects a camera fragment cleanly instead
+  of decoding it as a screen share. `flags` bit 0 = `VIDEO_FLAG_KEYFRAME`, shared
+  by both since 6.0. Bounds: fragment payload ≤ 1,200 bytes at decode, ≤ 1,000
+  bytes actually emitted, reassembled frame ≤ 512 KiB over ≤ 640 fragments —
+  video uses a dedicated reassembler, not the general one of §13.1, whose 8
+  simultaneous messages are wrong for real time.
+- A room's video stops on `*_CONTROL{on: 0}`, and also on a prolonged absence of
+  frames: a sender that vanishes never sends the off switch.
+- An unknown `vkind` is rejected cleanly (the datagram is dropped), which is what
+  makes adding a kind backward compatible.
+
+### 8.1 Video (screen share and camera)
+
+```
+  SCREEN_FRAME  { room: bytes<16>, frame_id: u32, frag_count: u16,
+                  frag_idx: u16, flags: u8, payload: vbytes (≤ 1200 B) }
+  SCREEN_CONTROL{ room: bytes<16>, on: u8 (0/1) }
+  CAMERA_FRAME  { same fields as SCREEN_FRAME }
+  CAMERA_CONTROL{ room: bytes<16>, on: u8 (0/1) }
+```
+
+- Two independent streams: one peer may share a screen **and** show a camera in
+  the same session. Distinct kinds rather than a flag on one kind, so that a peer
+  which knows only the screen stream rejects a camera frame instead of feeding it
+  to its screen viewer.
+- `flags` bit 0 = keyframe (independently decodable picture).
+- Each encoded video frame is split into slices ≤ 1200 B, one per UDP datagram
+  (never re-fragmented by the transport). The receiver reassembles by `frame_id`
+  and keeps only the most recent frame: an incomplete frame is abandoned as soon
+  as a newer one arrives, and a lost fragment drops the frame — the next keyframe
+  recovers. Best effort, no retransmission.
+- `*_CONTROL` announces the start/stop of a stream. Ephemeral like everything on
+  this channel; a stop is also inferred from a prolonged absence of frames.
+- `room` is the `call_id` of a 1-to-1 call, or the `channel_id` of a group voice
+  room (video is sent full mesh there, like audio).
+
+### 8.2 Selective video
+
+```
+  VIDEO_INTEREST{ room: bytes<16>, hidden: u8 }
+                  hidden bit 0 = camera, bit 1 = screen
+```
+
+- Sent by a **receiver** to **one sender**, and it speaks only about that
+  sender's streams: `hidden` lists the streams the receiver is **not** currently
+  displaying. The sender stops emitting them, which saves both upstream bandwidth
+  and the receiver's decoding — at 10 participants each peer would otherwise emit
+  9 streams, most of which are never painted.
+- **Negative** mask by design. Silence, an empty mask, an unknown peer or an
+  expired declaration all mean "send me everything": a peer that says nothing
+  (older build, lost datagram, UI not yet rendered) keeps receiving video. An
+  unknown future stream kind can never appear in a `hidden` mask, so it is always
+  sent — a new kind costs bandwidth, never a black tile. Unknown bits are ignored.
+- **Soft state**: a declaration expires 10 s after reception; the receiver
+  reaffirms non-zero masks every 3 s for as long as it hides something. A lost
+  "show it again" message therefore costs at most one expiry of delay. Returning
+  to full display also sends an explicit `hidden = 0` for immediate recovery.
+- `*_CONTROL` announces are **never** filtered by this mechanism: they are what
+  makes a tile appear at the receiver, so filtering them would trap a peer inside
+  its own mask (it would never learn a camera just turned on).
+- A declaration is only honoured from a participant of the active room, on the
+  active `room` — a third party cannot switch off someone else's video.
 
 ## 9. Files (channel 0x04)
 

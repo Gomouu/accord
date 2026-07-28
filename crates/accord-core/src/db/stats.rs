@@ -110,6 +110,7 @@ mod tests {
             last_seen_ms: 0,
             verified_at: None,
             verified_pubkey: None,
+            state_changed_ms: 0,
         })
         .unwrap();
         db.upsert_contact(&Contact {
@@ -121,6 +122,7 @@ mod tests {
             last_seen_ms: 0,
             verified_at: None,
             verified_pubkey: None,
+            state_changed_ms: 0,
         })
         .unwrap();
         for i in 0..3u8 {

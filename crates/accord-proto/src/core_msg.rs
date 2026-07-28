@@ -532,6 +532,25 @@ pub enum GroupOpBody {
     Create {
         /// Nom du groupe.
         name: String,
+        /// Nature du groupe : `Some(true)` pour un **groupe de MP** (jalon 5),
+        /// `Some(false)` ou `None` pour un serveur ordinaire.
+        ///
+        /// Champ **additif de fin de variant** (D-047, comme
+        /// [`GroupOpBody::SetMeta::banner_color`]) : un émetteur antérieur à son
+        /// introduction n'écrit aucun octet pour lui et le décodage rend `None`.
+        ///
+        /// 🔒 Porté par la CRÉATION, et nulle part ailleurs. La nature d'un
+        /// groupe est fixée à sa naissance et signée avec elle : aucune
+        /// opération ultérieure ne peut promouvoir un groupe de MP en serveur
+        /// ni l'inverse, ce qui ferait sauter d'un coup toutes les règles que
+        /// [`accord_core::group::state`] fait respecter aux groupes de MP.
+        ///
+        /// ⚠️ Un client antérieur voit un groupe de MP comme un **serveur
+        /// ordinaire** : les messages arrivent, les membres sont les bons, seul
+        /// l'endroit où il l'affiche est faux. C'est la dégradation honnête
+        /// d'un champ additif, et elle est écrite dans `docs/DM_GROUPS.md` §3
+        /// plutôt que découverte.
+        dm: Option<bool>,
     },
     /// 0x02 — Métadonnées (nom, icône, couleur de bannière).
     SetMeta {
@@ -1081,7 +1100,14 @@ impl GroupOpBody {
     pub fn encode_body(&self) -> Vec<u8> {
         let mut w = Writer::new();
         match self {
-            Self::Create { name } => w.put_str(name),
+            Self::Create { name, dm } => {
+                w.put_str(name);
+                // N'écrit rien quand la nature n'est pas précisée : les octets
+                // d'un serveur ordinaire restent EXACTEMENT ceux d'avant.
+                if let Some(dm) = dm {
+                    w.put_opt(Some(dm), |w, d| w.put_u8(u8::from(*d)));
+                }
+            }
             Self::SetMeta {
                 name,
                 icon,
@@ -1327,6 +1353,7 @@ impl GroupOpBody {
         let body = match kind {
             0x01 => Self::Create {
                 name: r.str(MAX_NAME, "op.name")?,
+                dm: r.opt_tail(|r| decode_bool(r, "op.create.dm"))?,
             },
             0x02 => Self::SetMeta {
                 name: r.str(MAX_NAME, "op.name")?,
@@ -1961,7 +1988,121 @@ pub enum CoreMsg {
         /// Nouveau corps si le message a été édité.
         edited: Option<Vec<u8>>,
     },
+    /// 0x20 — Changement d'état d'un contact, propagé aux AUTRES APPAREILS du
+    /// même compte (feuille de route §9.4).
+    ///
+    /// 🔒 Le blocage est une promesse de sécurité, et une promesse tenue à
+    /// moitié est pire que pas de promesse. Sans ce message, bloquer quelqu'un
+    /// depuis son portable le laisse écrire au fixe : l'utilisateur croit avoir
+    /// coupé le lien, et personne ne le détrompe.
+    ///
+    /// ⚠️ Ce message ne quitte jamais le compte. Il porte la clé d'un tiers ;
+    /// l'envoyer à qui que ce soit d'autre révélerait à la fois l'existence de
+    /// ce tiers et le jugement porté sur lui.
+    SelfContactState {
+        /// Compte du contact visé.
+        peer: [u8; 32],
+        /// Nouvel état, dans l'encodage de `ContactState` ([`CONTACT_STATE_BLOCKED`],
+        /// [`CONTACT_STATE_ABSENT`]). Toute autre valeur est rejetée au
+        /// décodage : un état inconnu appliqué au hasard sur un contrôle de
+        /// sécurité vaut moins que pas d'état du tout.
+        state: u8,
+        /// Horloge murale du changement, sur la machine qui l'a décidé.
+        ///
+        /// ⚠️ Sert à départager deux changements concurrents, et c'est la
+        /// partie fragile : deux machines d'un même compte n'ont pas la même
+        /// horloge. Un déblocage émis par une machine en avance peut donc
+        /// annuler un blocage décidé après lui. La règle d'application
+        /// (`accord_core::friends::apply_remote_state`) tranche les égalités
+        /// en faveur du blocage pour cette raison — c'est le sens le moins
+        /// coûteux quand on ne sait pas.
+        at_ms: u64,
+    },
+    /// 0x21 — Une préférence de compte, propagée aux AUTRES APPAREILS du même
+    /// compte (feuille de route §17.4).
+    ///
+    /// Générique **par clé**, et non un champ par réglage : sinon chaque
+    /// préférence future serait un changement de format filaire, avec la
+    /// négociation de parc que cela traîne. Ici, ajouter une préférence
+    /// n'ajoute qu'une entrée à une liste blanche.
+    ///
+    /// ⚠️ Ne porte que ce qui décrit la PERSONNE (langue, thème, politique de
+    /// notification). Ce qui décrit la MACHINE — périphérique audio, géométrie
+    /// des panneaux, verrouillage automatique, port réseau — ne voyage pas :
+    /// la liste blanche et ses refus motivés vivent dans
+    /// `accord_core::prefs`.
+    SelfPref {
+        /// Identifiant de la préférence, opaque au protocole.
+        ///
+        /// 🔒 Borné à [`MAX_SELF_PREF_KEY`] **au décodage** : le récepteur n'a
+        /// donc jamais à se méfier de sa taille. Reste des octets bruts plutôt
+        /// qu'une `str` — une clé mal formée n'est pas une erreur de
+        /// protocole, elle est simplement absente de la liste blanche et
+        /// ignorée là-haut ; la rejeter ici jetterait tout le datagramme pour
+        /// un octet UTF-8 de travers.
+        key: Vec<u8>,
+        /// Valeur, opaque au protocole : l'interface y met la chaîne qu'elle
+        /// persistait déjà localement, à l'octet près.
+        ///
+        /// 🔒 Bornée à [`MAX_SELF_PREF_VALUE`] au décodage, même raison.
+        value: Vec<u8>,
+        /// Horloge murale du changement, sur la machine qui l'a décidé.
+        ///
+        /// 🔒 Bornée à l'ingestion (pas ici : « maintenant » n'existe pas au
+        /// décodage) à `now + accord_dht::store::MAX_CLOCK_SKEW_MS`. Sans
+        /// cette borne, une machine à l'horloge déréglée — pile CMOS morte,
+        /// fuseau faux — écrit une date lointaine que plus aucun changement
+        /// légitime ne peut dépasser : sa préférence gagne pour toujours.
+        /// Même leçon que la liste d'appareils (`SECURITY.md` §5, items 16-17).
+        at_ms: u64,
+    },
+    /// 0x22 — Une amitié existe sur cette machine ; qu'elle existe aussi sur
+    /// les AUTRES APPAREILS du même compte.
+    ///
+    /// 🔴 Sans ce message, un appareil fraîchement appairé est **sourd**.
+    /// `accord_core::messaging::ingest_dm` ignore tout message d'un pair qui
+    /// n'est pas `Friend` dans la base de CETTE machine ; or l'appairage part
+    /// d'un profil neuf, donc d'un carnet vide, et rien ne le remplissait. La
+    /// machine ouvrait ses sessions, figurait dans l'éventail de livraison, et
+    /// jetait en silence tout ce qui lui arrivait — un appareil qui a l'air
+    /// connecté et ne reçoit rien.
+    ///
+    /// 🔒 **Crée, ne modifie jamais.** Si le contact existe déjà ici, ce
+    /// message est sans effet — nom compris. Deux raisons, et la seconde suffit
+    /// seule : un contact **bloqué** ici ne doit pas pouvoir redevenir ami
+    /// parce qu'une autre machine du compte l'ignorait encore (le blocage
+    /// l'emporte, comme partout ailleurs, cf. [`CoreMsg::SelfContactState`]) ;
+    /// et un message qui ne fait qu'ajouter n'offre aucun levier de
+    /// rétrogradation, ce qui laisse le blocage et le déblocage circuler sur
+    /// leur propre message, avec leur propre horodatage.
+    ///
+    /// ⚠️ Comme [`CoreMsg::SelfContactState`], il ne quitte jamais le compte :
+    /// il porte la clé d'un tiers, et l'envoyer ailleurs révélerait à la fois
+    /// l'existence de cette personne et le fait qu'on la connaît.
+    SelfContactAdd {
+        /// Compte de l'ami.
+        peer: [u8; 32],
+        /// Pseudo affiché tel que la machine émettrice le connaît.
+        display_name: String,
+        /// Horloge murale de l'ajout, sur la machine qui l'a décidé.
+        ///
+        /// 🔒 Borné à l'ingestion contre une date trop lointaine dans le
+        /// futur, comme la liste d'appareils depuis la 7.1 (`SECURITY.md` 16) :
+        /// une machine à la pile CMOS morte ne doit pas pouvoir dater un ajout
+        /// de l'an 3000 et fausser tout classement ultérieur.
+        added_ms: u64,
+    },
 }
+
+/// [`CoreMsg::SelfContactState::state`] : contact bloqué.
+pub const CONTACT_STATE_BLOCKED: u8 = 0;
+
+/// [`CoreMsg::SelfContactState::state`] : contact effacé (déblocage).
+///
+/// Un déblocage n'est pas « redevenu ami » : côté cœur, il efface le contact.
+/// Propager « effacé » plutôt qu'un état d'amitié évite d'inventer une amitié
+/// sur l'autre machine à partir d'un simple déblocage.
+pub const CONTACT_STATE_ABSENT: u8 = 1;
 
 /// Portée d'une [`CoreMsg::SelfReadMark`] : conversation directe. `conv` porte
 /// alors la clé de compte du pair.
@@ -1973,6 +2114,22 @@ pub const SELF_READ_SCOPE_DM: u8 = 0;
 /// qu'un rattrapage transfère par conversation et par passe : le répondeur ne
 /// sert jamais au-delà de sa propre fenêtre, qui a la même taille.
 pub const MAX_SELF_SYNC_ITEMS: u16 = 64;
+
+/// Longueur maximale d'une [`CoreMsg::SelfPref::key`].
+///
+/// 🔒 Borne filaire, appliquée au décodage comme [`MAX_SELF_SYNC_ITEMS`]. Les
+/// clés réellement acceptées sont bien plus courtes (la plus longue de la
+/// liste blanche fait 30 octets) ; la marge laisse de la place aux
+/// préférences futures sans ouvrir la porte à une clé-tampon.
+pub const MAX_SELF_PREF_KEY: usize = 64;
+
+/// Longueur maximale d'une [`CoreMsg::SelfPref::value`].
+///
+/// 🔒 Même borne au décodage. Un kibioctet couvre largement la plus grosse
+/// valeur synchronisée (la palette d'un thème personnalisé, quelques centaines
+/// d'octets de JSON) sans qu'une préférence puisse servir de canal de
+/// transfert entre appareils.
+pub const MAX_SELF_PREF_VALUE: usize = 1024;
 
 /// Raison d'un [`CoreMsg::CallDecline`] : refus explicite de l'utilisateur.
 pub const CALL_DECLINE_REJECTED: u8 = 0;
@@ -2278,6 +2435,28 @@ impl WireEncode for CoreMsg {
                 w.put_u8(u8::from(*deleted));
                 w.put_opt(edited.as_ref(), |w, e| w.put_lbytes(e));
             }
+            CoreMsg::SelfContactState { peer, state, at_ms } => {
+                w.put_u8(0x20);
+                w.put_arr(peer);
+                w.put_u8(*state);
+                w.put_u64(*at_ms);
+            }
+            CoreMsg::SelfPref { key, value, at_ms } => {
+                w.put_u8(0x21);
+                w.put_lbytes(key);
+                w.put_lbytes(value);
+                w.put_u64(*at_ms);
+            }
+            CoreMsg::SelfContactAdd {
+                peer,
+                display_name,
+                added_ms,
+            } => {
+                w.put_u8(0x22);
+                w.put_arr(peer);
+                w.put_str(display_name);
+                w.put_u64(*added_ms);
+            }
         }
     }
 }
@@ -2527,6 +2706,38 @@ impl WireDecode for CoreMsg {
                 deleted: decode_bool(r, "self_sync.deleted")?,
                 edited: r.opt(|r| r.lbytes(MAX_BODY, "self_sync.edited"))?,
             }),
+            0x20 => Ok(CoreMsg::SelfContactState {
+                peer: r.arr()?,
+                // 🔒 Rejet strict d'un état inconnu, plutôt que le repli
+                // tolérant appliqué ailleurs aux valeurs inattendues. Ce
+                // message pilote un contrôle de sécurité : ramener un état
+                // qu'on ne comprend pas à une valeur par défaut reviendrait à
+                // choisir au hasard entre « bloqué » et « pas bloqué ».
+                state: match r.u8()? {
+                    v @ (CONTACT_STATE_BLOCKED | CONTACT_STATE_ABSENT) => v,
+                    _ => return Err(DecodeError::InvalidValue("self_contact.state")),
+                },
+                at_ms: r.u64()?,
+            }),
+            0x21 => Ok(CoreMsg::SelfPref {
+                // 🔒 Les deux longueurs sont bornées ICI, comme
+                // `self_sync.max_items`, et pas au moment de s'en servir : le
+                // code qui applique la préférence n'a alors plus aucune
+                // vérification de taille à se rappeler, et un appelant futur
+                // ne peut pas oublier celle qu'il n'a pas à faire.
+                key: r.lbytes(MAX_SELF_PREF_KEY, "self_pref.key")?,
+                value: r.lbytes(MAX_SELF_PREF_VALUE, "self_pref.value")?,
+                // ⚠️ Pas de borne sur `at_ms` au décodage : la tolérance se
+                // mesure par rapport à « maintenant », qui n'a pas de sens
+                // dans un décodeur pur (et rendrait le round-trip dépendant de
+                // l'horloge). Elle est appliquée à l'ingestion.
+                at_ms: r.u64()?,
+            }),
+            0x22 => Ok(CoreMsg::SelfContactAdd {
+                peer: r.arr()?,
+                display_name: r.str(MAX_NAME, "self_contact.name")?,
+                added_ms: r.u64()?,
+            }),
             _ => Err(DecodeError::InvalidValue("core kind")),
         }
     }
@@ -2650,6 +2861,110 @@ mod tests {
         // triviale entre un nom de groupe et un secret par ex.).
         let c = invite_ticket_signable_bytes(&[1; 16], &[2; 16], "Autre", &[3; 32], &[4; 32], 5);
         assert_ne!(a, c);
+    }
+
+    #[test]
+    fn self_contact_state_roundtrips_and_rejects_an_unknown_state() {
+        for state in [CONTACT_STATE_BLOCKED, CONTACT_STATE_ABSENT] {
+            let msg = CoreMsg::SelfContactState {
+                peer: [0x3B; 32],
+                state,
+                at_ms: 1_700_000_000_123,
+            };
+            let mut w = Writer::new();
+            msg.encode(&mut w);
+            let bytes = w.into_bytes();
+            // Opcode gelé : le déplacer casserait la compatibilité en silence.
+            assert_eq!(bytes.first(), Some(&0x20));
+            assert_eq!(CoreMsg::from_bytes(&bytes).unwrap(), msg);
+        }
+
+        // 🔒 Un état inconnu est REJETÉ, pas ramené à une valeur par défaut.
+        // Ce message pilote un contrôle de sécurité : deviner entre « bloqué »
+        // et « pas bloqué » est le pire des deux mondes.
+        let mut w = Writer::new();
+        w.put_u8(0x20);
+        w.put_arr(&[0x3B; 32]);
+        w.put_u8(0x7F);
+        w.put_u64(1);
+        assert!(CoreMsg::from_bytes(&w.into_bytes()).is_err());
+    }
+
+    #[test]
+    fn self_pref_roundtrips_and_bounds_both_lengths_at_decode() {
+        let msg = CoreMsg::SelfPref {
+            key: b"accord.theme".to_vec(),
+            value: b"midnight".to_vec(),
+            at_ms: 1_700_000_000_123,
+        };
+        let mut w = Writer::new();
+        msg.encode(&mut w);
+        let bytes = w.into_bytes();
+        // Opcode gelé : le déplacer casserait la compatibilité en silence.
+        assert_eq!(bytes.first(), Some(&0x21));
+        assert_eq!(CoreMsg::from_bytes(&bytes).unwrap(), msg);
+
+        // Une valeur vide reste un message valide : c'est ainsi qu'une
+        // préférence remise à son défaut voyage.
+        let vide = CoreMsg::SelfPref {
+            key: b"accord.lang".to_vec(),
+            value: Vec::new(),
+            at_ms: 7,
+        };
+        let mut w = Writer::new();
+        vide.encode(&mut w);
+        assert_eq!(CoreMsg::from_bytes(&w.into_bytes()).unwrap(), vide);
+
+        // 🔒 Les deux bornes tiennent AU DÉCODAGE. Construites à la main :
+        // l'encodeur ne produit jamais ces messages, seul un pair les produit.
+        let mut trop_longue_cle = Writer::new();
+        trop_longue_cle.put_u8(0x21);
+        trop_longue_cle.put_lbytes(&[b'k'; MAX_SELF_PREF_KEY + 1]);
+        trop_longue_cle.put_lbytes(b"v");
+        trop_longue_cle.put_u64(1);
+        assert!(CoreMsg::from_bytes(&trop_longue_cle.into_bytes()).is_err());
+
+        let mut trop_longue_valeur = Writer::new();
+        trop_longue_valeur.put_u8(0x21);
+        trop_longue_valeur.put_lbytes(b"accord.theme");
+        trop_longue_valeur.put_lbytes(&[b'v'; MAX_SELF_PREF_VALUE + 1]);
+        trop_longue_valeur.put_u64(1);
+        assert!(CoreMsg::from_bytes(&trop_longue_valeur.into_bytes()).is_err());
+
+        // Pile sur la borne : accepté (la borne est inclusive des deux côtés).
+        let pile = CoreMsg::SelfPref {
+            key: vec![b'k'; MAX_SELF_PREF_KEY],
+            value: vec![b'v'; MAX_SELF_PREF_VALUE],
+            at_ms: 1,
+        };
+        let mut w = Writer::new();
+        pile.encode(&mut w);
+        assert_eq!(CoreMsg::from_bytes(&w.into_bytes()).unwrap(), pile);
+    }
+
+    #[test]
+    fn self_contact_add_roundtrips_and_bounds_its_name() {
+        let msg = CoreMsg::SelfContactAdd {
+            peer: [0x9C; 32],
+            display_name: "Camille".to_string(),
+            added_ms: 1_700_000_000_456,
+        };
+        let mut w = Writer::new();
+        msg.encode(&mut w);
+        let bytes = w.into_bytes();
+        // Opcode gelé, et distinct de 0x20 : l'ajout et le changement d'état
+        // sont deux messages, pas deux valeurs d'un même champ.
+        assert_eq!(bytes.first(), Some(&0x22));
+        assert_eq!(CoreMsg::from_bytes(&bytes).unwrap(), msg);
+
+        // 🔒 Le pseudo est borné AU DÉCODAGE : le nœud qui l'applique n'a
+        // jamais à se méfier de sa longueur, comme pour `friend.name`.
+        let mut w = Writer::new();
+        w.put_u8(0x22);
+        w.put_arr(&[0x9C; 32]);
+        w.put_str(&"a".repeat(MAX_NAME + 1));
+        w.put_u64(1);
+        assert!(CoreMsg::from_bytes(&w.into_bytes()).is_err());
     }
 
     #[test]

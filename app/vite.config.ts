@@ -30,12 +30,16 @@ export default defineConfig({
     rollupOptions: {
       output: {
         // Sépare le socle (React) et les dépendances lourdes ponctuelles
-        // (`qrcode`, seulement nécessaire pour le QR d'ami, chargé à la
-        // demande via React.lazy) du code applicatif : un changement d'UI
-        // n'invalide plus le cache du vendor, et `qrcode` ne pèse plus sur le
-        // chargement initial.
+        // (`qrcode`, seulement nécessaire pour générer un QR ; `jsqr`, son
+        // pendant en lecture pour la vérification d'identité — tous deux
+        // chargés à la demande via React.lazy) du code applicatif : un
+        // changement d'UI n'invalide plus le cache du vendor, et ni le
+        // générateur ni le décodeur ne pèsent sur le chargement initial.
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined;
+          // `jsqr` avant `qrcode` : les deux noms se ressemblent, l'ordre lève
+          // l'ambiguïté plutôt que de la laisser dépendre du chemin exact.
+          if (id.includes('jsqr')) return 'jsqr';
           if (id.includes('qrcode')) return 'qrcode';
           if (id.includes('/react') || id.includes('/scheduler/')) return 'react';
           return 'vendor';

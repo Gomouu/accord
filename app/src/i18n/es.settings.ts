@@ -188,6 +188,13 @@ export const esSettings = {
       'Los dispositivos autorizados en esta cuenta. Cada uno tiene su propia clave; la clave raíz nunca sale del dispositivo que la creó.',
     devicesEmpty: 'Ningún dispositivo registrado.',
     deviceCurrent: 'Este dispositivo',
+    deviceAdded: 'Añadido el {date}',
+    deviceAddedUnknown: 'Fecha de alta desconocida',
+    deviceLastSeen: 'Visto el {date}',
+    deviceLastSeenNever: 'Nunca contactado desde este dispositivo',
+    deviceLastSeenHere: 'Estás en él ahora mismo',
+    deviceRouteDirect: 'conexión directa',
+    deviceRouteRelay: 'a través de un relé',
     deviceNameLabel: 'Nombre del dispositivo',
     deviceRenamed: '¡Dispositivo renombrado!',
     pairAdd: 'Añadir un dispositivo',
@@ -335,6 +342,10 @@ export const esSettings = {
     dangerZoneTitle: 'Zona de peligro',
     logoutHint:
       'Bloquea tu bóveda y vuelve a la pantalla de desbloqueo. No se elimina ningún dato.',
+    linkPreviewsTitle: 'Vistas previas de enlaces',
+    linkPreviewsLabel: 'Cargar una vista previa de los enlaces recibidos',
+    linkPreviewsHint:
+      'Desactivado por defecto. Para mostrar la vista previa, tu dispositivo debe descargar la página: el sitio ve entonces tu dirección IP, aunque el enlace lo eligió otra persona. En un grupo, un enlace a un servidor controlado revela la IP de todos los que lo hayan activado.',
     streamerTitle: 'Modo streamer',
     streamerLabel: 'Ocultar la información sensible',
     streamerHint:

@@ -6,8 +6,9 @@ lot 1.E — where the implementation contradicted the design, the design text wa
 corrected, not the code. Two later corrections of the same kind, and the largest
 so far: the account root **does** travel at pairing (§4.3, and the consequences
 in §2, §3.3 and §8), and the transport switch is a flag day with no
-compatibility path on the wire (§3.2.1, §9). The rest still runs ahead of the
-code.
+compatibility path on the wire (§3.2.1, §9). Since then §6.1 (block propagation)
+and §7 step 2 (catch-up on reconnect) have shipped and are described as built.
+What remains ahead of the code is §7 step 3, and it says so on the line.
 **Target**: 7.0.
 **Rule**: nothing is implemented before this document answers the questions it
 raises. That rule exists because two hours of reading `install_session` once
@@ -112,7 +113,14 @@ Both carry the same encoded structure:
 | `pow_nonce` | `u64` | Identity proof-of-work of the device key |
 | `name` | `str` (≤ 32 B) | User-visible label ("Laptop") |
 | `added_ms` | `u64` | When it was paired |
-| `flags` | `u32` | Reserved; unknown bits ignored |
+| `flags` | `u32` | Bit 0 = `DEVICE_FLAG_TRANSPORT_KEY`; other bits reserved, carried and ignored |
+
+`DEVICE_FLAG_TRANSPORT_KEY` is not decoration. Without it the list would say who
+belongs to the account but not where to reach it — two different things for the
+whole length of the transition, since a migrated device publishes its entry well
+before it switches its transport over (§3.2.1). The bit says which of the two
+regimes that device is applying **now**; writing to the device key of an entry
+that does not carry it means talking to nobody.
 
 `RevokedEntry`: `pubkey` (`bytes<32>`) + `revoked_ms` (`u64`).
 
@@ -755,6 +763,7 @@ Getting this table wrong in either direction is a bug (see §2).
 | Concern | Level | Why |
 |---|---|---|
 | Friendships | **Account** | You befriend a person, not a machine |
+| Blocking a contact | **Account** | A block set on the laptop must protect the desktop — see below |
 | Server membership, op-log authorship | **Account** | Otherwise one person appears N times in a member list |
 | Profile (name, avatar, decorations) | **Account** | It is who you are |
 | Friend code | **Account** | It is the account's public handle |
@@ -766,6 +775,70 @@ Getting this table wrong in either direction is a bug (see §2).
 **Decision on settings: everything per device in 7.0.** Syncing content
 preferences (language, theme) would be pleasant but requires a synchronisation
 channel that does not exist yet; it is deferred rather than half-built.
+
+### 6.1 Blocking, the one account-level state that had to be pushed
+
+Most account-level concerns in that table are account-level *for free*: they are
+derived from something already signed by the root, or from the op-log, so a
+second device recomputes them. Blocking is not. It is a purely local decision
+about a third party, held in this machine's database and in no signed structure,
+so nothing carries it anywhere.
+
+🔒 **And a half-kept security promise is worse than none.** Blocking someone from
+the laptop while they keep writing to the desktop leaves the user believing they
+cut the link, with nothing to tell them otherwise. So the change is announced:
+`CoreMsg::SelfContactState` (0x20, SPEC §6.6), addressed to our **own account**,
+which the fan-out of §5 turns into one send per reachable device of ours.
+
+Three properties are worth stating plainly, because each is a limit:
+
+- **Reception is gated on the authenticated device key, never on the message.**
+  Without that check any friend could block or unblock anyone in our address book
+  by sending us fifty bytes.
+- **Ordering is by wall clock** (`at_ms`, taken on whichever machine decided).
+  Two devices of one account do not share a clock, so an unblock emitted by a
+  machine running fast can outrank a block decided after it. Ties go to the
+  block: an unwanted block is visible and undone with one click, an unwanted
+  unblock silently reopens a channel someone closed. There is no logical clock
+  per account today.
+- **Emission failure is invisible on purpose.** The local block has already
+  taken; failing the user's click over an announcement would report a problem
+  exactly where the protection they asked for is in place. A device that is off
+  — or on an older release — simply stays behind until it is reachable and
+  updated. `SECURITY.md` §5 states this as a non-guarantee rather than burying it.
+
+### 6.2 Friendships had to be pushed too — the device that looked connected and was deaf
+
+🔴 The table above calls friendships account-level, and §6.1 explains that most
+account-level concerns are account-level *for free* because a second device
+recomputes them from something signed. **Friendships are not among them, and
+believing they were shipped a real failure in 7.0.**
+
+A friendship lives in this machine's `contacts` table and in no signed structure.
+`accord_core::messaging::ingest_dm` drops every message from a peer that is not
+`Friend` *there*. Pairing starts from a fresh profile — §4.3 deletes the old
+database — so a newly paired device begins with an empty address book, and
+nothing filled it. The result: sessions established, the device correctly listed
+and correctly targeted by the friend's delivery fan-out, and every message
+silently discarded on arrival. A machine that looks connected and receives
+nothing, with nothing anywhere saying why.
+
+`CoreMsg::SelfContactAdd` (0x22, SPEC §6.6) closes it, on the same channel as
+blocking. It **creates and never modifies**, which is both its conflict rule and
+its safety property: a contact already present here — friend, pending or
+**blocked** — comes out unchanged, so an announcement can never undo a block, and
+the message offers no downgrade lever at all. Two paths carry it: one message
+when a friendship is established, and the whole address book when a sibling
+device becomes reachable, which is what covers the device that was off or did not
+yet exist.
+
+⚠️ Blocking is no longer the only such state pushed, but the rest of this
+paragraph still holds: Anything else that is decided
+locally about a third party — private contact notes, DM pins, manual identity
+verification — stays on the machine that decided it, and no wire message carries
+it. That is a bounded scope, not an oversight: each one would need its own
+conflict rule, and the clock problem above is already the weakest link in this
+one.
 
 ---
 
@@ -781,14 +854,33 @@ milestone of its own, not a sub-task.
 
 1. **New messages reach every connected device.** Free once §5 is done — landed
    in lot 1.E. A device that is switched on receives everything.
-2. **Catch-up on reconnect.** A returning device asks *its own other devices*
-   what it missed since its last timestamp. Direct, encrypted, device-to-device;
-   no third party involved.
+2. **Catch-up on reconnect.** Landed in lot 1.E (`node/dm_sync.rs`, wire in
+   SPEC §6.6). A returning device offers, **conversation by conversation**, a
+   digest of what it holds; its own other devices compare, pull what they lack
+   and receive it message by message. Direct, encrypted, device-to-device; no
+   third party involved. Three bounds shape it, and each exists for a reason:
+   the digest is per conversation, never whole-database (two devices legitimately
+   differ on their *outgoing* messages until they converge, so a global digest
+   would never match and would re-trigger a full pass forever); a pass covers the
+   64 most recently active conversations (an account with three hundred contacts
+   would otherwise emit three hundred datagrams per device per reconnect); and the
+   cursor is kept **per sibling device and per conversation** (a single cursor
+   would be dragged backwards by a third device waking up very late, replaying the
+   same batch forever, and Lamport positions are not comparable across
+   conversations anyway).
 3. **History transfer at pairing** (optional, on request). The new device may
    ask the original for the full history. Long, explicit, with a progress bar.
+   Not built.
 
 Stopping after step 1 still leaves a working product. That is the point of the
 ordering.
+
+⚠️ **A caught-up message is not a message this machine sent**, and forgetting
+that showed a bug rather than a history: our own messages arriving by catch-up
+were never queued here and will never be re-sent from here, so the delivery-state
+derivation of SPEC §6.1 read the missing outbox row as *failed* and painted a
+week-old, perfectly delivered message red. The `dm_synced` table (migration 14)
+records that provenance locally.
 
 ---
 

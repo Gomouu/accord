@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod automod;
 pub mod db;
 pub mod dm_sync;
 pub mod error;
@@ -17,6 +18,7 @@ pub mod mentions;
 pub mod messaging;
 pub mod offline;
 pub mod peer_addr;
+pub mod prefs;
 pub mod presence;
 pub mod profile;
 pub mod search;

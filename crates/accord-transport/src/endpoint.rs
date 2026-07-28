@@ -272,6 +272,22 @@ fn hex4(pubkey: &[u8; 32]) -> String {
     pubkey[..4].iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// Adresse d'un pair pour les logs : **hôte masqué, port conservé**.
+///
+/// 🔒 Le journal existe pour être envoyé à quelqu'un (feuille de route §10.6),
+/// et l'adresse d'un ami est la donnée d'un tiers — quelqu'un qui n'a rien
+/// demandé et à qui on ne peut pas poser la question. C'est la même règle que
+/// pour le rapport de diagnostic, qui la caviarde déjà ; les clés étaient
+/// tronquées à 4 octets depuis longtemps, les adresses ne l'étaient pas.
+///
+/// Le port reste parce que c'est lui qui diagnostique : un mapping externe sur
+/// un port différent du port local, ou un port qui change entre deux sessions,
+/// est exactement le symptôme qu'on cherche. L'hôte ne sert qu'à savoir où
+/// habite la personne.
+pub fn masque_hote(addr: &std::net::SocketAddr) -> String {
+    format!("masqué:{}", addr.port())
+}
+
 /// Désigne le lien par lequel joindre un pair : soit un datagramme direct, soit
 /// un circuit relais. C'est l'abstraction d'envoi commune (point 4 de
 /// l'architecture §11.3) : un paquet transport brut (HELLO/WELCOME/DATA) est émis
@@ -956,7 +972,7 @@ impl Endpoint {
                     }
                 };
             if let Err(e) = self.handle_datagram(&buf, from).await {
-                tracing::debug!(?from, error = %e, "datagramme rejeté");
+                tracing::debug!(depuis = %masque_hote(&from), error = %e, "datagramme rejeté");
             }
         }
     }
@@ -1163,7 +1179,7 @@ impl Endpoint {
             }
             tracing::debug!(
                 pair = %hex4(&established.peer_static),
-                %peer_addr,
+                pair_addr = %masque_hote(&peer_addr),
                 tunnel = link.circuit().is_some(),
                 "session établie (répondeur)"
             );
@@ -1254,7 +1270,7 @@ impl Endpoint {
             if let Some(expected) = expected_static {
                 if !bool::from(established.peer_static.ct_eq(&expected)) {
                     tracing::warn!(
-                        ?peer_addr,
+                        pair_addr = %masque_hote(&peer_addr),
                         "WELCOME d'une identité inattendue : liaison refusée, file abandonnée"
                     );
                     return Err(TransportError::PeerIdentityMismatch);
@@ -1315,7 +1331,7 @@ impl Endpoint {
             debug_assert!(file_residuelle.is_empty());
             tracing::debug!(
                 pair = %hex4(&established.peer_static),
-                %peer_addr,
+                pair_addr = %masque_hote(&peer_addr),
                 tunnel = link.circuit().is_some(),
                 "session établie (initiateur)"
             );
@@ -2494,5 +2510,26 @@ impl Endpoint {
         for addr in disconnected {
             let _ = self.events.send(TransportEvent::Disconnected { addr });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests_confidentialite_logs {
+    use super::masque_hote;
+
+    /// 🔒 Le journal de diagnostic (§10.6) est fait pour être envoyé à
+    /// quelqu'un. L'adresse d'un ami est la donnée d'un tiers ; elle n'y a pas
+    /// sa place, alors que le port, lui, est ce qui diagnostique un NAT.
+    #[test]
+    fn le_masque_retire_l_hote_et_garde_le_port() {
+        let v4: std::net::SocketAddr = "198.51.100.42:51820".parse().unwrap();
+        assert_eq!(masque_hote(&v4), "masqué:51820");
+        assert!(!masque_hote(&v4).contains("198.51.100"));
+
+        // IPv6 : `SocketAddr::port()` ne se laisse pas piéger par les
+        // deux-points de l'adresse, contrairement à un découpage textuel.
+        let v6: std::net::SocketAddr = "[2001:db8::1]:443".parse().unwrap();
+        assert_eq!(masque_hote(&v6), "masqué:443");
+        assert!(!masque_hote(&v6).contains("2001"));
     }
 }

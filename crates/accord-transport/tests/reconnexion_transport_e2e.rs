@@ -9,6 +9,14 @@
 //!     cache);
 //!   - cause 4: a stale direct session from the peer's previous incarnation is
 //!     evicted when the fresh one is established.
+//!
+//! Le dernier test de ce fichier n'est pas une cause racine de la reconnexion
+//! mais la moitié TRANSPORT de la campagne de mobilité (§9.3, voir
+//! `accord-node/tests/chaos_reseau_e2e.rs`) : un pair qui change d'adresse sans
+//! redémarrer. Il vit ici parce qu'on y voit les ÉVÉNEMENTS de session, et que
+//! la seule chose qui distingue une session déplacée d'une session refaite en
+//! douce est l'absence de nouvelle poignée de main — le résultat visible, lui,
+//! est le même dans les deux cas.
 
 use accord_crypto::Identity;
 use accord_proto::plaintext::ChannelMsg;
@@ -39,7 +47,6 @@ struct Node {
     ep: Arc<Endpoint>,
     events: mpsc::UnboundedReceiver<TransportEvent>,
     addr: SocketAddr,
-    #[allow(dead_code)]
     static_pub: [u8; 32],
 }
 
@@ -236,6 +243,140 @@ async fn la_session_cadavre_est_evincee_a_la_reconnexion() {
     );
     // Drain any stray event so the field is exercised (identity is the anchor).
     let _ = alice.events.try_recv();
+}
+
+/// Mobilité (§9.3) : le pair ne redémarre PAS — son adresse change SOUS une
+/// session vivante (Wi-Fi → 4G, NAT qui refait son mapping). Rien n'est fermé,
+/// rien n'est renégocié : les clés, le numéro de session et l'anti-rejeu restent
+/// ceux d'avant. Le répondeur doit donc réaiguiller la session qu'il tient déjà,
+/// et son seul indice est l'adresse SOURCE du datagramme suivant.
+///
+/// 🔒 Vérifier qu'un pair déplacé redevient JOIGNABLE ne prouve pas que sa
+/// session a suivi : plusieurs chemins y mènent, et ils aboutissent au même
+/// état. Au niveau nœud, le carnet d'adresses apprend la nouvelle adresse par
+/// l'événement `Message` et la compose ; ici même, répondre à un paquet venu
+/// d'une adresse inconnue ouvre un handshake vers elle. Dans les deux cas une
+/// session NEUVE se forme, `install_session` évince le cadavre, et la table
+/// finit identique — au prix d'un handshake complet (preuve de travail, clés
+/// fraîches) là où la mobilité ne coûte qu'une mise à jour de champ.
+///
+/// Ce qui départage, c'est qu'AUCUN `Connected` n'ait été émis. D'où la
+/// dernière assertion, qui est le cœur de ce test — vérifié en cassant : en
+/// neutralisant la mise à jour d'adresse de `Endpoint::on_data`, c'est
+/// exactement celle-là qui tombe, les précédentes restant vertes, et la
+/// campagne de bout en bout avec elles.
+#[tokio::test]
+async fn une_session_directe_suit_son_pair_qui_change_d_adresse() {
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(4, NetConditions::default());
+    let mut alice = spawn_node(&net, &clock, "10.0.13.1:4000");
+    let mut bob = spawn_node(&net, &clock, "10.0.13.2:4000");
+    let bob_pub = bob.static_pub;
+    // IP **et** port changent : un simple changement de port ne dirait rien
+    // d'un basculement d'interface.
+    let bob_apres: SocketAddr = "10.0.13.9:6000".parse().unwrap();
+
+    // Session établie et prouvée : Alice sait où joindre Bob.
+    bob.ep
+        .send(
+            alice.addr,
+            &ChannelMsg::Control(ControlMsg::Ping { token: 1 }),
+        )
+        .await
+        .unwrap();
+    wait_until(Duration::from_secs(2), || {
+        alice.ep.direct_session_addr(&bob_pub) == Some(bob.addr)
+    })
+    .await
+    .expect("session initiale avec Bob");
+
+    // Les événements déjà émis sont consommés ICI : ce qui apparaîtra APRÈS le
+    // déménagement doit être vide de tout `Connected`, faute de quoi la session
+    // aura été renégociée plutôt que déplacée.
+    while alice.events.try_recv().is_ok() {}
+
+    // Le déménagement, sous la session vivante.
+    assert!(
+        net.rebind(bob.addr, bob_apres),
+        "le déplacement n'a pas eu lieu : le test ne prouverait rien"
+    );
+    assert_eq!(
+        bob.ep.local_addr(),
+        bob_apres,
+        "le socket de Bob n'a pas suivi"
+    );
+
+    // Bob parle depuis sa nouvelle adresse. Aucun message ne l'annonce : c'est
+    // l'enveloppe du datagramme, et elle seule, qui porte l'information.
+    bob.ep
+        .send(
+            alice.addr,
+            &ChannelMsg::Control(ControlMsg::Ping { token: 2 }),
+        )
+        .await
+        .unwrap();
+    wait_until(Duration::from_secs(5), || {
+        alice.ep.direct_session_addr(&bob_pub) == Some(bob_apres)
+    })
+    .await
+    .expect("la session d'Alice n'a pas suivi Bob : elle reste scellée vers une adresse morte");
+
+    // Déplacée, pas dupliquée : une session directe par identité, sinon le
+    // choix de lien redevient non déterministe (cause 4 ci-dessus).
+    assert_eq!(
+        alice.ep.session_count(),
+        1,
+        "le déplacement a laissé une session cadavre à l'ancienne adresse"
+    );
+
+    // Le retour : Alice ne connaît la nouvelle adresse de Bob que par sa
+    // session, et ce qu'elle y envoie doit arriver.
+    let vers_bob = alice
+        .ep
+        .direct_session_addr(&bob_pub)
+        .expect("adresse de session");
+    let retour = ChannelMsg::Core(accord_proto::core_msg::CoreMsg::Presence {
+        status: 0,
+        custom: Some("de retour".into()),
+    });
+    alice.ep.send(vers_bob, &retour).await.unwrap();
+    let recu = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match bob.events.recv().await {
+                Some(TransportEvent::Message { msg, .. }) => return *msg,
+                Some(_) => continue,
+                None => panic!("canal d'événements fermé"),
+            }
+        }
+    })
+    .await
+    .expect("le retour n'est jamais arrivé à la nouvelle adresse de Bob");
+    match recu {
+        ChannelMsg::Core(accord_proto::core_msg::CoreMsg::Presence { custom, .. }) => {
+            assert_eq!(custom, Some("de retour".into()));
+        }
+        autre => panic!("message inattendu : {autre:?}"),
+    }
+
+    // La session a SUIVI Bob, elle n'a pas été refaite : aucun nouveau
+    // `Connected` n'a été émis depuis le déménagement.
+    let mut renegociee = false;
+    while let Ok(ev) = alice.events.try_recv() {
+        if matches!(ev, TransportEvent::Connected { .. }) {
+            renegociee = true;
+        }
+    }
+    assert!(
+        !renegociee,
+        "une nouvelle session a été négociée : le pair déplacé a été traité \
+         comme un inconnu, pas comme le même pair à une autre adresse"
+    );
+
+    // ⚠️ Ce que ce test ne prouve pas : qu'un pair déplacé reste joignable s'il
+    // se TAIT. La mobilité est passive — tant que Bob n'émet rien, Alice écrit
+    // vers une adresse morte, et seul le keep-alive (25 s) rouvre les yeux.
+    // Ni qu'elle fonctionne à travers un RELAIS : `on_data` ne réaiguille que
+    // les sessions directes, une session tunnelée gardant l'adresse du relais.
 }
 
 async fn wait_until(budget: Duration, mut cond: impl FnMut() -> bool) -> Result<(), ()> {

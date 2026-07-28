@@ -183,6 +183,224 @@ pub struct FinalizedInvite {
     pub sealed_key: [u8; SEALED_KEY_LEN],
 }
 
+/// Issue d'une acceptation d'invitation. Trois états, explicitement.
+///
+/// 🔒 Un `Option` ne suffisait plus : « pas notre affaire » et « en attente de
+/// validation » sont deux silences très différents — le premier veut dire que
+/// quelqu'un d'autre finalisera, le second que personne ne le fera sans une
+/// action humaine. Les confondre, c'est laisser un invité attendre pour
+/// toujours en croyant que ça va venir.
+#[derive(Debug)]
+pub enum AcceptOutcome {
+    /// Admis : op `AddMember`, journal et clé scellée à pousser.
+    Admitted(Box<FinalizedInvite>),
+    /// Preuve valide, mais le serveur exige une validation à l'entrée : la
+    /// demande est en file, rien n'est poussé.
+    Held,
+    /// Nous ne sommes pas le créateur de cette invitation : c'est lui qui
+    /// finalise (CRITICAL/HIGH liens publics). Rien à faire, sans erreur.
+    NotOurs,
+}
+
+impl AcceptOutcome {
+    /// L'admission, si elle a eu lieu. Confort de lecture pour les tests et
+    /// les appelants qui ne distinguent pas les deux formes de silence.
+    pub fn admitted(self) -> Option<FinalizedInvite> {
+        match self {
+            Self::Admitted(f) => Some(*f),
+            _ => None,
+        }
+    }
+}
+
+/// Clé `meta` de l'interrupteur « vérification à l'entrée » d'un groupe.
+fn entry_check_key(group_id: &[u8; 16]) -> String {
+    format!("group.entrycheck.{}", hex_court(group_id))
+}
+
+/// Clé `meta` de la file d'attente d'entrée d'un groupe.
+fn pending_key(group_id: &[u8; 16]) -> String {
+    format!("group.pending.{}", hex_court(group_id))
+}
+
+/// Hexadécimal d'un identifiant de groupe, pour composer une clé `meta`.
+fn hex_court(id: &[u8; 16]) -> String {
+    id.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Taille d'une entrée en file : membre (32) ‖ invitation (16) ‖ date (8).
+const PENDING_LEN: usize = 32 + 16 + 8;
+
+/// Plafond de la file d'attente d'un groupe.
+///
+/// Une invitation à usages multiples peut être rachetée par beaucoup de monde
+/// avant qu'un modérateur ne regarde. Sans plafond, la file devient un levier
+/// de saturation ; avec, la preuve de détention du secret reste exigée pour y
+/// entrer, ce qui rend l'attaque coûteuse. Même raisonnement que
+/// `MAX_PENDING_IN` pour les demandes d'ami.
+pub const MAX_PENDING_MEMBERS: usize = 128;
+
+/// Une demande d'entrée en attente de validation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingMember {
+    /// Compte du candidat.
+    pub member: [u8; 32],
+    /// Invitation qu'il a rachetée.
+    pub invite_id: [u8; 16],
+    /// Date de la demande (ms).
+    pub at_ms: u64,
+}
+
+/// Vrai si le groupe exige une validation avant d'admettre un nouveau membre.
+///
+/// Réglage **local** : il vit dans `meta`, pas dans l'op-log. C'est le nœud qui
+/// a créé l'invitation qui traite le rachat, donc c'est lui qui décide — et
+/// c'est cohérent avec ce que l'utilisateur exprime : « mes invitations ne
+/// prennent effet qu'après mon accord ». Un mode imposé à tout le serveur et
+/// vérifié par chaque membre serait un autre travail, filaire, et il n'est pas
+/// fait ici.
+pub fn entry_check_enabled(db: &Db, group_id: &[u8; 16]) -> Result<bool, CoreError> {
+    Ok(db
+        .meta(&entry_check_key(group_id))?
+        .is_some_and(|v| v == [1]))
+}
+
+/// Active ou coupe la vérification à l'entrée pour un groupe.
+pub fn set_entry_check(db: &Db, group_id: &[u8; 16], actif: bool) -> Result<(), CoreError> {
+    db.set_meta(&entry_check_key(group_id), if actif { &[1] } else { &[0] })
+}
+
+/// Demandes d'entrée en attente, de la plus ancienne à la plus récente.
+pub fn pending_members(db: &Db, group_id: &[u8; 16]) -> Result<Vec<PendingMember>, CoreError> {
+    let Some(brut) = db.meta(&pending_key(group_id))? else {
+        return Ok(Vec::new());
+    };
+    // Décodage tolérant : une valeur tronquée (copie de base interrompue)
+    // rend ce qui est lisible plutôt que de faire échouer l'ouverture d'un
+    // écran de modération.
+    Ok(brut
+        .chunks_exact(PENDING_LEN)
+        .filter_map(|c| {
+            Some(PendingMember {
+                member: c.get(..32)?.try_into().ok()?,
+                invite_id: c.get(32..48)?.try_into().ok()?,
+                at_ms: u64::from_le_bytes(c.get(48..56)?.try_into().ok()?),
+            })
+        })
+        .collect())
+}
+
+/// Écrit la file d'un groupe.
+fn ecrire_file(db: &Db, group_id: &[u8; 16], file: &[PendingMember]) -> Result<(), CoreError> {
+    let mut brut = Vec::with_capacity(file.len() * PENDING_LEN);
+    for p in file {
+        brut.extend_from_slice(&p.member);
+        brut.extend_from_slice(&p.invite_id);
+        brut.extend_from_slice(&p.at_ms.to_le_bytes());
+    }
+    db.set_meta(&pending_key(group_id), &brut)
+}
+
+/// Met une demande prouvée en file. Rend `false` si la file est pleine.
+///
+/// Idempotent : un candidat qui rejoue son rachat ne s'ajoute pas deux fois,
+/// et ne remonte pas non plus dans la file — sinon réémettre suffirait à
+/// passer devant tout le monde.
+fn hold_pending_member(
+    db: &Db,
+    group_id: &[u8; 16],
+    member: &[u8; 32],
+    invite_id: &[u8; 16],
+    at_ms: u64,
+) -> Result<bool, CoreError> {
+    let mut file = pending_members(db, group_id)?;
+    if file.iter().any(|p| p.member == *member) {
+        return Ok(true);
+    }
+    if file.len() >= MAX_PENDING_MEMBERS {
+        return Ok(false);
+    }
+    file.push(PendingMember {
+        member: *member,
+        invite_id: *invite_id,
+        at_ms,
+    });
+    ecrire_file(db, group_id, &file)?;
+    Ok(true)
+}
+
+/// Retire une demande de la file, qu'elle soit approuvée ou refusée.
+pub fn drop_pending_member(
+    db: &Db,
+    group_id: &[u8; 16],
+    member: &[u8; 32],
+) -> Result<(), CoreError> {
+    let file = pending_members(db, group_id)?;
+    let reste: Vec<PendingMember> = file.into_iter().filter(|p| p.member != *member).collect();
+    ecrire_file(db, group_id, &reste)
+}
+
+/// Approuve une demande en attente : admet le membre pour de bon.
+///
+/// 🔒 Repasse par les MÊMES vérifications que l'admission directe — droit
+/// d'invitation toujours détenu, invitation ni révoquée ni expirée ni
+/// épuisée. Le temps qui sépare le rachat de l'approbation est précisément
+/// celui pendant lequel l'invitation a pu être révoquée, ou le modérateur
+/// perdre son droit. Approuver sans re-vérifier ferait de la file une porte
+/// dérobée qui survit à sa propre fermeture.
+pub fn approve_pending_member(
+    db: &Db,
+    identity: &Identity,
+    group_id: &[u8; 16],
+    member: &[u8; 32],
+    now_ms: u64,
+) -> Result<FinalizedInvite, CoreError> {
+    let demande = pending_members(db, group_id)?
+        .into_iter()
+        .find(|p| p.member == *member)
+        .ok_or(CoreError::NotFound("demande d'entrée inconnue"))?;
+
+    let state = group_state(db, group_id)?;
+    let invite = state
+        .invites
+        .get(&demande.invite_id)
+        .ok_or(CoreError::NotFound("invitation inconnue"))?;
+    if identity.public_key() != invite.creator {
+        return Err(CoreError::OpRejected("invitation d'un autre créateur"));
+    }
+    if !state.can(&identity.public_key(), perms::INVITE) {
+        return Err(CoreError::OpRejected("droit d'invitation révoqué"));
+    }
+    if invite.revoked
+        || (invite.max_uses > 0 && invite.uses >= invite.max_uses)
+        || (invite.expires_ms > 0 && now_ms > invite.expires_ms)
+    {
+        return Err(CoreError::OpRejected(
+            "invitation révoquée, expirée ou épuisée",
+        ));
+    }
+
+    let add_op = author_op(
+        db,
+        identity,
+        group_id,
+        &GroupOpBody::AddMember {
+            member: *member,
+            invite_id: Some(demande.invite_id),
+        },
+        now_ms,
+    )?;
+    let ops = ops_for_pull(db, group_id, 0)?;
+    let (key_epoch, sealed_key) = seal_current_key_for(db, group_id, member)?;
+    drop_pending_member(db, group_id, member)?;
+    Ok(FinalizedInvite {
+        add_op,
+        ops,
+        key_epoch,
+        sealed_key,
+    })
+}
+
 /// Finalise une acceptation d'invitation (`CoreMsg::InviteAccept`/`InviteRedeem`)
 /// côté créateur : n'agit QUE si l'identité locale est le créateur de
 /// l'invitation, re-vérifie qu'elle détient toujours `INVITE`, que
@@ -213,7 +431,7 @@ pub fn finalize_invite_accept(
     secret: &[u8; 32],
     invitee: &[u8; 32],
     now_ms: u64,
-) -> Result<Option<FinalizedInvite>, CoreError> {
+) -> Result<AcceptOutcome, CoreError> {
     let state = group_state(db, group_id)?;
     let invite = state
         .invites
@@ -222,7 +440,7 @@ pub fn finalize_invite_accept(
     // Seul le créateur finalise et scelle (CRITICAL/HIGH) : cas neutre, pas
     // une entrée invalide.
     if identity.public_key() != invite.creator {
-        return Ok(None);
+        return Ok(AcceptOutcome::NotOurs);
     }
     if !state.can(&identity.public_key(), perms::INVITE) {
         return Err(CoreError::OpRejected("droit d'invitation révoqué"));
@@ -239,6 +457,27 @@ pub fn finalize_invite_accept(
     if hash != invite.code_hash {
         return Err(CoreError::OpRejected("secret d'invitation invalide"));
     }
+    // 🔒 Vérification à l'entrée : la preuve est faite, l'admission attend.
+    //
+    // Le contrôle est ICI et pas avant, après toutes les vérifications : ne
+    // mettre en attente qu'une demande DÉJÀ prouvée. Sinon la file
+    // deviendrait un dépotoir que n'importe qui remplirait sans détenir le
+    // moindre secret, et le modérateur trierait du bruit.
+    //
+    // Les usages de l'invitation ne sont pas consommés tant que rien n'est
+    // approuvé : c'est `AddMember` qui les compte, et il n'est pas encore
+    // écrit. Une invitation à usage unique reste donc rachetable si le
+    // modérateur refuse — ce qui est le comportement voulu.
+    if entry_check_enabled(db, group_id)? {
+        return match hold_pending_member(db, group_id, invitee, invite_id, now_ms)? {
+            true => Ok(AcceptOutcome::Held),
+            // File pleine : on refuse en silence, comme une preuve invalide.
+            // Un canal d'erreur dirait à un inconnu que le serveur existe et
+            // que sa file déborde — deux renseignements qu'il n'a pas à
+            // obtenir.
+            false => Err(CoreError::OpRejected("file d'attente d'entrée pleine")),
+        };
+    }
     let add_op = author_op(
         db,
         identity,
@@ -251,12 +490,12 @@ pub fn finalize_invite_accept(
     )?;
     let ops = ops_for_pull(db, group_id, 0)?;
     let (key_epoch, sealed_key) = seal_current_key_for(db, group_id, invitee)?;
-    Ok(Some(FinalizedInvite {
+    Ok(AcceptOutcome::Admitted(Box::new(FinalizedInvite {
         add_op,
         ops,
         key_epoch,
         sealed_key,
-    }))
+    })))
 }
 
 // ---- Liens d'invitation publics partageables ----
@@ -638,6 +877,7 @@ mod tests {
             2,
         )
         .unwrap()
+        .admitted()
         .expect("le créateur finalise l'admission");
         assert!(finalized.ops.iter().any(|o| o.kind == 0x07));
         assert!(group_state(&db, &created.group_id)
@@ -941,6 +1181,7 @@ mod tests {
             1,
         )
         .unwrap()
+        .admitted()
         .expect("le créateur admet Alice");
 
         // Alice reçoit un rôle portant la permission INVITE : elle est donc un
@@ -991,7 +1232,7 @@ mod tests {
         )
         .unwrap();
         assert!(
-            via_alice.is_none(),
+            matches!(via_alice, AcceptOutcome::NotOurs),
             "un membre INVITE non créateur ne finalise jamais"
         );
         assert!(!group_state(&db, &created.group_id)
@@ -1010,7 +1251,10 @@ mod tests {
             6,
         )
         .unwrap();
-        assert!(via_founder.is_some(), "le créateur finalise le rachat");
+        assert!(
+            matches!(via_founder, AcceptOutcome::Admitted(_)),
+            "le créateur finalise le rachat"
+        );
         assert!(group_state(&db, &created.group_id)
             .unwrap()
             .is_member(&bob.public_key()));
@@ -1028,5 +1272,199 @@ mod tests {
         // Sans préfixe non plus.
         let huge_bare = "A".repeat(MAX_INVITE_LINK_ENCODED_LEN + 100);
         assert!(decode_invite_link(&huge_bare).is_err());
+    }
+}
+
+#[cfg(test)]
+mod tests_verification_entree {
+    use super::*;
+    use crate::group::{create_group, group_state};
+
+    fn setup() -> (Db, Identity) {
+        (
+            Db::open_in_memory(&[7u8; 32]).unwrap(),
+            Identity::generate_with_pow_bits(1),
+        )
+    }
+
+    #[test]
+    fn une_preuve_valide_attend_au_lieu_d_admettre() {
+        let (db, founder) = setup();
+        let bob = Identity::generate_with_pow_bits(1);
+        let g = create_group(&db, &founder, "Guilde", 0).unwrap();
+        let inv = author_invite_create(&db, &founder, &g.group_id, 0, 0).unwrap();
+        set_entry_check(&db, &g.group_id, true).unwrap();
+
+        let issue = finalize_invite_accept(
+            &db,
+            &founder,
+            &g.group_id,
+            &inv.invite_id,
+            &inv.secret,
+            &bob.public_key(),
+            1,
+        )
+        .unwrap();
+
+        assert!(matches!(issue, AcceptOutcome::Held));
+        assert!(
+            !group_state(&db, &g.group_id)
+                .unwrap()
+                .is_member(&bob.public_key()),
+            "le candidat ne doit pas être membre avant validation"
+        );
+        let file = pending_members(&db, &g.group_id).unwrap();
+        assert_eq!(file.len(), 1);
+        assert_eq!(file[0].member, bob.public_key());
+    }
+
+    #[test]
+    fn une_preuve_invalide_n_entre_jamais_en_file() {
+        // 🔒 Le contrôle est APRÈS la vérification du secret, pas avant.
+        // Sinon la file deviendrait un dépotoir que n'importe qui remplirait
+        // sans rien détenir, et le modérateur trierait du bruit.
+        let (db, founder) = setup();
+        let bob = Identity::generate_with_pow_bits(1);
+        let g = create_group(&db, &founder, "Guilde", 0).unwrap();
+        let inv = author_invite_create(&db, &founder, &g.group_id, 0, 0).unwrap();
+        set_entry_check(&db, &g.group_id, true).unwrap();
+
+        assert!(finalize_invite_accept(
+            &db,
+            &founder,
+            &g.group_id,
+            &inv.invite_id,
+            &[0xFF; 32],
+            &bob.public_key(),
+            1,
+        )
+        .is_err());
+        assert!(pending_members(&db, &g.group_id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn approuver_admet_pour_de_bon_et_vide_la_file() {
+        let (db, founder) = setup();
+        let bob = Identity::generate_with_pow_bits(1);
+        let g = create_group(&db, &founder, "Guilde", 0).unwrap();
+        let inv = author_invite_create(&db, &founder, &g.group_id, 0, 0).unwrap();
+        set_entry_check(&db, &g.group_id, true).unwrap();
+        finalize_invite_accept(
+            &db,
+            &founder,
+            &g.group_id,
+            &inv.invite_id,
+            &inv.secret,
+            &bob.public_key(),
+            1,
+        )
+        .unwrap();
+
+        let f = approve_pending_member(&db, &founder, &g.group_id, &bob.public_key(), 2).unwrap();
+
+        assert!(group_state(&db, &g.group_id)
+            .unwrap()
+            .is_member(&bob.public_key()));
+        assert!(
+            !f.ops.is_empty(),
+            "le journal complet part chez le nouveau membre"
+        );
+        assert!(pending_members(&db, &g.group_id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn une_invitation_revoquee_entre_temps_ne_s_approuve_plus() {
+        // 🔒 Le cœur du sujet. Le temps qui sépare le rachat de l'approbation
+        // est exactement celui pendant lequel l'invitation a pu être
+        // révoquée. Approuver sans re-vérifier ferait de la file une porte
+        // dérobée qui survit à sa propre fermeture.
+        let (db, founder) = setup();
+        let bob = Identity::generate_with_pow_bits(1);
+        let g = create_group(&db, &founder, "Guilde", 0).unwrap();
+        let inv = author_invite_create(&db, &founder, &g.group_id, 0, 0).unwrap();
+        set_entry_check(&db, &g.group_id, true).unwrap();
+        finalize_invite_accept(
+            &db,
+            &founder,
+            &g.group_id,
+            &inv.invite_id,
+            &inv.secret,
+            &bob.public_key(),
+            1,
+        )
+        .unwrap();
+
+        author_op(
+            &db,
+            &founder,
+            &g.group_id,
+            &GroupOpBody::InviteRevoke {
+                invite_id: inv.invite_id,
+            },
+            2,
+        )
+        .unwrap();
+
+        assert!(
+            approve_pending_member(&db, &founder, &g.group_id, &bob.public_key(), 3).is_err(),
+            "une invitation révoquée ne doit plus pouvoir être approuvée"
+        );
+        assert!(!group_state(&db, &g.group_id)
+            .unwrap()
+            .is_member(&bob.public_key()));
+    }
+
+    #[test]
+    fn rejouer_son_rachat_ne_fait_pas_passer_devant() {
+        // Sans idempotence, réémettre suffirait à remonter dans la file.
+        let (db, founder) = setup();
+        let bob = Identity::generate_with_pow_bits(1);
+        let g = create_group(&db, &founder, "Guilde", 0).unwrap();
+        let inv = author_invite_create(&db, &founder, &g.group_id, 0, 0).unwrap();
+        set_entry_check(&db, &g.group_id, true).unwrap();
+
+        for t in 1..4 {
+            finalize_invite_accept(
+                &db,
+                &founder,
+                &g.group_id,
+                &inv.invite_id,
+                &inv.secret,
+                &bob.public_key(),
+                t,
+            )
+            .unwrap();
+        }
+        let file = pending_members(&db, &g.group_id).unwrap();
+        assert_eq!(file.len(), 1);
+        assert_eq!(
+            file[0].at_ms, 1,
+            "la date de la PREMIÈRE demande est gardée"
+        );
+    }
+
+    #[test]
+    fn couper_la_verification_rend_l_admission_directe() {
+        let (db, founder) = setup();
+        let bob = Identity::generate_with_pow_bits(1);
+        let g = create_group(&db, &founder, "Guilde", 0).unwrap();
+        let inv = author_invite_create(&db, &founder, &g.group_id, 0, 0).unwrap();
+
+        // Par défaut : pas de vérification, admission immédiate.
+        assert!(!entry_check_enabled(&db, &g.group_id).unwrap());
+        let issue = finalize_invite_accept(
+            &db,
+            &founder,
+            &g.group_id,
+            &inv.invite_id,
+            &inv.secret,
+            &bob.public_key(),
+            1,
+        )
+        .unwrap();
+        assert!(matches!(issue, AcceptOutcome::Admitted(_)));
+        assert!(group_state(&db, &g.group_id)
+            .unwrap()
+            .is_member(&bob.public_key()));
     }
 }

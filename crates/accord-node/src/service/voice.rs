@@ -2,6 +2,8 @@
 //! audio D-029, DSP de capture) et `calls.*` (appels 1-à-1, voir
 //! docs/VOICE_CALLS.md).
 
+use accord_proto::limits::VOICE_MAX_PARTICIPANTS;
+use accord_proto::plaintext::{VIDEO_HIDE_CAMERA, VIDEO_HIDE_SCREEN};
 use serde_json::{json, Value};
 
 use crate::error::NodeError;
@@ -41,6 +43,42 @@ fn video_frame_params(params: &Value) -> Result<(bool, Vec<u8>), NodeError> {
         "data hexadécimal invalide ou trop grand",
     ))?;
     Ok((keyframe, encoded))
+}
+
+/// Paramètre `hidden` de `video.interest` (vidéo sélective) :
+/// `[{ "peer": "<hex64>", "streams": ["camera", "screen"] }]` — les flux de
+/// `peer` que l'UI locale n'affiche PAS.
+///
+/// Un nom de flux inconnu est **ignoré** plutôt que refusé : une UI plus
+/// récente qui nommerait un troisième flux ne doit pas voir sa déclaration
+/// entière rejetée (ce qui rétablirait tout, mais silencieusement et sans
+/// que personne ne le sache). Une entrée sans flux masqué reste valide : elle
+/// dit « j'affiche tout de ce pair ».
+fn param_video_hidden(params: &Value) -> Result<Vec<([u8; 32], u8)>, NodeError> {
+    let list = match params.get("hidden") {
+        None | Some(Value::Null) => return Ok(Vec::new()),
+        Some(Value::Array(items)) => items,
+        Some(_) => return Err(NodeError::Invalid("hidden : tableau requis")),
+    };
+    if list.len() > VOICE_MAX_PARTICIPANTS {
+        return Err(NodeError::Invalid("hidden : trop d'entrées"));
+    }
+    list.iter()
+        .map(|item| {
+            let peer = param_pubkey(item, "peer")?;
+            let mut mask = 0u8;
+            if let Some(Value::Array(streams)) = item.get("streams") {
+                for name in streams.iter().filter_map(Value::as_str) {
+                    match name {
+                        "camera" => mask |= VIDEO_HIDE_CAMERA,
+                        "screen" => mask |= VIDEO_HIDE_SCREEN,
+                        _ => {}
+                    }
+                }
+            }
+            Ok((peer, mask))
+        })
+        .collect()
 }
 
 impl NodeService {
@@ -220,6 +258,12 @@ impl NodeService {
             "camera.frame" => {
                 let (keyframe, encoded) = video_frame_params(params)?;
                 voice.camera_send(keyframe, encoded);
+                Ok(json!({}))
+            }
+            "video.interest" => {
+                // Vidéo sélective : l'UI dit ce qu'elle n'affiche pas. Ne rien
+                // envoyer (UI plus ancienne) laisse tout circuler comme avant.
+                voice.video_interest(param_video_hidden(params)?);
                 Ok(json!({}))
             }
             _ => Err(NodeError::Invalid("méthode inconnue")),

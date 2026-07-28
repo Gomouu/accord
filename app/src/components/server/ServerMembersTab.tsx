@@ -5,7 +5,7 @@
  * soi-même restent intouchables côté UI ; le nœud vérifie la hiérarchie.
  */
 
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { Dict } from '../../i18n';
 import { interpolate } from '../../i18n';
 import { formatTimestamp } from '../../lib/format';
@@ -28,6 +28,8 @@ import {
 import { selfDisplayName, useSession } from '../../stores/session';
 import { useUi, useT } from '../../stores/ui';
 import { Avatar } from '../Avatar';
+import { api } from '../../lib/client';
+import type { PendingMemberEntry } from '../../lib/api';
 import { ConfirmButton, messageOf } from './controls';
 
 const MINUTE_MS = 60_000;
@@ -110,6 +112,107 @@ function MemberTimeout({
   );
 }
 
+/**
+ * Vérification à l'entrée (§9.4) : interrupteur, et file des demandes déjà
+ * PROUVÉES en attente de validation.
+ *
+ * Réglage local du créateur des invitations : c'est son nœud qui traite les
+ * rachats, donc c'est lui qui décide. « Mes invitations ne prennent effet
+ * qu'après mon accord » — et non « ce serveur exige une validation », qui
+ * serait un mode répliqué et vérifié par tous les membres, un autre travail.
+ */
+function EntryCheckSection({ groupId }: { groupId: string }) {
+  const t = useT();
+  const lang = useUi((s) => s.lang);
+  const toast = useUi((s) => s.toast);
+  const contacts = useFriends((s) => s.contacts);
+  const [actif, setActif] = useState<boolean | null>(null);
+  const [attente, setAttente] = useState<PendingMemberEntry[]>([]);
+
+  const echec = t.errors.actionFailed;
+  const recharger = useCallback((): void => {
+    api
+      .groupsPendingMembers(groupId)
+      .then((r) => setAttente(r.entries))
+      .catch(() => {});
+  }, [groupId]);
+
+  useEffect(() => {
+    api
+      .groupsEntryCheck(groupId)
+      .then((r) => setActif(r.enabled))
+      .catch(() => setActif(null));
+    recharger();
+  }, [groupId, recharger]);
+
+  // Le nœud n'expose pas ce réglage : version antérieure, rien à afficher.
+  if (actif === null) return null;
+
+  const basculer = (valeur: boolean): void => {
+    api
+      .groupsSetEntryCheck(groupId, valeur)
+      .then(() => setActif(valeur))
+      .catch(() => toast('error', echec));
+  };
+
+  const trancher = (membre: string, approuver: boolean): void => {
+    const action = approuver
+      ? api.groupsApproveMember(groupId, membre)
+      : api.groupsRefuseMember(groupId, membre);
+    action
+      .then(() => setAttente((a) => a.filter((p) => p.member !== membre)))
+      .catch(() => toast('error', echec));
+  };
+
+  return (
+    <div className="mb-4 rounded-lg bg-sidebar p-3">
+      <label className="flex items-center gap-2 text-sm text-norm">
+        <input
+          type="checkbox"
+          checked={actif}
+          onChange={(e) => basculer(e.target.checked)}
+          className="size-4"
+        />
+        {t.serveur.entryCheck}
+      </label>
+      <p className="mt-1 text-xs text-muted">{t.serveur.entryCheckHint}</p>
+
+      {attente.length > 0 && (
+        <ul className="mt-3 m-0 list-none p-0">
+          {attente.map((p) => (
+            <li
+              key={p.member}
+              className="mb-1 flex items-center gap-2 rounded-md bg-input px-2 py-1.5"
+            >
+              <Avatar id={p.member} name={displayNameOf(contacts, p.member)} size={24} />
+              <span className="min-w-0 flex-1 truncate text-sm text-norm">
+                {displayNameOf(contacts, p.member)}
+              </span>
+              <span className="shrink-0 text-xs text-faint">
+                {formatTimestamp(p.at_ms, lang)}
+              </span>
+              <button
+                type="button"
+                onClick={() => trancher(p.member, true)}
+                className="shrink-0 rounded-md bg-blurple px-3 py-1.5 text-xs font-medium text-white hover:bg-blurple-hover"
+              >
+                {t.serveur.entryApprove}
+              </button>
+              <button
+                type="button"
+                onClick={() => trancher(p.member, false)}
+                className="shrink-0 rounded-md bg-rail px-3 py-1.5 text-xs font-medium text-norm hover:bg-hover"
+              >
+                {t.serveur.entryRefuse}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function ServerMembersTab({ groupId }: { groupId: string }) {
   const t = useT();
   const lang = useUi((s) => s.lang);
@@ -142,6 +245,7 @@ export function ServerMembersTab({ groupId }: { groupId: string }) {
 
   return (
     <div>
+      {canKick && <EntryCheckSection groupId={groupId} />}
       <div className="mb-2 text-xs font-medium uppercase tracking-wide text-faint">
         {t.groups.members} — {state.members.length}
       </div>

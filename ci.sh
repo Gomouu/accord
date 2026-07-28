@@ -4,6 +4,13 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 export PATH="$HOME/.cargo/bin:$PATH"
+# Opus vendu (audiopus_sys) se compile via CMake, et CMake >= 4 a retiré la
+# compatibilité avec les projets < 3.5. Sans cette variable, tout changement
+# touchant app/src-tauri fait échouer le gate sur un message qui ne parle ni
+# d'Accord ni d'audio. `ci.yml` et `scripts/build-macos.sh` la posaient déjà ;
+# ici elle manquait, et la panne restait invisible tant que le crate hôte
+# n'était pas reconstruit.
+export CMAKE_POLICY_VERSION_MINIMUM="${CMAKE_POLICY_VERSION_MINIMUM:-3.5}"
 
 step() { printf '\n\033[1;34m== %s ==\033[0m\n' "$1"; }
 
@@ -67,6 +74,17 @@ if [ -d app ] && [ -f app/package.json ]; then
 
   step "UI: budget du chunk initial"
   node scripts/check-bundle-budget.mjs
+
+  # Dette D3 (ROADMAP §1.3) : mesurée deux fois, écrite deux fois, et les
+  # fichiers avaient grossi les deux fois. Un cliquet plutôt qu'un vœu.
+  step "Cliquet des fichiers de plus de 800 lignes"
+  node scripts/check-file-size.mjs
+
+  # docs/API.md a annoncé « 1 MiB » de taille maximale de message alors que le
+  # code dit 16 MiB — non par dérive, mais faux depuis le premier commit. Un
+  # auteur de client tiers y lisait une contrainte inexistante.
+  step "Constantes publiques citées dans les docs"
+  node scripts/check-doc-constants.mjs
 
   # Les e2e d'interface étaient hors du gate : « Marquer comme lu » a disparu
   # du menu serveur à la refonte 4.5.0 et la régression a été publiée, alors

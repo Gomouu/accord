@@ -126,6 +126,92 @@ const CONTACTS: Contact[] = [
   },
 ];
 
+/**
+ * Groupe de MP (jalon 5) : trois personnes, un seul fil, aucun rôle. Présent
+ * dans la vitrine pour que la garde d'accessibilité voie ses surfaces — la
+ * liste des conversations qui l'héberge et l'en-tête de son fil, dont les
+ * boutons n'existent nulle part ailleurs.
+ */
+const DM_GROUP_ID = 'demo-trio';
+const DM_GROUP_CHANNEL = 'trio-fil';
+
+const DM_GROUP_STATE: GroupStateJson = {
+  group_id: DM_GROUP_ID,
+  name: 'Nous trois',
+  is_dm: true,
+  icon: null,
+  banner: null,
+  banner_color: null,
+  founder: SELF_ID,
+  members: [
+    { pubkey: SELF_ID, roles: [] },
+    { pubkey: 'noa', roles: [] },
+    { pubkey: 'mina', roles: [] },
+  ],
+  bans: [],
+  channels: [
+    {
+      channel_id: DM_GROUP_CHANNEL,
+      name: 'Nous trois',
+      kind: 'text',
+      category: null,
+      position: 0,
+      topic: '',
+    },
+  ],
+  categories: [],
+  roles: [],
+  invites: [],
+  emojis: [],
+  stickers: [],
+  sounds: [],
+  events: [],
+  threads: [],
+  polls: [],
+  automod_words: [],
+  read_marks: {},
+  // Le nœud rend bel et bien le masque complet au fondateur, même ici : c'est
+  // l'interface qui doit le neutraliser (`displayedPermissions`).
+  my_permissions: 0x3ff,
+};
+
+const DM_GROUP_MESSAGES: GroupMessage[] = [
+  {
+    msg_id: 'trio-1',
+    channel_id: DM_GROUP_CHANNEL,
+    author: 'noa',
+    lamport: 1,
+    sent_ms: now - 26 * 60_000,
+    deleted: false,
+    body: {
+      type: 'text',
+      text: 'On se cale sur jeudi soir pour la relecture à trois ?',
+      reply_to: null,
+      attachments: 0,
+    },
+    edited: null,
+    reactions: [],
+    attachments: [],
+  },
+  {
+    msg_id: 'trio-2',
+    channel_id: DM_GROUP_CHANNEL,
+    author: 'mina',
+    lamport: 2,
+    sent_ms: now - 18 * 60_000,
+    deleted: false,
+    body: {
+      type: 'text',
+      text: 'Ça me va. Je prépare les planches d’ici là.',
+      reply_to: null,
+      attachments: 0,
+    },
+    edited: null,
+    reactions: [{ emoji: '👍', author: SELF_ID }],
+    attachments: [],
+  },
+];
+
 const GROUP_STATE: GroupStateJson = {
   group_id: GROUP_ID,
   name: 'Atelier Cipher',
@@ -375,10 +461,16 @@ function seedDemoStores(): void {
     markRead: noop,
   });
   useGroups.setState({
-    ids: [GROUP_ID],
-    states: { [GROUP_ID]: GROUP_STATE },
-    messages: { [channelKey(GROUP_ID, CHANNEL_ID)]: GROUP_MESSAGES },
-    hasMore: { [channelKey(GROUP_ID, CHANNEL_ID)]: false },
+    ids: [GROUP_ID, DM_GROUP_ID],
+    states: { [GROUP_ID]: GROUP_STATE, [DM_GROUP_ID]: DM_GROUP_STATE },
+    messages: {
+      [channelKey(GROUP_ID, CHANNEL_ID)]: GROUP_MESSAGES,
+      [channelKey(DM_GROUP_ID, DM_GROUP_CHANNEL)]: DM_GROUP_MESSAGES,
+    },
+    hasMore: {
+      [channelKey(GROUP_ID, CHANNEL_ID)]: false,
+      [channelKey(DM_GROUP_ID, DM_GROUP_CHANNEL)]: false,
+    },
     loadingOlder: {},
     pins: { [channelKey(GROUP_ID, CHANNEL_ID)]: ['group-1'] },
     unread: { [GROUP_ID]: { design: 4 } },
@@ -474,6 +566,10 @@ function DemoToolbar() {
   const views: Array<{ label: string; view: View }> = [
     { label: 'Salon', view: { kind: 'group', groupId: GROUP_ID, channelId: CHANNEL_ID } },
     { label: 'MP', view: { kind: 'dm', peer: 'noa' } },
+    {
+      label: 'Groupe MP',
+      view: { kind: 'group', groupId: DM_GROUP_ID, channelId: DM_GROUP_CHANNEL },
+    },
     { label: 'Amis', view: { kind: 'friends' } },
   ];
   const themes: Array<{ label: string; theme: Theme }> = THEME_IDS.map((id) => ({

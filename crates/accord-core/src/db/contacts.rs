@@ -53,6 +53,13 @@ pub struct Contact {
     /// means the peer's key changed since verification ("verification
     /// broken" warning in the UI).
     pub verified_pubkey: Option<[u8; 32]>,
+    /// Horloge murale du dernier changement d'ÉTAT (ms), sur la machine qui
+    /// l'a décidé. `0` pour un contact d'avant la migration 16.
+    ///
+    /// Sert à départager deux décisions concurrentes prises sur deux machines
+    /// du même compte — voir `friends::apply_remote_state`. Jamais montré à
+    /// l'utilisateur.
+    pub state_changed_ms: u64,
 }
 
 /// Colonnes brutes d'un contact, avant validation des tailles de blobs.
@@ -65,6 +72,7 @@ type RawContact = (
     u64,
     Option<u64>,
     Option<Vec<u8>>,
+    u64,
 );
 
 fn row_to_contact(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawContact> {
@@ -77,6 +85,7 @@ fn row_to_contact(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawContact> {
         row.get(5)?,
         row.get(6)?,
         row.get(7)?,
+        row.get(8)?,
     ))
 }
 
@@ -90,11 +99,12 @@ fn build(raw: RawContact) -> Result<Contact, CoreError> {
         last_seen_ms: raw.5,
         verified_at: raw.6,
         verified_pubkey: raw.7.map(blob).transpose()?,
+        state_changed_ms: raw.8,
     })
 }
 
-const COLS: &str =
-    "node_id, pubkey, display_name, state, added_ms, last_seen_ms, verified_at, verified_pubkey";
+const COLS: &str = "node_id, pubkey, display_name, state, added_ms, last_seen_ms, verified_at, \
+     verified_pubkey, state_changed_ms";
 
 impl Db {
     /// Insère ou met à jour un contact. Les colonnes de vérification
@@ -102,19 +112,22 @@ impl Db {
     /// de pseudo/état ne doit jamais effacer une vérification.
     pub fn upsert_contact(&self, c: &Contact) -> Result<(), CoreError> {
         self.conn().execute(
-            "INSERT INTO contacts (node_id, pubkey, display_name, state, added_ms, last_seen_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "INSERT INTO contacts
+               (node_id, pubkey, display_name, state, added_ms, last_seen_ms, state_changed_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(node_id) DO UPDATE SET
-               display_name = excluded.display_name,
-               state        = excluded.state,
-               last_seen_ms = excluded.last_seen_ms",
+               display_name     = excluded.display_name,
+               state            = excluded.state,
+               last_seen_ms     = excluded.last_seen_ms,
+               state_changed_ms = excluded.state_changed_ms",
             params![
                 c.node_id,
                 c.pubkey,
                 c.display_name,
                 c.state as u8,
                 c.added_ms,
-                c.last_seen_ms
+                c.last_seen_ms,
+                c.state_changed_ms
             ],
         )?;
         Ok(())
@@ -172,6 +185,11 @@ impl Db {
     }
 
     /// Change l'état relationnel d'un contact existant.
+    ///
+    /// N'avance PAS `state_changed_ms` : cette variante sert les transitions
+    /// internes du cycle d'amitié (acceptation, demande croisée), qui n'ont
+    /// pas à être propagées ni ordonnées entre appareils. Le blocage, lui,
+    /// passe par [`Db::set_contact_state_at`].
     pub fn set_contact_state(
         &self,
         node_id: &[u8; 32],
@@ -180,6 +198,26 @@ impl Db {
         let n = self.conn().execute(
             "UPDATE contacts SET state = ?2 WHERE node_id = ?1",
             params![node_id, state as u8],
+        )?;
+        if n == 0 {
+            return Err(CoreError::NotFound("contact"));
+        }
+        Ok(())
+    }
+
+    /// Change l'état d'un contact ET horodate la décision.
+    ///
+    /// C'est cet horodatage qui permet à deux machines d'un même compte de
+    /// départager deux décisions concurrentes (`friends::apply_remote_state`).
+    pub fn set_contact_state_at(
+        &self,
+        node_id: &[u8; 32],
+        state: ContactState,
+        at_ms: u64,
+    ) -> Result<(), CoreError> {
+        let n = self.conn().execute(
+            "UPDATE contacts SET state = ?2, state_changed_ms = ?3 WHERE node_id = ?1",
+            params![node_id, state as u8, at_ms],
         )?;
         if n == 0 {
             return Err(CoreError::NotFound("contact"));
@@ -291,6 +329,7 @@ mod tests {
             last_seen_ms: 0,
             verified_at: None,
             verified_pubkey: None,
+            state_changed_ms: 0,
         }
     }
 

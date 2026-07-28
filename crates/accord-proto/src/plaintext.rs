@@ -232,6 +232,37 @@ pub enum VoiceMsg {
         /// Vrai = caméra allumée, faux = éteinte.
         on: bool,
     },
+    /// Vidéo sélective (v6.2) : le RÉCEPTEUR dit au destinataire de ce message
+    /// lesquels de SES flux il n'affiche pas en ce moment, pour que celui-ci
+    /// cesse de les émettre (à dix en visio, chacun émettait neuf flux dont la
+    /// plupart n'étaient jamais peints).
+    ///
+    /// Trois choix de forme, tous dictés par un même principe — **se taire ne
+    /// doit jamais couper un flux** :
+    ///
+    /// 1. Le masque est *négatif* (ce qu'on N'affiche PAS) et non positif. Un
+    ///    client plus récent pourra ajouter un troisième flux vidéo : un
+    ///    récepteur plus ancien ne saura pas le nommer, donc ne le masquera
+    ///    jamais, donc continuera à le recevoir. En sémantique positive, ce
+    ///    même récepteur aurait silencieusement coupé un flux qu'il ignore.
+    ///    Un genre inconnu coûte de la bande passante, jamais une image noire.
+    /// 2. Le message est adressé à UN émetteur et ne parle que de SES flux :
+    ///    personne d'autre n'apprend ce que l'on regarde, et le message tient
+    ///    dans 18 octets.
+    /// 3. Chez l'émetteur, la déclaration est un état SOUPLE, à expiration
+    ///    (voir `voice::interest`) : le récepteur la réaffirme tant qu'il
+    ///    masque quelque chose. Une déclaration perdue ne coupe donc rien de
+    ///    durable, et un pair muet (client v6.1, message égaré, panne) reçoit
+    ///    tout — le défaut du protocole est l'ancien comportement.
+    VideoInterest {
+        /// Salon (== `call_id` d'un appel 1-à-1, `channel_id` d'un salon).
+        room: [u8; 16],
+        /// Masque des flux du DESTINATAIRE que l'émetteur de ce message
+        /// n'affiche pas ([`VIDEO_HIDE_CAMERA`], [`VIDEO_HIDE_SCREEN`]). Un
+        /// bit inconnu est ignoré : il ne désigne aucun flux émis ici.
+        /// `0` = tout est affiché (rétablissement immédiat).
+        hidden: u8,
+    },
 }
 
 const MAX_OPUS_FRAME: usize = 1024;
@@ -239,6 +270,14 @@ const MAX_OPUS_FRAME: usize = 1024;
 /// Drapeau `flags` des trames vidéo ([`VoiceMsg::ScreenFrame`] et
 /// [`VoiceMsg::CameraFrame`]) : la tranche appartient à une keyframe.
 pub const VIDEO_FLAG_KEYFRAME: u8 = 0x01;
+
+/// Masque `hidden` de [`VoiceMsg::VideoInterest`] : la caméra du destinataire
+/// n'est pas affichée.
+pub const VIDEO_HIDE_CAMERA: u8 = 0x01;
+
+/// Masque `hidden` de [`VoiceMsg::VideoInterest`] : le partage d'écran du
+/// destinataire n'est pas affiché.
+pub const VIDEO_HIDE_SCREEN: u8 = 0x02;
 
 /// Taille maximale d'une tranche portée par une trame vidéo (écran ou caméra) :
 /// bornée pour tenir, une fois scellée, dans un unique datagramme UDP
@@ -310,6 +349,11 @@ impl WireEncode for VoiceMsg {
                 w.put_arr(room);
                 w.put_u8(u8::from(*on));
             }
+            VoiceMsg::VideoInterest { room, hidden } => {
+                w.put_u8(0x07);
+                w.put_arr(room);
+                w.put_u8(*hidden);
+            }
         }
     }
 }
@@ -351,6 +395,10 @@ impl WireDecode for VoiceMsg {
             0x06 => Ok(VoiceMsg::CameraControl {
                 room: r.arr()?,
                 on: r.u8()? != 0,
+            }),
+            0x07 => Ok(VoiceMsg::VideoInterest {
+                room: r.arr()?,
+                hidden: r.u8()?,
             }),
             _ => Err(DecodeError::InvalidValue("voice kind")),
         }
@@ -572,6 +620,34 @@ mod tests {
         assert_ne!(bytes(&screen), bytes(&camera));
         assert_eq!(voice_roundtrip(&screen), screen);
         assert_eq!(voice_roundtrip(&camera), camera);
+    }
+
+    #[test]
+    fn video_interest_roundtrips_every_mask() {
+        // Y compris un masque portant des bits inconnus : ils traversent le
+        // codec sans erreur (c'est le moteur qui les ignore, pas le décodeur —
+        // un bit futur ne doit pas faire jeter tout le datagramme).
+        for hidden in [0x00, VIDEO_HIDE_CAMERA, VIDEO_HIDE_SCREEN, 0x03, 0xFF] {
+            let msg = VoiceMsg::VideoInterest {
+                room: [0x2B; 16],
+                hidden,
+            };
+            assert_eq!(voice_roundtrip(&msg), msg);
+        }
+    }
+
+    #[test]
+    fn video_interest_is_smaller_than_a_single_video_fragment() {
+        // L'intérêt vidéo doit rester négligeable devant ce qu'il économise :
+        // s'il coûtait l'ordre de grandeur d'un fragment, la déclaration
+        // périodique mangerait le gain.
+        let mut w = Writer::new();
+        VoiceMsg::VideoInterest {
+            room: [0; 16],
+            hidden: VIDEO_HIDE_CAMERA,
+        }
+        .encode(&mut w);
+        assert!(w.into_bytes().len() < 32);
     }
 
     #[test]

@@ -111,7 +111,10 @@ WebKitGTK 4.1 may be missing — prefer Ubuntu 22.04 or newer.
 > Building the voice stack compiles the vendored Opus codec via CMake. With
 > CMake ≥ 4 (e.g. current Homebrew), `audiopus_sys`'s bundled CMakeLists is
 > rejected as too old — export `CMAKE_POLICY_VERSION_MINIMUM=3.5` before any
-> `cargo`/`ci.sh` invocation (or install `cmake@3`).
+> `cargo`/`ci.sh` invocation (or install `cmake@3`). `build-macos.sh` exports it
+> itself: a universal binary has no way around the vendored Opus, since Homebrew
+> only ships libopus for the native arch, so the second slice always goes
+> through CMake.
 >
 > The frontend test suite (vitest 2.x + jsdom) requires a Node LTS in the
 > `>=20 <25` range (declared in `app/package.json` `engines`); Node 26+

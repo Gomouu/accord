@@ -414,3 +414,49 @@ describe('aggregateFolderBadge', () => {
     expect(aggregateFolderBadge(['a'], {}, {})).toBeNull();
   });
 });
+
+describe('ServerRail — groupes de MP (jalon 5)', () => {
+  it('n’affiche pas un groupe de MP dans le rail des serveurs', () => {
+    useGroups.setState({
+      ids: ['serveur', 'mp'],
+      states: {
+        serveur: serverState('Atelier'),
+        mp: { ...serverState('Nous trois'), is_dm: true },
+      },
+    });
+
+    render(<ServerRail />);
+
+    expect(screen.getByRole('button', { name: /Atelier/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Nous trois/ })).not.toBeInTheDocument();
+  });
+
+  it('garde le bouton Accueil actif quand un groupe de MP est ouvert', () => {
+    // La conversation d'un groupe de MP vit sous l'accueil : c'est lui que le
+    // rail doit désigner, pas « aucune entrée active ».
+    useGroups.setState({
+      ids: ['mp'],
+      states: { mp: { ...serverState('Nous trois'), is_dm: true } },
+    });
+    useUi.setState({ view: { kind: 'group', groupId: 'mp', channelId: 'fil' } });
+
+    render(<ServerRail />);
+
+    expect(screen.getByRole('button', { name: /Messages privés/ })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
+  it('affiche le même groupe dès qu’il n’est plus marqué MP', () => {
+    // Contrôle négatif : l'absence ci-dessus tient à `is_dm`, pas au montage.
+    useGroups.setState({
+      ids: ['mp'],
+      states: { mp: { ...serverState('Nous trois'), is_dm: false } },
+    });
+
+    render(<ServerRail />);
+
+    expect(screen.getByRole('button', { name: /Nous trois/ })).toBeInTheDocument();
+  });
+});

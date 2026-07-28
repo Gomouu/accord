@@ -21,6 +21,14 @@ RACINE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$RACINE"
 export PATH="$HOME/.cargo/bin:$PATH"
 
+# audiopus_sys embarque un CMakeLists ancien ; CMake >= 4 refuse désormais son
+# `cmake_minimum_required`. Le build universel N'A PAS d'échappatoire par
+# pkg-config : Homebrew ne fournit libopus que pour l'architecture native, donc
+# la seconde tranche du binaire universel passe forcément par le Opus embarqué,
+# donc par CMake. Sans cette variable, le build échoue sur une machine à jour —
+# c'est la même que celle posée par `.github/workflows/ci.yml`.
+export CMAKE_POLICY_VERSION_MINIMUM="${CMAKE_POLICY_VERSION_MINIMUM:-3.5}"
+
 # Cible de compilation : universelle par défaut.
 CIBLE="${ACCORD_CIBLE:-universal-apple-darwin}"
 
@@ -74,19 +82,37 @@ fi
 echo "== Build Tauri (cible : $CIBLE) =="
 # CI=true évite l'échec cosmétique du DMG (script AppleScript de mise en page de
 # la fenêtre du DMG, qui échoue notamment sans session graphique interactive).
-CI=true npx tauri build --target "$CIBLE"
+#
+# `|| CODE=$?` : le code de sortie est jugé plus bas, sur les artefacts réels.
+# Raison — tauri termine en ERREUR quand il ne peut pas SIGNER l'artefact de
+# mise à jour (pas de `TAURI_SIGNING_PRIVATE_KEY`), alors même que le DMG et le
+# .app sont produits et signés. Or ce script fait une app de TEST local : la
+# signature de mise à jour n'a de sens que pour une release, que seule la CI
+# produit. Faire échouer le script là-dessus revient à jeter un build complet
+# pour un artefact dont on n'a pas l'usage.
+CODE=0
+CI=true npx tauri build --target "$CIBLE" || CODE=$?
 
 # Emplacement des artefacts : target/<cible>/release/bundle/{dmg,macos}
 BUNDLE="$RACINE/target/$CIBLE/release/bundle"
 
 echo ""
 echo "== Artefacts produits =="
-if [ -d "$BUNDLE" ]; then
+if compgen -G "$BUNDLE/dmg/*.dmg" > /dev/null && [ -d "$BUNDLE/macos" ]; then
   ls -la "$BUNDLE/dmg" 2>/dev/null || true
   ls -la "$BUNDLE/macos" 2>/dev/null || true
   echo ""
   echo "Dossier des bundles : $BUNDLE"
+  if [ "$CODE" -ne 0 ]; then
+    cat <<'AVERTISSEMENT'
+
+⚠️ tauri a terminé en erreur APRÈS avoir produit les bundles — voir la sortie
+  ci-dessus. Le cas normal est l'absence de TAURI_SIGNING_PRIVATE_KEY : le
+  `.app.tar.gz` n'est alors pas accompagné de son `.sig`, donc cette build ne
+  peut pas servir de mise à jour. Le DMG et le .app, eux, sont utilisables.
+AVERTISSEMENT
+  fi
 else
   echo "Aucun bundle trouvé sous $BUNDLE — vérifier la sortie du build ci-dessus." >&2
-  exit 1
+  exit "${CODE:-1}"
 fi

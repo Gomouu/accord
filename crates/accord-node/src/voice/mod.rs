@@ -9,6 +9,7 @@
 
 pub(crate) mod calls;
 mod engine;
+mod interest;
 mod media;
 mod roster;
 
@@ -323,6 +324,12 @@ pub(crate) enum Cmd {
         /// Vrai = flux démarré, faux = arrêté.
         on: bool,
     },
+    /// Vidéo sélective : l'UI déclare ce qu'elle N'AFFICHE PAS, par émetteur.
+    VideoInterest {
+        /// `(émetteur, masque des flux de cet émetteur qu'on n'affiche pas)`.
+        /// Un émetteur absent de la liste n'est pas occulté du tout.
+        hidden: Vec<([u8; 32], u8)>,
+    },
     /// Arrêt du moteur (quitte proprement le salon actif).
     Stop,
 }
@@ -636,6 +643,17 @@ impl VoiceHandle {
             stream: media::VideoStream::Camera,
             on,
         });
+    }
+
+    /// Vidéo sélective : déclare aux émetteurs ce que l'UI locale n'affiche PAS
+    /// d'eux, sous forme de couples `(émetteur, masque)` — voir
+    /// [`accord_proto::plaintext::VIDEO_HIDE_CAMERA`] et
+    /// [`accord_proto::plaintext::VIDEO_HIDE_SCREEN`]. Un émetteur absent de la
+    /// liste n'est pas occulté : ne rien déclarer, c'est tout recevoir.
+    /// Fire-and-forget ; le moteur n'émet que les changements et réaffirme
+    /// périodiquement les masques non nuls.
+    pub fn video_interest(&self, hidden: Vec<([u8; 32], u8)>) {
+        let _ = self.tx.send(Cmd::VideoInterest { hidden });
     }
 
     /// Arrête le moteur voix (idempotent).

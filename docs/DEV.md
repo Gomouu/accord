@@ -16,12 +16,14 @@ accord/
 │   ├── accord-core       # Application logic: DMs, groups/op-log, friends, offline, files, search
 │   ├── accord-voice      # Pure voice DSP (jitter, VAD, adaptive bitrate); Opus/cpal behind `hardware`
 │   ├── accord-api        # Local WebSocket JSON-RPC 2.0 server (127.0.0.1 + token)
+│   ├── accord-macos      # Native bridge: microphone (TCC) authorisation via AVFoundation.
+│   │                     #   The ONLY crate allowed to contain `unsafe`; neutral off macOS
 │   └── accord-node       # Assembly: network runtime, maintenance, API service, voice engine,
 │                         #   standalone `accord-noded` binary
 ├── app/                  # React + TypeScript + Tailwind frontend (Vite, Zustand, vitest)
 │   └── src-tauri/        # Crate `accord-app`: Tauri 2 host (workspace member)
 ├── ci.sh                 # Full local CI (Rust + UI)
-└── *.md                  # Contracts and journals (SPEC, ARCHITECTURE, API, DECISIONS, …)
+└── docs/                 # Contracts (SPEC, ARCHITECTURE, API, MULTI_DEVICE, VOICE_CALLS, …)
 ```
 
 ### Crate dependency graph
@@ -44,6 +46,26 @@ Notable points:
 - `accord-api` is a generic JSON-RPC server: the application service is
   injected by `accord-node`.
 
+### Which document answers which question
+
+They are not interchangeable, and knowing that saves opening three:
+
+| Document | Answers |
+|---|---|
+| `docs/SPEC.md` | what goes on the wire, byte for byte — the contract |
+| `docs/ARCHITECTURE.md` | which layer owns what, and the structural decisions |
+| `docs/API.md` | the UI ↔ node JSON-RPC and Tauri IPC contract |
+| `docs/API_CONTRACT.md` | the same API as a **public** contract: full surface, stability tiers, security position |
+| `docs/REPRODUCIBILITY.md` | what a third party can verify about a published build — and what they cannot |
+| `docs/MULTI_DEVICE.md` | the account/device model, and why the naive one breaks |
+| `docs/VOICE_CALLS.md` | 1-to-1 calls, capture DSP, voice moderation |
+| `docs/COMMUNITY.md` | events, stickers, polls, AutoMod — the D-047 surface |
+| `SECURITY.md` | what is guaranteed, against whom, and what is **not** |
+| `CONTRIBUTING.md` | the same ground for an outside contributor: setup, gate, principles, how to propose |
+
+A wire change touches `SPEC.md` in the same commit; that is the rule, not an
+aspiration (§5).
+
 ## 2. Build and test
 
 ### All at once: `./ci.sh`
@@ -51,13 +73,43 @@ Notable points:
 The repository is **never** left in a state where `./ci.sh` fails. It
 runs, in sequence:
 
-1. `cargo fmt --all -- --check`
-2. `cargo clippy --workspace --all-targets -- -D warnings`
-3. `cargo test --workspace`
-4. UI: `npm ci` (if needed), `npm run lint`, `npm run format:check`,
-   `npm run build` (tsc + vite), `npm run test` (vitest)
+| # | Step | Note |
+|---|------|------|
+| 1 | `cargo fmt --all --check` | |
+| 2 | `cargo clippy --workspace --all-targets -- -D warnings` | |
+| 3 | clippy **anti-panic** on `--lib --bins` | `unwrap_used`, `expect_used`, `panic`, `todo`, `unimplemented`, `debug_assert_with_mut_call` — see §5 |
+| 4 | `cargo test --workspace` | e2e over real UDP included, unlike CI |
+| 5 | `cargo deny check`, `cargo audit` | **skipped with a warning** if the binary is absent locally; mandatory in CI |
+| 6 | UI: `npm ci` (only if `node_modules` is missing) | |
+| 7 | UI: `npx tsc --noEmit`, `npm run lint`, `npx prettier --check src` | |
+| 8 | UI: `npm test` (vitest), `npm run build` | |
+| 9 | `node scripts/check-bundle-budget.mjs` | initial-chunk budget |
+| 10 | `npx playwright test` | interface e2e — **inside** the gate, see below |
 
-Current status: 279 Rust tests + 115 vitest tests, zero warnings.
+Step 10 is not an optional extra, and it was added because it had been one:
+"mark as read" disappeared from the server menu in the 4.5.0 redesign and the
+regression was published, while the test covering it already existed and had been
+failing on its own for weeks. A suite outside the gate is a suite that does not
+exist.
+
+The GitHub workflow (`.github/workflows/ci.yml`) mirrors this list, and keeping
+the mirror exact is a rule — every divergence is a future trap. The known ones,
+each deliberate:
+
+- CI runs `cargo test --workspace --lib` only (the real-UDP e2e are flaky on a
+  hosted runner with no P2P network), **plus** the transport SimNet e2e in
+  **release** profile. That extra step is not redundant: a `debug_assert!` is not
+  evaluated in release, which is exactly the 3.0.0 regression, and it would have
+  caught it.
+- The supply-chain audits are mandatory there, optional here.
+- CI pins Node 22 and exports `CMAKE_POLICY_VERSION_MINIMUM=3.5`; `ci.sh` does
+  neither (see below on both).
+
+Current status (2026-07-26): **1,274 Rust tests** over 54 binaries and **2,113
+vitest tests** over 141 files, zero warnings. Treat these as an order of
+magnitude, not a checksum — `cargo test --workspace 2>&1 | grep '^test result'`
+is the answer that is always right, and a count in a document is stale the week
+after it is written.
 
 ### Rust side
 
@@ -74,12 +126,19 @@ cargo fmt --all
 ```sh
 npm ci               # reproducible install
 npm run dev          # Vite only (see "browser mode" below)
-npm run test         # vitest (115 tests)
+npm run test         # vitest
 npm run test:watch
 npm run lint         # eslint
 npm run format       # prettier --write
 npm run build        # tsc -b && vite build
+npm run e2e          # playwright (also run by ci.sh)
 ```
+
+⚠️ **Node version.** `package.json` declares `engines: ">=20 <25"` and CI runs
+**22**; nothing in the repository pins the local version, and npm only *warns*
+when it is out of range. So a local Node 25+ installs and runs anyway — and any
+"green in CI, red locally" (or the reverse) on the frontend starts by checking
+`node --version` against that range, before anything else is suspected.
 
 ### Desktop application (Tauri)
 
@@ -93,6 +152,21 @@ The Tauri host (`accord-app`) enables the `hardware` feature: this requires **sy
 libopus + pkg-config** (macOS: `brew install opus pkgconf`; Debian:
 `apt install libopus-dev pkg-config`). Reason: the libopus bundled with
 `audiopus_sys` no longer compiles with CMake ≥ 4 (D-020).
+
+⚠️ **This is not only a Tauri concern — it gates `./ci.sh` itself.** `accord-app`
+is a workspace member, so `cargo test --workspace` pulls `audiopus_sys` in and a
+machine without system libopus fails at step 1 of the gate with a CMake error
+about `cmake_minimum_required`, before a single test runs. Two ways out, and CI
+uses the second:
+
+```sh
+brew install opus pkgconf                    # use the system libopus (preferred)
+CMAKE_POLICY_VERSION_MINIMUM=3.5 ./ci.sh     # or build the bundled one anyway
+```
+
+`ci.yml` exports `CMAKE_POLICY_VERSION_MINIMUM=3.5` for the whole job; `ci.sh`
+does **not**, so on a CMake ≥ 4 machine the two are not interchangeable without
+one of the lines above.
 
 ### Standalone daemon `accord-noded`
 
@@ -115,6 +189,31 @@ the address and token of the local API.
 a daemon's session into
 `localStorage['accord.dev.session'] = '{"port":…,"token":"…"}'`
 (see `app/src/lib/bridge.ts`).
+
+### Reading what a running app actually did
+
+A GUI app has no standard output: launched from the Finder or the Start menu,
+everything `tracing` produced used to go nowhere, and diagnosis meant asking the
+user to describe what they saw. Two surfaces now exist, and knowing they do is
+half of any bug investigation.
+
+- **Disk log** — `<app_data>/logs/accord.log`, written on every normal launch
+  (`app/src-tauri/src/journal.rs`). The previous run is kept as `accord.log.1`
+  rather than being truncated: the restart that follows a crash used to erase the
+  trace of that crash. Rotated at 5 MiB, so the footprint is bounded to twice
+  that. Startup lines are buffered in memory until the data directory is known
+  and then flushed, so a failed boot — exactly the case worth reading — is not
+  the one part missing. Level is `info`, overridable with `RUST_LOG`, and
+  changeable at runtime from the UI (`journal_niveau` IPC command).
+- **Bug report bundle** — the `diagnostics.report` JSON-RPC method
+  (`API.md`). It is the only response in the API designed to be sent to someone
+  else, and it is redacted for that: no friend public keys, no friend IP
+  addresses, external addresses reduced to their port.
+
+🔒 Both are made to be shared, which is a constraint on `tracing::` calls
+**everywhere in the repository**, not on the module that writes them: never a
+message body, a key, a friend code, or a friend's address. A log nobody dares
+send is a log that does not exist.
 
 ### macOS: "Operation not permitted" while copying a source file
 
@@ -160,7 +259,8 @@ simulated/hardware choice for voice is made **at runtime**
 From fastest to most realistic:
 
 - **Pure unit tests**: logic without I/O (proto codec, crypto, op-log, voice
-  DSP, maintenance decisions). The vast majority of the 279 tests.
+  DSP, maintenance decisions). The vast majority of the Rust tests, and the only
+  level CI runs for the workspace (`--lib`).
 - **Deterministic simulated mesh**: `accord-transport` provides a
   `DatagramSocket` abstraction with two implementations — real UDP and an
   **in-memory simulated network** (controlled loss, latency, churn). The full
@@ -182,9 +282,12 @@ tests: waits are bounded (~20 s max, D-024).
 
 ## 5. Project conventions
 
-- **English for the public repository**: documentation, README, release
-  notes and commit messages are in English. Code comments are being migrated
-  from French to English; new code should be commented in English.
+- **English for the public repository**: documentation, README, release notes
+  and commit messages are in English. **Code comments are in French** — that is
+  what the code actually does, including everything written since 7.0, and
+  claiming an English migration that never happened only produced a third
+  convention. Two documents have not caught up either: `docs/COMMUNITY.md` and
+  `docs/VOICE_CALLS.md` are still French. Stated rather than quietly ignored.
 - **Rust**: no `unwrap()`/`expect()` outside tests (except proven and
   commented invariants); `#![forbid(unsafe_code)]` on sensitive crates;
   typed errors with `thiserror`; `cargo fmt` + `clippy -D warnings`

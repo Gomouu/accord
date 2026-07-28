@@ -90,6 +90,32 @@ fn capacites_vues(node: &Node) -> u32 {
 
 /// Variante à identité imposée : indispensable pour simuler le REDÉMARRAGE
 /// d'un pair (même clé statique, nouvelle adresse).
+/// Nœud qui exige un cookie AVANT de créer le moindre état
+/// (`cookie_pressure_per_s: 0`). C'est ce réglage qui force le chemin
+/// HELLO → COOKIE → HELLO, autrement jamais emprunté par les tests.
+fn spawn_node_sous_pression(net: &SimNet, clock: &ManualClock, addr: &str) -> Node {
+    let id = Arc::new(Identity::generate_with_pow_bits(POW));
+    let addr: SocketAddr = addr.parse().unwrap();
+    let socket = Arc::new(net.bind(addr));
+    let static_pub = id.public_key();
+    let (ep, events) = Endpoint::new(
+        socket,
+        id,
+        Arc::new(clock.clone()) as Arc<dyn accord_transport::Clock>,
+        EndpointConfig {
+            cookie_pressure_per_s: 0,
+            ..config()
+        },
+    );
+    ep.spawn();
+    Node {
+        ep,
+        events,
+        addr,
+        static_pub,
+    }
+}
+
 fn spawn_node_avec_identite(
     net: &SimNet,
     clock: &ManualClock,
@@ -1074,4 +1100,28 @@ async fn lexigence_prend_effet_sans_redemarrage() {
         .unwrap();
     attendre_sessions(&ancien2, &nous).await;
     assert!(!session_hybride(&nous));
+}
+
+/// 🔒 Le chemin COOKIE n'était couvert par AUCUN test : la revue adversariale
+/// du jalon 2 a montré qu'il ne portait pas non plus la limite de débit du
+/// chemin HELLO, si bien qu'un paquet de 4 octets non authentifié faisait
+/// régénérer un `Initiator` — génération ML-KEM comprise — et émettre un HELLO
+/// d'environ un kilo-octet. Le trou de couverture est ce qui a laissé passer le
+/// trou de protection ; ce test ferme le premier.
+///
+/// Il vérifie le sens qui compte pour l'utilisateur : sous pression, la
+/// session s'établit quand même. Un rejet trop large des cookies casserait
+/// tout premier contact vers un nœud chargé.
+#[tokio::test]
+async fn une_session_setablit_meme_quand_le_pair_exige_un_cookie() {
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(4271, NetConditions::default());
+    let a = spawn_node(&net, &clock, "10.0.71.1:4000");
+    let b = spawn_node_sous_pression(&net, &clock, "10.0.71.2:4000");
+
+    a.ep.send(b.addr, &ChannelMsg::Control(ControlMsg::Ping { token: 71 }))
+        .await
+        .unwrap();
+
+    attendre_sessions(&a, &b).await;
 }

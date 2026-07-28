@@ -19,6 +19,7 @@
 
 pub mod clock;
 pub mod endpoint;
+pub mod endpoint_config;
 pub mod error;
 mod frag;
 pub mod nat;

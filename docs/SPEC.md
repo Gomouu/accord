@@ -83,10 +83,12 @@ HELLO  (initiator → responder), packet_class=0x01 :
   cookie        : vbytes      0 bytes or anti-DoS cookie (§2.5)
   sig_i         : bytes<64>   Ed25519(static_i, transcript_1)
   capabilities  : u32         OPTIONAL, additive tail — §2.2.1
+  pq_ek         : bytes<800>  OPTIONAL, present iff CAP_PQ_HYBRID is set — §2.2.1
 
   transcript_1 = SHA-256("accord-hs-v1" ‖ version ‖ eph_pub_i ‖ static_pub_i ‖
                          pow_nonce_i ‖ timestamp_ms ‖ nonce_i
-                         [‖ 0x01 ‖ capabilities_i  if present])
+                         [‖ 0x01 ‖ capabilities_i  if present]
+                         [‖ 0x02 ‖ pq_ek          if present])
 
 WELCOME (responder → initiator), packet_class=0x02 :
   version:u8=1, class:u8=0x02
@@ -98,10 +100,19 @@ WELCOME (responder → initiator), packet_class=0x02 :
   session_id    : bytes<8>    randomly chosen by the responder
   sig_r         : bytes<64>   Ed25519(static_r, transcript_2)
   capabilities  : u32         OPTIONAL, additive tail — §2.2.1
+  pq_ct         : bytes<768>  OPTIONAL, present iff CAP_PQ_HYBRID is set — §2.2.1
 
   transcript_2 = SHA-256("accord-hs-v1" ‖ transcript_1 ‖ eph_pub_r ‖ static_pub_r ‖
                          pow_nonce_r ‖ timestamp_ms_r ‖ nonce_r ‖ session_id
-                         [‖ 0x01 ‖ capabilities_r  if present])
+                         [‖ 0x01 ‖ capabilities_r  if present]
+                         [‖ 0x02 ‖ pq_ct          if present])
+
+🔒 **The `0x02` term is not optional reading.** A transcript that covers the
+capabilities but not the material authenticates the *announcement* of hybrid
+without authenticating the key material itself — an attacker then rewrites
+`pq_ek` in flight and the signature still verifies. That is the downgrade this
+milestone exists to prevent, so an implementation that omits it is worse than
+one that never attempted hybrid at all.
 ```
 
 Validation (both directions): version, PoW, |timestamp − now| ≤ 90,000 ms,
@@ -222,13 +233,14 @@ Defined bits: `CAP_DEVICE_KEYS = 1<<0`, `CAP_PQ_HYBRID = 1<<1`,
 `CAP_GROUP_VIDEO_N = 1<<2`; unknown bits are carried and ignored. A 1-to-3-byte
 tail is a decode error, not a future extension.
 
-⚠️ **Emission is a flag day, and this milestone flips it.** Until 8.0 the field
-was read but never written (`EndpointConfig::capabilities = None`), precisely
-because a peer predating 6.2 rejects the trailing bytes outright and can then
-establish no session at all. Announcing `CAP_PQ_HYBRID` means every peer still
-running a pre-6.2 build becomes unreachable — silently, from the user's side.
-See `crates/accord-transport/src/endpoint.rs`, whose own comment still says the
-field must stay `None` until the fleet is ready.
+**Emission is switched on in 8.0**, and it costs nothing new. Until then the
+field was read but never written (`EndpointConfig::capabilities = None`),
+because a peer predating its introduction in 6.2 rejects the trailing bytes and
+can then establish no session at all. That floor is already moot: 7.0's device-key
+flag day cut off every peer at 6.2 or older (`MULTI_DEVICE.md` §3.2.1) — for them
+a switched friend is a stranger and the session dies on `PeerIdentityMismatch`.
+Anyone still able to establish a session today is therefore at 6.3 or above, and
+reads capabilities. Announcing `CAP_PQ_HYBRID` reaches no one it could break.
 
 ### 2.3 Session state machine
 

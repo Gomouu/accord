@@ -86,6 +86,13 @@ if [ -d app ] && [ -f app/package.json ]; then
   step "Constantes publiques citées dans les docs"
   node scripts/check-doc-constants.mjs
 
+  # SECURITY.md promet que « les secrets ne sont jamais journalisés » et dit que
+  # ce qui tient la promesse est « une règle sur les appels tracing ». Une règle,
+  # donc rien d'exécutable : la revue d'audit a constaté qu'aucun lint ne la
+  # faisait respecter, sur 201 appels.
+  step "Secrets absents des appels de journalisation"
+  node scripts/check-log-secrets.mjs
+
   # Les e2e d'interface étaient hors du gate : « Marquer comme lu » a disparu
   # du menu serveur à la refonte 4.5.0 et la régression a été publiée, alors
   # que le test qui la couvrait existait déjà et échouait dans son coin.

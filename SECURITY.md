@@ -168,6 +168,10 @@ arbitrary input; in-memory secrets are wiped via `zeroize`.
   on a new machine.
 - **Secrets never logged**: the API token, passphrases, keys and message
   contents appear in no log (`tracing` only logs counters and states).
+  Enforced by `scripts/check-log-secrets.mjs`, in the gate and in CI —
+  until 2026-07-28 this was a convention on call sites and nothing more.
+  ⚠️ It judges NAMES, not values: a secret passed under a bland name still
+  slips through, so it narrows review rather than replacing it.
 
 ### 3.5 Device pairing and the device list
 
@@ -548,7 +552,9 @@ risk, rationale and hardening path for each. In summary:
 3. **Server banner/icon is moderator-trusted**: any `MANAGE_CHANNELS`
    holder can set an arbitrary root via a signed group op (`0x31`).
    `MANAGE_CHANNELS` is a trust permission; clients should cap the size of
-   auto-downloaded previews (the v0 client does not yet).
+   auto-downloaded previews. **Since v1.0.0 the server banner and icon are
+   capped at 8 MiB** — this line said the client did not yet do it, which
+   contradicted `docs/THREAT-MODEL.md` §4, the current document.
 4. **DHT presence/identity lookups expose metadata**: storage nodes learn
    who you resolve and when — inherent to open DHT discovery.
 

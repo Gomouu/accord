@@ -186,6 +186,9 @@ jobs:
       - name: Constantes publiques citées dans les docs
         run: node scripts/check-doc-constants.mjs
 
+      - name: Secrets absents des appels de journalisation
+        run: node scripts/check-log-secrets.mjs
+
       # Les e2e d'interface vivaient hors du gate. Résultat : « Marquer comme
       # lu » a disparu du menu serveur à la refonte 4.5.0 et la régression a
       # été publiée, alors que le test qui la couvrait existait déjà et

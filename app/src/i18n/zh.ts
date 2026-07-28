@@ -988,6 +988,12 @@ export const zh: Dict = {
       '将技术摘要复制到剪贴板，用于附在错误报告中：计数器、网络自检和链路状态。其中不含任何消息内容、好友代码或好友的 IP 地址——可以放心分享。',
     reportCopied: '诊断报告已复制。',
     reportFailed: '无法生成报告。',
+    encryptionHybrid: '增强加密（后量子）',
+    encryptionHybridHint:
+      '此会话的密钥由两种独立机制共同派生：X25519 和 ML-KEM。它可抵御目前已知的量子计算机攻击。',
+    encryptionClassic: '标准加密',
+    encryptionClassicHint:
+      '此会话的密钥仅由 X25519 派生。内容仍是端到端加密的，但没有针对未来量子计算机的额外保护。',
     logTitle: '诊断日志',
     logHint:
       '此文件夹中的 accord.log 记录应用的运行情况。其中不含消息内容，也不含好友的 IP 地址：对端仅以密钥的短前缀出现，足以追踪一次交互，但无法据此找到对方。可以附在错误报告中。',

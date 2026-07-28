@@ -5,7 +5,7 @@
 > repository (crates `accord-crypto`, `accord-transport`, `accord-dht`,
 > `accord-core`, `accord-node`) and in the `SPEC.md` / `ARCHITECTURE.md`
 > contracts.
-> Last reviewed: 2026-07-25. **No external audit has been performed.**
+> Last reviewed: 2026-07-26. **No external audit has been performed.**
 > The security trade-offs deliberately accepted for v0 are detailed in
 > [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md).
 
@@ -28,6 +28,7 @@
 |-------|-----------|----------------|
 | Identity, signatures | Ed25519 (`NodeId = SHA-256(pubkey)`) | `ed25519-dalek` |
 | Key exchange | X25519 (ephemeral-ephemeral; static derived for sealing) | `x25519-dalek` |
+| Post-quantum key encapsulation | ML-KEM-512 (FIPS 203), **alongside X25519, never instead of it** | `ml-kem` (RustCrypto) |
 | Authenticated encryption | XChaCha20-Poly1305 | `chacha20poly1305` |
 | Key derivation | HKDF-SHA-256 | `hkdf`, `sha2` |
 | Identity vault | Argon2id (m = 64 MiB, t = 3, p = 4) | `argon2` |
@@ -39,7 +40,19 @@
 
 The cryptographic crates come from the **RustCrypto** and **dalek**
 ecosystems, maintained and independently audited (decision D-001 —
-`sodiumoxide` rejected because unmaintained). `accord-crypto` is compiled with
+`sodiumoxide` rejected because unmaintained). **One exception, stated plainly:
+`ml-kem` has never been independently audited and carries no machine-checked
+proofs — its own README says so.** The trust basis for it is conformance to the
+NIST FIPS 203 / ACVP test vectors, and that conformance is verified in this
+repository rather than taken on faith (`crates/accord-crypto/src/pq.rs`, tests
+`la_generation_suit_le_vecteur_du_nist` and
+`l_encapsulation_suit_le_vecteur_du_nist`, vectors under
+`crates/accord-crypto/tests/vectors/`). The reasoning behind picking it over
+`libcrux-ml-kem`, which does carry partial formal verification, is written out
+at the head of `pq.rs`; the short version is that the hybrid construction bounds
+the damage a flawed ML-KEM can do, so trust surface and portability outweighed a
+verification boundary that does not cover the platform-specific code we would
+actually ship. `accord-crypto` is compiled with
 `#![forbid(unsafe_code)]`; the no-panic rule is **CI-enforced** (clippy denies
 `unwrap`/`expect`/`panic`/`todo`/`unimplemented` in libraries and binaries,
 outside tests), and a `cargo-fuzz` harness (8 targets under `fuzz/`) exercises
@@ -55,6 +68,27 @@ arbitrary input; in-memory secrets are wiped via `zeroize`.
   transcript with their Ed25519 key. Strict validation: version, identity PoW,
   clock (±90 s), anti-replay nonce (5 min cache), signature. Any failure ⇒
   **silent rejection** (no error oracle).
+- **Hybrid post-quantum key agreement** (SPEC §2.2.1). When both peers support
+  it, the session key is derived from **two** secrets concatenated —
+  `X25519(eph, eph) ‖ ML-KEM-Decaps(ct)` — never from ML-KEM alone. The point is
+  *harvest now, decrypt later*: an adversary can record ciphertext today and
+  wait for a quantum computer. Against that adversary, a hybrid session resists
+  the quantum-computer attacks known to date, because the recorded traffic
+  cannot be opened without also breaking ML-KEM. If ML-KEM turns out to be
+  weaker than believed, the session is still exactly as strong as an X25519-only
+  session is today — which is why ML-KEM is *added* and X25519 is not removed.
+  Read §5.15 and §5.16 for what this does **not** cover.
+  - **Downgrade is not silently possible.** The capability bit and the ML-KEM
+    material are both absorbed into the signed handshake transcript. An attacker
+    who strips the bit in flight, or flips one byte of key material, changes the
+    transcript the receiver computes; the signature fails and the handshake is
+    **rejected**. Such an attacker can deny the connection. They cannot obtain a
+    downgraded session to decrypt later.
+  - **Falling back is a negotiation, not an attack.** A peer that predates the
+    hybrid handshake establishes a classic session, and that session is
+    authenticated exactly as before. Users who prefer to lose reachability
+    rather than fall back can require hybrid (Settings → Security); the node
+    then refuses classic sessions in both roles.
 - **XChaCha20-Poly1305 AEAD sessions** (SPEC §2.4): distinct directional keys
   (HKDF of the DH secret), deterministic nonces (direction ‖ epoch ‖ counter),
   authenticated header in AAD, sliding anti-replay window of 1,024 counters per
@@ -407,6 +441,35 @@ Read before recommending Accord to people whose safety depends on anonymity.
     exposes, to anyone who can resolve your friend code, **how many devices your
     account has, the names you gave them ("Work laptop") and when each was
     added**. Name devices accordingly.
+15. **Only confidentiality is post-quantum. Authentication is not.** Every
+    signature in Accord is **Ed25519**, which a sufficiently large quantum
+    computer breaks. Identities, the device list, DHT records and the handshake
+    transcripts are all signed with it. So the guarantee is asymmetric, and the
+    asymmetry matters:
+    - Traffic **recorded today** and attacked later stays protected by the
+      ML-KEM half, because the attacker must break the key agreement of a
+      session that is already over.
+    - An attacker who **holds a quantum computer while you are online** can
+      forge signatures, and therefore impersonate an identity or sit in the
+      middle of a *new* handshake. The hybrid key agreement does not help
+      against that; nothing in the current protocol does.
+    Post-quantum signatures (ML-DSA) are not implemented. Until they are, treat
+    "post-quantum" in this project as meaning *confidentiality of past traffic*,
+    not *authenticity of future traffic*.
+16. **A hybrid session requires both sides, and most sessions are not yours to
+    decide.** The initiator is the only party that can open hybrid mode (SPEC
+    §2.2.2), so a contact on an older version yields a classic session no matter
+    what you do; requiring hybrid removes those contacts instead of protecting
+    them. Beyond that, the hybrid covers the **transport session** only. It does
+    **not** cover data sealed to a *static* X25519 key: group epoch keys and
+    offline mailbox deposits (§3.3) are still sealed classically, so a recorded
+    mailbox deposit does not benefit from ML-KEM. Nor does it change anything
+    about the metadata in §5.1–§5.3 — the identity public keys still travel in
+    cleartext in HELLO/WELCOME, and encrypting *those* is a separate problem.
+17. **The ML-KEM implementation is unaudited and unproven.** See §2. It is one
+    of two halves of the key agreement, which bounds the consequence of a flaw
+    to "no better than today", but it is a real difference in assurance from the
+    rest of the primitive set.
 
 15. **Blocking is eventually consistent, and ordered by wall clocks.** Blocking
     someone now propagates to the other devices of the account, so a block set
@@ -496,6 +559,13 @@ Recommended entry points for an auditor, from most critical to least critical:
 - [ ] **Handshake** (`crates/accord-crypto/src/handshake.rs`): transcripts,
   two-way validation, anti-replay (NonceCache), cookies, silent rejections.
   Frozen test vectors in the crate's tests.
+- [ ] **Hybrid key agreement** (`crates/accord-crypto/src/pq.rs`,
+  `handshake.rs`): the bit ⇔ material invariant at encode and decode, absence of
+  any length prefix read off the wire (no sender-chosen allocation before a
+  session exists), the two distinct transcript absorption markers, unambiguous
+  32 ‖ 32 concatenation of the two secrets, and that a classic transcript stays
+  byte-identical to the pre-hybrid one. Conformance to the NIST ACVP vectors is
+  asserted in the crate's tests, not inherited from upstream CI.
 - [ ] **AEAD sessions** (`crates/accord-crypto/src/session.rs`): construction of
   directional nonces, AAD, 1,024 anti-replay window, per-epoch re-keying,
   wiping of old keys.

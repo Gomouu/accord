@@ -388,6 +388,30 @@ export const frSettings = {
     privacyEgressPeers: 'Pairs connectés',
     privacyEgressRelays: 'Circuits relais ouverts (repli chiffré de bout en bout)',
     privacyEgressCentral: 'Serveurs centraux contactés',
+    security: 'Sécurité',
+    securityStateTitle: 'Chiffrement de tes conversations',
+    securityStateHint:
+      'Tout ce que tu envoies est chiffré de bout en bout, dans tous les cas. Cet écran dit comment la clé a été mise en accord avec chaque contact.',
+    securityHybridExplainTitle: 'Pourquoi deux mécanismes',
+    securityHybridExplain:
+      'Un message intercepté aujourd’hui peut être conservé et déchiffré des années plus tard, quand des ordinateurs quantiques existeront. Accord combine donc X25519, éprouvé contre les ordinateurs classiques, et ML-KEM, conçu pour résister aux attaques par ordinateur quantique connues à ce jour. Il faut casser les deux pour lire la conversation : si l’un cède, l’autre tient.',
+    securityPerContactTitle: 'État par contact',
+    securityPerContactHint:
+      'L’état décrit la session en cours, pas le contact. « Standard » signifie qu’au moins l’un des deux appareils n’a pas ouvert le mode renforcé — le plus souvent parce qu’il utilise une version plus ancienne.',
+    securityPerContactEmpty: 'Aucun contact pour l’instant.',
+    securityNoSession: 'Pas de session en cours',
+    securityRatioTitle: 'Tes sessions depuis le démarrage',
+    securityRatioHybrid: 'Renforcées',
+    securityRatioClassic: 'Standard',
+    securityRatioLocal:
+      'Ces deux nombres sont comptés sur cet appareil et n’en sortent jamais : ils ne sont transmis à personne.',
+    securityRequireTitle: 'Exiger le chiffrement renforcé',
+    securityRequireHint:
+      'Refuse toute session qui ne serait pas post-quantique. Tu ne pourras plus joindre les contacts dont l’appareil ne sait pas le faire, ni être joint par eux.',
+    securityRequireOn: 'Exigé — les sessions standard sont refusées',
+    securityRequireOff: 'Non exigé — le mode renforcé est utilisé dès que possible',
+    securityRequireFailed: 'Impossible d’enregistrer ce réglage.',
+    securityUnavailable: 'État du chiffrement indisponible sur ce nœud.',
   },
   decorations: {
     decorationTitle: "Décoration d'avatar",

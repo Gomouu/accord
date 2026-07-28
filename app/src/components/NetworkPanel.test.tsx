@@ -163,6 +163,57 @@ describe('NetworkPanel', () => {
   });
 });
 
+describe('NetworkPanel — mention du chiffrement (jalon 2)', () => {
+  it('nomme le chiffrement renforcé sur une session hybride, neutre sinon', async () => {
+    peersMock.mockResolvedValue([
+      {
+        pubkey: 'aa'.repeat(32),
+        live: true,
+        addr: '203.0.113.9:48016',
+        post_quantum: true,
+      },
+      {
+        pubkey: 'bb'.repeat(32),
+        live: true,
+        addr: '203.0.113.8:48016',
+        post_quantum: false,
+      },
+    ]);
+    await renderPanel();
+    expect(
+      await screen.findByText(/Reinforced encryption \(post-quantum\)/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/^Standard encryption$/i)).toBeInTheDocument();
+  });
+
+  it('ne promet rien à l’utilisateur : aucun superlatif dans les libellés', async () => {
+    // 🔒 Garde-fou de formulation. Un jour quelqu'un « améliorera » ces
+    // chaînes ; ce test rend le glissement visible au lieu de le laisser
+    // partir en production dans dix langues.
+    peersMock.mockResolvedValue([
+      { pubkey: 'aa'.repeat(32), live: true, addr: null, post_quantum: true },
+    ]);
+    await renderPanel();
+    const mention = await screen.findByText(/Reinforced encryption/i);
+    const texte = `${mention.textContent ?? ''} ${mention.getAttribute('title') ?? ''}`;
+    for (const proscrit of [/unbreakable/i, /forever/i, /impenetrable/i, /unhackable/i]) {
+      expect(texte).not.toMatch(proscrit);
+    }
+    expect(texte).toMatch(/known to date/i);
+  });
+
+  it('n’affirme rien quand le nœud ne renseigne pas le champ', async () => {
+    // Un nœud antérieur au jalon 2 omet `post_quantum` : « standard » serait
+    // une affirmation sans fondement.
+    peersMock.mockResolvedValue([
+      { pubkey: 'aa'.repeat(32), live: true, addr: '203.0.113.9:48016' },
+    ]);
+    await renderPanel();
+    expect(await screen.findByText('Connected')).toBeInTheDocument();
+    expect(screen.queryByText(/encryption/i)).not.toBeInTheDocument();
+  });
+});
+
 describe('NetworkPanel — diagnostic (4.0)', () => {
   it('affiche le type de NAT et les compteurs de diagnostic', async () => {
     statusMock.mockResolvedValue({ ...STATUS, nat_kind: 'cone' });

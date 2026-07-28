@@ -1011,6 +1011,12 @@ export const de: Dict = {
       'Kopiert eine technische Zusammenfassung in die Zwischenablage, zum Anhängen an einen Fehlerbericht: Zähler, Netzwerk-Selbsttest und Verbindungsstatus. Er enthält keine Nachrichten, keine Freundescodes und keine IP-Adressen deiner Freunde — du kannst ihn bedenkenlos teilen.',
     reportCopied: 'Diagnosebericht kopiert.',
     reportFailed: 'Bericht konnte nicht erstellt werden.',
+    encryptionHybrid: 'Verstärkte Verschlüsselung (post-quantum)',
+    encryptionHybridHint:
+      'Der Schlüssel dieser Sitzung wird aus zwei unabhängigen Verfahren abgeleitet, X25519 und ML-KEM. Er widersteht den bis heute bekannten Angriffen mit Quantencomputern.',
+    encryptionClassic: 'Standardverschlüsselung',
+    encryptionClassicHint:
+      'Der Schlüssel dieser Sitzung wird allein aus X25519 abgeleitet. Der Inhalt bleibt Ende-zu-Ende verschlüsselt, ohne den zusätzlichen Schutz gegen einen künftigen Quantencomputer.',
     logTitle: 'Diagnoseprotokoll',
     logHint:
       'Die Datei accord.log in diesem Ordner protokolliert, was die App tut. Sie enthält keine Nachrichteninhalte und keine IP-Adressen deiner Freunde: Gegenstellen erscheinen als kurzes Präfix ihres Schlüssels – genug, um einem Austausch zu folgen, nicht um sie zu finden. Du kannst sie einem Fehlerbericht beilegen.',

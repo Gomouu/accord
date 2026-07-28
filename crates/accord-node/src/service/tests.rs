@@ -3699,7 +3699,12 @@ async fn friends_note_set_get_and_folded_in_list() {
 /// Faux contrôle réseau : valeurs figées, pour geler les contrats JSON de
 /// `network.peers`, `diagnostics.counters` et `diagnostics.selftest` sans
 /// démarrer de runtime réseau.
-struct FakeNetwork;
+#[derive(Default)]
+struct FakeNetwork {
+    /// Exigence post-quantique, mutable pour que `security.set_require_hybrid`
+    /// ait quelque chose à faire bouger.
+    require_pq: std::sync::atomic::AtomicBool,
+}
 
 #[async_trait::async_trait]
 impl crate::node::network::NetworkControl for FakeNetwork {
@@ -3738,13 +3743,17 @@ impl crate::node::network::NetworkControl for FakeNetwork {
             last_recv_age_ms: Some(1_500),
             rtt_ms: Some(42),
             last_delivery_ms: Some(1_700_000_000_000),
-            capabilities: accord_proto::limits::CAP_PQ_HYBRID,
+            capabilities: accord_proto::limits::CAP_DEVICE_KEYS,
+            post_quantum: true,
         }]
     }
     fn counters(&self) -> crate::node::diagnostics::CountersSnapshot {
         let c = crate::node::diagnostics::NetCounters::default();
         c.punch_requested();
         c.relay_open_ok();
+        c.handshake_done(true);
+        c.handshake_done(true);
+        c.handshake_done(false);
         c.snapshot()
     }
     async fn self_test(&self) -> crate::node::diagnostics::SelfTestReport {
@@ -3765,6 +3774,13 @@ impl crate::node::network::NetworkControl for FakeNetwork {
             reachability: crate::node::diagnostics::Reachability::Direct,
         }
     }
+    fn requires_post_quantum(&self) -> bool {
+        self.require_pq.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    fn set_require_post_quantum(&self, require: bool) {
+        self.require_pq
+            .store(require, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 /// Service adossé à un nœud dont le contrôle réseau est le faux figé.
@@ -3772,7 +3788,7 @@ fn service_with_network() -> NodeService {
     let id = Identity::generate_with_pow_bits(1);
     let db = Db::open_in_memory(&[1u8; 32]).unwrap();
     let node = Arc::new(Node::new(id, db, OutboundSink::null()));
-    node.set_network_control(Arc::new(FakeNetwork));
+    node.set_network_control(Arc::new(FakeNetwork::default()));
     NodeService::new(node)
 }
 
@@ -3789,6 +3805,7 @@ async fn network_peers_expose_les_champs_additifs_du_lien() {
             "last_delivery_ms",
             "last_recv_age_ms",
             "live",
+            "post_quantum",
             "pubkey",
             "relay",
             "rtt_ms",
@@ -3800,7 +3817,14 @@ async fn network_peers_expose_les_champs_additifs_du_lien() {
     assert_eq!(lien["last_recv_age_ms"], 1_500);
     assert_eq!(lien["rtt_ms"], 42);
     assert_eq!(lien["live"], true);
-    assert_eq!(lien["capabilities"], accord_proto::limits::CAP_PQ_HYBRID);
+    // 🔒 Le mode ne transite jamais par `capabilities` : il a son propre champ.
+    // Un lien hybride annonce donc `post_quantum`, pas le bit CAP_PQ_HYBRID.
+    assert_eq!(lien["capabilities"], accord_proto::limits::CAP_DEVICE_KEYS);
+    assert_eq!(
+        lien["capabilities"].as_u64().unwrap() & u64::from(accord_proto::limits::CAP_PQ_HYBRID),
+        0
+    );
+    assert_eq!(lien["post_quantum"], true);
 }
 
 #[tokio::test]
@@ -3809,11 +3833,83 @@ async fn diagnostics_counters_expose_les_groupes_de_compteurs() {
     let v = s.call("diagnostics.counters", json!({})).await.unwrap();
     assert_eq!(
         sorted_keys(&v),
-        ["mailbox", "outbox", "punch", "reconnect", "relay"]
+        [
+            "handshake",
+            "mailbox",
+            "outbox",
+            "punch",
+            "reconnect",
+            "relay"
+        ]
     );
     assert_eq!(v["punch"]["requested"], 1);
     assert_eq!(v["relay"]["open_ok"], 1);
     assert_eq!(v["mailbox"]["deposits"], 0);
+    assert_eq!(v["handshake"]["hybrid"], 2);
+    assert_eq!(v["handshake"]["classic"], 1);
+}
+
+// ---- Frontière JSON : jalon 2 (état et réglage du chiffrement) ----
+
+#[tokio::test]
+async fn security_state_expose_letat_du_chiffrement() {
+    let s = service_with_network();
+    let v = s.call("security.state", json!({})).await.unwrap();
+    assert_eq!(
+        sorted_keys(&v),
+        [
+            "classic_sessions",
+            "hybrid_sessions",
+            "hybrid_supported",
+            "require_hybrid"
+        ]
+    );
+    assert_eq!(v["hybrid_supported"], true);
+    // Par défaut : accepter les deux, préférer l'hybride.
+    assert_eq!(v["require_hybrid"], false);
+    assert_eq!(v["hybrid_sessions"], 2);
+    assert_eq!(v["classic_sessions"], 1);
+}
+
+#[tokio::test]
+async fn security_set_require_hybrid_agit_sur_le_transport_et_persiste() {
+    let s = service_with_network();
+    let v = s
+        .call("security.set_require_hybrid", json!({ "require": true }))
+        .await
+        .unwrap();
+    assert_eq!(v["require_hybrid"], true);
+    // Relu à travers l'état : c'est le transport qui répond, pas la base — un
+    // réglage qui ne serait qu'écrit ne protégerait rien avant redémarrage.
+    let relu = s.call("security.state", json!({})).await.unwrap();
+    assert_eq!(relu["require_hybrid"], true);
+
+    let leve = s
+        .call("security.set_require_hybrid", json!({ "require": false }))
+        .await
+        .unwrap();
+    assert_eq!(leve["require_hybrid"], false);
+}
+
+#[tokio::test]
+async fn security_set_require_hybrid_refuse_un_parametre_absent_ou_mal_type() {
+    // 🔒 Un appel sans booléen ne doit PAS se lire comme « lève l'exigence » :
+    // une baisse silencieuse de protection est le pire échec possible ici.
+    let s = service_with_network();
+    for params in [
+        json!({}),
+        json!({ "require": "true" }),
+        json!({ "require": 1 }),
+    ] {
+        assert!(
+            s.call("security.set_require_hybrid", params.clone())
+                .await
+                .is_err(),
+            "doit refuser {params}"
+        );
+    }
+    let etat = s.call("security.state", json!({})).await.unwrap();
+    assert_eq!(etat["require_hybrid"], false, "aucun appel n'a dû aboutir");
 }
 
 #[tokio::test]
@@ -3871,6 +3967,22 @@ async fn diagnostics_report_ne_sort_ni_cle_ni_adresse_d_ami() {
     assert!(v["links"][0].get("pubkey").is_none());
     assert!(v["links"][0].get("addr").is_none());
     assert_eq!(v["selftest"]["observed_consensus"], "masqué:48016");
+
+    // 🔒 Les compteurs traversent EN BLOC, sans liste blanche (voir
+    // `diagnostics::bug_report`) : figer leurs groupes ici est ce qui force le
+    // prochain compteur ajouté à être regardé avant de partir chez un inconnu.
+    // Tous ceux-ci sont des agrégats locaux, sans rattachement à un pair.
+    assert_eq!(
+        sorted_keys(&v["counters"]),
+        [
+            "handshake",
+            "mailbox",
+            "outbox",
+            "punch",
+            "reconnect",
+            "relay"
+        ]
+    );
 }
 
 #[tokio::test]

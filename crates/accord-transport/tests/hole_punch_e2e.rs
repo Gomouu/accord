@@ -26,6 +26,7 @@ fn config() -> EndpointConfig {
         cookie_pressure_per_s: 64,
         relay_serving: false,
         capabilities: None,
+        require_post_quantum: false,
     }
 }
 

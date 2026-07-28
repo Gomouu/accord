@@ -381,6 +381,30 @@ export const esSettings = {
     privacyEgressRelays:
       'Circuitos de relé abiertos (respaldo cifrado de extremo a extremo)',
     privacyEgressCentral: 'Servidores centrales contactados',
+    security: 'Seguridad',
+    securityStateTitle: 'Cifrado de tus conversaciones',
+    securityStateHint:
+      'Todo lo que envías está cifrado de extremo a extremo, en todos los casos. Esta pantalla indica cómo se acordó la clave con cada contacto.',
+    securityHybridExplainTitle: 'Por qué dos mecanismos',
+    securityHybridExplain:
+      'Un mensaje interceptado hoy puede guardarse y descifrarse años después, cuando existan ordenadores cuánticos. Por eso Accord combina X25519, probado frente a los ordenadores clásicos, con ML-KEM, diseñado para resistir los ataques con ordenador cuántico conocidos hasta hoy. Hay que romper los dos para leer la conversación: si uno cede, el otro aguanta.',
+    securityPerContactTitle: 'Estado por contacto',
+    securityPerContactHint:
+      'El estado describe la sesión en curso, no al contacto. «Estándar» significa que al menos uno de los dos dispositivos no abrió el modo reforzado, casi siempre porque usa una versión más antigua.',
+    securityPerContactEmpty: 'Aún no hay contactos.',
+    securityNoSession: 'Sin sesión en curso',
+    securityRatioTitle: 'Tus sesiones desde el inicio',
+    securityRatioHybrid: 'Reforzadas',
+    securityRatioClassic: 'Estándar',
+    securityRatioLocal:
+      'Estos dos números se cuentan en este dispositivo y nunca salen de él: no se transmiten a nadie.',
+    securityRequireTitle: 'Exigir el cifrado reforzado',
+    securityRequireHint:
+      'Rechaza cualquier sesión que no sea poscuántica. Ya no podrás contactar con quienes tengan un dispositivo que no lo admita, ni ellos contigo.',
+    securityRequireOn: 'Exigido: las sesiones estándar se rechazan',
+    securityRequireOff: 'No exigido: el modo reforzado se usa siempre que sea posible',
+    securityRequireFailed: 'No se pudo guardar este ajuste.',
+    securityUnavailable: 'Estado del cifrado no disponible en este nodo.',
   },
   decorations: {
     decorationTitle: 'Decoración de avatar',

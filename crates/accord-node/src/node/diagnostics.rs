@@ -31,6 +31,8 @@ pub struct NetCounters {
     outbox_flushed: AtomicU64,
     reconnect_attempts: AtomicU64,
     reconnect_ok: AtomicU64,
+    handshake_hybrid: AtomicU64,
+    handshake_classic: AtomicU64,
 }
 
 impl NetCounters {
@@ -82,6 +84,20 @@ impl NetCounters {
     pub fn reconnect_ok(&self) {
         self.reconnect_ok.fetch_add(1, Ordering::Relaxed);
     }
+    /// Session établie, classée selon la provenance de sa clé (jalon 2, lot 2.D).
+    ///
+    /// 🔒 Purement local, comme tous les compteurs de ce module : rien de ceci
+    /// ne part sur le réseau, sous aucune forme et vers aucun pair. C'est ce
+    /// qui permet de répondre « quelle part de mes sessions est hybride ? »
+    /// sans construire de télémétrie.
+    pub fn handshake_done(&self, post_quantum: bool) {
+        let compteur = if post_quantum {
+            &self.handshake_hybrid
+        } else {
+            &self.handshake_classic
+        };
+        compteur.fetch_add(1, Ordering::Relaxed);
+    }
 
     /// Photographie sérialisable des compteurs (contrat `diagnostics.counters`).
     pub fn snapshot(&self) -> CountersSnapshot {
@@ -107,6 +123,10 @@ impl NetCounters {
             reconnect: ReconnectCounters {
                 attempts: self.reconnect_attempts.load(Ordering::Relaxed),
                 ok: self.reconnect_ok.load(Ordering::Relaxed),
+            },
+            handshake: HandshakeCounters {
+                hybrid: self.handshake_hybrid.load(Ordering::Relaxed),
+                classic: self.handshake_classic.load(Ordering::Relaxed),
             },
         }
     }
@@ -175,6 +195,22 @@ pub struct CountersSnapshot {
     pub outbox: OutboxCounters,
     /// Reconnexion d'amorçage.
     pub reconnect: ReconnectCounters,
+    /// Provenance des clés de session établies. Champ additif.
+    pub handshake: HandshakeCounters,
+}
+
+/// Sessions établies depuis le démarrage, réparties selon la provenance de leur
+/// clé (jalon 2, lot 2.D). Le rapport des deux est la proportion de sessions
+/// hybrides ; il n'est calculé qu'à l'affichage, pour éviter de figer une
+/// division par zéro au démarrage.
+///
+/// 🔒 Jamais transmis. Ces deux nombres ne sortent que par l'API LOCALE.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct HandshakeCounters {
+    /// Sessions dont la clé dérive de X25519 **et** de ML-KEM.
+    pub hybrid: u64,
+    /// Sessions dont la clé dérive de X25519 seul.
+    pub classic: u64,
 }
 
 /// Verdict de joignabilité de l'auto-test réseau, dérivé de l'éligibilité
@@ -346,6 +382,15 @@ fn masquer_hote(addr: &str) -> String {
 /// relais sont de l'infrastructure publique, saisie par l'utilisateur
 /// lui-même, et sans elles un problème de relais n'est pas diagnosticable.
 /// L'adresse publique de la machine locale, elle, est masquée jusqu'au port.
+///
+/// ⚠️ [`CountersSnapshot`] traverse **en bloc**, sans liste blanche — à la
+/// différence des liens, filtrés champ par champ. Ajouter un compteur, c'est
+/// donc l'ajouter à ce rapport, en silence. Ce n'est tenable que parce que tout
+/// compteur est un agrégat local sans rattachement à un pair ; le jour où l'un
+/// d'eux porterait un identifiant, un horodatage exploitable ou une valeur par
+/// ami, il faudrait filtrer ici. Le contrôle de forme de
+/// `diagnostics_report_ne_sort_ni_cle_ni_adresse_d_ami` fige la liste des
+/// groupes pour que l'ajout suivant se voie.
 pub fn bug_report(
     counters: CountersSnapshot,
     selftest: SelfTestReport,
@@ -407,6 +452,7 @@ mod tests_rapport {
             rtt_ms: Some(38),
             last_delivery_ms: Some(1_700_000_000_000),
             capabilities: 0b101,
+            post_quantum: true,
         }
     }
 

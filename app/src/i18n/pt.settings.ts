@@ -369,6 +369,30 @@ export const ptSettings = {
     privacyEgressRelays:
       'Circuitos de retransmissão abertos (recurso cifrado ponta a ponta)',
     privacyEgressCentral: 'Servidores centrais contactados',
+    security: 'Segurança',
+    securityStateTitle: 'Criptografia das tuas conversas',
+    securityStateHint:
+      'Tudo o que envias é criptografado de ponta a ponta, em todos os casos. Este ecrã indica como a chave foi acordada com cada contacto.',
+    securityHybridExplainTitle: 'Porque dois mecanismos',
+    securityHybridExplain:
+      'Uma mensagem interceptada hoje pode ser guardada e decifrada anos depois, quando existirem computadores quânticos. Por isso o Accord combina X25519, comprovado contra os computadores clássicos, com ML-KEM, concebido para resistir aos ataques por computador quântico conhecidos até hoje. É preciso quebrar os dois para ler a conversa: se um cede, o outro aguenta.',
+    securityPerContactTitle: 'Estado por contacto',
+    securityPerContactHint:
+      'O estado descreve a sessão em curso, não o contacto. «Padrão» significa que pelo menos um dos dois aparelhos não abriu o modo reforçado — quase sempre por usar uma versão mais antiga.',
+    securityPerContactEmpty: 'Ainda não há contactos.',
+    securityNoSession: 'Sem sessão em curso',
+    securityRatioTitle: 'As tuas sessões desde o arranque',
+    securityRatioHybrid: 'Reforçadas',
+    securityRatioClassic: 'Padrão',
+    securityRatioLocal:
+      'Estes dois números são contados neste aparelho e nunca saem dele: não são transmitidos a ninguém.',
+    securityRequireTitle: 'Exigir a criptografia reforçada',
+    securityRequireHint:
+      'Recusa qualquer sessão que não seja pós-quântica. Deixarás de poder contactar quem tenha um aparelho incapaz de o fazer, nem eles a ti.',
+    securityRequireOn: 'Exigido — as sessões padrão são recusadas',
+    securityRequireOff: 'Não exigido — o modo reforçado é usado sempre que possível',
+    securityRequireFailed: 'Não foi possível guardar esta definição.',
+    securityUnavailable: 'Estado da criptografia indisponível neste nó.',
   },
   decorations: {
     decorationTitle: 'Decoração do avatar',

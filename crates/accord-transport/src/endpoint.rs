@@ -29,39 +29,6 @@ use std::sync::{Arc, Mutex};
 use subtle::ConstantTimeEq;
 use tokio::sync::{mpsc, oneshot};
 
-/// Nombre de salves de HELLO simultanées émises lors d'un poinçonnage
-/// coordonné (SPEC §11.2 : « 5 tentatives »).
-const PUNCH_ATTEMPTS: u32 = 5;
-/// Intervalle entre deux salves de poinçonnage (SPEC §11.2 : « 200 ms
-/// d'intervalle »).
-const PUNCH_INTERVAL: std::time::Duration = std::time::Duration::from_millis(200);
-
-// --- Codes de refus d'ouverture de circuit relais (canal RELAY, SPEC §10) ---
-/// Le nœud sollicité n'assure pas le service de relais (`relay_serving == false`).
-const REJECT_NOT_RELAY: u8 = 0x01;
-/// Le relais n'a aucune session active avec la cible demandée.
-const REJECT_NO_TARGET: u8 = 0x02;
-/// La table de circuits du relais est pleine (`MAX_CIRCUITS` atteint).
-const REJECT_FULL: u8 = 0x03;
-
-/// Plafond du nombre de circuits relais dont ce nœud est extrémité CLIENTE
-/// (miroir de [`crate::relay::MAX_CIRCUITS`] côté serveur). Borne l'empreinte
-/// mémoire de `client_circuits` — en particulier les circuits ouverts par des
-/// HELLO tunnelés entrants, insérés AVANT tout PoW/rate-limit (FAILLE C).
-const MAX_CLIENT_CIRCUITS: usize = crate::relay::MAX_CIRCUITS;
-
-/// Capacité (rafale) du seau de messages de contrôle changeant l'état par
-/// session : couvre l'annonce initiale, quelques ré-annonces et les
-/// observations d'adresse d'un cycle de présence sans jamais bloquer un pair
-/// honnête.
-const CTRL_MSG_BURST: f64 = 8.0;
-/// Recharge du seau de contrôle (messages/s) : au-delà, les messages
-/// excédentaires sont ignorés silencieusement. À 1/s, un pair hostile qui
-/// inonde est ramené à un filet négligeable (≈ 1 insertion de table/s),
-/// trivialement absorbé, tout en laissant passer le trafic légitime (une
-/// poignée de messages par minute au plus).
-const CTRL_MSG_REFILL_PER_S: f64 = 1.0;
-
 /// Délai au-delà duquel un circuit client dont le handshake bout-en-bout n'a
 /// jamais abouti (`session_id == None`) est balayé par la maintenance (FAILLE C).
 /// Large devant la latence d'un handshake tunnelé nominal — pour ne pas
@@ -101,6 +68,11 @@ pub enum TransportEvent {
         addr: SocketAddr,
         /// Clé publique Ed25519 du pair.
         static_pub: [u8; 32],
+        /// La clé de session dérive-t-elle aussi d'un secret ML-KEM ? Porté par
+        /// l'événement plutôt que relu dans `session_views()` : au moment où la
+        /// couche nœud traiterait l'événement, la session a pu être remplacée
+        /// par une plus fraîche, et le compteur mesurerait alors la mauvaise.
+        is_post_quantum: bool,
     },
     /// Message applicatif déchiffré reçu d'un pair.
     Message {
@@ -194,6 +166,8 @@ struct Session {
     peer_node: NodeId,
     /// Capacités authentifiées annoncées par le pair (0 s'il n'annonce rien).
     peer_capabilities: u32,
+    /// Vrai si la clé de session dérive aussi d'un secret ML-KEM (hybride).
+    is_post_quantum: bool,
     last_recv_ms: u64,
     last_send_ms: u64,
     /// Identifiant du prochain message fragmenté émis dans cette session.
@@ -233,28 +207,6 @@ struct Session {
     /// Dernier aller-retour mesuré (ms) sur un PONG corrélé au keep-alive.
     /// Purement local (diagnostic) ; `None` tant qu'aucun cycle n'a abouti.
     last_rtt_ms: Option<u64>,
-}
-
-/// Photographie d'une session établie, exposée à la couche nœud pour le
-/// diagnostic de connectivité par pair (D4/D35) : lien direct ou tunnelé,
-/// fraîcheur du dernier trafic entrant, latence estimée. Aucune donnée
-/// applicative ni clé n'y figure.
-#[derive(Debug, Clone, Copy)]
-pub struct SessionView {
-    /// Clé publique Ed25519 du pair (session authentifiée).
-    pub peer_static: [u8; 32],
-    /// Adresse de transport : celle du pair en direct, celle du RELAIS pour
-    /// une session tunnelée.
-    pub addr: SocketAddr,
-    /// `Some(circuit)` si la session transite par un circuit relais.
-    pub relay_circuit: Option<u32>,
-    /// Horodatage (ms, horloge du nœud) du dernier trafic entrant.
-    pub last_recv_ms: u64,
-    /// Dernier aller-retour keep-alive mesuré (ms), si un cycle a abouti.
-    pub last_rtt_ms: Option<u64>,
-    /// Capacités authentifiées du pair, telles que liées au transcript du
-    /// handshake. 0 si le pair n'en annonce aucune.
-    pub peer_capabilities: u32,
 }
 
 /// Préfixe hexadécimal court (4 octets) d'une clé publique, pour les logs.
@@ -393,49 +345,11 @@ struct State {
     relay_pending: HashMap<u32, Pending>,
 }
 
-/// Configuration de l'endpoint.
-#[derive(Debug, Clone, Copy)]
-pub struct EndpointConfig {
-    /// Difficulté PoW exigée des pairs.
-    pub pow_bits: u32,
-    /// Intervalle de keep-alive UDP (ms).
-    pub keepalive_ms: u64,
-    /// Inactivité avant fermeture de session (ms).
-    pub idle_timeout_ms: u64,
-    /// Seuil de HELLO/s au-delà duquel les cookies anti-DoS sont exigés.
-    pub cookie_pressure_per_s: u32,
-    /// Active le service de relais (SPEC §10) : ce nœud n'accepte d'acheminer du
-    /// trafic pour des tiers que si ce drapeau est vrai. Le nœud ne l'active que
-    /// lorsqu'il se sait publiquement joignable (hors périmètre ici). Faux par
-    /// défaut : un nœud n'est jamais relais à son insu (limitation de la surface
-    /// d'abus).
-    pub relay_serving: bool,
-    /// Capacités annoncées dans le handshake, ou `None` pour n'en annoncer
-    /// aucune.
-    ///
-    /// 🔒 **Reste à `None` tant que le parc n'est pas prêt.** Le champ occupe
-    /// 4 octets après la signature du HELLO ; un pair dont la version est
-    /// antérieure à son introduction rejette tout octet excédentaire et ne
-    /// peut alors plus établir la moindre session. La lecture, elle, est
-    /// active dès maintenant : un nœud accepte et authentifie les capacités
-    /// d'un pair qui en annonce, et les renvoie dans son WELCOME. C'est ce
-    /// déploiement en deux temps — savoir lire d'abord, écrire ensuite — qui
-    /// permettra d'allumer l'émission sans rupture.
-    pub capabilities: Option<u32>,
-}
-
-impl Default for EndpointConfig {
-    fn default() -> Self {
-        Self {
-            pow_bits: accord_proto::limits::IDENTITY_POW_BITS,
-            keepalive_ms: 25_000,
-            idle_timeout_ms: 120_000,
-            cookie_pressure_per_s: 64,
-            relay_serving: false,
-            capabilities: None,
-        }
-    }
-}
+pub use crate::endpoint_config::{EndpointConfig, SessionView};
+use crate::endpoint_config::{
+    CTRL_MSG_BURST, CTRL_MSG_REFILL_PER_S, MAX_CLIENT_CIRCUITS, PUNCH_ATTEMPTS, PUNCH_INTERVAL,
+    REJECT_FULL, REJECT_NOT_RELAY, REJECT_NO_TARGET,
+};
 
 /// Endpoint transport partagé (clonable via `Arc`).
 pub struct Endpoint {
@@ -452,6 +366,11 @@ pub struct Endpoint {
     /// ne s'annonce jamais relais tant que sa joignabilité publique n'est pas
     /// établie.
     local_flags: AtomicU8,
+    /// Exigence d'hybride post-quantique, copiée de la configuration au
+    /// démarrage puis modifiable à chaud (lot 2.D). Atomique et non dans
+    /// `State` : la décision est consultée sur le chemin du handshake, où le
+    /// verrou d'état est déjà tenu pour d'autres raisons.
+    require_pq: AtomicBool,
 }
 
 impl Endpoint {
@@ -474,6 +393,7 @@ impl Endpoint {
     ) -> (Arc<Self>, mpsc::UnboundedReceiver<TransportEvent>) {
         let (tx, rx) = mpsc::unbounded_channel();
         let now = clock.now_ms();
+        let require_pq = AtomicBool::new(config.require_post_quantum);
         let ep = Arc::new(Self {
             socket,
             identity,
@@ -498,8 +418,22 @@ impl Endpoint {
             events: tx,
             shutdown: AtomicBool::new(false),
             local_flags: AtomicU8::new(0),
+            require_pq,
         });
         (ep, rx)
+    }
+
+    /// Exige (ou cesse d'exiger) l'hybride post-quantique pour toute nouvelle
+    /// session. Les sessions DÉJÀ établies ne sont pas fermées : elles ont été
+    /// acceptées sous la politique en vigueur à leur ouverture, et les couper
+    /// en masse ferait passer un changement de réglage pour une panne réseau.
+    pub fn set_require_post_quantum(&self, require: bool) {
+        self.require_pq.store(require, Ordering::Relaxed);
+    }
+
+    /// Politique courante d'exigence post-quantique.
+    pub fn requires_post_quantum(&self) -> bool {
+        self.require_pq.load(Ordering::Relaxed)
     }
 
     /// Drapeaux de capacité annoncés dans `NODE_ANNOUNCE`. Rend vrai si la
@@ -871,6 +805,7 @@ impl Endpoint {
                 last_recv_ms: s.last_recv_ms,
                 last_rtt_ms: s.last_rtt_ms,
                 peer_capabilities: s.peer_capabilities,
+                is_post_quantum: s.is_post_quantum,
             })
             .collect()
     }
@@ -1079,6 +1014,20 @@ impl Endpoint {
                 self.config.pow_bits,
                 self.config.capabilities,
             )?;
+            // 🔒 Politique locale d'exigence post-quantique (lot 2.D), appliquée
+            // AVANT l'installation et avant l'émission du WELCOME : accepter la
+            // session puis la fermer laisserait une fenêtre où du trafic
+            // classique serait scellé. Le contrôle est ici et non dans
+            // `respond` : celui-ci fait de la cryptographie, pas de la
+            // politique.
+            if self.requires_post_quantum() && !established.is_post_quantum {
+                tracing::debug!(
+                    pair = %hex4(&established.peer_static),
+                    %peer_addr,
+                    "HELLO classique refusé : hybride post-quantique exigé"
+                );
+                return Err(TransportError::PostQuantumRequired);
+            }
             welcome_bytes = Packet::Welcome(welcome).to_bytes();
             let peer_node = node_id_of(&established.peer_static);
             let crypto = SessionCrypto::new(&established.keys, established.session_id, false, now);
@@ -1091,6 +1040,7 @@ impl Endpoint {
                     peer_static: established.peer_static,
                     peer_node,
                     peer_capabilities: established.peer_capabilities,
+                    is_post_quantum: established.is_post_quantum,
                     last_recv_ms: now,
                     last_send_ms: now,
                     next_frag_id: 0,
@@ -1127,6 +1077,7 @@ impl Endpoint {
                 node: peer_node,
                 addr: peer_addr,
                 static_pub: established.peer_static,
+                is_post_quantum: established.is_post_quantum,
             });
         }
         // Le WELCOME repart par le même lien (direct ou ré-enveloppé en tunnel).
@@ -1215,6 +1166,21 @@ impl Endpoint {
                     return Err(TransportError::PeerIdentityMismatch);
                 }
             }
+            // 🔒 Exigence post-quantique (lot 2.D), côté initiateur. Le pending
+            // est déjà retiré : la file destinée au pair est abandonnée sans
+            // avoir été scellée, exactement comme pour une liaison d'identité
+            // refusée. Le contrôle vient APRÈS `finish` parce que seule la
+            // signature du transcript établit de quoi la clé dérive vraiment —
+            // un WELCOME dont le bit aurait été effacé en vol n'arrive même pas
+            // jusqu'ici.
+            if self.requires_post_quantum() && !established.is_post_quantum {
+                tracing::debug!(
+                    pair = %hex4(&established.peer_static),
+                    %peer_addr,
+                    "WELCOME classique refusé : hybride post-quantique exigé"
+                );
+                return Err(TransportError::PostQuantumRequired);
+            }
             let peer_node = node_id_of(&established.peer_static);
             let crypto = SessionCrypto::new(&established.keys, established.session_id, true, now);
             let mut session = Session {
@@ -1223,6 +1189,7 @@ impl Endpoint {
                 peer_static: established.peer_static,
                 peer_node,
                 peer_capabilities: established.peer_capabilities,
+                is_post_quantum: established.is_post_quantum,
                 last_recv_ms: now,
                 last_send_ms: now,
                 next_frag_id: 0,
@@ -1262,6 +1229,7 @@ impl Endpoint {
                 node: peer_node,
                 addr: peer_addr,
                 static_pub: established.peer_static,
+                is_post_quantum: established.is_post_quantum,
             });
         }
         for bytes in to_send {
@@ -1282,6 +1250,31 @@ impl Endpoint {
         let now = self.clock.now_ms();
         let hello_bytes: Option<Vec<u8>> = {
             let mut st = self.state_lock();
+            // 🔒 **Même limite que le chemin HELLO, et pour une raison plus
+            // forte ici.** Un COOKIE n'est pas authentifié : n'importe qui
+            // peut en usurper un depuis l'adresse d'un pair dont nous avons un
+            // handshake en cours. Sans cette borne, chaque paquet de 4 octets
+            // fait régénérer un `Initiator` — génération ML-KEM, génération
+            // X25519 et signature Ed25519, **sous le verrou global** — puis
+            // émettre un HELLO d'environ un kilo-octet : un facteur
+            // d'amplification de l'ordre de 250, contre ~40 avant que le
+            // matériel post-quantique n'entre dans le HELLO. Le jalon 2 ne
+            // crée pas ce chemin, il en multiplie le coût par six ; le borner
+            // fait donc partie du jalon.
+            //
+            // Rejet silencieux, comme dans `on_hello` : répondre quoi que ce
+            // soit à une source usurpée, fût-ce une erreur, ne ferait que
+            // rendre le réflecteur utile.
+            let source = match link {
+                PeerLink::Direct(addr) => addr.ip(),
+                // Un COOKIE tunnelé arrive par un circuit relais déjà établi,
+                // donc d'une source authentifiée au niveau du relais ; on le
+                // compte quand même, sur l'adresse de ce relais.
+                PeerLink::Tunnel { relay_addr, .. } => relay_addr.ip(),
+            };
+            if !st.hs_rate.check(source, 1.0, now) {
+                return Ok(());
+            }
             // Même dualité que `on_welcome` : pending direct vs pending tunnelé.
             let pending = match link {
                 PeerLink::Direct(addr) => st.pending.get_mut(&addr),

@@ -83,10 +83,12 @@ HELLO  (initiator → responder), packet_class=0x01 :
   cookie        : vbytes      0 bytes or anti-DoS cookie (§2.5)
   sig_i         : bytes<64>   Ed25519(static_i, transcript_1)
   capabilities  : u32         OPTIONAL, additive tail — §2.2.1
+  pq_ek         : bytes<800>  OPTIONAL, present iff CAP_PQ_HYBRID is set — §2.2.1
 
   transcript_1 = SHA-256("accord-hs-v1" ‖ version ‖ eph_pub_i ‖ static_pub_i ‖
                          pow_nonce_i ‖ timestamp_ms ‖ nonce_i
-                         [‖ 0x01 ‖ capabilities_i  if present])
+                         [‖ 0x01 ‖ capabilities_i  if present]
+                         [‖ 0x02 ‖ pq_ek          if present])
 
 WELCOME (responder → initiator), packet_class=0x02 :
   version:u8=1, class:u8=0x02
@@ -98,10 +100,19 @@ WELCOME (responder → initiator), packet_class=0x02 :
   session_id    : bytes<8>    randomly chosen by the responder
   sig_r         : bytes<64>   Ed25519(static_r, transcript_2)
   capabilities  : u32         OPTIONAL, additive tail — §2.2.1
+  pq_ct         : bytes<768>  OPTIONAL, present iff CAP_PQ_HYBRID is set — §2.2.1
 
   transcript_2 = SHA-256("accord-hs-v1" ‖ transcript_1 ‖ eph_pub_r ‖ static_pub_r ‖
                          pow_nonce_r ‖ timestamp_ms_r ‖ nonce_r ‖ session_id
-                         [‖ 0x01 ‖ capabilities_r  if present])
+                         [‖ 0x01 ‖ capabilities_r  if present]
+                         [‖ 0x02 ‖ pq_ct          if present])
+
+🔒 **The `0x02` term is not optional reading.** A transcript that covers the
+capabilities but not the material authenticates the *announcement* of hybrid
+without authenticating the key material itself — an attacker then rewrites
+`pq_ek` in flight and the signature still verifies. That is the downgrade this
+milestone exists to prevent, so an implementation that omits it is worse than
+one that never attempted hybrid at all.
 ```
 
 Validation (both directions): version, PoW, |timestamp − now| ≤ 90,000 ms,
@@ -131,31 +142,105 @@ k_i2r     = HKDF-Expand(prk, "accord-i2r", 32)   // initiator→responder key
 k_r2i     = HKDF-Expand(prk, "accord-r2i", 32)
 ```
 
-#### 2.2.1 `capabilities` — an additive tail, not a new field
+#### 2.2.1 Additive fields: capabilities and post-quantum material
 
-`capabilities` is a `u32` bitmask sitting **after the signature**, and it is the
-only field in the handshake that may be absent: present it costs exactly 4 bytes,
-absent the structure is byte-identical to the pre-6.2 one. Defined bits:
-`CAP_DEVICE_KEYS = 1<<0`, `CAP_PQ_HYBRID = 1<<1`, `CAP_GROUP_VIDEO_N = 1<<2`;
-unknown bits are carried and ignored. A 1-to-3-byte tail is a decode error, not a
-future extension.
+Both messages carry two **trailing additive fields**, in this order, after the
+signature:
 
-🔒 **No forced downgrade.** Absent, the field adds *nothing* to the transcript —
-otherwise no older peer could ever authenticate again. Present, it adds the
-marker `0x01` then the 4 big-endian bytes. Stripping the field in flight, or
-injecting one into a bare HELLO, therefore changes the transcript the receiver
-computes and the signature stops verifying.
+```
+  capabilities  : u32          optional, 4 bytes when present
+  pq_ek / pq_ct : bytes<800> / bytes<768>   present iff CAP_PQ_HYBRID is set
+```
 
-⚠️ **Reading is on; writing is not.** A node accepts, authenticates and echoes a
-peer's capabilities, and `EstablishedSession::peer_capabilities` exposes them
-(`0` when the peer announced none). Emission is a transport-level policy
-(`EndpointConfig::capabilities`) and is still `None`: a peer predating the field
-rejects the trailing bytes outright and can then establish no session at all. So
-**no shipped behaviour may be conditioned on a peer's capabilities today** —
-nothing emits them, so every peer looks bare. This two-step deployment is what
-will let emission be switched on without a break; it is also why the 7.0
-transport switch is a flag day rather than a negotiation (`MULTI_DEVICE.md`
-§3.2.1).
+Absent, the structure is byte-identical to the version that predates them. A
+decoder that predates a field rejects the excess bytes outright, so **emitting a
+field toward a peer too old to decode it makes the handshake undecodable for
+that peer** — emission is a deployment decision, not a protocol one.
+
+No length prefix is read from the wire. The handshake is decoded *before* a
+session exists, so nothing in it is authenticated yet, and a sender-chosen
+length would open a memory-exhaustion path. The size comes from the parameter
+set (ML-KEM-512). Consequently the capability bit and the material are welded
+together: bit set ⇔ material present, at encode and at decode alike.
+
+Both fields are absorbed into the transcript behind distinct one-byte markers
+(`0x01` for capabilities, `0x02` for the material), and only when present — an
+absent field contributes nothing, which is what keeps a classic transcript
+byte-identical to the pre-hybrid one. An attacker who strips the capability bit
+in flight, or flips one byte of key material, changes the transcript the
+receiver computes; the signature no longer verifies and the handshake is
+rejected. Such an attacker can deny the connection. They cannot obtain a
+downgraded session to decrypt later.
+
+Hybrid derivation replaces `ikm` above with the concatenation of both secrets,
+each exactly 32 bytes, so no byte split is ambiguous:
+
+```
+ikm = X25519(eph_priv, eph_pub_pair) ‖ ML-KEM-Decaps(pq_ct)      // hybrid
+ikm = X25519(eph_priv, eph_pub_pair)                             // classic
+```
+
+#### 2.2.2 ⚠️ `CAP_PQ_HYBRID` does not mean the same thing in both messages
+
+This is deliberate, and it is the one place in the protocol where a capability
+bit is not a capability. Read the field without this in mind and it will be
+misread.
+
+| Message | What the bit asserts | Reading it as the other meaning gives |
+|---|---|---|
+| HELLO (initiator) | **"I can do this."** The initiator announces the ability *and* attaches its ML-KEM encapsulation key. | Nothing wrong: for the initiator the two meanings coincide, because announcing costs it the material. |
+| WELCOME (responder) | **"I did this."** The bit is set only if the ML-KEM ciphertext actually accompanies this reply. | A false negative. A responder that *can* do hybrid but received a classic HELLO answers with the bit **clear**; reading that as "peer cannot do hybrid" is wrong. |
+
+The asymmetry is forced by the wire invariant of §2.2.1: the bit is what tells
+the decoder whether 768 bytes follow, so in the WELCOME it *must* describe the
+packet's contents rather than the sender's abilities. A responder that
+advertised an ability it did not exercise would emit an undecodable packet.
+
+**The bit therefore does not survive the handshake.** It stays on the wire, where
+the encode/decode invariant needs it, but implementations **must strip it from
+whatever they retain as the peer's capabilities**:
+
+```
+peer_capabilities = received_capabilities & ~CAP_PQ_HYBRID     // both roles
+```
+
+The reason is that a retained capability field is read afterwards as a property
+of the peer, and a bitmask has two states where reality has three — capable,
+incapable, unknown. Leaving the bit in would encode "unknown" as "incapable".
+Stripping it is unconditional and applies to **both** roles, including the
+responder, where the HELLO's bit *is* a truthful capability: keeping it on one
+role only would make the field's meaning depend on who dialled, which is a
+subtler trap than the one being closed. The negotiated mode is reported
+separately (`is_post_quantum` in this implementation), which states it exactly.
+Every other bit in the field survives untouched, so this is a targeted mask and
+not a cleared field.
+
+Two consequences worth stating explicitly:
+
+- **Only the initiator opens hybrid.** A capable responder never upgrades a
+  classic HELLO on its own; it has nowhere to put the ciphertext. Hybrid
+  coverage across the network is therefore driven by initiators, and any
+  measurement of it counts sessions, not peers.
+- **A classic session does not prove the peer is classic.** It proves that at
+  least one of the two sides did not open hybrid. Do not derive peer
+  capabilities from a session's mode; and do not present a classic session to
+  the user as "this contact cannot do it".
+
+Every *other* bit in the field keeps the plain "what I can do" meaning in both
+messages, and travels between them untouched.
+
+Defined bits: `CAP_DEVICE_KEYS = 1<<0`, `CAP_PQ_HYBRID = 1<<1`,
+`CAP_GROUP_VIDEO_N = 1<<2`; unknown bits are carried and ignored. A 1-to-3-byte
+tail is a decode error, not a future extension.
+
+**Emission is switched on in 8.0**, and it costs nothing new. Until then the
+field was read but never written (`EndpointConfig::capabilities = None`),
+because a peer predating its introduction in 6.2 rejects the trailing bytes and
+can then establish no session at all. That floor is already moot: 7.0's device-key
+flag day cut off every peer at 6.2 or older (`MULTI_DEVICE.md` §3.2.1) — for them
+a switched friend is a stranger and the session dies on `PeerIdentityMismatch`.
+Anyone still able to establish a session today is therefore at 6.3 or above, and
+reads capabilities. Announcing `CAP_PQ_HYBRID` reaches no one it could break.
 
 ### 2.3 Session state machine
 

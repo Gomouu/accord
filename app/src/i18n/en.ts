@@ -1022,6 +1022,12 @@ export const en: Dict = {
       "Copies a technical summary to the clipboard, to attach to a bug report: counters, network self-test and link states. It contains no messages, no friend codes and none of your friends' IP addresses — it is safe to share.",
     reportCopied: 'Diagnostic report copied.',
     reportFailed: 'Could not produce the report.',
+    encryptionHybrid: 'Reinforced encryption (post-quantum)',
+    encryptionHybridHint:
+      "This session's key is derived from two independent mechanisms, X25519 and ML-KEM. It resists quantum-computer attacks known to date.",
+    encryptionClassic: 'Standard encryption',
+    encryptionClassicHint:
+      "This session's key is derived from X25519 alone. The content stays end-to-end encrypted, without the extra protection against a future quantum computer.",
     logTitle: 'Diagnostic log',
     logHint:
       "The accord.log file in this folder records what the app does. It contains no message content and none of your friends' IP addresses: peers appear as a short prefix of their key — enough to follow an exchange, not to find them. You can attach it to a bug report.",

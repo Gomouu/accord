@@ -341,6 +341,30 @@ export const arSettings = {
     privacyEgressPeers: 'الأنداد المتصلون',
     privacyEgressRelays: 'دارات ترحيل مفتوحة (بديل مُعمّى من الطرف إلى الطرف)',
     privacyEgressCentral: 'خوادم مركزية جرى الاتصال بها',
+    security: 'الأمان',
+    securityStateTitle: 'تشفير محادثاتك',
+    securityStateHint:
+      'كل ما ترسله مشفَّر من طرف إلى طرف في جميع الحالات. تبيّن هذه الشاشة كيف تم الاتفاق على المفتاح مع كل مراسل.',
+    securityHybridExplainTitle: 'لماذا آليتان',
+    securityHybridExplain:
+      'يمكن حفظ رسالة تُعترَض اليوم وفكّ تشفيرها بعد سنوات، حين توجد الحواسيب الكمّية. لذلك يجمع Accord بين X25519، المُختبَر أمام الحواسيب التقليدية، وML-KEM، المصمَّم لمقاومة هجمات الحواسيب الكمّية المعروفة إلى اليوم. يلزم كسر الاثنين لقراءة المحادثة: إن سقط أحدهما صمد الآخر.',
+    securityPerContactTitle: 'الحالة لكل مراسل',
+    securityPerContactHint:
+      'تصف الحالة الجلسة الجارية، لا المراسل. «قياسي» يعني أن أحد الجهازين على الأقل لم يفتح النمط المعزَّز، وغالباً لأنه يعمل بإصدار أقدم.',
+    securityPerContactEmpty: 'لا مراسلين بعد.',
+    securityNoSession: 'لا جلسة جارية',
+    securityRatioTitle: 'جلساتك منذ التشغيل',
+    securityRatioHybrid: 'معزَّزة',
+    securityRatioClassic: 'قياسية',
+    securityRatioLocal:
+      'يُحتسب هذان الرقمان على هذا الجهاز ولا يخرجان منه أبداً: لا يُرسلان إلى أي أحد.',
+    securityRequireTitle: 'اشتراط التشفير المعزَّز',
+    securityRequireHint:
+      'يرفض كل جلسة ليست ما بعد كمّية. لن تستطيع الوصول إلى المراسلين الذين لا تقدر أجهزتهم على ذلك، ولا هم إليك.',
+    securityRequireOn: 'مشترَط — الجلسات القياسية مرفوضة',
+    securityRequireOff: 'غير مشترَط — يُستخدم النمط المعزَّز كلما أمكن',
+    securityRequireFailed: 'لم يتمكّن من حفظ هذا الإعداد.',
+    securityUnavailable: 'حالة التشفير غير متوفرة على هذه العقدة.',
   },
   decorations: {
     decorationTitle: 'زخرفة الصورة الرمزية',

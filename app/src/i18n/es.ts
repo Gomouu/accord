@@ -1035,6 +1035,12 @@ export const es: Dict = {
       'Copia al portapapeles un resumen técnico para adjuntar a un informe de error: contadores, autodiagnóstico de red y estado de los enlaces. No contiene mensajes, ni códigos de amigo, ni las direcciones IP de tus amigos: puedes compartirlo sin riesgo.',
     reportCopied: 'Informe de diagnóstico copiado.',
     reportFailed: 'No se pudo generar el informe.',
+    encryptionHybrid: 'Cifrado reforzado (poscuántico)',
+    encryptionHybridHint:
+      'La clave de esta sesión se deriva de dos mecanismos independientes, X25519 y ML-KEM. Resiste los ataques con ordenador cuántico conocidos hasta hoy.',
+    encryptionClassic: 'Cifrado estándar',
+    encryptionClassicHint:
+      'La clave de esta sesión se deriva solo de X25519. El contenido sigue cifrado de extremo a extremo, sin la protección adicional frente a un futuro ordenador cuántico.',
     logTitle: 'Registro de diagnóstico',
     logHint:
       'El archivo accord.log de esta carpeta registra el funcionamiento de la aplicación. No contiene el contenido de los mensajes ni las direcciones IP de tus contactos: los pares aparecen como un prefijo corto de su clave, suficiente para seguir un intercambio, no para localizarlos. Puedes adjuntarlo a un informe de error.',

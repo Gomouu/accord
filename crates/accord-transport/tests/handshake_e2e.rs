@@ -21,6 +21,7 @@ fn config() -> EndpointConfig {
         cookie_pressure_per_s: 64,
         relay_serving: false,
         capabilities: None,
+        require_post_quantum: false,
     }
 }
 
@@ -89,6 +90,32 @@ fn capacites_vues(node: &Node) -> u32 {
 
 /// Variante à identité imposée : indispensable pour simuler le REDÉMARRAGE
 /// d'un pair (même clé statique, nouvelle adresse).
+/// Nœud qui exige un cookie AVANT de créer le moindre état
+/// (`cookie_pressure_per_s: 0`). C'est ce réglage qui force le chemin
+/// HELLO → COOKIE → HELLO, autrement jamais emprunté par les tests.
+fn spawn_node_sous_pression(net: &SimNet, clock: &ManualClock, addr: &str) -> Node {
+    let id = Arc::new(Identity::generate_with_pow_bits(POW));
+    let addr: SocketAddr = addr.parse().unwrap();
+    let socket = Arc::new(net.bind(addr));
+    let static_pub = id.public_key();
+    let (ep, events) = Endpoint::new(
+        socket,
+        id,
+        Arc::new(clock.clone()) as Arc<dyn accord_transport::Clock>,
+        EndpointConfig {
+            cookie_pressure_per_s: 0,
+            ..config()
+        },
+    );
+    ep.spawn();
+    Node {
+        ep,
+        events,
+        addr,
+        static_pub,
+    }
+}
+
 fn spawn_node_avec_identite(
     net: &SimNet,
     clock: &ManualClock,
@@ -744,7 +771,7 @@ async fn keepalive_mesure_la_latence_et_session_views_l_expose() {
 /// fin de la tâche : le champ additif ne coupe personne.
 #[tokio::test]
 async fn nouveau_et_ancien_noeud_sinterconnectent() {
-    const CAPS: u32 = accord_proto::limits::CAP_PQ_HYBRID;
+    const CAPS: u32 = accord_proto::limits::CAP_DEVICE_KEYS;
     let clock = ManualClock::new(1_000_000);
     let net = SimNet::new(4242, NetConditions::default());
 
@@ -784,16 +811,317 @@ async fn nouveau_et_ancien_noeud_sinterconnectent() {
 
 /// Deux nœuds qui annoncent tous les deux échangent bien leurs capacités,
 /// dans les deux sens, à travers le transport complet.
+///
+/// Les bits choisis excluent `CAP_PQ_HYBRID` : c'est le seul qui ne survit pas
+/// à l'échange, puisqu'il est retiré de ce qu'on conserve (SPEC §2.2.2 et
+/// `handshake::peer_capabilities_sans_mode`). Le cas hybride a ses propres
+/// tests plus bas.
 #[tokio::test]
 async fn deux_noeuds_capables_echangent_leurs_capacites() {
+    const DE_A: u32 = accord_proto::limits::CAP_DEVICE_KEYS;
+    const DE_B: u32 = accord_proto::limits::CAP_GROUP_VIDEO_N;
     let clock = ManualClock::new(1_000_000);
     let net = SimNet::new(4243, NetConditions::default());
-    let a = spawn_node_avec_capacites(&net, &clock, "10.0.6.1:4000", Some(0b101));
-    let b = spawn_node_avec_capacites(&net, &clock, "10.0.6.2:4000", Some(0b010));
+    let a = spawn_node_avec_capacites(&net, &clock, "10.0.6.1:4000", Some(DE_A));
+    let b = spawn_node_avec_capacites(&net, &clock, "10.0.6.2:4000", Some(DE_B));
     a.ep.send(b.addr, &ChannelMsg::Control(ControlMsg::Ping { token: 3 }))
         .await
         .unwrap();
     attendre_sessions(&a, &b).await;
-    assert_eq!(capacites_vues(&b), 0b101);
-    assert_eq!(capacites_vues(&a), 0b010);
+    assert_eq!(capacites_vues(&b), DE_A);
+    assert_eq!(capacites_vues(&a), DE_B);
+}
+
+fn session_hybride(node: &Node) -> bool {
+    node.ep
+        .session_views()
+        .first()
+        .expect("une session")
+        .is_post_quantum
+}
+
+/// Jalon 2 — Deux nœuds 8.0 négocient l'hybride de bout en bout, à travers le
+/// vrai chemin datagramme : encodage, MTU, décodage, transcript, dérivation.
+/// Le HELLO hybride pèse ~970 o ; s'il passait au-dessus de `UDP_MTU`, ce test
+/// tomberait avant toute assertion sur les clés.
+#[tokio::test]
+async fn deux_noeuds_negocient_lhybride_post_quantique() {
+    const PQ: u32 = accord_proto::limits::CAP_PQ_HYBRID;
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(4244, NetConditions::default());
+    let a = spawn_node_avec_capacites(&net, &clock, "10.0.7.1:4000", Some(PQ));
+    let b = spawn_node_avec_capacites(&net, &clock, "10.0.7.2:4000", Some(PQ));
+    a.ep.send(b.addr, &ChannelMsg::Control(ControlMsg::Ping { token: 4 }))
+        .await
+        .unwrap();
+    attendre_sessions(&a, &b).await;
+    assert!(
+        session_hybride(&a),
+        "l'initiateur doit voir une session hybride"
+    );
+    assert!(
+        session_hybride(&b),
+        "le répondeur doit voir une session hybride"
+    );
+    // 🔒 Le mode ne se lit PAS dans les capacités : le bit est retiré de ce
+    // qu'on conserve, des deux côtés, même quand l'hybride a bel et bien eu
+    // lieu. C'est `is_post_quantum` qui porte l'information, ci-dessus.
+    assert_eq!(capacites_vues(&a) & PQ, 0);
+    assert_eq!(capacites_vues(&b) & PQ, 0);
+}
+
+/// Jalon 2 — Un nœud hybride et un nœud antérieur au champ de capacités
+/// (un 7.0, qui n'annonce rien) se parlent en classique, sans friction, dans
+/// les deux sens d'initiation.
+#[tokio::test]
+async fn noeud_hybride_et_noeud_7_0_se_parlent_en_classique() {
+    const PQ: u32 = accord_proto::limits::CAP_PQ_HYBRID;
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(4245, NetConditions::default());
+
+    // Sens 1 : l'hybride initie.
+    let hybride = spawn_node_avec_capacites(&net, &clock, "10.0.8.1:4000", Some(PQ));
+    let ancien = spawn_node_avec_capacites(&net, &clock, "10.0.8.2:4000", None);
+    hybride
+        .ep
+        .send(
+            ancien.addr,
+            &ChannelMsg::Control(ControlMsg::Ping { token: 5 }),
+        )
+        .await
+        .unwrap();
+    attendre_sessions(&hybride, &ancien).await;
+    assert!(!session_hybride(&hybride) && !session_hybride(&ancien));
+
+    // Sens 2 : c'est l'ancien qui initie.
+    let hybride2 = spawn_node_avec_capacites(&net, &clock, "10.0.8.3:4000", Some(PQ));
+    let ancien2 = spawn_node_avec_capacites(&net, &clock, "10.0.8.4:4000", None);
+    ancien2
+        .ep
+        .send(
+            hybride2.addr,
+            &ChannelMsg::Control(ControlMsg::Ping { token: 6 }),
+        )
+        .await
+        .unwrap();
+    attendre_sessions(&ancien2, &hybride2).await;
+    assert!(!session_hybride(&hybride2) && !session_hybride(&ancien2));
+}
+
+/// Jalon 2 — Un nœud hybride et un nœud 8.0 dont l'hybride est éteint
+/// s'entendent en classique : le repli est propre, pas une panne.
+#[tokio::test]
+async fn hybride_et_classique_replient_proprement() {
+    const PQ: u32 = accord_proto::limits::CAP_PQ_HYBRID;
+    const SANS_PQ: u32 = accord_proto::limits::CAP_DEVICE_KEYS;
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(4246, NetConditions::default());
+    let hybride = spawn_node_avec_capacites(&net, &clock, "10.0.9.1:4000", Some(PQ));
+    let classique = spawn_node_avec_capacites(&net, &clock, "10.0.9.2:4000", Some(SANS_PQ));
+    hybride
+        .ep
+        .send(
+            classique.addr,
+            &ChannelMsg::Control(ControlMsg::Ping { token: 7 }),
+        )
+        .await
+        .unwrap();
+    attendre_sessions(&hybride, &classique).await;
+    assert!(!session_hybride(&hybride) && !session_hybride(&classique));
+    // Le répondeur a bien reçu l'annonce de l'initiateur — mais réduite à ce
+    // qui décrit vraiment une aptitude : le bit de mode est retiré des deux
+    // vues, et c'est `session_hybride` ci-dessus qui dit ce qui s'est passé.
+    assert_eq!(capacites_vues(&classique) & PQ, 0);
+    assert_eq!(capacites_vues(&hybride), SANS_PQ);
+}
+
+/// Jalon 2 — Le bit de mode est retiré des capacités CONSERVÉES, et lui seul :
+/// les autres bits annoncés dans le même champ survivent intacts.
+///
+/// 🔒 C'est le test qui distingue un masque ciblé d'un effacement du champ. Sans
+/// la seconde moitié de l'assertion, une implémentation qui remettrait
+/// `peer_capabilities` à zéro passerait pour correcte — et le jour où un pair
+/// annoncera une aptitude qu'on exploite, on la perdrait en silence.
+#[tokio::test]
+async fn le_bit_de_mode_est_retire_des_capacites_mais_pas_les_autres() {
+    const PQ: u32 = accord_proto::limits::CAP_PQ_HYBRID;
+    const AUTRE: u32 = accord_proto::limits::CAP_DEVICE_KEYS;
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(4250, NetConditions::default());
+    let a = spawn_node_avec_capacites(&net, &clock, "10.0.13.1:4000", Some(PQ | AUTRE));
+    let b = spawn_node_avec_capacites(&net, &clock, "10.0.13.2:4000", Some(PQ | AUTRE));
+    a.ep.send(b.addr, &ChannelMsg::Control(ControlMsg::Ping { token: 13 }))
+        .await
+        .unwrap();
+    attendre_sessions(&a, &b).await;
+
+    // L'hybride a bien eu lieu : c'est ce que le mode doit dire.
+    assert!(
+        session_hybride(&a) && session_hybride(&b),
+        "les deux annonçaient l'hybride : la session doit l'être"
+    );
+    // Et pourtant le bit n'apparaît dans aucune des deux vues…
+    assert_eq!(capacites_vues(&a) & PQ, 0, "vue de l'initiateur");
+    assert_eq!(capacites_vues(&b) & PQ, 0, "vue du répondeur");
+    // …tandis que le bit voisin, lui, a traversé.
+    assert_eq!(capacites_vues(&a), AUTRE);
+    assert_eq!(capacites_vues(&b), AUTRE);
+}
+
+/// Nœud du lot 2.D : annonce l'hybride ET refuse de s'en passer.
+fn spawn_node_exigeant(net: &SimNet, clock: &ManualClock, addr: &str) -> Node {
+    let addr: SocketAddr = addr.parse().unwrap();
+    let socket = Arc::new(net.bind(addr));
+    let id = Arc::new(Identity::generate_with_pow_bits(POW));
+    let static_pub = id.public_key();
+    let (ep, events) = Endpoint::new(
+        socket,
+        id,
+        Arc::new(clock.clone()) as Arc<dyn accord_transport::Clock>,
+        EndpointConfig {
+            capabilities: Some(accord_proto::limits::CAP_PQ_HYBRID),
+            require_post_quantum: true,
+            ..config()
+        },
+    );
+    ep.spawn();
+    Node {
+        ep,
+        events,
+        addr,
+        static_pub,
+    }
+}
+
+/// Laisse au handshake tout le temps de réussir, puis constate qu'il n'a rien
+/// installé. Une assertion immédiate passerait pour la mauvaise raison — la
+/// session n'aurait simplement pas encore eu le temps d'exister.
+async fn rester_sans_session(node: &Node, quoi: &str) {
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(node.ep.session_count(), 0, "{quoi}");
+}
+
+/// Jalon 2, lot 2.D — Le réglage avancé « exiger l'hybride » refuse bien une
+/// session classique, dans les DEUX rôles. C'est le test qui distingue « on
+/// préfère l'hybride » de « on l'exige » : sans lui, l'option pourrait ne rien
+/// faire du tout et personne ne le verrait.
+#[tokio::test]
+async fn un_noeud_exigeant_refuse_une_session_classique() {
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(4247, NetConditions::default());
+
+    // Rôle répondeur : un pair antérieur au champ de capacités nous démarche.
+    let exigeant = spawn_node_exigeant(&net, &clock, "10.0.10.1:4000");
+    let ancien = spawn_node_avec_capacites(&net, &clock, "10.0.10.2:4000", None);
+    ancien
+        .ep
+        .send(
+            exigeant.addr,
+            &ChannelMsg::Control(ControlMsg::Ping { token: 8 }),
+        )
+        .await
+        .unwrap();
+    rester_sans_session(
+        &exigeant,
+        "un répondeur exigeant n'installe pas de session classique",
+    )
+    .await;
+    // Le WELCOME n'est jamais parti : l'initiateur reste sans session lui aussi.
+    assert_eq!(ancien.ep.session_count(), 0);
+
+    // Rôle initiateur : c'est nous qui démarchons un pair sans hybride.
+    let exigeant2 = spawn_node_exigeant(&net, &clock, "10.0.10.3:4000");
+    let ancien2 = spawn_node_avec_capacites(&net, &clock, "10.0.10.4:4000", None);
+    exigeant2
+        .ep
+        .send(
+            ancien2.addr,
+            &ChannelMsg::Control(ControlMsg::Ping { token: 9 }),
+        )
+        .await
+        .unwrap();
+    rester_sans_session(
+        &exigeant2,
+        "un initiateur exigeant n'installe pas de session classique",
+    )
+    .await;
+}
+
+/// Jalon 2, lot 2.D — L'exigence ne casse pas le cas qu'elle est censée servir :
+/// deux nœuds exigeants s'établissent normalement, en hybride.
+#[tokio::test]
+async fn deux_noeuds_exigeants_setablissent_en_hybride() {
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(4248, NetConditions::default());
+    let a = spawn_node_exigeant(&net, &clock, "10.0.11.1:4000");
+    let b = spawn_node_exigeant(&net, &clock, "10.0.11.2:4000");
+    a.ep.send(b.addr, &ChannelMsg::Control(ControlMsg::Ping { token: 10 }))
+        .await
+        .unwrap();
+    attendre_sessions(&a, &b).await;
+    assert!(session_hybride(&a) && session_hybride(&b));
+}
+
+/// Jalon 2, lot 2.D — L'exigence est modifiable à chaud. Un réglage de sécurité
+/// qui n'agirait qu'au prochain démarrage laisserait l'utilisateur croire qu'il
+/// est protégé alors qu'il ne l'est pas encore.
+#[tokio::test]
+async fn lexigence_prend_effet_sans_redemarrage() {
+    const PQ: u32 = accord_proto::limits::CAP_PQ_HYBRID;
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(4249, NetConditions::default());
+    let nous = spawn_node_avec_capacites(&net, &clock, "10.0.12.1:4000", Some(PQ));
+    assert!(!nous.ep.requires_post_quantum());
+
+    nous.ep.set_require_post_quantum(true);
+    assert!(nous.ep.requires_post_quantum());
+    let ancien = spawn_node_avec_capacites(&net, &clock, "10.0.12.2:4000", None);
+    ancien
+        .ep
+        .send(
+            nous.addr,
+            &ChannelMsg::Control(ControlMsg::Ping { token: 11 }),
+        )
+        .await
+        .unwrap();
+    rester_sans_session(&nous, "l'exigence posée à chaud doit déjà refuser").await;
+
+    // Et le retour en arrière rouvre bien la porte, sur un pair neuf : le
+    // premier a désormais un pending en cours, dont le nonce est consommé.
+    nous.ep.set_require_post_quantum(false);
+    let ancien2 = spawn_node_avec_capacites(&net, &clock, "10.0.12.3:4000", None);
+    ancien2
+        .ep
+        .send(
+            nous.addr,
+            &ChannelMsg::Control(ControlMsg::Ping { token: 12 }),
+        )
+        .await
+        .unwrap();
+    attendre_sessions(&ancien2, &nous).await;
+    assert!(!session_hybride(&nous));
+}
+
+/// 🔒 Le chemin COOKIE n'était couvert par AUCUN test : la revue adversariale
+/// du jalon 2 a montré qu'il ne portait pas non plus la limite de débit du
+/// chemin HELLO, si bien qu'un paquet de 4 octets non authentifié faisait
+/// régénérer un `Initiator` — génération ML-KEM comprise — et émettre un HELLO
+/// d'environ un kilo-octet. Le trou de couverture est ce qui a laissé passer le
+/// trou de protection ; ce test ferme le premier.
+///
+/// Il vérifie le sens qui compte pour l'utilisateur : sous pression, la
+/// session s'établit quand même. Un rejet trop large des cookies casserait
+/// tout premier contact vers un nœud chargé.
+#[tokio::test]
+async fn une_session_setablit_meme_quand_le_pair_exige_un_cookie() {
+    let clock = ManualClock::new(1_000_000);
+    let net = SimNet::new(4271, NetConditions::default());
+    let a = spawn_node(&net, &clock, "10.0.71.1:4000");
+    let b = spawn_node_sous_pression(&net, &clock, "10.0.71.2:4000");
+
+    a.ep.send(b.addr, &ChannelMsg::Control(ControlMsg::Ping { token: 71 }))
+        .await
+        .unwrap();
+
+    attendre_sessions(&a, &b).await;
 }

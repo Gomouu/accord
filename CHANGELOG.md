@@ -264,7 +264,40 @@ All notable changes to Accord. This project follows [semantic versioning](https:
   Bootstrap and relay addresses stay: that is public infrastructure you typed in
   yourself, and without it a relay problem cannot be diagnosed.
 
+- **Post-quantum encryption, added alongside the existing one and never in place
+  of it.** A message intercepted today can be stored and decrypted years later,
+  once quantum computers exist. Session keys are now derived from two independent
+  mechanisms at once — X25519, proven against classical computers, and ML-KEM,
+  designed to resist quantum-computer attacks known to date. Both must be broken
+  to read a conversation: if one gives way, the other holds. Where the mode is
+  shown, it is named "reinforced encryption (post-quantum)".
+
+  Where you can see it: a mention per contact in the connection card, and a new
+  **Settings → Security** tab with the state per contact, a plain-language
+  explanation, and how many of your sessions since startup were reinforced. Those
+  counters are computed on your machine and sent to nobody.
+
+  An advanced setting lets you **require** it and refuse standard sessions. It is
+  off by default, because turning it on removes contacts whose version cannot do
+  it rather than protecting them.
+
+  What this does **not** cover is written down in
+  [SECURITY.md](SECURITY.md) §5.15–5.17, and it matters: only confidentiality is
+  post-quantum. Every signature is still Ed25519, so an attacker holding a
+  quantum computer *while you are online* could still impersonate an identity.
+  Group keys and offline mailbox deposits also stay classic for now.
+
 ### Changed
+
+- **🔴 FLAG DAY — a peer running a version older than 6.2 can no longer establish
+  ANY session with this release.** Not "will not recognise you", not "degraded
+  first contact": no connection at all, in either direction. The handshake now
+  carries the capability field that 6.2 taught peers to read, and a peer older
+  than that rejects the packet outright as malformed.
+
+  Every peer this breaks was already broken by 7.0, which needs 6.4 on the other
+  side for a brand-new first contact, so nobody loses a link that still worked.
+  Anyone still on 6.1 or earlier must update.
 
 - **Search no longer stalls on a big history.** On a conversation of 100 000
   messages, searching a word that appears in all of them took **1.26 second**;

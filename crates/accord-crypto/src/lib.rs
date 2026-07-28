@@ -6,6 +6,8 @@
 //!   clé X25519 statique dérivée ;
 //! - [`handshake`] : établissement 1-RTT mutuellement authentifié avec
 //!   transcript hash, anti-rejeu et cookies anti-DoS ;
+//! - [`pq`] : encapsulation ML-KEM-512, greffée **à côté** de X25519 pour que
+//!   la clé de session dérive des deux secrets (ROADMAP §7) ;
 //! - [`session`] : AEAD XChaCha20-Poly1305, nonces directionnels stricts,
 //!   fenêtre anti-rejeu, re-keying par epochs (forward secrecy périodique) ;
 //! - [`sealed`] : boîtes scellées vers une clé statique (clés de groupe,
@@ -27,6 +29,7 @@ pub mod handshake;
 pub mod identity;
 pub mod mnemonic;
 pub mod pairing;
+pub mod pq;
 pub mod safety;
 pub mod sealed;
 pub mod session;

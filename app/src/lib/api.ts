@@ -641,6 +641,12 @@ export interface PeerLink {
   /** Capacités annoncées par le pair dans le handshake (bitmask authentifié).
    * 0 sans session ou pour un pair qui n'en annonce aucune. Champ additif. */
   capabilities?: number;
+  /** La clé de la session courante dérive-t-elle aussi d'un secret ML-KEM
+   * (chiffrement hybride, nœud 8.0+) ? Faux sans session. Champ additif.
+   *
+   * ⚠️ Décrit la SESSION, pas le pair : faux ne signifie pas « ce contact ne
+   * sait pas faire » (voir SPEC §2.2.2). */
+  post_quantum?: boolean;
 }
 
 /** Compteurs de diagnostic locaux depuis le démarrage (voir `diagnostics.counters`). */
@@ -650,59 +656,23 @@ export interface DiagnosticsCounters {
   mailbox: { deposits: number; pickups: number };
   outbox: { enqueued: number; flushed: number };
   reconnect: { attempts: number; ok: number };
+  /** Provenance des clés de session établies depuis le démarrage (8.0+).
+   * Compteur strictement local, jamais transmis. Champ additif. */
+  handshake?: { hybrid: number; classic: number };
 }
 
-/** Résultat de l'auto-test réseau borné (voir `diagnostics.selftest`). */
-export interface DiagnosticsSelftest {
-  p2p_port: number;
-  nat_kind: 'unknown' | 'cone' | 'symmetric';
-  port_mapping: 'upnp' | 'natpmp' | 'aucun';
-  external_addr: string | null;
-  observed_consensus: string | null;
-  dht_nodes: number;
-  connected_peers: number;
-  relay_eligible: boolean;
-  bootstrap: { addr: string; ok: boolean }[];
-  relay_probe: { addr: string; ok: boolean } | null;
-  /** Verdict de joignabilité : `'direct'`, `'punch'`, `'relay'` ou `'unknown'`. */
-  reachability: 'direct' | 'punch' | 'relay' | 'unknown';
-}
+/** État du chiffrement tel que le nœud le constate (`security.state`, 8.0+). */
 
-/**
- * Rapport de diagnostic caviardé (`diagnostics.report`), à joindre à un
- * rapport de bug.
- *
- * 🔒 Noter ce que ce type N'A PAS, par rapport à `PeerLink` : ni `pubkey`
- * (la clé publique d'un ami est son code ami), ni `addr` (son adresse IP).
- * Ces deux champs sont retirés par le nœud, parce que ce rapport est fait
- * pour être envoyé à quelqu'un d'autre. Les rajouter ici ne les ferait pas
- * apparaître — mais ce serait le signe qu'on est en train de reconstruire le
- * rapport du mauvais côté de la frontière.
- */
-export interface DiagnosticsReport {
-  /** Version de l'application qui a produit le rapport. */
-  version: string;
-  /** Système et architecture, par exemple `macos/aarch64`. */
-  platform: string;
-  counters: DiagnosticsCounters;
-  selftest: Omit<DiagnosticsSelftest, 'external_addr' | 'observed_consensus'> & {
-    /** Hôte masqué, port conservé (`masqué:41234`). */
-    external_addr: string | null;
-    /** Hôte masqué, port conservé. */
-    observed_consensus: string | null;
-  };
-  links: {
-    /** Rang dans la liste — le seul identifiant, valable pour ce rapport seul. */
-    peer: number;
-    live: boolean;
-    transport: 'direct' | 'relay' | 'none';
-    /** Adresse du relais : de l'infrastructure, pas celle de l'ami. */
-    relay: string | null;
-    last_recv_age_ms: number | null;
-    rtt_ms: number | null;
-    capabilities: number;
-  }[];
-}
+export type {
+  DiagnosticsReport,
+  DiagnosticsSelftest,
+  SecurityState,
+} from './apiSecurity';
+import type {
+  DiagnosticsReport,
+  DiagnosticsSelftest,
+  SecurityState,
+} from './apiSecurity';
 
 /** Une demande d'entrée en attente de validation (`groups.pending.list`). */
 export interface PendingMemberEntry {
@@ -2649,6 +2619,18 @@ export class Api {
    */
   privacyReport(): Promise<PrivacyReport> {
     return this.rpc.call('privacy.report');
+  }
+
+  // ---- Chiffrement (jalon 2) ----
+
+  /** État du chiffrement : hybride disponible, exigé, et compteurs locaux. */
+  securityState(): Promise<SecurityState> {
+    return this.rpc.call('security.state');
+  }
+
+  /** Exige (ou cesse d'exiger) l'hybride ; rend l'état à jour. */
+  securitySetRequireHybrid(require: boolean): Promise<SecurityState> {
+    return this.rpc.call('security.set_require_hybrid', { require });
   }
 
   // ---- Scheduled messages (F1) ----

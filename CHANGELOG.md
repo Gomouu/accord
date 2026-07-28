@@ -36,6 +36,30 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ### Added
 
+- **A member list that can be read in pages: `groups.members`.** `groups.state`
+  serialises every member on every call — 115.8 KiB of JSON at 500 members, and
+  the node emits `event.group_state` after each applied op, so a client that
+  reloads the state on that event re-reads the whole list every time
+  (`docs/PERFORMANCE.md` §3.1, §3.2). It was the only unbounded list in that
+  reply.
+
+  `groups.members { group_id, offset?, limit? }` returns `{ members, total }`:
+  one slice of the same list, in the same order, with the same per-member object
+  — the node builds both through one function, so a client that already decodes
+  `groups.state.members` needs no second decoder. `limit` is clamped to [1, 200]
+  rather than refused, and an offset past the end is an empty page with a
+  correct `total`, not an error: paging while someone leaves the server should
+  not fail.
+
+  **`groups.state` is unchanged and still returns the whole list.** Nothing was
+  truncated or paginated there; a client written before this method keeps
+  working exactly as it did.
+
+  ⚠️ This bounds the *reply*, not the node's work — the group state is folded in
+  full either way (that fold is memoised per database handle and dropped by
+  every incoming op). The saving is serialised bytes and client-side work, which
+  is what was measured to be unbounded; it is not a fix for the fold.
+
 - **Three to twenty people in one thread, filed with the conversations.** DM
   groups existed in the node since the milestone-5 groundwork and were reachable
   from nothing: no way to create one, and one created elsewhere landed in the

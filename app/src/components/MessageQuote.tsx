@@ -63,8 +63,17 @@ export function MessageQuote({
     </>
   );
 
+  // La ligne de citation est cliquable (saut vers le message d'origine) et le
+  // texte `text-xs` la laissait à 16 px de haut, sous le plancher de WCAG 2.2
+  // SC 2.5.8. `min-h-6` porte la cible à 24 px ; les marges négatives rendent
+  // les 6 px gagnés au flux (24 − 4 − 2 = 18 px, l'encombrement d'avant), si
+  // bien que la zone saisissable déborde sur la gouttière au-dessus — qui ne
+  // porte rien — au lieu de repousser tout le message vers le bas.
+  //
+  // Posée sur la classe partagée pour que la version non cliquable garde
+  // exactement la même géométrie.
   const className =
-    'mb-0.5 flex w-full min-w-0 max-w-full items-center gap-1.5 overflow-hidden text-xs text-muted';
+    '-mt-1 -mb-0.5 flex min-h-6 w-full min-w-0 max-w-full items-center gap-1.5 overflow-hidden text-xs text-muted';
   if (onJump === undefined) return <div className={className}>{inner}</div>;
   return (
     <button

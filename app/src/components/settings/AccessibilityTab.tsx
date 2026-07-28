@@ -62,7 +62,10 @@ export function AccessibilityTab() {
             value={saturation}
             aria-label={ts.settings.saturationSliderLabel}
             onChange={(e) => setSaturation(Number(e.target.value))}
-            className="h-5 w-full rounded-full accent-blurple outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+            // `h-6` et non `h-5` : 24 px est le plancher de WCAG 2.2 SC 2.5.8.
+            // La piste native reste centrée dans la boîte, le dessin ne bouge
+            // pas — seule la zone saisissable s'élargit.
+            className="h-6 w-full rounded-full accent-blurple outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
           />
           <span className="w-12 shrink-0 text-end text-sm tabular-nums text-norm">
             {saturation}%

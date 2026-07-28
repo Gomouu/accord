@@ -119,7 +119,9 @@ export function PinnedPanel({
             <button
               type="button"
               onClick={() => onUnpin(m.msg_id)}
-              className="mt-1 rounded-sm text-xs font-medium text-muted transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+              // `inline-flex min-h-6 items-center` : en `text-xs` le bouton ne
+              // faisait que 16 px de haut, sous le seuil de WCAG 2.2 SC 2.5.8.
+              className="mt-1 inline-flex min-h-6 items-center rounded-sm text-xs font-medium text-muted transition-colors duration-fast hover:text-red focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
             >
               {t.serveur.unpin}
             </button>

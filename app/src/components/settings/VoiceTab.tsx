@@ -235,7 +235,8 @@ export function VoiceTab() {
             value={masterVolume}
             aria-label={ts.settings.outputVolumeLabel}
             onChange={(e) => onMasterVolume(Number(e.target.value))}
-            className="h-5 w-full rounded-full accent-blurple outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+            // `h-6` : plancher de 24 px (WCAG 2.2 SC 2.5.8), piste inchangée.
+            className="h-6 w-full rounded-full accent-blurple outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
           />
           <span className="w-12 shrink-0 text-end text-sm tabular-nums text-norm">
             {masterVolume}%

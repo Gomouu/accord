@@ -29,9 +29,30 @@ body {
   z-index: 1;
 }
 
+/*
+ * La poignée du bandeau se pose sur la gouttière entre deux panneaux : elle
+ * est large comme elle et la chevauche par ses marges négatives.
+ *
+ * `--accord-resize-target` dissocie ce qu'on voit de ce qu'on vise. La
+ * gouttière garde ses 7 px (3 px en fenêtre étroite) ; la zone de saisie passe
+ * à 24 px, le plancher de WCAG 2.2 SC 2.5.8, en débordant symétriquement sur
+ * les marges intérieures des panneaux voisins — qui ne portent aucun contrôle.
+ * La marge retranche l'élargissement, si bien que l'encombrement de la poignée
+ * dans la grille ne bouge pas d'un pixel.
+ *
+ * ⚠️ Cette règle l'emporte sur les classes utilitaires de `ResizeHandle.tsx`
+ * (deux sélecteurs d'attribut contre une classe) : la poignée de la liste des
+ * membres, qui n'est pas fille du bandeau, tient sa largeur de là-bas. Les
+ * deux doivent rester d'accord.
+ */
 .accord-shell > [role='separator'][aria-orientation='vertical'] {
-  width: var(--accord-shell-gap);
-  margin-inline: calc(var(--accord-shell-gap) * -1);
+  --accord-resize-target: 24px;
+
+  width: var(--accord-resize-target);
+  margin-inline: calc(
+    -1 * var(--accord-shell-gap) -
+      (var(--accord-resize-target) - var(--accord-shell-gap)) / 2
+  );
 }
 
 .accord-rail,

@@ -506,7 +506,17 @@
   background: rgb(var(--color-header) / 0.09);
 }
 
+/*
+ * `min-height` + `padding` : en 12 px le lien de restauration ne faisait que
+ * 18 px de haut, sous le plancher de 24 px de WCAG 2.2 SC 2.5.8. C'est la
+ * toute première surface qu'un utilisateur touche, et la seule voie vers un
+ * compte existant — elle ne peut pas être la plus difficile à viser.
+ */
 .onboarding-gateway-secondary button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
   border-radius: 8px;
   color: rgb(var(--color-muted));
   font-size: 12px;

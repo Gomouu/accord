@@ -1253,7 +1253,19 @@ enregistré.
       préférence système ET pour le réglage in-app `data-motion='reduce'`, plus
       des règles ciblées sur les couches lourdes (`.profile-frame`,
       `.theme-atmosphere`).
-- [ ] Cibles tactiles suffisantes — **non audité**.
+- [x] Cibles tactiles suffisantes — **audité le 2026-07-28**, 10 manquements
+      trouvés et corrigés, gardés par `e2e/cibles-tactiles.spec.ts` (7 tests,
+      21 surfaces, seuil WCAG 2.2 SC 2.5.8 de 24×24 px).
+      Les pires : les deux poignées de redimensionnement, à **7 px et 6 px de
+      large**. Corrigées en zone de clic étendue (marges négatives), jamais en
+      grossissement visuel : l'encombrement dans la grille est inchangé au
+      pixel près.
+      ⚠️ L'exception « espacement » de la norme est **délibérément non
+      appliquée**, et c'est la décision qui compte ici : prise à la lettre, elle
+      excusait **7 des 8** manquements du banc — dont la poignée de 6 px, dont
+      le centre tombait dans un trou de la colonne voisine. Chacun coûtait une
+      ligne de CSS. Une norme respectée en excusant tout n'aurait rien changé
+      pour personne.
 
 **Ce qui manquait n'était pas l'accessibilité, c'était ce qui la maintient.**
 `e2e/a11y.spec.ts` échoue désormais sur tout contrôle que le navigateur ne sait

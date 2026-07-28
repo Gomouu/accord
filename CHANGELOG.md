@@ -4,6 +4,19 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ## [Unreleased]
 
+### Fixed
+
+- **Ten controls were too small to hit reliably.** The worst were the two
+  drag-to-resize handles — the one between the sidebar and the conversation, and
+  the one beside the member list — at **7 and 6 pixels wide**. Also: the quote
+  line above a reply, an author's name, *Unpin* in the pinned panel, the
+  saturation and volume sliders, the avatar zoom, and *I already have a recovery
+  phrase* on the first-run screen.
+
+  All of them now meet the 24×24 px accessibility minimum. Nothing looks bigger:
+  the fix widens the *clickable* area, not the drawing, so every layout keeps its
+  exact previous spacing.
+
 ### Added
 
 - **Getting the diagnostic log out of the app now takes one click.** Settings →

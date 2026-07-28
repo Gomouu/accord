@@ -713,7 +713,7 @@ export function MessageList({
                                 buildUserItems(menuDeps, m.author, e.currentTarget),
                               );
                           }}
-                          className="min-w-0 truncate font-semibold text-header hover:underline focus-visible:underline focus-visible:outline-none"
+                          className="min-w-6 truncate font-semibold text-header hover:underline focus-visible:underline focus-visible:outline-none"
                           style={nameColor !== null ? { color: nameColor } : undefined}
                         >
                           {name}

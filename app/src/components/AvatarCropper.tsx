@@ -300,7 +300,11 @@ export function AvatarCropper({
                 disabled={!pret}
                 aria-label={t.recadreur.zoom}
                 onChange={(e) => appliquerZoom(Number(e.target.value))}
-                className="min-w-0 flex-1 accent-blurple"
+                // `h-6` : sans hauteur explicite le curseur natif rendait
+                // ~16 px, sous le plancher de WCAG 2.2 SC 2.5.8. Surface
+                // absente du banc de démonstration (elle suit un choix de
+                // fichier), donc corrigée à la lecture, sans garde e2e.
+                className="h-6 min-w-0 flex-1 accent-blurple"
               />
               <span aria-hidden className="text-xs text-faint">
                 {t.recadreur.zoomPlus}

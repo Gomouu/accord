@@ -1,6 +1,7 @@
 /**
- * Poignée de redimensionnement façon Discord : fine zone de saisie verticale
- * (~6 px) posée sur le bord entre deux colonnes, glissée à la souris/au
+ * Poignée de redimensionnement façon Discord : fine gouttière verticale
+ * (~6 px visibles, 24 px de zone de saisie — voir la classe du conteneur)
+ * posée sur le bord entre deux colonnes, glissée à la souris/au
  * tactile (Pointer Events, sans écouteur global — voir `stopDragging`) ou
  * ajustée au clavier (flèches, Origine/Fin). Un double-clic restaure la
  * largeur par défaut. Purement contrôlée : le parent fournit `value`/`min`/
@@ -141,7 +142,18 @@ export function ResizeHandle({
       onPointerCancel={stopDragging}
       onDoubleClick={() => onChange(defaultValue)}
       onKeyDown={onKeyDown}
-      className={`group relative z-10 w-1.5 shrink-0 select-none touch-none cursor-col-resize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 ${ringOffsetClassName}`}
+      // Cible de 24 px de large (WCAG 2.2 SC 2.5.8) pour 6 px d'encombrement :
+      // `w-6` donne la zone de saisie, les marges négatives de 9 px la font
+      // déborder à parts égales sur les deux panneaux voisins, et `z-10` la
+      // pose au-dessus d'eux. Élargir visuellement la gouttière aurait écarté
+      // les colonnes de 18 px ; on empiète sur leurs marges intérieures, qui
+      // ne portent rien. Les 6 px visibles restent ceux du dessin d'origine.
+      //
+      // ⚠️ La poignée fille du bandeau (barre latérale) reçoit sa largeur de
+      // `styles/identity-refresh.css`, dont le sélecteur l'emporte sur ces
+      // classes. Même cible de 24 px des deux côtés : changer l'une sans
+      // l'autre laisserait une des deux poignées sous le seuil.
+      className={`group relative z-10 -mx-[9px] w-6 shrink-0 select-none touch-none cursor-col-resize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blurple focus-visible:ring-offset-2 ${ringOffsetClassName}`}
     >
       {/*
        * Aucun indicateur visuel au survol (retour utilisateur : la ligne

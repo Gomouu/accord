@@ -195,7 +195,10 @@ function ParticipantRow({
             value={state.volume}
             aria-label={interpolate(t.voice.volumeOf, { name })}
             onChange={(e) => onVolume(Number(e.target.value))}
-            className="h-5 w-full accent-blurple"
+            // `h-6` : plancher de 24 px (WCAG 2.2 SC 2.5.8). Cette surface
+            // n'existe qu'en session vocale, donc hors du banc de démonstration
+            // et hors de `e2e/cibles-tactiles.spec.ts` — corrigée à la lecture.
+            className="h-6 w-full accent-blurple"
           />
           <span className="w-10 shrink-0 text-end text-xs tabular-nums text-faint">
             {state.volume}%

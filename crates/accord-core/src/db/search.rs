@@ -156,10 +156,13 @@ fn candidates_sql(source: Source, restriction: Restriction, token_count: usize) 
 
 impl Db {
     /// Indexe des jetons (déjà HMACés) pour un message.
+    ///
+    /// `prepare_cached` : la même requête est rejouée pour chaque mot de chaque
+    /// message ingéré, la recompiler à chaque message était du travail refait.
     pub fn index_tokens(&self, msg_id: &[u8; 16], tokens: &[[u8; 32]]) -> Result<(), CoreError> {
         let mut stmt = self
             .conn()
-            .prepare("INSERT OR IGNORE INTO search_index (token, msg_id) VALUES (?1, ?2)")?;
+            .prepare_cached("INSERT OR IGNORE INTO search_index (token, msg_id) VALUES (?1, ?2)")?;
         for token in tokens {
             stmt.execute(params![token, msg_id])?;
         }
@@ -169,33 +172,32 @@ impl Db {
     /// Messages contenant TOUS les jetons donnés (intersection). Primitive
     /// d'index : non bornée, et sans jointure vers les messages — un
     /// identifiant rendu ici peut ne plus avoir de message (index à purger).
+    ///
+    /// L'intersection est faite PAR SQLITE (`INTERSECT` sur la clé primaire
+    /// `(token, msg_id)`), et non en Rust : la version précédente ramenait tous
+    /// les messages du premier mot puis lançait une requête `EXISTS` PAR
+    /// message et PAR mot supplémentaire — un mot fréquent d'un gros historique
+    /// s'y comptait en dizaines de milliers de requêtes.
     pub fn search_tokens(&self, tokens: &[[u8; 32]]) -> Result<Vec<[u8; 16]>, CoreError> {
-        let Some((first, rest)) = tokens.split_first() else {
+        if tokens.is_empty() {
             return Ok(Vec::new());
-        };
-        let mut stmt = self
-            .conn()
-            .prepare("SELECT msg_id FROM search_index WHERE token = ?1")?;
-        let raws = stmt
-            .query_map([first.as_slice()], |row| row.get::<_, Vec<u8>>(0))?
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut ids: Vec<[u8; 16]> = raws.into_iter().map(blob).collect::<Result<Vec<_>, _>>()?;
-        for token in rest {
-            let mut keep = Vec::with_capacity(ids.len());
-            let mut check = self
-                .conn()
-                .prepare("SELECT 1 FROM search_index WHERE token = ?1 AND msg_id = ?2")?;
-            for id in ids {
-                if check.exists(params![token, id])? {
-                    keep.push(id);
-                }
-            }
-            ids = keep;
-            if ids.is_empty() {
-                break;
-            }
         }
-        Ok(ids)
+        let mut sql = String::new();
+        for i in 0..tokens.len() {
+            if i > 0 {
+                sql.push_str(" INTERSECT ");
+            }
+            sql.push_str("SELECT msg_id FROM search_index WHERE token = ?");
+            sql.push_str(&(i + 1).to_string());
+        }
+        let mut stmt = self.conn().prepare_cached(&sql)?;
+        let raws = stmt
+            .query_map(
+                rusqlite::params_from_iter(tokens.iter().map(|t| t.as_slice())),
+                |row| row.get::<_, Vec<u8>>(0),
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        raws.into_iter().map(blob).collect()
     }
 
     /// Les `cap` messages les plus récents portant TOUS les `tokens`, hydratés,
@@ -352,6 +354,30 @@ mod tests {
         db.unindex_msg(&[1; 16]).unwrap();
         assert!(db.search_tokens(&[[11; 32]]).unwrap().is_empty());
         assert_eq!(db.search_tokens(&[[10; 32]]).unwrap(), vec![[2; 16]]);
+    }
+
+    #[test]
+    fn lintersection_de_trois_jetons_ne_garde_que_le_message_complet() {
+        // 🔒 L'intersection est passée d'une boucle de sondes Rust à un
+        // `INTERSECT` SQL : au-delà de deux jetons, seul le message portant
+        // TOUS les mots doit subsister, et un jeton absent doit tout vider.
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        db.index_tokens(&[1; 16], &[[10; 32], [11; 32], [12; 32]])
+            .unwrap();
+        db.index_tokens(&[2; 16], &[[10; 32], [11; 32]]).unwrap();
+        db.index_tokens(&[3; 16], &[[10; 32]]).unwrap();
+
+        let mut trois = db.search_tokens(&[[10; 32], [11; 32], [12; 32]]).unwrap();
+        trois.sort_unstable();
+        assert_eq!(trois, vec![[1; 16]]);
+
+        let mut deux = db.search_tokens(&[[11; 32], [10; 32]]).unwrap();
+        deux.sort_unstable();
+        assert_eq!(deux, vec![[1; 16], [2; 16]]);
+
+        // Un jeton inconnu vide l'intersection, quel que soit son rang.
+        assert!(db.search_tokens(&[[10; 32], [99; 32]]).unwrap().is_empty());
+        assert!(db.search_tokens(&[[99; 32], [10; 32]]).unwrap().is_empty());
     }
 
     fn dm(n: u64, peer: [u8; 32]) -> DmRecord {

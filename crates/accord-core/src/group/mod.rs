@@ -331,11 +331,9 @@ pub fn should_pull(db: &Db, offer: &SyncOffer) -> Result<Option<u64>, CoreError>
     if local.digest == offer.digest && local.op_count == offer.op_count {
         return Ok(None);
     }
-    let has_create = db
-        .group_ops(&offer.group_id)?
-        .iter()
-        .any(|o| o.kind == GroupOpBody::CREATE_KIND);
-    if !has_create {
+    // `EXISTS` en base plutôt qu'un chargement complet du journal : cette
+    // question est posée à chaque offre reçue, et sa réponse tient en une ligne.
+    if !db.group_has_op_kind(&offer.group_id, GroupOpBody::CREATE_KIND)? {
         return Ok(Some(0));
     }
     if offer.max_lamport > local.max_lamport {
@@ -425,8 +423,14 @@ pub fn accept_sealed_key(
 }
 
 /// Ordre total canonique du log (SPEC §6.2).
+///
+/// `sort_by_cached_key` et non `sort_by_key` : la clé contient
+/// `node_id_of(auteur)`, c'est-à-dire un SHA-256. `sort_by_key` la recalcule à
+/// CHAQUE comparaison — environ `2 n log n` hachages, soit ~22 000 sur les
+/// 1 092 ops d'un serveur de 500 membres — là où la variante cachée en fait
+/// exactement un par op.
 fn sort_canonical(ops: &mut [GroupOp]) {
-    ops.sort_by_key(|op| (op.lamport, node_id_of(&op.author), op.op_id));
+    ops.sort_by_cached_key(|op| (op.lamport, node_id_of(&op.author), op.op_id));
 }
 
 /// Construit et signe une op locale avec la prochaine horloge de Lamport.
@@ -459,9 +463,11 @@ fn sign_op(
 /// plus membre — voir [`crate::db::Db::prune_slowmode`], ce suivi vit hors
 /// de `GroupState` puisqu'il n'est pas dérivable du seul op-log).
 fn apply_moderation(db: &Db, group_id: &[u8; 16], state: &GroupState) -> Result<(), CoreError> {
-    for msg_id in &state.moderated_deletions {
-        db.delete_group_msg(msg_id, None)?;
-    }
+    // En un lot, jamais message par message : ce jeu de tombstones ne fait que
+    // croître et il est rejoué après CHAQUE op — voir
+    // [`crate::db::Db::apply_moderated_deletions`].
+    let tombstones: Vec<[u8; 16]> = state.moderated_deletions.iter().copied().collect();
+    db.apply_moderated_deletions(&tombstones)?;
     let valid_channels: BTreeSet<[u8; 16]> = state.channels.keys().copied().collect();
     let valid_authors: BTreeSet<[u8; 32]> = state.members.keys().copied().collect();
     db.prune_slowmode(group_id, &valid_channels, &valid_authors)?;

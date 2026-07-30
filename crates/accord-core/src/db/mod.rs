@@ -179,9 +179,9 @@ const MIGRATIONS: &[Migration] = &[
             // infiniment ancien, donc toute décision ultérieure le remplace.
             // C'est le bon sens par défaut — la première décision prise après
             // la mise à jour fait autorité.
-            if !conn
+            if conn
                 .prepare("SELECT state_changed_ms FROM contacts LIMIT 0")
-                .is_ok()
+                .is_err()
             {
                 conn.execute_batch(
                     "ALTER TABLE contacts
@@ -314,10 +314,16 @@ pub(crate) fn sql_placeholders(n: usize) -> String {
 }
 
 /// Encode une clé binaire en littéral hexadécimal SQLCipher `x'…'`.
+///
+/// Encodage direct des quartets plutôt qu'un `format!` par octet : la clé est
+/// un secret, et une allocation intermédiaire par octet en sème trente-deux
+/// copies dans le tas, hors de portée du `zeroize` qui protège le reste.
 fn hex_key(key: &[u8; 32]) -> String {
+    const CHIFFRES: &[u8; 16] = b"0123456789abcdef";
     let mut s = String::with_capacity(64);
     for b in key {
-        s.push_str(&format!("{b:02x}"));
+        s.push(CHIFFRES[usize::from(b >> 4)] as char);
+        s.push(CHIFFRES[usize::from(b & 0x0F)] as char);
     }
     s
 }

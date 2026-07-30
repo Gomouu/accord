@@ -8,7 +8,7 @@
 //! réparable. La reprise s'appuie sur la bitmap persistée (format
 //! `FileMsg::Have`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use accord_proto::file_msg::Manifest;
 
@@ -134,11 +134,27 @@ impl Transfer {
     /// source la moins chargée qui ne l'a pas refusé, dans la limite de
     /// 8 blocs en vol par source.
     pub fn next_requests(&mut self) -> Vec<([u8; 32], u32)> {
+        // Capacité globale restante : la somme des fenêtres libres. Nulle,
+        // aucune demande ne peut partir — et il est inutile de balayer les
+        // milliers de blocs manquants d'un gros fichier pour le découvrir.
+        // Cette passe est rejouée à CHAQUE bloc reçu.
+        let mut capacite: usize = self
+            .sources
+            .values()
+            .map(|s| WINDOW_PER_SOURCE.saturating_sub(s.in_flight.len()))
+            .sum();
+        if capacite == 0 {
+            return Vec::new();
+        }
+        // Appartenance en O(log n) : `requested` reste un `Vec` (son ordre ne
+        // sert à rien ailleurs), mais un `contains` linéaire par bloc manquant
+        // rendait la passe quadratique — 8 192 blocs × 8 192 passes.
+        let deja_demandes: BTreeSet<u32> = self.requested.iter().copied().collect();
         let wanted: Vec<u32> = self
             .missing_data()
             .into_iter()
             .chain(self.useful_parity())
-            .filter(|i| !self.requested.contains(i))
+            .filter(|i| !deja_demandes.contains(i))
             .collect();
         let mut out = Vec::new();
         for index in wanted {
@@ -155,6 +171,13 @@ impl Transfer {
             src.in_flight.push(index);
             self.requested.push(index);
             out.push((*node, index));
+            // Fenêtres pleines : les blocs suivants ne trouveraient plus aucun
+            // candidat de toute façon. Sortie exactement équivalente, sans le
+            // balayage stérile du reste du fichier.
+            capacite -= 1;
+            if capacite == 0 {
+                break;
+            }
         }
         out
     }
@@ -333,7 +356,10 @@ impl Transfer {
     /// données semblent obtenables directement).
     fn useful_parity(&self) -> Vec<u32> {
         let count = self.have.len();
-        let refused: Vec<u32> = self
+        // Ensemble plutôt que liste : les refus sont testés une fois par bloc
+        // de données du fichier, et un `Vec::contains` y coûtait le produit des
+        // deux tailles.
+        let refused: BTreeSet<u32> = self
             .sources
             .values()
             .flat_map(|s| s.refused.iter().copied())

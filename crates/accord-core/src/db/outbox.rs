@@ -222,19 +222,29 @@ impl Db {
         if items.is_empty() {
             return Ok(0);
         }
+        // 🔒 Tout ou rien. Le réadressage RECOPIE puis EFFACE : une erreur au
+        // milieu (disque plein, base verrouillée) laissait la file à moitié
+        // déplacée — des messages dupliqués vers les nouvelles cibles ET
+        // toujours en attente sur l'ancienne, ou l'inverse. La transaction rend
+        // l'opération atomique, et une seule requête préparée sert les N×M
+        // insertions.
+        let tx = self.conn().unchecked_transaction()?;
         let mut written = 0usize;
-        for item in &items {
-            for cible in &cibles {
-                self.conn().execute(
-                    "INSERT INTO outbox (dest, payload, created_ms, next_attempt_ms)
-                     VALUES (?1, ?2, ?3, ?4)",
-                    params![&cible[..], item.payload, item.created_ms, now_ms],
-                )?;
-                written += 1;
+        {
+            let mut insert = tx.prepare_cached(
+                "INSERT INTO outbox (dest, payload, created_ms, next_attempt_ms)
+                 VALUES (?1, ?2, ?3, ?4)",
+            )?;
+            let mut delete = tx.prepare_cached("DELETE FROM outbox WHERE id = ?1")?;
+            for item in &items {
+                for cible in &cibles {
+                    insert.execute(params![&cible[..], item.payload, item.created_ms, now_ms])?;
+                    written += 1;
+                }
+                delete.execute([item.id])?;
             }
-            self.conn()
-                .execute("DELETE FROM outbox WHERE id = ?1", [item.id])?;
         }
+        tx.commit()?;
         Ok(written)
     }
 

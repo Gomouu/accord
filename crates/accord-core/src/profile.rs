@@ -528,6 +528,12 @@ pub fn ingest_peer_profile(
             let avatar_changed = avatar != peer_avatar(db, &node_id)?;
             let banner_changed = banner != peer_banner(db, &node_id)?;
 
+            // 🔒 Onze écritures, une seule transaction. Le tout-ou-rien annoncé
+            // plus haut ne portait que sur la VALIDATION : une erreur d'E/S au
+            // milieu de la série laissait un profil composite — nouveau pseudo,
+            // ancienne bannière —, état qu'aucune annonce n'a jamais décrit et
+            // que rien ne viendrait corriger tant que le pair ne réannonce pas.
+            let tx = db.conn().unchecked_transaction()?;
             db.set_contact_name(&node_id, canon_name, now_ms)?;
             db.set_meta(&peer_meta_key(&node_id, "bio"), canon_bio.as_bytes())?;
             db.set_meta(
@@ -560,6 +566,7 @@ pub fn ingest_peer_profile(
                 &peer_meta_key(&node_id, "profile_frame"),
                 canon_frame.as_deref().unwrap_or("").as_bytes(),
             )?;
+            tx.commit()?;
             Ok(Some(PeerProfile {
                 name: canon_name.to_string(),
                 bio: (!canon_bio.is_empty()).then(|| canon_bio.to_string()),

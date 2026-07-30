@@ -188,13 +188,22 @@ impl Db {
     }
 
     /// Marque les mentions désignées comme lues ; rend le nombre affecté.
+    ///
+    /// Une requête par tranche de [`IN_CHUNK`] identifiants au lieu d'une par
+    /// identifiant : marquer une boîte entière (l'appelant passe la liste
+    /// affichée) ne coûte plus une transaction implicite par ligne. Le compte
+    /// rendu est le même — seules les entrées encore non lues sont affectées.
     pub fn mark_mentions_read(&self, msg_ids: &[[u8; 16]]) -> Result<usize, CoreError> {
         let mut affected = 0;
-        for msg_id in msg_ids {
-            affected += self.conn().execute(
-                "UPDATE mentions SET read = 1 WHERE msg_id = ?1 AND read = 0",
-                [msg_id.as_slice()],
-            )?;
+        for chunk in msg_ids.chunks(IN_CHUNK) {
+            let sql = format!(
+                "UPDATE mentions SET read = 1 WHERE read = 0 AND msg_id IN ({})",
+                sql_placeholders(chunk.len())
+            );
+            let mut stmt = self.conn().prepare_cached(&sql)?;
+            affected += stmt.execute(rusqlite::params_from_iter(
+                chunk.iter().map(|id| id.as_slice()),
+            ))?;
         }
         Ok(affected)
     }
@@ -381,6 +390,37 @@ mod tests {
         assert_eq!(db.mark_mentions_read_all().unwrap(), 2);
         assert_eq!(db.count_dm_mentions(&[9; 32]).unwrap(), 0);
         assert_eq!(db.count_group_mentions(&[7; 16]).unwrap(), 0);
+    }
+
+    #[test]
+    fn marquer_lues_par_lot_franchit_les_tranches_et_compte_juste() {
+        // 🔒 Le marquage groupe les identifiants par tranches de `IN_CHUNK` :
+        // aucune entrée ne doit rester non lue au-delà de la première tranche,
+        // et le compte rendu doit toujours être celui des entrées RÉELLEMENT
+        // affectées (déjà lues ou inconnues exclues).
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        let total = IN_CHUNK + 7;
+        let ids: Vec<[u8; 16]> = (0..total)
+            .map(|i| {
+                let mut id = [0u8; 16];
+                id[..8].copy_from_slice(&(i as u64).to_be_bytes());
+                id
+            })
+            .collect();
+        for (i, id) in ids.iter().enumerate() {
+            let mut e = entry(0, i as u64, MentionScope::Dm);
+            e.msg_id = *id;
+            db.insert_mention(&e).unwrap();
+        }
+        assert_eq!(db.count_dm_mentions(&[9; 32]).unwrap(), total as u64);
+        // Un identifiant inconnu glissé dans le lot ne compte pas.
+        let mut lot = ids.clone();
+        lot.push([0xFF; 16]);
+        assert_eq!(db.mark_mentions_read(&lot).unwrap(), total);
+        assert_eq!(db.count_dm_mentions(&[9; 32]).unwrap(), 0);
+        // Idempotent : plus rien à marquer au second passage.
+        assert_eq!(db.mark_mentions_read(&lot).unwrap(), 0);
+        assert_eq!(db.mark_mentions_read(&[]).unwrap(), 0);
     }
 
     #[test]

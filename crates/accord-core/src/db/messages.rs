@@ -349,20 +349,25 @@ impl Db {
         msg_id: &[u8; 16],
         attachments: &[FileRef],
     ) -> Result<(), CoreError> {
+        if attachments.is_empty() {
+            return Ok(());
+        }
+        // Requête préparée une fois : elle est rejouée pour chaque pièce jointe
+        // de chaque message ingéré ou composé.
+        let mut stmt = self.conn().prepare_cached(
+            "INSERT OR IGNORE INTO msg_attachments
+               (msg_id, position, merkle_root, name, size, mime)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        )?;
         for (position, a) in attachments.iter().enumerate() {
-            self.conn().execute(
-                "INSERT OR IGNORE INTO msg_attachments
-                   (msg_id, position, merkle_root, name, size, mime)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    msg_id,
-                    position as i64,
-                    a.merkle_root,
-                    a.name,
-                    a.size,
-                    a.mime
-                ],
-            )?;
+            stmt.execute(params![
+                msg_id,
+                position as i64,
+                a.merkle_root,
+                a.name,
+                a.size,
+                a.mime
+            ])?;
         }
         Ok(())
     }
@@ -955,6 +960,54 @@ impl Db {
         }
         Ok(n > 0)
     }
+
+    /// Applique en LOT les tombstones de modération d'un groupe (mêmes effets
+    /// que [`Self::delete_group_msg`] sans auteur, sur un ensemble
+    /// d'identifiants).
+    ///
+    /// 🔴 Le jeu de tombstones d'un groupe ne fait que CROÎTRE, et il était
+    /// rejoué message par message après CHAQUE op ingérée : trois requêtes par
+    /// message modéré et par op, soit un coût quadratique dans la durée de vie
+    /// du serveur. Ici, une requête par tranche de [`IN_CHUNK`], et le garde
+    /// `deleted = 0` fait qu'un tombstone déjà appliqué ne réécrit plus rien.
+    ///
+    /// Les traces dérivées (pièces jointes, extrait de mention) sont purgées
+    /// pour les identifiants qui ONT une ligne de message — exactement le cas
+    /// où [`Self::delete_group_msg`] les purgeait.
+    pub(crate) fn apply_moderated_deletions(&self, msg_ids: &[[u8; 16]]) -> Result<(), CoreError> {
+        if msg_ids.is_empty() {
+            return Ok(());
+        }
+        let tx = self.conn().unchecked_transaction()?;
+        for chunk in msg_ids.chunks(IN_CHUNK) {
+            let marks = sql_placeholders(chunk.len());
+            let args = || rusqlite::params_from_iter(chunk.iter().map(|id| id.as_slice()));
+            let n = tx.execute(
+                &format!(
+                    "UPDATE group_messages SET deleted = 1, body = x'', edited = NULL
+                     WHERE deleted = 0 AND msg_id IN ({marks})"
+                ),
+                args(),
+            )?;
+            // Rien n'a basculé : les traces dérivées de ces messages ont déjà
+            // été purgées lors de la première application du tombstone.
+            if n == 0 {
+                continue;
+            }
+            for table in ["msg_attachments", "mentions"] {
+                tx.execute(
+                    &format!(
+                        "DELETE FROM {table} WHERE msg_id IN (
+                           SELECT msg_id FROM group_messages WHERE msg_id IN ({marks})
+                         )"
+                    ),
+                    args(),
+                )?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1320,6 +1373,101 @@ mod tests {
         assert!(db.delete_group_msg(&[1; 16], None).unwrap());
         let h = db.group_history(&[7; 16], &[8; 16], u64::MAX, 10).unwrap();
         assert!(h[0].deleted && h[0].body.is_empty());
+    }
+
+    #[test]
+    fn les_tombstones_en_lot_egalent_les_suppressions_une_a_une() {
+        // 🔒 Le lot remplace un `delete_group_msg` par message modéré : il doit
+        // produire le MÊME état (corps effacé, pièces jointes et extrait de
+        // mention purgés), rester idempotent, et ignorer un identifiant sans
+        // message plutôt que d'échouer.
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        let att = vec![FileRef {
+            merkle_root: [7; 32],
+            name: "p.png".into(),
+            size: 10,
+            mime: "image/png".into(),
+        }];
+        for i in 1..=3u8 {
+            db.insert_group_msg(&GroupMsgRecord {
+                msg_id: [i; 16],
+                group_id: [7; 16],
+                channel_id: [8; 16],
+                author: [2; 32],
+                lamport: i as u64,
+                sent_ms: 0,
+                kind: 0,
+                body: vec![i],
+                deleted: false,
+                edited: None,
+            })
+            .unwrap();
+            db.put_msg_attachments(&[i; 16], &att).unwrap();
+            db.insert_mention(&crate::db::MentionEntry {
+                msg_id: [i; 16],
+                scope: crate::db::MentionScope::Group,
+                conv_a: vec![7u8; 16],
+                conv_b: Some([8u8; 16]),
+                author: [2u8; 32],
+                ts_ms: i as u64,
+                lamport: i as u64,
+                snippet: "extrait".into(),
+                read: false,
+            })
+            .unwrap();
+        }
+        // Modère 1 et 2 ; 3 reste intact. `[9;16]` n'a aucun message.
+        db.apply_moderated_deletions(&[[1; 16], [2; 16], [9; 16]])
+            .unwrap();
+        for i in [1u8, 2] {
+            let m = db.group_msg(&[i; 16]).unwrap().unwrap();
+            assert!(m.deleted && m.body.is_empty());
+            assert!(db.msg_attachments(&[i; 16]).unwrap().is_empty());
+            assert!(!db.mention_recorded(&[i; 16]).unwrap());
+        }
+        let intact = db.group_msg(&[3; 16]).unwrap().unwrap();
+        assert!(!intact.deleted);
+        assert_eq!(db.msg_attachments(&[3; 16]).unwrap(), att);
+        assert!(db.mention_recorded(&[3; 16]).unwrap());
+        // Rejeu : rien ne change, et un lot vide ne fait rien.
+        db.apply_moderated_deletions(&[[1; 16], [2; 16]]).unwrap();
+        db.apply_moderated_deletions(&[]).unwrap();
+        assert!(db.group_msg(&[1; 16]).unwrap().unwrap().deleted);
+        assert!(!db.group_msg(&[3; 16]).unwrap().unwrap().deleted);
+    }
+
+    #[test]
+    fn un_lot_de_tombstones_franchit_les_tranches() {
+        // Plus d'identifiants que `IN_CHUNK` : la découpe en tranches ne doit
+        // laisser aucun message vivant.
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        let total = IN_CHUNK + 5;
+        let ids: Vec<[u8; 16]> = (0..total)
+            .map(|i| {
+                let mut id = [0u8; 16];
+                id[..8].copy_from_slice(&(i as u64).to_be_bytes());
+                id
+            })
+            .collect();
+        for (i, id) in ids.iter().enumerate() {
+            db.insert_group_msg(&GroupMsgRecord {
+                msg_id: *id,
+                group_id: [7; 16],
+                channel_id: [8; 16],
+                author: [2; 32],
+                lamport: i as u64,
+                sent_ms: 0,
+                kind: 0,
+                body: vec![1],
+                deleted: false,
+                edited: None,
+            })
+            .unwrap();
+        }
+        db.apply_moderated_deletions(&ids).unwrap();
+        assert!(ids
+            .iter()
+            .all(|id| db.group_msg(id).unwrap().is_some_and(|m| m.deleted)));
     }
 
     #[test]

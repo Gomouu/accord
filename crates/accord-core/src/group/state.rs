@@ -478,7 +478,10 @@ impl GroupState {
     /// l'ingestion ([`crate::group::GroupEngine`]).
     pub fn fold(ops: &[GroupOp]) -> Self {
         let mut sorted: Vec<&GroupOp> = ops.iter().collect();
-        sorted.sort_by_key(|op| (op.lamport, node_id_of(&op.author), op.op_id));
+        // `sort_by_cached_key` : la clé porte `node_id_of(auteur)`, donc un
+        // SHA-256, que `sort_by_key` recalculerait à chaque comparaison
+        // (~2 n log n hachages). Ici, un par op — même ordre, même résultat.
+        sorted.sort_by_cached_key(|op| (op.lamport, node_id_of(&op.author), op.op_id));
         // Racine commise (group_id dérivé du contenu de la CREATE) : elle est
         // LA racine du groupe quel que soit l'ordre canonique. Une CREATE
         // rogue glissée avant elle (lamport 0, insérée quand le régime était

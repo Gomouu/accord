@@ -80,15 +80,18 @@ impl Db {
         Ok(n > 0)
     }
 
-    /// Journal complet d'un groupe dans l'ordre total `(lamport, author)`.
-    pub fn group_ops(&self, group_id: &[u8; 16]) -> Result<Vec<GroupOp>, CoreError> {
-        let mut stmt = self.conn().prepare(
-            "SELECT op_id, group_id, lamport, wall_ms, author, kind, body, sig
-             FROM group_ops WHERE group_id = ?1
-             ORDER BY lamport ASC, author ASC",
-        )?;
+    /// Colonnes projetées d'une op, dans l'ordre attendu par [`Self::ops_rows`].
+    const OP_COLS: &'static str = "op_id, group_id, lamport, wall_ms, author, kind, body, sig";
+
+    /// Exécute une requête projetant [`Self::OP_COLS`] et matérialise les ops.
+    fn ops_rows(
+        &self,
+        sql: &str,
+        args: &[&dyn rusqlite::ToSql],
+    ) -> Result<Vec<GroupOp>, CoreError> {
+        let mut stmt = self.conn().prepare_cached(sql)?;
         let raws = stmt
-            .query_map([group_id.as_slice()], |row| {
+            .query_map(args, |row| {
                 Ok((
                     row.get::<_, Vec<u8>>(0)?,
                     row.get::<_, Vec<u8>>(1)?,
@@ -117,6 +120,18 @@ impl Db {
             .collect()
     }
 
+    /// Journal complet d'un groupe dans l'ordre total `(lamport, author)`.
+    pub fn group_ops(&self, group_id: &[u8; 16]) -> Result<Vec<GroupOp>, CoreError> {
+        self.ops_rows(
+            &format!(
+                "SELECT {} FROM group_ops WHERE group_id = ?1
+                 ORDER BY lamport ASC, author ASC",
+                Self::OP_COLS
+            ),
+            &[&group_id.as_slice()],
+        )
+    }
+
     /// Lamport maximal connu et nombre d'ops (pour l'anti-entropie §6.2).
     pub fn group_op_summary(&self, group_id: &[u8; 16]) -> Result<(u64, u64), CoreError> {
         Ok(self.conn().query_row(
@@ -127,16 +142,46 @@ impl Db {
     }
 
     /// Ops d'un groupe strictement au-delà d'un lamport (rattrapage pair).
+    ///
+    /// Le filtre est POSÉ EN SQL et non appliqué après coup : l'index
+    /// `ops_by_group(group_id, lamport)` le résout sans lire le reste du
+    /// journal. La version précédente chargeait TOUT l'op-log — corps et
+    /// signatures compris — pour n'en garder que la queue, à chaque réponse
+    /// d'anti-entropie d'un pair déjà presque à jour.
     pub fn group_ops_after(
         &self,
         group_id: &[u8; 16],
         after_lamport: u64,
     ) -> Result<Vec<GroupOp>, CoreError> {
-        let all = self.group_ops(group_id)?;
-        Ok(all
-            .into_iter()
-            .filter(|o| o.lamport > after_lamport)
-            .collect())
+        self.ops_rows(
+            &format!(
+                "SELECT {} FROM group_ops WHERE group_id = ?1 AND lamport > ?2
+                 ORDER BY lamport ASC, author ASC",
+                Self::OP_COLS
+            ),
+            &[
+                &group_id.as_slice(),
+                &(after_lamport.min(i64::MAX as u64) as i64),
+            ],
+        )
+    }
+
+    /// Vrai si le journal du groupe porte au moins une op de ce genre.
+    ///
+    /// Un `EXISTS` s'arrête à la première ligne : répondre « ce groupe a-t-il
+    /// une CREATE ? » ne coûte plus la lecture et le décodage de tout l'op-log,
+    /// ce que faisait l'appelant à chaque offre d'anti-entropie reçue.
+    pub(crate) fn group_has_op_kind(
+        &self,
+        group_id: &[u8; 16],
+        kind: u8,
+    ) -> Result<bool, CoreError> {
+        let mut stmt = self.conn().prepare_cached(
+            "SELECT EXISTS (SELECT 1 FROM group_ops WHERE group_id = ?1 AND kind = ?2)",
+        )?;
+        Ok(stmt.query_row(params![group_id.as_slice(), kind], |row| {
+            row.get::<_, i64>(0)
+        })? != 0)
     }
 
     /// Identifiants des groupes **rejoints localement** (état `Joined` de
@@ -326,27 +371,47 @@ impl Db {
         valid_channels: &BTreeSet<[u8; 16]>,
         valid_authors: &BTreeSet<[u8; 32]>,
     ) -> Result<(), CoreError> {
-        let mut stmt = self
-            .conn()
-            .prepare("SELECT channel_id, author FROM group_slowmode WHERE group_id = ?1")?;
-        let rows: Vec<(Vec<u8>, Vec<u8>)> = stmt
-            .query_map([group_id.as_slice()], |r| Ok((r.get(0)?, r.get(1)?)))?
-            .collect::<Result<_, _>>()?;
+        let rows: Vec<(Vec<u8>, Vec<u8>)> = {
+            let mut stmt = self.conn().prepare_cached(
+                "SELECT channel_id, author FROM group_slowmode WHERE group_id = ?1",
+            )?;
+            let lues = stmt
+                .query_map([group_id.as_slice()], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<Result<_, _>>()?;
+            lues
+        };
+        // Les périmées d'abord, les suppressions ensuite : le curseur de
+        // lecture est refermé avant d'écrire, et rien ne dépend de l'ordre.
+        let mut perimees: Vec<([u8; 16], [u8; 32])> = Vec::new();
         for (channel_raw, author_raw) in rows {
             let channel_id: [u8; 16] = blob(channel_raw)?;
             let author: [u8; 32] = blob(author_raw)?;
             if !valid_channels.contains(&channel_id) || !valid_authors.contains(&author) {
-                self.conn().execute(
-                    "DELETE FROM group_slowmode
-                     WHERE group_id = ?1 AND channel_id = ?2 AND author = ?3",
-                    params![
-                        group_id.as_slice(),
-                        channel_id.as_slice(),
-                        author.as_slice()
-                    ],
-                )?;
+                perimees.push((channel_id, author));
             }
         }
+        if perimees.is_empty() {
+            return Ok(());
+        }
+        // Une transaction et une requête PRÉPARÉE UNE FOIS : cette purge suit
+        // chaque repli de l'op-log, donc chaque op ingérée. Recompiler le
+        // `DELETE` et valider une transaction implicite par ligne y coûtait
+        // plus cher que la suppression elle-même.
+        let tx = self.conn().unchecked_transaction()?;
+        {
+            let mut del = tx.prepare_cached(
+                "DELETE FROM group_slowmode
+                 WHERE group_id = ?1 AND channel_id = ?2 AND author = ?3",
+            )?;
+            for (channel_id, author) in &perimees {
+                del.execute(params![
+                    group_id.as_slice(),
+                    channel_id.as_slice(),
+                    author.as_slice()
+                ])?;
+            }
+        }
+        tx.commit()?;
         Ok(())
     }
 }
@@ -389,6 +454,53 @@ mod tests {
         db.set_group_membership(&[1; 16], LocalMembership::Joined)
             .unwrap();
         assert_eq!(db.group_ids().unwrap(), vec![[1; 16]]);
+    }
+
+    #[test]
+    fn les_ops_apres_un_lamport_sont_filtrees_en_base() {
+        // 🔒 Le filtre est passé de Rust à SQL : il doit rendre EXACTEMENT le
+        // même ensemble — borne STRICTE, ordre canonique préservé, et rien
+        // d'un autre groupe.
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        for o in [op(1, 5, 9), op(2, 5, 3), op(3, 1, 9), op(4, 7, 1)] {
+            db.insert_group_op(&o).unwrap();
+        }
+        let mut autre = op(5, 9, 9);
+        autre.group_id = [2; 16];
+        db.insert_group_op(&autre).unwrap();
+
+        for borne in [0u64, 1, 5, 7, u64::MAX] {
+            let attendu: Vec<[u8; 16]> = db
+                .group_ops(&[1; 16])
+                .unwrap()
+                .into_iter()
+                .filter(|o| o.lamport > borne)
+                .map(|o| o.op_id)
+                .collect();
+            let obtenu: Vec<[u8; 16]> = db
+                .group_ops_after(&[1; 16], borne)
+                .unwrap()
+                .into_iter()
+                .map(|o| o.op_id)
+                .collect();
+            assert_eq!(obtenu, attendu, "borne {borne}");
+        }
+        // Un lamport ÉGAL à la borne est exclu (borne stricte).
+        assert!(db
+            .group_ops_after(&[1; 16], 7)
+            .unwrap()
+            .iter()
+            .all(|o| o.lamport > 7));
+    }
+
+    #[test]
+    fn la_presence_dun_genre_dop_est_bornee_au_groupe() {
+        let db = Db::open_in_memory(&[1; 32]).unwrap();
+        assert!(!db.group_has_op_kind(&[1; 16], 0x01).unwrap());
+        db.insert_group_op(&op(1, 1, 9)).unwrap(); // kind 0x01
+        assert!(db.group_has_op_kind(&[1; 16], 0x01).unwrap());
+        assert!(!db.group_has_op_kind(&[1; 16], 0x02).unwrap());
+        assert!(!db.group_has_op_kind(&[2; 16], 0x01).unwrap());
     }
 
     #[test]

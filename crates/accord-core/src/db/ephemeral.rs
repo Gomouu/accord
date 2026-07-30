@@ -112,32 +112,41 @@ impl Db {
     }
 
     /// Hard-deletes messages and every derived trace, by [`IN_CHUNK`] batches.
+    ///
+    /// 🔒 Atomique par lot. Sept suppressions non transactionnelles laissaient,
+    /// sur une erreur au milieu, un message vivant dont les réactions, épingles,
+    /// pièces jointes et jetons de recherche avaient déjà disparu — un message
+    /// mutilé plutôt qu'un message effacé.
     fn purge_messages(&self, ids: &[[u8; 16]]) -> Result<u64, CoreError> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let tx = self.conn().unchecked_transaction()?;
         let mut deleted = 0u64;
         for chunk in ids.chunks(IN_CHUNK) {
             let marks = sql_placeholders(chunk.len());
-            let args = rusqlite::params_from_iter(chunk.iter().map(|id| id.to_vec()));
+            let args = || rusqlite::params_from_iter(chunk.iter().map(|id| id.as_slice()));
             for table in [
                 "msg_attachments",
                 "reactions",
                 "dm_pins",
                 "mentions",
                 "search_index",
+                "dm_messages",
+                "group_messages",
             ] {
-                self.conn().execute(
+                let n = tx.execute(
                     &format!("DELETE FROM {table} WHERE msg_id IN ({marks})"),
-                    args.clone(),
+                    args(),
                 )?;
+                // Seules les deux tables de messages comptent des suppressions :
+                // les traces dérivées sont un effet de bord, pas un message.
+                if matches!(table, "dm_messages" | "group_messages") {
+                    deleted += n as u64;
+                }
             }
-            deleted += self.conn().execute(
-                &format!("DELETE FROM dm_messages WHERE msg_id IN ({marks})"),
-                args.clone(),
-            )? as u64;
-            deleted += self.conn().execute(
-                &format!("DELETE FROM group_messages WHERE msg_id IN ({marks})"),
-                args,
-            )? as u64;
         }
+        tx.commit()?;
         Ok(deleted)
     }
 }

@@ -6,12 +6,31 @@
 //! (2 à 10 trames de 20 ms). Une trame en retard au-delà du tampon est
 //! abandonnée (jouer tard est pire que dissimuler).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 use crate::params::{JITTER_MAX_FRAMES, JITTER_MIN_FRAMES};
 
 /// Fenêtre d'estimation du p95 (nombre d'inter-arrivées conservées).
 const RTT_WINDOW: usize = 128;
+
+/// Nombre minimal d'inter-arrivées avant d'estimer un p95.
+const RTT_MIN_SAMPLES: usize = 8;
+
+/// Trames conservées au plus dans le tampon (≈ 1,6 s de son).
+///
+/// 🔒 Le tampon était borné par la seule discipline de l'émetteur : les trames
+/// sont indexées par un `seq` sur 16 bits fourni par le pair, et seules celles
+/// DÉJÀ JOUÉES étaient écartées. Un participant hostile — ou une pile qui
+/// déraille — pouvait donc y verser jusqu'à 32 767 trames d'avance, chacune
+/// portant une charge utile de l'ordre du kibioctet : plusieurs dizaines de
+/// mébioctets PAR participant, sans qu'aucune ne soit jamais jouée (le trou en
+/// tête bloque la lecture). Pendant l'amorçage, où aucune séquence de référence
+/// n'existe encore, toute trame était acceptée sans condition.
+///
+/// Le plafond vaut huit fois la profondeur cible maximale : très au-delà de
+/// toute gigue ou de tout désordre réels, et sans commune mesure avec ce qu'un
+/// flot hostile visait.
+pub const MAX_BUFFERED_FRAMES: usize = 8 * JITTER_MAX_FRAMES;
 
 /// Distance signée `b − a` en arithmétique circulaire 16 bits.
 fn seq_after(a: u16, b: u16) -> bool {
@@ -35,7 +54,11 @@ pub struct JitterBuffer {
     frames: BTreeMap<u16, Vec<u8>>,
     next_seq: Option<u16>,
     target_frames: usize,
-    interarrivals: Vec<u32>,
+    interarrivals: VecDeque<u32>,
+    /// Tampon de travail du calcul de p95, réutilisé d'une trame à l'autre :
+    /// le chemin voix passe ici à chaque paquet reçu et par participant, une
+    /// allocation par paquet n'y a rien à faire.
+    p95_scratch: Vec<u32>,
     last_arrival_ms: Option<u32>,
     priming: bool,
 }
@@ -53,7 +76,8 @@ impl JitterBuffer {
             frames: BTreeMap::new(),
             next_seq: None,
             target_frames: JITTER_MIN_FRAMES,
-            interarrivals: Vec::new(),
+            interarrivals: VecDeque::with_capacity(RTT_WINDOW),
+            p95_scratch: Vec::with_capacity(RTT_WINDOW),
             last_arrival_ms: None,
             priming: true,
         }
@@ -70,7 +94,13 @@ impl JitterBuffer {
     }
 
     /// Insère une trame reçue. Les trames trop en retard (déjà jouées) sont
-    /// ignorées.
+    /// ignorées, et le tampon reste borné à [`MAX_BUFFERED_FRAMES`] : au
+    /// plafond, la trame entrante est simplement jetée.
+    ///
+    /// Jeter l'entrante plutôt qu'évincer une trame déjà en place est le choix
+    /// conservateur, et il n'a aucun coût d'équité : le tampon est PROPRE à un
+    /// participant, personne d'autre ne peut le remplir. Un pair qui inonde ne
+    /// dégrade donc que sa propre voix — et sa mémoire chez nous est bornée.
     pub fn push(&mut self, seq: u16, payload: Vec<u8>, now_ms: u32) {
         self.update_target(now_ms);
         if let Some(next) = self.next_seq {
@@ -78,6 +108,9 @@ impl JitterBuffer {
             if seq != next && !seq_after(next.wrapping_sub(1), seq) {
                 return;
             }
+        }
+        if self.frames.len() >= MAX_BUFFERED_FRAMES && !self.frames.contains_key(&seq) {
+            return;
         }
         self.frames.insert(seq, payload);
     }
@@ -125,21 +158,25 @@ impl JitterBuffer {
         if let Some(last) = self.last_arrival_ms {
             let delta = now_ms.saturating_sub(last);
             if self.interarrivals.len() == RTT_WINDOW {
-                self.interarrivals.remove(0);
+                self.interarrivals.pop_front();
             }
-            self.interarrivals.push(delta);
+            self.interarrivals.push_back(delta);
         }
         self.last_arrival_ms = Some(now_ms);
 
-        if self.interarrivals.len() >= 8 {
-            let mut sorted = self.interarrivals.clone();
-            sorted.sort_unstable();
-            let idx = (sorted.len() * 95 / 100).min(sorted.len() - 1);
-            let p95 = sorted[idx];
-            // Cible = p95 + une trame de marge, exprimée en trames de 20 ms.
-            let frames = (p95 as usize / crate::params::FRAME_MS as usize) + 1;
-            self.target_frames = frames.clamp(JITTER_MIN_FRAMES, JITTER_MAX_FRAMES);
+        if self.interarrivals.len() < RTT_MIN_SAMPLES {
+            return;
         }
+        // Tampon réutilisé + sélection partielle : `select_nth_unstable` place
+        // à `idx` l'élément qu'un tri complet y aurait mis, donc le p95 est
+        // identique au centile près, sans trier la fenêtre entière ni allouer.
+        self.p95_scratch.clear();
+        self.p95_scratch.extend(self.interarrivals.iter().copied());
+        let idx = (self.p95_scratch.len() * 95 / 100).min(self.p95_scratch.len() - 1);
+        let (_, &mut p95, _) = self.p95_scratch.select_nth_unstable(idx);
+        // Cible = p95 + une trame de marge, exprimée en trames de 20 ms.
+        let frames = (p95 as usize / crate::params::FRAME_MS as usize) + 1;
+        self.target_frames = frames.clamp(JITTER_MIN_FRAMES, JITTER_MAX_FRAMES);
     }
 }
 
@@ -205,6 +242,32 @@ mod tests {
         // seq 4 arrive trop tard (déjà après la lecture de 5).
         jb.push(4, pkt(4), 40);
         assert!(!jb.frames.contains_key(&4));
+    }
+
+    #[test]
+    fn un_flot_de_sequences_lointaines_ne_fait_pas_enfler_le_tampon() {
+        // 🔒 Le tampon est indexé par un `seq` sur 16 bits fourni par le pair.
+        // Sans plafond, un participant hostile y versait jusqu'à 32 767 trames
+        // d'avance — plusieurs dizaines de mébioctets qui n'étaient jamais
+        // jouées, le trou en tête bloquant la lecture.
+        let mut jb = JitterBuffer::new();
+        for seq in 0..20_000u16 {
+            jb.push(seq, vec![0u8; 1_000], seq as u32 * 20);
+        }
+        assert!(
+            jb.buffered() <= MAX_BUFFERED_FRAMES,
+            "tampon non borné : {} trames",
+            jb.buffered()
+        );
+
+        // Le trafic nominal reste intact : la lecture démarre et se poursuit
+        // dans l'ordre malgré l'inondation qui précède.
+        let mut jb = JitterBuffer::new();
+        for seq in 0..5u16 {
+            jb.push(seq, pkt(seq as u8), seq as u32 * 20);
+        }
+        assert_eq!(jb.pop(), Playout::Frame(pkt(0)));
+        assert_eq!(jb.pop(), Playout::Frame(pkt(1)));
     }
 
     #[test]

@@ -62,6 +62,66 @@ const DELAY_MIN_CORR: f32 = 0.5;
 /// Trames consécutives de confirmation avant de changer de délai.
 const DELAY_STABLE_FRAMES: u32 = 15;
 
+/// Tampons de travail de [`EchoCanceller::process`], alloués une fois pour
+/// toutes.
+///
+/// Le traitement tourne à la cadence média (une trame de 20 ms par session
+/// active) et il allouait treize vecteurs par trame — quatre FFT, une
+/// normalisation, deux enveloppes centrées, la référence retardée clonée…
+/// Toutes ces tailles sont des CONSTANTES du module ; rien ne justifiait de
+/// les redemander à l'allocateur cinquante fois par seconde sur le chemin
+/// temps réel. Les longueurs ne changent jamais après la construction : le
+/// traitement écrase, il ne redimensionne pas.
+struct Scratch {
+    /// Trame micro en `f32` (longueur `BLOCK`).
+    mic: Vec<f32>,
+    /// Référence far-end retardée du délai global (longueur `BLOCK`).
+    delayed: Vec<f32>,
+    /// Bloc overlap-save `[précédent | courant]` (longueur `FFT_SIZE`).
+    block: Vec<f32>,
+    /// Spectre de l'écho estimé, ACCUMULÉ : remis à zéro à chaque trame.
+    echo_spec: Vec<Complex<f32>>,
+    /// Écho estimé en temps (longueur `FFT_SIZE`).
+    echo_time: Vec<f32>,
+    /// Erreur `micro − écho` (longueur `BLOCK`).
+    err: Vec<f32>,
+    /// Erreur zéro-remplie à gauche pour la FFT (longueur `FFT_SIZE`). Seule
+    /// la moitié droite est jamais écrite ; la gauche reste nulle.
+    err_block: Vec<f32>,
+    /// Spectre de l'erreur (longueur `BINS`).
+    err_spec: Vec<Complex<f32>>,
+    /// Normalisation NLMS par bac, INITIALISÉE à `NLMS_EPS` à chaque trame.
+    norm: Vec<f32>,
+    /// Copie de la partition à contraindre (longueur `BINS`).
+    w_spec: Vec<Complex<f32>>,
+    /// Partition contrainte en temps (longueur `FFT_SIZE`).
+    w_time: Vec<f32>,
+    /// Enveloppe micro centrée (longueur `ENV_WINDOW`).
+    mic_c: Vec<f32>,
+    /// Enveloppe far-end centrée (longueur `ENV_WINDOW`).
+    far_c: Vec<f32>,
+}
+
+impl Scratch {
+    fn new() -> Self {
+        Self {
+            mic: vec![0.0; BLOCK],
+            delayed: vec![0.0; BLOCK],
+            block: vec![0.0; FFT_SIZE],
+            echo_spec: vec![Complex::default(); BINS],
+            echo_time: vec![0.0; FFT_SIZE],
+            err: vec![0.0; BLOCK],
+            err_block: vec![0.0; FFT_SIZE],
+            err_spec: vec![Complex::default(); BINS],
+            norm: vec![NLMS_EPS; BINS],
+            w_spec: vec![Complex::default(); BINS],
+            w_time: vec![0.0; FFT_SIZE],
+            mic_c: Vec::with_capacity(ENV_WINDOW),
+            far_c: Vec::with_capacity(ENV_WINDOW),
+        }
+    }
+}
+
 /// Annuleur d'écho acoustique : une instance par session audio active.
 pub struct EchoCanceller {
     fft: Arc<dyn RealToComplex<f32>>,
@@ -93,6 +153,8 @@ pub struct EchoCanceller {
     dtd_hangover: u32,
     /// Gain de suppression résiduelle lissé.
     nlp_gain: f32,
+    /// Tampons de travail réutilisés d'une trame à l'autre.
+    scratch: Scratch,
 }
 
 impl Default for EchoCanceller {
@@ -121,6 +183,7 @@ impl EchoCanceller {
             constrain_next: 0,
             dtd_hangover: 0,
             nlp_gain: 1.0,
+            scratch: Scratch::new(),
         }
     }
 
@@ -152,44 +215,62 @@ impl EchoCanceller {
         if pcm.len() != FRAME_SAMPLES {
             return;
         }
-        let mic: Vec<f32> = pcm.iter().map(|&s| f32::from(s)).collect();
-        self.track_delay(&mic);
+        self.scratch.mic.clear();
+        self.scratch.mic.extend(pcm.iter().map(|&s| f32::from(s)));
+        self.track_delay();
 
         // Référence retardée du délai global estimé (silence si l'historique
         // est encore trop court).
-        let delayed: Vec<f32> = self
-            .far_ring
-            .get(self.delay)
-            .cloned()
-            .unwrap_or_else(|| vec![0.0; BLOCK]);
+        match self.far_ring.get(self.delay) {
+            Some(f) => self.scratch.delayed.copy_from_slice(f),
+            None => self.scratch.delayed.fill(0.0),
+        }
 
         // Spectre du bloc overlap-save [précédent | courant].
-        let mut block = vec![0.0f32; FFT_SIZE];
-        block[..BLOCK].copy_from_slice(&self.prev_far);
-        block[BLOCK..].copy_from_slice(&delayed);
-        self.prev_far.copy_from_slice(&delayed);
-        let mut far_spec = vec![Complex::default(); BINS];
-        let _ = self.fft.process(&mut block, &mut far_spec);
-        if self.far_spectra.len() == PARTITIONS {
-            self.far_spectra.pop_back();
-        }
+        self.scratch.block[..BLOCK].copy_from_slice(&self.prev_far);
+        self.scratch.block[BLOCK..].copy_from_slice(&self.scratch.delayed);
+        self.prev_far.copy_from_slice(&self.scratch.delayed);
+        // Recycle le spectre le plus ancien : la file de partitions garde des
+        // vecteurs de longueur constante, autant réutiliser celui qui sort.
+        let mut far_spec = match self.far_spectra.len() {
+            n if n >= PARTITIONS => self
+                .far_spectra
+                .pop_back()
+                .unwrap_or_else(|| vec![Complex::default(); BINS]),
+            _ => vec![Complex::default(); BINS],
+        };
+        let _ = self.fft.process(&mut self.scratch.block, &mut far_spec);
         self.far_spectra.push_front(far_spec);
 
         // Écho linéaire estimé : somme des partitions, retour temporel,
-        // moitié droite (overlap-save).
-        let mut echo_spec = vec![Complex::default(); BINS];
+        // moitié droite (overlap-save). L'accumulateur est remis à zéro.
+        self.scratch.echo_spec.fill(Complex::default());
         for (part, spec) in self.weights.iter().zip(self.far_spectra.iter()) {
-            for ((acc, w), x) in echo_spec.iter_mut().zip(part.iter()).zip(spec.iter()) {
+            for ((acc, w), x) in self
+                .scratch
+                .echo_spec
+                .iter_mut()
+                .zip(part.iter())
+                .zip(spec.iter())
+            {
                 *acc += w * x;
             }
         }
-        let mut echo_time = vec![0.0f32; FFT_SIZE];
-        let _ = self.ifft.process(&mut echo_spec, &mut echo_time);
+        let _ = self
+            .ifft
+            .process(&mut self.scratch.echo_spec, &mut self.scratch.echo_time);
         let scale = 1.0 / FFT_SIZE as f32;
-        let echo: Vec<f32> = echo_time[BLOCK..].iter().map(|&v| v * scale).collect();
 
-        // Erreur = micro − écho estimé.
-        let mut err: Vec<f32> = mic.iter().zip(echo.iter()).map(|(m, e)| m - e).collect();
+        // Erreur = micro − écho estimé (moitié droite de l'overlap-save).
+        for ((e, &m), &t) in self
+            .scratch
+            .err
+            .iter_mut()
+            .zip(self.scratch.mic.iter())
+            .zip(self.scratch.echo_time[BLOCK..].iter())
+        {
+            *e = m - t * scale;
+        }
 
         // Double-parole (Geigel) : pic micro comparé au pic far-end sur la
         // fenêtre couverte par la queue du filtre.
@@ -200,7 +281,11 @@ impl EchoCanceller {
             .take(PARTITIONS)
             .flat_map(|f| f.iter())
             .fold(0.0f32, |acc, &v| acc.max(v.abs()));
-        let mic_peak = mic.iter().fold(0.0f32, |acc, &v| acc.max(v.abs()));
+        let mic_peak = self
+            .scratch
+            .mic
+            .iter()
+            .fold(0.0f32, |acc, &v| acc.max(v.abs()));
         if mic_peak > DTD_THRESHOLD * far_peak && far_peak > 0.0 {
             self.dtd_hangover = DTD_HANGOVER_FRAMES;
         } else {
@@ -215,14 +300,17 @@ impl EchoCanceller {
             .map(|c| c.norm_sqr())
             .sum();
         if self.dtd_hangover == 0 && far_energy > NLMS_EPS {
-            let mut err_block = vec![0.0f32; FFT_SIZE];
-            err_block[BLOCK..].copy_from_slice(&err);
-            let mut err_spec = vec![Complex::default(); BINS];
-            let _ = self.fft.process(&mut err_block, &mut err_spec);
+            // La moitié GAUCHE d'`err_block` doit rester nulle (zero-padding de
+            // l'overlap-save) : seule la droite est réécrite à chaque trame.
+            self.scratch.err_block[..BLOCK].fill(0.0);
+            self.scratch.err_block[BLOCK..].copy_from_slice(&self.scratch.err);
+            let _ = self
+                .fft
+                .process(&mut self.scratch.err_block, &mut self.scratch.err_spec);
             // Normalisation par bac : énergie far-end cumulée des partitions.
-            let mut norm = vec![NLMS_EPS; BINS];
+            self.scratch.norm.fill(NLMS_EPS);
             for spec in &self.far_spectra {
-                for (n, x) in norm.iter_mut().zip(spec.iter()) {
+                for (n, x) in self.scratch.norm.iter_mut().zip(spec.iter()) {
                     *n += x.norm_sqr();
                 }
             }
@@ -230,7 +318,7 @@ impl EchoCanceller {
                 for ((w, x), (e, n)) in part
                     .iter_mut()
                     .zip(spec.iter())
-                    .zip(err_spec.iter().zip(norm.iter()))
+                    .zip(self.scratch.err_spec.iter().zip(self.scratch.norm.iter()))
                 {
                     *w += x.conj() * e * (NLMS_MU / n);
                 }
@@ -239,16 +327,19 @@ impl EchoCanceller {
             // partition par trame en tournante : coût borné.
             let p = self.constrain_next;
             self.constrain_next = (p + 1) % PARTITIONS;
-            let mut w_spec = self.weights[p].clone();
-            let mut w_time = vec![0.0f32; FFT_SIZE];
-            let _ = self.ifft.process(&mut w_spec, &mut w_time);
-            for v in w_time.iter_mut() {
+            self.scratch.w_spec.copy_from_slice(&self.weights[p]);
+            let _ = self
+                .ifft
+                .process(&mut self.scratch.w_spec, &mut self.scratch.w_time);
+            for v in self.scratch.w_time.iter_mut() {
                 *v *= scale;
             }
-            for v in w_time[BLOCK..].iter_mut() {
+            for v in self.scratch.w_time[BLOCK..].iter_mut() {
                 *v = 0.0;
             }
-            let _ = self.fft.process(&mut w_time, &mut self.weights[p]);
+            let _ = self
+                .fft
+                .process(&mut self.scratch.w_time, &mut self.weights[p]);
         }
 
         // Suppression résiduelle bornée, uniquement écho seul (référence
@@ -260,30 +351,27 @@ impl EchoCanceller {
             .and_then(|i| self.far_env.get(i))
             .is_some_and(|&e| e > FAR_SILENCE_RMS);
         let target = if far_active && self.dtd_hangover == 0 {
-            let ratio = rms(&err) / (rms(&mic) + 1.0);
+            let ratio = rms(&self.scratch.err) / (rms(&self.scratch.mic) + 1.0);
             ratio.clamp(NLP_FLOOR, 1.0)
         } else {
             1.0
         };
         let rate = if target < self.nlp_gain { 0.5 } else { 0.25 };
         self.nlp_gain += (target - self.nlp_gain) * rate;
-        for v in err.iter_mut() {
-            *v *= self.nlp_gain;
-        }
-
-        for (dst, &src) in pcm.iter_mut().zip(err.iter()) {
-            *dst = src.clamp(f32::from(i16::MIN), f32::from(i16::MAX)) as i16;
+        let nlp_gain = self.nlp_gain;
+        for (dst, &src) in pcm.iter_mut().zip(self.scratch.err.iter()) {
+            *dst = (src * nlp_gain).clamp(f32::from(i16::MIN), f32::from(i16::MAX)) as i16;
         }
     }
 
     /// Suit le délai global par corrélation croisée des enveloppes (centrées)
     /// micro/far-end ; changement adopté après confirmation répétée, avec
     /// remise à zéro du filtre (l'écho re-converge en ~0,5 s).
-    fn track_delay(&mut self, mic: &[f32]) {
+    fn track_delay(&mut self) {
         if self.mic_env.len() == ENV_WINDOW {
             self.mic_env.pop_front();
         }
-        self.mic_env.push_back(rms(mic));
+        self.mic_env.push_back(rms(&self.scratch.mic));
         if self.mic_env.len() < ENV_WINDOW || self.far_env.len() < ENV_WINDOW {
             return;
         }
@@ -293,8 +381,13 @@ impl EchoCanceller {
         }
         let mic_mean: f32 = self.mic_env.iter().sum::<f32>() / ENV_WINDOW as f32;
         let far_mean: f32 = self.far_env.iter().sum::<f32>() / ENV_WINDOW as f32;
-        let mic_c: Vec<f32> = self.mic_env.iter().map(|&v| v - mic_mean).collect();
-        let far_c: Vec<f32> = self.far_env.iter().map(|&v| v - far_mean).collect();
+        let mic_c = &mut self.scratch.mic_c;
+        mic_c.clear();
+        mic_c.extend(self.mic_env.iter().map(|&v| v - mic_mean));
+        let far_c = &mut self.scratch.far_c;
+        far_c.clear();
+        far_c.extend(self.far_env.iter().map(|&v| v - far_mean));
+        let (mic_c, far_c) = (&self.scratch.mic_c, &self.scratch.far_c);
         for lag in 0..=DELAY_MAX_FRAMES {
             let mut num = 0.0f32;
             let mut mic_sq = 0.0f32;

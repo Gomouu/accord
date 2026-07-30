@@ -67,6 +67,11 @@ pub struct VoiceRoom {
     deafened: bool,
     /// Capture DSP chain (noise suppression + AGC), applied before the VAD.
     dsp: CaptureDsp,
+    /// Tampon de travail de [`VoiceRoom::capture`], réutilisé d'une trame à
+    /// l'autre : la chaîne DSP travaille EN PLACE sur une copie de la trame de
+    /// l'hôte, et la redemander à l'allocateur cinquante fois par seconde n'a
+    /// rien à faire sur le chemin média.
+    capture_buf: Vec<i16>,
 }
 
 impl VoiceRoom {
@@ -85,6 +90,7 @@ impl VoiceRoom {
             master_gain: 1.0,
             deafened: false,
             dsp: CaptureDsp::default(),
+            capture_buf: Vec::with_capacity(crate::params::FRAME_SAMPLES),
         }
     }
 
@@ -174,14 +180,15 @@ impl VoiceRoom {
     /// les participants, ou `None` si la VAD la juge silencieuse. L'horloge
     /// média avance à chaque appel (cadence de 20 ms côté hôte).
     pub fn capture(&mut self, pcm: &[i16]) -> Result<Option<VoiceMsg>, RoomError> {
-        let mut pcm = pcm.to_vec();
-        self.dsp.process(&mut pcm);
-        let active = self.vad.is_active(&pcm);
+        self.capture_buf.clear();
+        self.capture_buf.extend_from_slice(pcm);
+        self.dsp.process(&mut self.capture_buf);
+        let active = self.vad.is_active(&self.capture_buf);
         self.ts_ms = self.ts_ms.wrapping_add(FRAME_MS);
         if !active {
             return Ok(None);
         }
-        let payload = self.encoder.encode(&pcm)?;
+        let payload = self.encoder.encode(&self.capture_buf)?;
         let frame = VoiceMsg::AudioFrame {
             room: self.room_id,
             media_type: MEDIA_AUDIO_OPUS,

@@ -47,6 +47,7 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::sync::{mpsc, watch, Mutex as AsyncMutex};
 
+use crate::endpoint::masque_hote;
 use crate::socket::DatagramSocket;
 
 /// Taille maximale d'une trame (charge utile d'un datagramme encapsulé).
@@ -197,11 +198,14 @@ impl TcpLinks {
                 r = tokio::time::timeout(LINK_IDLE_TIMEOUT, read_frame(&mut read)) => match r {
                     Ok(Ok(frame)) => frame,
                     Ok(Err(e)) => {
-                        tracing::debug!(?peer, erreur = %e, "tcp : lien fermé");
+                        // Hôte masqué, port conservé : le journal est fait pour
+                        // être envoyé (§10.6), l'adresse d'un pair est la donnée
+                        // d'un tiers — le port, lui, diagnostique le NAT.
+                        tracing::debug!(pair = %masque_hote(&peer), erreur = %e, "tcp : lien fermé");
                         break;
                     }
                     Err(_) => {
-                        tracing::debug!(?peer, "tcp : lien inactif, fermé");
+                        tracing::debug!(pair = %masque_hote(&peer), "tcp : lien inactif, fermé");
                         break;
                     }
                 },

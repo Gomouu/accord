@@ -60,6 +60,21 @@ pub(crate) const MAX_FRAGMENT_CHUNK: usize = MAX_SEALED_PLAINTEXT - FRAG_HEADER_
 /// [`MAX_TCP_FRAME`] d'accord-proto : 1 MiB).
 pub(crate) const MAX_MESSAGE_LEN: usize = MAX_TCP_FRAME;
 
+/// Nombre maximal de fragments qu'un message légitime peut produire :
+/// `ceil(MAX_MESSAGE_LEN / MAX_FRAGMENT_CHUNK)` (≈ 908 avec la MTU du SPEC).
+///
+/// 🔒 C'est une borne d'ALLOCATION, pas seulement de cohérence. Le champ
+/// `total` d'un fragment est un `u16` piloté par le pair : sans cette borne, un
+/// unique datagramme de quelques octets annonçant `total = 65535` faisait
+/// pré-allouer un `Vec<Option<Vec<u8>>>` de 65 535 cases (~1,5 Mio), et
+/// [`MAX_CONCURRENT_REASSEMBLIES`] datagrammes en réservaient une douzaine de
+/// mébioctets — une amplification mémoire de plusieurs milliers, invisible pour
+/// le compteur [`Reassembler::octets_totaux`] qui ne pèse que les tranches
+/// reçues. Aucun émetteur conforme ne dépasse cette borne (`frame` découpe un
+/// plaintext déjà borné à [`MAX_MESSAGE_LEN`]) : le format filaire est
+/// inchangé.
+pub(crate) const MAX_FRAGMENTS: usize = MAX_MESSAGE_LEN.div_ceil(MAX_FRAGMENT_CHUNK);
+
 /// Mémoire de réassemblage plafonnée par session (anti-DoS).
 pub(crate) const MAX_REASSEMBLY_BYTES: usize = 2 * 1024 * 1024;
 
@@ -129,12 +144,18 @@ impl Reassembler {
 
     /// Purge les réassemblages partiels dont le premier fragment est plus vieux
     /// que [`REASSEMBLY_TIMEOUT_MS`].
+    ///
+    /// Les soustractions du compteur global sont saturantes : une dérive de
+    /// comptabilité (impossible aujourd'hui, mais le compteur vit à côté de
+    /// trois chemins de retrait) déborderait sinon un `usize` en release et
+    /// figerait DÉFINITIVEMENT le réassemblage de la session — un pair
+    /// n'obtiendrait plus jamais un message fragmenté.
     pub(crate) fn sweep(&mut self, now_ms: u64) {
         let octets_totaux = &mut self.octets_totaux;
         self.en_cours.retain(|_, p| {
             let vivant = now_ms.saturating_sub(p.premier_vu_ms) < REASSEMBLY_TIMEOUT_MS;
             if !vivant {
-                *octets_totaux -= p.octets;
+                *octets_totaux = octets_totaux.saturating_sub(p.octets);
             }
             vivant
         });
@@ -183,6 +204,10 @@ impl Reassembler {
         if total == 0 || index >= total {
             return Err(TransportError::Reassembly("indices de fragment invalides"));
         }
+        // Borne d'allocation AVANT toute réservation (voir [`MAX_FRAGMENTS`]).
+        if total as usize > MAX_FRAGMENTS {
+            return Err(TransportError::Reassembly("trop de fragments annoncés"));
+        }
         if tranche.len() > MAX_FRAGMENT_CHUNK {
             return Err(TransportError::Reassembly(
                 "tranche de fragment trop grande",
@@ -219,7 +244,7 @@ impl Reassembler {
         }
 
         // Borne mémoire globale de la session.
-        if self.octets_totaux + tranche.len() > MAX_REASSEMBLY_BYTES {
+        if self.octets_totaux.saturating_add(tranche.len()) > MAX_REASSEMBLY_BYTES {
             return Err(TransportError::Reassembly(
                 "mémoire de réassemblage saturée",
             ));
@@ -259,7 +284,7 @@ impl Reassembler {
         let Some(partiel) = self.en_cours.remove(&msg_id) else {
             return Ok(None);
         };
-        self.octets_totaux -= partiel.octets;
+        self.octets_totaux = self.octets_totaux.saturating_sub(partiel.octets);
         let mut message = Vec::with_capacity(partiel.octets);
         for tranche in partiel.tranches {
             match tranche {
@@ -277,7 +302,7 @@ impl Reassembler {
     fn retirer(&mut self, msg_id: u32) -> usize {
         match self.en_cours.remove(&msg_id) {
             Some(p) => {
-                self.octets_totaux -= p.octets;
+                self.octets_totaux = self.octets_totaux.saturating_sub(p.octets);
                 p.octets
             }
             None => 0,
@@ -471,25 +496,50 @@ mod tests {
     fn borne_memoire_de_reassemblage() {
         let mut r = Reassembler::new();
         // Force le dépassement du plafond mémoire : quelques messages avec des
-        // fragments proches du maximum. Chaque message annonce beaucoup de
-        // fragments pour ne jamais se compléter.
-        let mut sature = false;
-        for id in 0..MAX_CONCURRENT_REASSEMBLIES as u32 {
+        // fragments proches du maximum. Chaque message annonce le nombre
+        // MAXIMAL de fragments admissible pour ne jamais se compléter — rester
+        // sous [`MAX_FRAGMENTS`] est ce qui garantit que c'est bien la borne
+        // MÉMOIRE qui mord ici, et pas la borne de nombre de fragments.
+        let mut sature = None;
+        'saturation: for id in 0..MAX_CONCURRENT_REASSEMBLIES as u32 {
             for index in 0..300u16 {
                 let mut c = vec![FRAME_FRAG];
                 c.extend_from_slice(&id.to_be_bytes());
-                c.extend_from_slice(&1000u16.to_be_bytes());
+                c.extend_from_slice(&(MAX_FRAGMENTS as u16).to_be_bytes());
                 c.extend_from_slice(&index.to_be_bytes());
                 c.extend_from_slice(&vec![0u8; MAX_FRAGMENT_CHUNK]);
-                if r.accept(&c, 0).is_err() {
-                    sature = true;
-                    break;
+                if let Err(e) = r.accept(&c, 0) {
+                    sature = Some(e);
+                    break 'saturation;
                 }
             }
-            if sature {
-                break;
-            }
         }
-        assert!(sature, "le plafond mémoire aurait dû être atteint");
+        let Some(TransportError::Reassembly(motif)) = sature else {
+            panic!("le plafond mémoire aurait dû être atteint");
+        };
+        assert_eq!(motif, "mémoire de réassemblage saturée");
+    }
+
+    #[test]
+    fn total_au_dela_du_maximum_est_rejete_avant_toute_allocation() {
+        // Un `total` de 65 535 (valeur maximale du champ) faisait pré-allouer
+        // 65 535 cases pour un fragment de trois octets : ~1,5 Mio par
+        // datagramme, hors du compteur d'octets reçus. Aucun émetteur conforme
+        // ne dépasse [`MAX_FRAGMENTS`], le format filaire est inchangé.
+        let mut c = vec![FRAME_FRAG];
+        c.extend_from_slice(&1u32.to_be_bytes());
+        c.extend_from_slice(&u16::MAX.to_be_bytes());
+        c.extend_from_slice(&0u16.to_be_bytes());
+        c.extend_from_slice(&[1, 2, 3]);
+        let mut r = Reassembler::new();
+        assert!(r.accept(&c, 0).is_err());
+        assert_eq!(r.en_cours(), 0, "aucune réservation n'a eu lieu");
+
+        // Le plus grand message légitime reste, lui, parfaitement réassemblable.
+        let plaintext = vec![4u8; MAX_MESSAGE_LEN];
+        let mut id = 0;
+        let cadres = frame(&plaintext, &mut id);
+        assert!(cadres.len() <= MAX_FRAGMENTS);
+        assert_eq!(reassemble(&cadres, 0), Some(plaintext));
     }
 }

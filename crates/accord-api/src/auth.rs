@@ -15,11 +15,14 @@ pub struct AuthToken(String);
 impl AuthToken {
     /// Génère un jeton aléatoire (CSPRNG, 256 bits, hexadécimal).
     pub fn generate() -> Self {
+        use std::fmt::Write;
         let mut bytes = [0u8; 32];
         rand::rngs::OsRng.fill_bytes(&mut bytes);
         let mut hex = String::with_capacity(64);
         for b in bytes {
-            hex.push_str(&format!("{b:02x}"));
+            // `write!` dans la chaîne finale plutôt qu'un `format!` par octet :
+            // une seule allocation au lieu de trente-trois.
+            let _ = write!(hex, "{b:02x}");
         }
         Self(hex)
     }

@@ -73,12 +73,23 @@ impl RoutingTable {
         }
     }
 
+    /// Seau d'un identifiant, ou `None` si c'est le nôtre.
+    ///
+    /// L'indice vient d'un `NodeId` reçu du réseau : on le résout par
+    /// `get_mut` et non par indexation directe. Un indice hors des 256 seaux
+    /// est aujourd'hui impossible (`bucket_index` rend `255 - position du
+    /// premier bit à 1`), mais l'indexation le convertirait en panique — sur
+    /// une donnée pilotée par un pair, et sous le verrou de la table.
+    fn bucket_of(&mut self, id: &NodeId) -> Option<&mut Vec<NodeEntry>> {
+        let idx = self.local.bucket_index(id)?;
+        self.buckets.get_mut(idx)
+    }
+
     /// Insère ou rafraîchit un pair.
     pub fn insert(&mut self, info: NodeInfo, now_ms: u64) -> InsertOutcome {
-        let Some(idx) = self.local.bucket_index(&info.node_id) else {
+        let Some(bucket) = self.bucket_of(&info.node_id) else {
             return InsertOutcome::RejectedSelf;
         };
-        let bucket = &mut self.buckets[idx];
 
         if let Some(pos) = bucket.iter().position(|e| e.info.node_id == info.node_id) {
             let mut entry = bucket.remove(pos);
@@ -115,10 +126,9 @@ impl RoutingTable {
     /// Remplace le candidat évincé (mort au PING) par un nouveau pair.
     /// Sans effet si le candidat a bougé entre-temps.
     pub fn replace(&mut self, dead: &NodeId, fresh: NodeInfo, now_ms: u64) -> InsertOutcome {
-        let Some(idx) = self.local.bucket_index(&fresh.node_id) else {
+        let Some(bucket) = self.bucket_of(&fresh.node_id) else {
             return InsertOutcome::RejectedSelf;
         };
-        let bucket = &mut self.buckets[idx];
         if let Some(pos) = bucket.iter().position(|e| e.info.node_id == *dead) {
             bucket.remove(pos);
             bucket.push(NodeEntry {
@@ -133,8 +143,7 @@ impl RoutingTable {
 
     /// Marque un pair vivant (répond au PING) : le déplace en fin de bucket.
     pub fn mark_alive(&mut self, id: &NodeId, now_ms: u64) {
-        if let Some(idx) = self.local.bucket_index(id) {
-            let bucket = &mut self.buckets[idx];
+        if let Some(bucket) = self.bucket_of(id) {
             if let Some(pos) = bucket.iter().position(|e| e.info.node_id == *id) {
                 let mut entry = bucket.remove(pos);
                 entry.last_seen_ms = now_ms;
@@ -145,8 +154,8 @@ impl RoutingTable {
 
     /// Retire un pair (mort confirmé).
     pub fn remove(&mut self, id: &NodeId) {
-        if let Some(idx) = self.local.bucket_index(id) {
-            self.buckets[idx].retain(|e| e.info.node_id != *id);
+        if let Some(bucket) = self.bucket_of(id) {
+            bucket.retain(|e| e.info.node_id != *id);
         }
     }
 

@@ -32,6 +32,16 @@ mod ffi {
 
     #[link(name = "AVFoundation", kind = "framework")]
     extern "C" {
+        /// Constante `AVMediaTypeAudio` d'AVFoundation.
+        ///
+        /// Lire une `static` externe est `unsafe` : sa validité repose sur le
+        /// fait que le TYPE déclaré ici corresponde à celui du symbole, et que
+        /// le symbole soit initialisé avant tout accès. Les deux tiennent : le
+        /// symbole est un `NSString *` constant du framework (donc une
+        /// référence non nulle, immuable, de durée de vie statique), et le
+        /// framework est lié à ce binaire — l'éditeur de liens dynamique
+        /// l'initialise avant `main`. Aucun accès n'a lieu avant, ce module
+        /// n'ayant ni initialiseur statique ni constructeur.
         static AVMediaTypeAudio: &'static NSString;
     }
 
@@ -39,9 +49,14 @@ mod ffi {
         let Some(cls) = AnyClass::get(c"AVCaptureDevice") else {
             return super::ETAT_INCONNU;
         };
-        // SAFETY : méthode de classe documentée d'AVCaptureDevice ; le type
-        // média est la constante AVFoundation elle-même, le retour est un
-        // NSInteger (AVAuthorizationStatus ∈ 0..=3).
+        // SAFETY : `cls` est la classe AVCaptureDevice, résolue à l'instant et
+        // donc vivante (les classes Objective-C d'un framework chargé ne sont
+        // jamais libérées). `authorizationStatusForMediaType:` est une méthode
+        // de CLASSE documentée, qui prend un `AVMediaType` (soit un
+        // `NSString *` — la constante du framework, voir sa déclaration
+        // ci-dessus) et rend un `NSInteger` : `isize` en est la représentation
+        // exacte sur toutes les cibles Apple. La méthode est sûre à appeler
+        // depuis n'importe quel fil et ne déclenche AUCUNE invite système.
         let statut: isize =
             unsafe { msg_send![cls, authorizationStatusForMediaType: AVMediaTypeAudio] };
         match statut {
@@ -64,12 +79,22 @@ mod ffi {
                 let _ = tx.send(accorde.as_bool());
             }
         });
-        // SAFETY : méthode de classe documentée ; le bloc de complétion est
-        // retenu (`RcBlock`) et AVFoundation l'appelle exactement une fois,
-        // sur une file arbitraire — le canal mpsc est fait pour ça.
+        // SAFETY : mêmes invariants que `etat()` pour `cls` et pour la
+        // constante `AVMediaTypeAudio`. `requestAccessForMediaType:
+        // completionHandler:` est une méthode de CLASSE documentée qui rend
+        // `void` — d'où le `let () =`, qui interdit toute mélecture du retour.
+        // Le second argument est un pointeur de bloc valide : `&*bloc` emprunte
+        // le `RcBlock` qui vit jusqu'à la fin de cette fonction, et
+        // AVFoundation en prend une COPIE (contrat des blocs de complétion
+        // Objective-C) avant de rendre la main — la copie survit donc à
+        // l'emprunt. Le bloc est appelé exactement une fois, sur une file
+        // arbitraire : la fermeture est `Send`, ne capture qu'un `Mutex`, et le
+        // `take()` la rend idempotente si le contrat était violé.
         let () = unsafe {
             msg_send![cls, requestAccessForMediaType: AVMediaTypeAudio, completionHandler: &*bloc]
         };
+        // Attente de la réponse : bloque le fil appelant, jamais le fil
+        // principal (contrat documenté sur `micro_demander_bloquant`).
         rx.recv().map_err(|_| "demande interrompue".into())
     }
 }

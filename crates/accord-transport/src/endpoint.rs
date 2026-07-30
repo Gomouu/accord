@@ -10,6 +10,7 @@ use crate::clock::Clock;
 use crate::error::TransportError;
 use crate::frag::{self, Reassembler};
 use crate::nat::Candidate;
+use crate::pending::{Pending, MAX_HANDSHAKE_GENERATIONS};
 use crate::ratelimit::{Bucket, RateLimiter};
 use crate::relay::{RelayDecision, RelayTable, DEFAULT_RELAY_CAP_BPS};
 use crate::socket::DatagramSocket;
@@ -48,14 +49,6 @@ const RELAY_OPEN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1
 /// Without it, `recv_from` parks forever and the socket leaks across every
 /// lock/unlock cycle (Lot G, runtime-lifetime leak).
 const SHUTDOWN_POLL: std::time::Duration = std::time::Duration::from_millis(250);
-
-/// Fresh-handshake regenerations attempted for a single pending before it is
-/// abandoned. Once the identical retransmissions of one generation are spent, a
-/// new HELLO with a fresh nonce is started (recovering a lost WELCOME, which the
-/// responder's replay cache would otherwise eat) and the reconnection attempt
-/// persists — bounded here, never an unconditional periodic redial (Lot G,
-/// causes 1 and 2).
-const MAX_HANDSHAKE_GENERATIONS: u32 = 8;
 
 /// Événement remonté aux couches supérieures.
 #[derive(Debug)]
@@ -296,22 +289,6 @@ struct PendingOpen {
     /// Canal résolu par `handle_relay` : `Ok(circuit)` sur Accept, `Err(code)`
     /// sur Reject.
     tx: oneshot::Sender<Result<u32, u8>>,
-}
-
-struct Pending {
-    initiator: Initiator,
-    /// Identité Ed25519 attendue à cette adresse, si l'ouverture vise un pair
-    /// précis (livraison CORE liée). `None` pour un pair quelconque (DHT) :
-    /// aucune liaison n'est alors imposée. Le WELCOME établi est refusé si sa
-    /// clé statique diffère de cette cible (voir `on_welcome`).
-    expected_static: Option<[u8; 32]>,
-    queued: Vec<Vec<u8>>,
-    attempts: u32,
-    last_send_ms: u64,
-    /// Fresh-handshake generation of this pending (Lot G): incremented each time
-    /// the initiator is restarted with a new nonce after its retransmissions are
-    /// spent, and capped by [`MAX_HANDSHAKE_GENERATIONS`].
-    generation: u32,
 }
 
 struct State {
@@ -570,6 +547,7 @@ impl Endpoint {
                         initiator,
                         expected_static: expected,
                         queued: Vec::new(),
+                        queued_bytes: 0,
                         attempts: 0,
                         last_send_ms: 0,
                         generation: 0,
@@ -582,7 +560,7 @@ impl Endpoint {
                 if entry.expected_static.is_none() {
                     entry.expected_static = expected;
                 }
-                entry.queued.push(plaintext);
+                entry.push_queued(plaintext);
                 if entry.attempts == 0 {
                     entry.attempts = 1;
                     entry.last_send_ms = now;
@@ -720,6 +698,7 @@ impl Endpoint {
                         initiator,
                         expected_static: Some(expected_static),
                         queued: Vec::new(),
+                        queued_bytes: 0,
                         attempts: 1,
                         last_send_ms: now,
                         generation: 0,
@@ -913,7 +892,7 @@ impl Endpoint {
             if st.pending.contains_key(&from) && self.identity.public_key() < hello.static_pub {
                 drop(st);
                 tracing::trace!(
-                    ?from,
+                    pair_addr = %masque_hote(&from),
                     "simultaneous-open : rôle initiateur retenu, HELLO du pair ignoré"
                 );
                 return Ok(());
@@ -1023,7 +1002,7 @@ impl Endpoint {
             if self.requires_post_quantum() && !established.is_post_quantum {
                 tracing::debug!(
                     pair = %hex4(&established.peer_static),
-                    %peer_addr,
+                    pair_addr = %masque_hote(&peer_addr),
                     "HELLO classique refusé : hybride post-quantique exigé"
                 );
                 return Err(TransportError::PostQuantumRequired);
@@ -1111,6 +1090,7 @@ impl Endpoint {
             let expected_static = pending.expected_static;
             let generation = pending.generation;
             let queued = pending.queued;
+            let queued_bytes = pending.queued_bytes;
             let established = match pending.initiator.finish(&welcome, now) {
                 Ok(e) => e,
                 Err(e) => {
@@ -1138,6 +1118,7 @@ impl Endpoint {
                                     initiator,
                                     expected_static,
                                     queued,
+                                    queued_bytes,
                                     attempts: 1,
                                     last_send_ms: 0,
                                     generation: generation + 1,
@@ -1176,7 +1157,7 @@ impl Endpoint {
             if self.requires_post_quantum() && !established.is_post_quantum {
                 tracing::debug!(
                     pair = %hex4(&established.peer_static),
-                    %peer_addr,
+                    pair_addr = %masque_hote(&peer_addr),
                     "WELCOME classique refusé : hybride post-quantique exigé"
                 );
                 return Err(TransportError::PostQuantumRequired);
@@ -1321,13 +1302,28 @@ impl Endpoint {
             // Déframe/réassemble : `None` si fragment partiel ou doublon.
             let assembled = session.reasm.accept(&cadre, now)?;
             let relay_circuit = session.relay_circuit;
+            let peer_addr = session.peer_addr;
             // Mobilité : le pair a peut-être changé d'adresse. Ne s'applique QU'AUX
             // sessions directes : une session relayée garde `peer_addr = relay_addr`
             // et n'est pas indexée par adresse (sinon on écraserait la session avec
             // le relais, qui partage cette adresse).
-            if relay_circuit.is_none() && session.peer_addr != from {
-                let old = session.peer_addr;
-                st.id_by_addr.remove(&old);
+            // 🔒 Une adresse déjà tenue par une AUTRE session n'est jamais
+            // reprise. Le déplacement se déclenche sur l'adresse SOURCE d'un
+            // datagramme, et une source UDP se falsifie : un pair authentifié
+            // qui émettait un DATA valide de sa propre session sous l'adresse
+            // usurpée d'un ami faisait déménager sa session CHEZ l'ami —
+            // évinçant au passage l'entrée `id_by_addr` de celui-ci, dont la
+            // session devenait injoignable par adresse (tout envoi repartait
+            // en handshake) pendant que notre trafic pour l'attaquant partait
+            // vers la victime. Deux pairs distincts ne peuvent de toute façon
+            // pas partager une même paire adresse:port : refuser la reprise ne
+            // ferme aucune mobilité légitime.
+            let addresse_libre = st
+                .id_by_addr
+                .get(&from)
+                .is_none_or(|sid| *sid == data.session_id);
+            if relay_circuit.is_none() && peer_addr != from && addresse_libre {
+                st.id_by_addr.remove(&peer_addr);
                 if let Some(s) = st.sessions_by_id.get_mut(&data.session_id) {
                     s.peer_addr = from;
                 }
@@ -2053,6 +2049,7 @@ impl Endpoint {
                     initiator,
                     expected_static: Some(peer_static),
                     queued: Vec::new(),
+                    queued_bytes: 0,
                     attempts: 1,
                     last_send_ms: now,
                     generation: 0,

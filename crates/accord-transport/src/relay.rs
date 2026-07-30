@@ -1,5 +1,6 @@
 //! Relais de repli décentralisé (SPEC §10) : gestion des circuits côté relais,
-//! avec plafond de bande passante par circuit et équité round-robin.
+//! avec plafond de bande passante par circuit (fenêtre glissante d'une seconde)
+//! et plafond du nombre de circuits hébergés.
 //!
 //! Le relais n'achemine que des blobs opaques : ce sont des paquets DATA d'une
 //! session bout-en-bout entre les deux pairs. Le relais ne peut rien déchiffrer.
@@ -64,12 +65,28 @@ impl RelayTable {
     }
 
     /// Ouvre un circuit entre `a` et `b`. `None` si le relais est saturé.
+    ///
+    /// L'identifiant est tiré du compteur, mais un identifiant DÉJÀ SERVI est
+    /// enjambé : le compteur est un `u32` qui boucle, et réattribuer un numéro
+    /// vivant écraserait silencieusement le circuit de deux autres pairs (leur
+    /// trafic serait alors acheminé vers les extrémités du nouveau). La table
+    /// contient au plus [`MAX_CIRCUITS`] entrées : un numéro libre se trouve en
+    /// autant de pas au pire, la boucle ne peut donc pas s'éterniser.
     pub fn open(&mut self, a: NodeId, b: NodeId, now_ms: u64) -> Option<u32> {
         if self.circuits.len() >= MAX_CIRCUITS {
             return None;
         }
-        let id = self.next_id;
-        self.next_id = self.next_id.wrapping_add(1).max(1);
+        let mut id = self.next_id;
+        for _ in 0..=MAX_CIRCUITS {
+            if !self.circuits.contains_key(&id) {
+                break;
+            }
+            id = id.wrapping_add(1).max(1);
+        }
+        if self.circuits.contains_key(&id) {
+            return None; // inatteignable sous le plafond ; jamais d'écrasement
+        }
+        self.next_id = id.wrapping_add(1).max(1);
         self.circuits.insert(
             id,
             Circuit {
@@ -191,6 +208,33 @@ mod tests {
         t.close(id);
         assert!(t.is_empty());
         assert_eq!(t.forward(id, node(1), 1, 0), RelayDecision::Unknown);
+    }
+
+    #[test]
+    fn le_bouclage_du_compteur_n_ecrase_jamais_un_circuit_vivant() {
+        // Le compteur d'identifiants est un `u32` qui boucle. Placé juste avant
+        // le bouclage, il repasse sur des numéros déjà servis : chacun doit être
+        // enjambé, jamais réattribué — sinon le trafic de deux pairs partirait
+        // vers les extrémités d'un autre circuit.
+        let mut t = RelayTable::new(DEFAULT_RELAY_CAP_BPS);
+        t.next_id = u32::MAX - 1;
+        let a = t.open(node(1), node(2), 0).expect("premier circuit");
+        let b = t.open(node(3), node(4), 0).expect("deuxième circuit");
+        let c = t.open(node(5), node(6), 0).expect("après bouclage");
+        assert_ne!(a, b);
+        assert_ne!(b, c);
+        assert_ne!(a, c);
+        assert_eq!(t.len(), 3, "aucun circuit écrasé");
+        // Chaque circuit achemine toujours vers SES propres extrémités.
+        assert_eq!(t.forward(a, node(1), 1, 0), RelayDecision::Forward(node(2)));
+        assert_eq!(t.forward(b, node(3), 1, 0), RelayDecision::Forward(node(4)));
+        assert_eq!(t.forward(c, node(5), 1, 0), RelayDecision::Forward(node(6)));
+
+        // Et un identifiant déjà en service est bel et bien enjambé.
+        t.next_id = a;
+        let d = t.open(node(7), node(8), 0).expect("identifiant frais");
+        assert!(d != a && d != b && d != c);
+        assert_eq!(t.forward(a, node(1), 1, 0), RelayDecision::Forward(node(2)));
     }
 
     #[test]

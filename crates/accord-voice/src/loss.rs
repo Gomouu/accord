@@ -10,6 +10,17 @@ use std::collections::VecDeque;
 /// Fenêtre de mesure (ms).
 const WINDOW_MS: u32 = 5_000;
 
+/// Arrivées conservées au plus dans la fenêtre.
+///
+/// La purge est pilotée par l'horloge de l'hôte, pas par la cadence du pair :
+/// à 20 ms par trame, une fenêtre de 5 s en contient 250, mais un pair qui
+/// émet à plein débit UDP en verse autant qu'il veut dans le même intervalle —
+/// chaque arrivée coûtant une entrée ET un tour de boucle supplémentaire à
+/// [`LossEstimator::loss_pct`], appelé à chaque retour de qualité. Le plafond
+/// vaut huit fois la cadence nominale : hors d'atteinte d'un pair honnête, même
+/// très en désordre.
+const MAX_SEEN: usize = 8 * (WINDOW_MS / crate::params::FRAME_MS) as usize;
+
 /// Distance signée `b − a` en arithmétique circulaire 16 bits.
 fn seq_diff(a: u16, b: u16) -> i32 {
     (b.wrapping_sub(a)) as i16 as i32
@@ -28,7 +39,8 @@ impl LossEstimator {
         Self::default()
     }
 
-    /// Enregistre l'arrivée d'une trame et purge la fenêtre.
+    /// Enregistre l'arrivée d'une trame et purge la fenêtre (par ancienneté,
+    /// puis par plafond de taille — voir [`MAX_SEEN`]).
     pub fn observe(&mut self, seq: u16, now_ms: u32) {
         self.seen.push_back((seq, now_ms));
         let horizon = now_ms.saturating_sub(WINDOW_MS);
@@ -38,6 +50,9 @@ impl LossEstimator {
             } else {
                 break;
             }
+        }
+        while self.seen.len() > MAX_SEEN {
+            self.seen.pop_front();
         }
     }
 
@@ -104,6 +119,19 @@ mod tests {
             est.observe(200 + i, 10_000 + i as u32 * 20);
         }
         assert_eq!(est.loss_pct(), 0);
+    }
+
+    #[test]
+    fn la_fenetre_reste_bornee_sous_inondation() {
+        // La purge par ancienneté suit l'horloge de l'hôte : un pair qui émet
+        // mille trames dans le même instant les y laissait toutes.
+        let mut est = LossEstimator::new();
+        for i in 0..(MAX_SEEN as u32 * 4) {
+            est.observe((i % 65_536) as u16, 0);
+        }
+        assert!(est.seen.len() <= MAX_SEEN, "fenêtre non bornée");
+        // La mesure reste exploitable (jamais de panique, valeur dans 0..=100).
+        let _ = est.loss_pct();
     }
 
     #[test]

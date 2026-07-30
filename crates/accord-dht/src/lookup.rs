@@ -236,7 +236,11 @@ pub async fn find_value_bounded<R: DhtRpc>(
     now_ms: u64,
 ) -> ValueResult {
     let seeds = filter_valid(seeds, pow_bits);
-    let paths = paths.max(1);
+    // Bornage haut autant que bas : `paths` dimensionne une allocation, et un
+    // réglage aberrant (ou un `usize` mal converti) ne doit pas se traduire par
+    // une réservation démesurée. Au-delà de `DHT_K` chemins, les seeds sont de
+    // toute façon en nombre insuffisant pour les remplir.
+    let paths = paths.clamp(1, DHT_K);
     let max_ts = now_ms.saturating_add(MAX_CLOCK_SKEW_MS);
 
     // Répartition round-robin des seeds en chemins disjoints.

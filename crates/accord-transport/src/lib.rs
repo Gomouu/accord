@@ -23,6 +23,7 @@ pub mod endpoint_config;
 pub mod error;
 mod frag;
 pub mod nat;
+mod pending;
 pub mod ratelimit;
 pub mod relay;
 pub mod socket;

@@ -160,7 +160,10 @@ impl RecordStore {
         if record.timestamp_ms > now_ms.saturating_add(MAX_CLOCK_SKEW_MS) {
             return Err(StoreError::FutureTimestamp);
         }
-        let expires_at_ms = now_ms + record.expiry_s as u64 * 1000;
+        // Saturant : `now_ms` vient de l'appelant et `expiry_s` du réseau ;
+        // l'addition ne doit jamais déborder (panique en debug, repli à zéro en
+        // release — un record aussitôt expiré, donc invisible).
+        let expires_at_ms = now_ms.saturating_add(u64::from(record.expiry_s).saturating_mul(1000));
 
         if let Some(existing) = self.records.get(&record.key) {
             if existing.record.timestamp_ms >= record.timestamp_ms {

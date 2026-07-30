@@ -251,6 +251,29 @@ describe('RpcClient — reconnexion', () => {
     expect(sockets).toHaveLength(3);
   });
 
+  it('se reprend après une coupure survenue PENDANT l’authentification', async () => {
+    const { client, sockets } = makeClient();
+    const connecting = client.connect(4242, 'jeton-secret');
+    const ws = sockets[0];
+    ws?.serverOpen();
+    // `auth` est parti, le serveur n'a jamais répondu : le lien tombe.
+    ws?.serverDrop();
+    await expect(connecting).rejects.toBeInstanceOf(RpcCallError);
+
+    // 🔒 Le défaut corrigé : le rejet de l'auth par COUPURE était traité comme
+    // un refus de jeton, ce qui condamnait la reprise pour de bon. Un nœud
+    // encore en train de démarrer laissait ainsi l'interface hors ligne
+    // jusqu'au prochain déverrouillage.
+    expect(client.status).toBe('reconnecting');
+    await vi.advanceTimersByTimeAsync(500);
+    expect(sockets).toHaveLength(2);
+    const ws2 = sockets[1];
+    ws2?.serverOpen();
+    expect(ws2?.request(0).method).toBe('auth');
+    ws2?.respond(0, { protocole: 1 });
+    expect(client.status).toBe('ready');
+  });
+
   it('ne se reconnecte pas après une fermeture volontaire', async () => {
     const { client, sockets } = makeClient();
     await connectReady(client, sockets);

@@ -5,25 +5,29 @@
 
 import { useState } from 'react';
 import { interpolate } from '../../i18n';
+import { COPY_FEEDBACK_MS, copyToClipboard } from '../../lib/clipboard';
 import { APP_LICENSE, APP_VERSION, THIRD_PARTY_FILE } from '../../lib/meta';
 import { useSession } from '../../stores/session';
-import { useSettingsT, useT } from '../../stores/ui';
+import { useSettingsT, useT, useUi } from '../../stores/ui';
 import { SettingsSection } from './controls';
-
-const COPY_FEEDBACK_MS = 1500;
 
 export function AdvancedTab() {
   const t = useT();
   const ts = useSettingsT();
+  const toast = useUi((s) => s.toast);
   const self = useSession((s) => s.self);
   const [copied, setCopied] = useState(false);
 
   const copyCode = (): void => {
     if (!self) return;
-    void navigator.clipboard.writeText(self.friend_code).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
-    });
+    copyToClipboard(
+      self.friend_code,
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
+      },
+      () => toast('error', t.errors.actionFailed),
+    );
   };
 
   return (

@@ -109,12 +109,14 @@ for (const base of SOURCES) {
     const code = enLigne === null ? source : source.slice(0, enLigne.index);
 
     for (const { ligne, texte } of invocations(code)) {
+      // Cherché sur les identifiants, pas sur le texte littéral : un message
+      // qui PARLE d'un jeton (« jeton invalide ») est légitime ; c'en est même
+      // le bon usage. Calculé UNE fois par invocation — il ne dépend pas du
+      // fragment cherché, et le refaire pour chacun des treize revenait à
+      // réécrire chaque appel treize fois.
+      const sansChaines = texte.replace(/"(?:[^"\\]|\\.)*"/g, '""').toLowerCase();
       for (const interdit of INTERDITS) {
-        // Cherché sur les identifiants, pas sur le texte littéral : un message
-        // qui PARLE d'un jeton (« jeton invalide ») est légitime ; c'en est
-        // même le bon usage.
-        const sansChaines = texte.replace(/"(?:[^"\\]|\\.)*"/g, '""');
-        if (sansChaines.toLowerCase().includes(interdit)) {
+        if (sansChaines.includes(interdit)) {
           fautes.push(`${relative(racine, chemin)}:${ligne} — interpole « ${interdit} »`);
           break;
         }

@@ -37,15 +37,16 @@ const LIMITE = 800;
  * a commit that predated it, so their branches were measured against a table
  * frozen after they started. Penalising work that was already in flight is an
  * accident of ordering, not a principle — but raising a ceiling silently would
+ * have been worse than the debt. The five: `groups.ts` 1479→1567,
+ * `Sidebar.tsx` 971→1078, `Modals.tsx` 1087→1112, `MessageInput.tsx`
+ * 1262→1267, `ui.ts` 1229→1233, all from the DM-group interface.
+ *
  * ⚠️ **Un plafond doit suivre un fichier qui maigrit.** Le 2026-07-27 au soir,
  * `groups.ts` était gelé à 1567 pour 1301 lignes réelles et `ui.ts` à 1233 pour
  * 1154 : 345 lignes de croissance gratuite, créées par les extractions mêmes
  * qui avaient assaini ces fichiers. Un cliquet qui ne se resserre jamais cesse
  * d'en être un — au prochain allègement, redescendre l'entrée avec le fichier.
- *
- * have been worse than the debt. The five: `groups.ts` 1479→1567,
- * `Sidebar.tsx` 971→1078, `Modals.tsx` 1087→1112, `MessageInput.tsx`
- * 1262→1267, `ui.ts` 1229→1233, all from the DM-group interface.
+ * (Fait depuis : les deux plafonds ci-dessous suivent désormais leur fichier.)
  *
  * An extraction of the DM-group section out of `Sidebar.tsx` was attempted and
  * **abandoned**: it was 93 lines short of the ceiling and chasing imports

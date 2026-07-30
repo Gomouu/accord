@@ -14,6 +14,7 @@ import { Fragment, memo, useMemo, useState, type ReactNode } from 'react';
 import { analyserMarkdown, type MdNode } from '../lib/markdown';
 import { highlightCode, type TokenKind } from '../lib/highlight';
 import { copyToClipboard } from '../lib/clipboard';
+import { lienHttpSur } from '../lib/url';
 import { roleColorCss } from '../stores/groups';
 import { useT, useUi, type EmojiSize } from '../stores/ui';
 import { CustomEmoji } from './CustomEmoji';
@@ -76,17 +77,6 @@ function roleMentionStyle(color: number): { color: string; backgroundColor: stri
   const g = (color >> 8) & 0xff;
   const b = color & 0xff;
   return { color: roleColorCss(color), backgroundColor: `rgba(${r}, ${g}, ${b}, 0.16)` };
-}
-
-/** N'accepte que les schémas http/https (les autres sont rendus en texte). */
-function lienSur(url: string): string | undefined {
-  try {
-    const p = new URL(url);
-    if (p.protocol === 'http:' || p.protocol === 'https:') return url;
-  } catch {
-    // URL non analysable : traitée comme du texte par l'appelant.
-  }
-  return undefined;
 }
 
 /** Spoiler : contenu masqué révélé au clic ou au clavier (Entrée/Espace). */
@@ -304,7 +294,7 @@ function renderNode(node: MdNode, ctx: Ctx): ReactNode {
         </div>
       );
     case 'link': {
-      const href = lienSur(node.href);
+      const href = lienHttpSur(node.href);
       if (href === undefined) return node.value;
       return (
         <a
@@ -318,7 +308,7 @@ function renderNode(node: MdNode, ctx: Ctx): ReactNode {
       );
     }
     case 'masklink': {
-      const href = lienSur(node.href);
+      const href = lienHttpSur(node.href);
       // Defense in depth: the parser already restricts schemes to http(s).
       if (href === undefined) return renderNodes(node.children, ctx);
       return (

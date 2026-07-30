@@ -13,7 +13,7 @@ import {
   importerTheme,
   type CouleursPerso,
 } from '../../lib/customTheme';
-import { copyToClipboard } from '../../lib/clipboard';
+import { COPY_FEEDBACK_MS, copyToClipboard } from '../../lib/clipboard';
 import { useUi, useSettingsT, useT, THEME_IDS, type Theme } from '../../stores/ui';
 import { interpolate, type Dict, type SettingsDict, type TextKey } from '../../i18n';
 import { ThemeAtmosphere } from '../ThemeAtmosphere';
@@ -34,6 +34,8 @@ function CustomThemeEditor({
   onChange: (c: CouleursPerso) => void;
   ts: SettingsDict;
 }) {
+  const t = useT();
+  const toast = useUi((s) => s.toast);
   const champ = (cle: 'fond' | 'panneaux' | 'accent', label: string): React.ReactNode => (
     <label className="flex items-center justify-between gap-3 rounded-lg bg-sidebar px-4 py-3">
       <span className="text-sm font-medium text-norm">{label}</span>
@@ -55,9 +57,9 @@ function CustomThemeEditor({
       exporterTheme(couleurs),
       () => {
         setCopie(true);
-        setTimeout(() => setCopie(false), 1500);
+        setTimeout(() => setCopie(false), COPY_FEEDBACK_MS);
       },
-      () => {},
+      () => toast('error', t.errors.actionFailed),
     );
   };
 

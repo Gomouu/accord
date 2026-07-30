@@ -53,6 +53,20 @@ describe('LinkPreview', () => {
     expect(screen.getByText('exemple.fr')).toBeInTheDocument();
   });
 
+  it('🔒 ne pose jamais dans un href une URL finale de schéma non http(s)', async () => {
+    useUi.setState({ linkPreviews: true });
+    // `apercu.url` est l'URL finale après redirections, recomposée depuis un
+    // en-tête `Location` que le site visité écrit. L'hôte n'en retient qu'une
+    // http(s) ; la carte ne s'en remet pas à lui pour autant.
+    invokeMock.mockResolvedValue({ ...APERCU, url: 'javascript:alert(1)' });
+
+    const { container } = render(<LinkPreview texte="regarde https://exemple.fr/page" />);
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalled());
+    expect(container.querySelector('a')).toBeNull();
+    expect(screen.queryByText('Un titre')).not.toBeInTheDocument();
+  });
+
   it('n’appelle rien sur un message sans lien', async () => {
     useUi.setState({ linkPreviews: true });
 

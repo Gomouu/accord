@@ -60,6 +60,16 @@ export class RpcClient {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private statusValue: RpcStatus = 'idle';
   private generation = 0;
+  /**
+   * Identifiant de la requête `auth` en vol, ou `null`.
+   *
+   * 🔒 Sert à distinguer les deux façons dont la promesse d'authentification
+   * peut être rejetée : un REFUS du serveur (définitif — le même jeton
+   * rejouerait le même refus) et une coupure de transport avant la réponse
+   * (transitoire — la reprise doit agir). Sans cette distinction, une
+   * connexion qui tombait pendant l'auth condamnait définitivement le client.
+   */
+  private authId: number | null = null;
 
   constructor(factory: WsFactory = defaultFactory) {
     this.factory = factory;
@@ -95,7 +105,14 @@ export class RpcClient {
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: (v) => resolve(v as T), reject });
-      ws.send(JSON.stringify({ jsonrpc: '2.0', id, method, params }));
+      try {
+        ws.send(JSON.stringify({ jsonrpc: '2.0', id, method, params }));
+      } catch {
+        // `send` lève sur une socket déjà en fermeture. Sans ce retrait,
+        // l'entrée resterait dans `pending` jusqu'à la coupure suivante.
+        this.pending.delete(id);
+        reject(new RpcCallError({ code: -1, message: 'hors ligne' }));
+      }
     });
   }
 
@@ -167,16 +184,27 @@ export class RpcClient {
         }
         // Auth obligatoire en première requête (API.md §Authentification).
         const id = this.nextId++;
+        this.authId = id;
+        // L'auth d'une socket périmée ne doit pas effacer celle de la socket
+        // courante : sans cette garde, un refus de jeton postérieur passerait
+        // pour une coupure et le client réessaierait indéfiniment.
+        const oublierAuth = (): void => {
+          if (this.authId === id) this.authId = null;
+        };
         this.pending.set(id, {
           resolve: () => {
+            oublierAuth();
             this.retryMs = RETRY_MIN_MS;
             this.setStatus('ready');
             settled = true;
             resolve();
           },
           reject: (e) => {
+            // Ne condamne PAS la connexion ici : c'est `handleMessage` qui
+            // sait si le rejet vient d'un refus du serveur (définitif) ou
+            // d'une coupure de transport (transitoire, donc à reprendre).
+            oublierAuth();
             settled = true;
-            this.closedByUser = true; // jeton refusé : inutile d'insister
             reject(e);
           },
         });
@@ -246,8 +274,16 @@ export class RpcClient {
       const pending = this.pending.get(m.id);
       if (!pending) return;
       this.pending.delete(m.id);
-      if (m.error) pending.reject(new RpcCallError(m.error));
-      else pending.resolve(m.result);
+      if (m.error) {
+        // 🔒 Un `auth` refusé PAR LE SERVEUR est définitif : réessayer
+        // rejouerait le même jeton, donc le même refus. C'est la seule voie
+        // qui condamne la connexion — une coupure de transport pendant
+        // l'auth rejette la même promesse, mais doit laisser la reprise agir.
+        if (m.id === this.authId) this.closedByUser = true;
+        pending.reject(new RpcCallError(m.error));
+      } else {
+        pending.resolve(m.result);
+      }
     }
   }
 

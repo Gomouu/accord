@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { lienHttpSur } from '../lib/url';
 import { useT, useUi } from '../stores/ui';
 
 /** Ce que la commande `apercu_lien` rend. Champs facultatifs : page maigre. */
@@ -62,11 +63,18 @@ export function LinkPreview({ texte }: { texte: string }) {
   }, [actif, url]);
 
   if (apercu === null) return null;
+  // 🔒 Défense en profondeur, comme `MarkdownText` sur les liens d'un message :
+  // `apercu.url` est l'URL FINALE après redirections, recomposée à partir d'un
+  // en-tête `Location` écrit par le site visité. L'hôte n'en retient qu'une
+  // http(s) (voir `apercu_lien::decouper_url`) ; ce n'est pas une raison pour
+  // que le seul endroit qui la pose dans un `href` s'en remette à lui.
+  const href = lienHttpSur(apercu.url);
+  if (href === undefined) return null;
   const titre = apercu.titre ?? apercu.hote;
 
   return (
     <a
-      href={apercu.url}
+      href={href}
       target="_blank"
       rel="noopener noreferrer"
       aria-label={t.linkPreview.cardLabel}

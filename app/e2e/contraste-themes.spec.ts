@@ -74,10 +74,13 @@ test.describe('contraste des thèmes (jalon 8)', () => {
 
       // Une seule traversée du DOM par thème : `getComputedStyle` est cher, et
       // 25 thèmes x 6 paires x un aller-retour ferait une minute de test.
-      const mesures = await page.evaluate((noms: string[]) => {
-        const style = getComputedStyle(document.documentElement);
-        return noms.map((n) => style.getPropertyValue(n).trim());
-      }, [...new Set(PAIRES.flatMap((p) => [p.avant, p.arriere]))]);
+      const mesures = await page.evaluate(
+        (noms: string[]) => {
+          const style = getComputedStyle(document.documentElement);
+          return noms.map((n) => style.getPropertyValue(n).trim());
+        },
+        [...new Set(PAIRES.flatMap((p) => [p.avant, p.arriere]))],
+      );
 
       const noms = [...new Set(PAIRES.flatMap((p) => [p.avant, p.arriere]))];
       const table = new Map(noms.map((n, i) => [n, mesures[i]]));

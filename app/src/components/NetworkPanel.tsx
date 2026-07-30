@@ -23,11 +23,10 @@ import {
   journalNiveau,
   journalReveler,
 } from '../lib/bridge';
+import { COPY_FEEDBACK_MS, copyToClipboard } from '../lib/clipboard';
 import { displayNameOf, useFriends } from '../stores/friends';
-import { useT } from '../stores/ui';
+import { useT, useUi } from '../stores/ui';
 import { SettingsSection } from './settings/controls';
-
-const COPY_FEEDBACK_MS = 1500;
 
 /** Extrait l'hôte (IP) d'une adresse `ip:port` ou `[ipv6]:port`. */
 function hostOf(addr: string): string {
@@ -108,6 +107,7 @@ function CopyRow({
 
 export function NetworkPanel() {
   const t = useT();
+  const toast = useUi((s) => s.toast);
   const [status, setStatus] = useState<NetworkStatus | null>(null);
   const [peers, setPeers] = useState<PeerLink[]>([]);
   const contacts = useFriends((s) => s.contacts);
@@ -215,10 +215,16 @@ export function NetworkPanel() {
   };
 
   const copier = (valeur: string): void => {
-    void navigator.clipboard.writeText(valeur).then(() => {
-      setCopiee(valeur);
-      setTimeout(() => setCopiee((c) => (c === valeur ? null : c)), COPY_FEEDBACK_MS);
-    });
+    copyToClipboard(
+      valeur,
+      () => {
+        setCopiee(valeur);
+        setTimeout(() => setCopiee((c) => (c === valeur ? null : c)), COPY_FEEDBACK_MS);
+      },
+      // Un presse-papiers refusé doit se dire : sans ce retour, le bouton
+      // restait muet et l'utilisateur croyait tenir l'adresse.
+      () => toast('error', t.errors.actionFailed),
+    );
   };
 
   const ajouter = (): void => {
@@ -544,12 +550,17 @@ export function NetworkPanel() {
                         value={niveauJournal}
                         onChange={(e) => {
                           const n = e.target.value;
-                          void journalNiveau(n).then((ok) => {
-                            // Un niveau refusé ne doit pas rester affiché comme
-                            // actif : l'utilisateur croirait chercher en mode
-                            // détaillé alors que rien n'a changé.
-                            if (ok) setNiveauJournal(n);
-                          });
+                          journalNiveau(n)
+                            .then((ok) => {
+                              // Un niveau refusé ne doit pas rester affiché
+                              // comme actif : l'utilisateur croirait chercher
+                              // en mode détaillé alors que rien n'a changé.
+                              if (ok) setNiveauJournal(n);
+                              else toast('error', t.errors.actionFailed);
+                            })
+                            // `journal_niveau` n'est pas invocable hors Tauri :
+                            // sans ce rattrapage, le rejet restait non géré.
+                            .catch(() => toast('error', t.errors.actionFailed));
                         }}
                         className="rounded-md bg-input px-2 py-1 text-xs text-norm"
                       >

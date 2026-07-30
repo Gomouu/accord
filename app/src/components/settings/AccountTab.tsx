@@ -16,14 +16,13 @@ import {
 } from '../../stores/session';
 import { useUi, useSettingsT, useT } from '../../stores/ui';
 import { backupExport, backupImport } from '../../lib/bridge';
+import { COPY_FEEDBACK_MS, copyToClipboard } from '../../lib/clipboard';
 import { lireFichier } from '../../lib/files';
 import { AvatarCropper } from '../AvatarCropper';
 import { Avatar } from '../Avatar';
 import { SettingsSection } from './controls';
 import { DevicesSection } from './DevicesSection';
 import { ProfilePersonalization } from './ProfilePersonalization';
-
-const COPY_FEEDBACK_MS = 1500;
 
 /** Clé publique abrégée : assez pour comparer, sans mur d'hexadécimal. */
 function abbreviate(pubkey: string): string {
@@ -644,10 +643,14 @@ export function AccountTab() {
   };
 
   const copyCode = (): void => {
-    void navigator.clipboard.writeText(self.friend_code).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
-    });
+    copyToClipboard(
+      self.friend_code,
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
+      },
+      () => toast('error', t.errors.actionFailed),
+    );
   };
 
   return (

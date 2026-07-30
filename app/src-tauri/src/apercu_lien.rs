@@ -183,6 +183,21 @@ pub fn resoudre_publique(hote: &str, port: u16) -> Result<SocketAddr, ErreurAper
     Err(ErreurApercu::AdresseRefusee)
 }
 
+/// [`resoudre_publique`] sur un fil bloquant.
+///
+/// ⚠️ `to_socket_addrs` fait une résolution DNS **bloquante**. Appelée telle
+/// quelle depuis `recuperer`, elle immobilise le fil de l'exécuteur pendant
+/// toute la requête — jusqu'à plusieurs secondes face à un résolveur muet, et
+/// avec lui toutes les autres tâches asynchrones qui y étaient planifiées. Un
+/// lien posté par un pair suffirait donc à figer une partie de l'hôte, ce qui
+/// est précisément ce que le reste de ce module s'emploie à empêcher.
+async fn resoudre_publique_hors_ligne(hote: &str, port: u16) -> Result<SocketAddr, ErreurApercu> {
+    let hote = hote.to_string();
+    tauri::async_runtime::spawn_blocking(move || resoudre_publique(&hote, port))
+        .await
+        .map_err(|_| ErreurApercu::Reseau)?
+}
+
 /// Extrait titre, description et image d'un fragment HTML.
 ///
 /// Volontairement naïf : on cherche des balises `meta`, pas on ne construit un
@@ -190,11 +205,14 @@ pub fn resoudre_publique(hote: &str, port: u16) -> Result<SocketAddr, ErreurAper
 /// HTML — il ressort en texte, échappé par React à l'affichage.
 pub fn extraire_meta(html: &str) -> (Option<String>, Option<String>, Option<String>) {
     let bas = html.to_ascii_lowercase();
+    // Découpé UNE fois : les six recherches ci-dessous (trois propriétés, deux
+    // écritures de guillemets) reparcouraient sinon les 256 Kio du corps et
+    // réallouaient la liste des balises à chaque appel.
+    let balises = decouper_balises(&bas, html);
     let og = |propriete: &str| -> Option<String> {
         // On accepte `property=` (OpenGraph) comme `name=` (Twitter, et les
         // sites qui confondent les deux), dans l'ordre où ils apparaissent.
-        for balise in decouper_balises(&bas, html) {
-            let (b_bas, b_brut) = balise;
+        for &(b_bas, b_brut) in &balises {
             if !b_bas.contains(propriete) {
                 continue;
             }
@@ -251,6 +269,28 @@ fn titre_html(bas: &str, brut: &str) -> Option<String> {
     (!t.is_empty()).then_some(t)
 }
 
+/// Vrai pour un caractère de direction bidirectionnelle.
+///
+/// 🔒 Ces caractères ne s'affichent pas mais RÉORDONNENT ce qui les suit :
+/// `og:title` peut ainsi faire lire « exemple.fr » à un titre qui dit autre
+/// chose. Aucun n'est de catégorie `Cc`, donc `char::is_control` n'en attrape
+/// aucun — il faut les nommer.
+///
+/// ⚠️ Les quatre familles comptent, pas seulement les overrides. Seuls
+/// `U+202A..=U+202E` étaient filtrés ; les **isolats** `U+2066..=U+2069`
+/// (LRI/RLI/FSI/PDI), plus récents et recommandés par Unicode depuis la 6.3,
+/// produisent exactement la même inversion — c'est d'eux que joue l'attaque
+/// « Trojan Source » (CVE-2021-42574). Les marques `U+200E`/`U+200F` et
+/// `U+061C` complètent le jeu.
+fn bidi(c: char) -> bool {
+    matches!(c,
+        '\u{202a}'..='\u{202e}'   // LRE, RLE, PDF, LRO, RLO
+        | '\u{2066}'..='\u{2069}' // LRI, RLI, FSI, PDI
+        | '\u{200e}' | '\u{200f}' // LRM, RLM
+        | '\u{061c}'              // ALM
+    )
+}
+
 /// Réduit une valeur venue d'un site tiers à une ligne courte et sûre.
 ///
 /// 🔒 Les caractères de contrôle sautent : une page peut glisser un `\n` ou un
@@ -264,9 +304,7 @@ fn nettoyer(valeur: &str) -> String {
     // laisse au compactage, qui les réduit à une espace simple.
     let sans_controle: String = valeur
         .chars()
-        .filter(|c| {
-            c.is_whitespace() || (!c.is_control() && !('\u{202a}'..='\u{202e}').contains(c))
-        })
+        .filter(|c| c.is_whitespace() || (!c.is_control() && !bidi(*c)))
         .collect();
     let compacte = sans_controle
         .split_whitespace()
@@ -293,7 +331,7 @@ pub async fn recuperer(url_depart: &str) -> Result<Apercu, ErreurApercu> {
     let mut url = url_depart.to_string();
     for _ in 0..=MAX_REDIRECTIONS {
         let (hote, port, _) = decouper_url(&url)?;
-        let addr = resoudre_publique(&hote, port)?;
+        let addr = resoudre_publique_hors_ligne(&hote, port).await?;
         let client = reqwest::Client::builder()
             .timeout(DELAI)
             // Redirections suivies à la main : c'est la seule façon de
@@ -499,6 +537,26 @@ mod tests {
         let html = "<meta property=\"og:title\" content=\"Ligne\u{202e}nu\nsuite\tfin\">";
         let (t, _, _) = extraire_meta(html);
         assert_eq!(t.as_deref(), Some("Lignenu suite fin"));
+    }
+
+    #[test]
+    fn nettoie_aussi_les_isolats_bidi() {
+        // 🔒 Les isolats `U+2066..=U+2069` inversent l'affichage exactement
+        // comme les overrides `U+202A..=U+202E`, et c'est d'eux que joue
+        // « Trojan Source ». Seuls les seconds étaient filtrés : un titre
+        // pouvait donc encore se faire lire à l'envers.
+        for marque in [
+            '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}', '\u{200e}', '\u{200f}', '\u{061c}',
+        ] {
+            let html = format!("<meta property=\"og:title\" content=\"ex{marque}emple\">");
+            let (t, _, _) = extraire_meta(&html);
+            assert_eq!(
+                t.as_deref(),
+                Some("exemple"),
+                "U+{:04X} aurait dû être retiré",
+                marque as u32
+            );
+        }
     }
 
     #[test]

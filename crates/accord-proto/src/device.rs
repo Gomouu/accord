@@ -170,22 +170,26 @@ impl WireEncode for DeviceEntry {
     }
 }
 
+/// Décode une entrée d'appareil. Partagée par [`DeviceEntry::decode`] (entrée
+/// isolée de l'appairage) et par [`DeviceList::decode`] : une seule écriture du
+/// format, donc aucun risque qu'un contrôle n'existe que d'un côté. Seule
+/// l'étiquette d'erreur diffère, pour situer le champ fautif dans les journaux.
+///
+/// 🔒 Le nom est borné AU DÉCODAGE : l'entrée arrive d'un pair qui n'a encore
+/// rien prouvé.
+fn decode_entry(r: &mut Reader<'_>, what: &'static str) -> Result<DeviceEntry, DecodeError> {
+    Ok(DeviceEntry {
+        pubkey: r.arr()?,
+        pow_nonce: r.u64()?,
+        name: r.str(MAX_DEVICE_NAME, what)?,
+        added_ms: r.u64()?,
+        flags: r.u32()?,
+    })
+}
+
 impl WireDecode for DeviceEntry {
     fn decode(r: &mut Reader<'_>) -> Result<Self, DecodeError> {
-        let pubkey = r.arr()?;
-        let pow_nonce = r.u64()?;
-        // 🔒 Borne appliquée au décodage, comme dans la liste : l'entrée
-        // arrive d'un pair qui n'a encore rien prouvé.
-        let name = r.str(MAX_DEVICE_NAME, "device_entry.name")?;
-        let added_ms = r.u64()?;
-        let flags = r.u32()?;
-        Ok(DeviceEntry {
-            pubkey,
-            pow_nonce,
-            name,
-            added_ms,
-            flags,
-        })
+        decode_entry(r, "device_entry.name")
     }
 }
 
@@ -208,13 +212,7 @@ impl WireDecode for DeviceList {
         let issued_ms = r.u64()?;
         let valid_for_s = r.u32()?;
         let devices = r.list(MAX_DEVICES, "device_list.devices", |r| {
-            Ok(DeviceEntry {
-                pubkey: r.arr()?,
-                pow_nonce: r.u64()?,
-                name: r.str(MAX_DEVICE_NAME, "device.name")?,
-                added_ms: r.u64()?,
-                flags: r.u32()?,
-            })
+            decode_entry(r, "device.name")
         })?;
         let revoked = r.list(MAX_REVOKED, "device_list.revoked", |r| {
             Ok(RevokedEntry {

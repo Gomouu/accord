@@ -175,7 +175,7 @@ pub enum VoiceMsg {
     },
     /// Fragment d'une trame vidéo de partage d'écran (v5). La trame encodée
     /// (WebCodecs, VP8/H.264) est découpée par l'émetteur en tranches
-    /// ≤ [`MAX_SCREEN_FRAGMENT`], chacune portée par un `ScreenFrame` dans un
+    /// ≤ `MAX_VIDEO_FRAGMENT`, chacune portée par un `ScreenFrame` dans un
     /// unique datagramme UDP (jamais refragmenté par le transport). Le
     /// récepteur réassemble par `frame_id` et ne garde QUE la trame la plus
     /// récente — sémantique temps réel : une trame incomplète est abandonnée
@@ -192,7 +192,7 @@ pub enum VoiceMsg {
         frag_idx: u16,
         /// Drapeaux : bit 0 = keyframe (image décodable indépendamment).
         flags: u8,
-        /// Tranche encodée (≤ [`MAX_SCREEN_FRAGMENT`]).
+        /// Tranche encodée (≤ `MAX_VIDEO_FRAGMENT`).
         payload: Vec<u8>,
     },
     /// Démarrage (`on == true`) ou arrêt (`on == false`) d'un partage d'écran
@@ -221,7 +221,7 @@ pub enum VoiceMsg {
         frag_idx: u16,
         /// Drapeaux : bit 0 = keyframe ([`VIDEO_FLAG_KEYFRAME`]).
         flags: u8,
-        /// Tranche encodée (≤ [`MAX_VIDEO_FRAGMENT`]).
+        /// Tranche encodée (≤ `MAX_VIDEO_FRAGMENT`).
         payload: Vec<u8>,
     },
     /// Allumage (`on == true`) ou extinction de la caméra dans l'appel `room`.
@@ -693,8 +693,8 @@ mod tests {
 
     #[test]
     fn oversized_screen_fragment_is_rejected_cleanly() {
-        // A fragment payload beyond the anti-DoS bound fails to decode without
-        // panicking.
+        // Une tranche au-delà de la borne anti-DoS est refusée au décodage,
+        // sans panique.
         let mut w = Writer::new();
         w.put_u8(0x03);
         w.put_arr(&[0u8; 16]);

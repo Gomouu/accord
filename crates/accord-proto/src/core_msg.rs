@@ -247,7 +247,7 @@ pub enum MsgBody {
     /// libre après `ReadReceipt` = 6).
     Poll {
         /// Identifiant du sondage, généré par le composeur
-        /// ([`crate::new_id16`]-style), référencé par les ops de vote/clôture.
+        /// (`accord_core::group::new_id16`-style), référencé par les ops de vote/clôture.
         poll_id: [u8; 16],
         /// Question (1-300 octets UTF-8, non vide).
         question: String,
@@ -346,11 +346,7 @@ impl MsgBody {
             3 => MsgBody::Reaction {
                 target: r.arr()?,
                 emoji: r.str(MAX_EMOJI, "msg.emoji")?,
-                add: match r.u8()? {
-                    0 => false,
-                    1 => true,
-                    _ => return Err(DecodeError::InvalidValue("reaction.add")),
-                },
+                add: decode_bool(&mut r, "reaction.add")?,
             },
             4 => MsgBody::Sticker {
                 name: r.str(MAX_EMOJI_NAME, "msg.sticker.name")?,
@@ -543,7 +539,7 @@ pub enum GroupOpBody {
         /// groupe est fixée à sa naissance et signée avec elle : aucune
         /// opération ultérieure ne peut promouvoir un groupe de MP en serveur
         /// ni l'inverse, ce qui ferait sauter d'un coup toutes les règles que
-        /// [`accord_core::group::state`] fait respecter aux groupes de MP.
+        /// `accord_core::group::state` fait respecter aux groupes de MP.
         ///
         /// ⚠️ Un client antérieur voit un groupe de MP comme un **serveur
         /// ordinaire** : les messages arrivent, les membres sont les bons, seul
@@ -795,7 +791,7 @@ pub enum GroupOpBody {
     /// replay, like every other server-management op; the author is
     /// recorded so they can always edit/delete their own event afterwards.
     EventCreate {
-        /// New event identifier ([`crate::new_id16`]-style random id, minted
+        /// New event identifier (`accord_core::group::new_id16`-style random id, minted
         /// by the caller — mirrors channel/category/role id allocation).
         event_id: [u8; 16],
         /// Display title (2-100 characters, anti-spoofing checked).
@@ -905,7 +901,7 @@ pub enum GroupOpBody {
     /// events; see [`GroupOpBody::PollDelete`] to recover a slot.
     PollCreate {
         /// New poll identifier, minted by the caller (random, like
-        /// [`crate::new_id16`]).
+        /// `accord_core::group::new_id16`).
         poll_id: [u8; 16],
         /// Channel the poll's `MsgBody::Poll` message was (or will be)
         /// posted to — the author must hold effective `VIEW`+`SEND` there,
@@ -983,7 +979,7 @@ pub enum GroupOpBody {
     /// `accord_core::group::state::MAX_THREADS_PER_CHANNEL` per parent.
     CreateThread {
         /// New thread identifier, minted by the caller (random, like
-        /// [`crate::new_id16`]) — also the `channel_id` its messages use.
+        /// `accord_core::group::new_id16`) — also the `channel_id` its messages use.
         thread_id: [u8; 16],
         /// Parent text channel the thread hangs off (permissions/slow mode
         /// are resolved through it).
@@ -1670,7 +1666,10 @@ pub enum CoreMsg {
         /// Id d'effet de profil (fond animé de la carte de profil), champ
         /// additif ; mêmes règles et mêmes bornes que `avatar_decoration`.
         profile_effect: Option<String>,
-        #[allow(missing_docs)]
+        /// Id de cadre de profil (bordure de la carte de profil), champ additif
+        /// le plus récent ; mêmes règles et mêmes bornes que
+        /// `avatar_decoration`, et donc même dégradation chez un émetteur plus
+        /// ancien (absent → `None`).
         profile_frame: Option<String>,
     },
     /// 0x0A — Signalisation de salon vocal.
@@ -2556,11 +2555,7 @@ impl WireDecode for CoreMsg {
                 verify_phrase: r.opt(|r| r.str(MAX_NAME, "friend.verify"))?,
             }),
             0x04 => Ok(CoreMsg::FriendResponse {
-                accepted: match r.u8()? {
-                    0 => false,
-                    1 => true,
-                    _ => return Err(DecodeError::InvalidValue("friend.accepted")),
-                },
+                accepted: decode_bool(r, "friend.accepted")?,
             }),
             0x05 => Ok(CoreMsg::GroupOpMsg {
                 op: GroupOp::decode(r)?,
@@ -2618,11 +2613,7 @@ impl WireDecode for CoreMsg {
                     a
                 },
                 media_kinds: r.u8()?,
-                mute: match r.u8()? {
-                    0 => false,
-                    1 => true,
-                    _ => return Err(DecodeError::InvalidValue("voice.mute")),
-                },
+                mute: decode_bool(r, "voice.mute")?,
             }),
             0x0B => Ok(CoreMsg::GroupSync {
                 group_id: r.arr()?,

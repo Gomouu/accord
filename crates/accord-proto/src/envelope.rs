@@ -282,10 +282,14 @@ impl WireDecode for Packet {
                 let session_id = r.arr()?;
                 let epoch = r.u8()?;
                 let counter = r.u64()?;
-                let ciphertext = r.rest().to_vec();
-                if ciphertext.len() > limits::MAX_TCP_FRAME {
+                // 🔒 Borne vérifiée AVANT la copie : le tampon vient du réseau
+                // et `rest()` en rend tout ce qui reste. Copier d'abord pour
+                // refuser ensuite faisait payer l'allocation entière à un
+                // paquet qu'on allait de toute façon jeter.
+                if r.remaining() > limits::MAX_TCP_FRAME {
                     return Err(DecodeError::TooLarge("data.ciphertext"));
                 }
+                let ciphertext = r.rest().to_vec();
                 Ok(Packet::Data(DataPacket {
                     session_id,
                     epoch,

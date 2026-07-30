@@ -156,6 +156,17 @@ pub struct PairedChannel {
     fingerprint: String,
 }
 
+/// 🔒 La clé du canal est effacée à la libération. C'est elle qui protège la
+/// racine du compte pendant l'appairage ([`PairedChannel::seal_account_seed`]) :
+/// la laisser traîner dans une pile réutilisée serait laisser traîner de quoi
+/// ouvrir la charge la plus sensible du protocole. Même geste que
+/// [`AccountSeed`] et que les clés de session.
+impl Drop for PairedChannel {
+    fn drop(&mut self) {
+        self.key.zeroize();
+    }
+}
+
 impl PairingHandshake {
     /// Démarre l'échange à partir du code. Rend l'état et le message à envoyer.
     pub fn start(code: &PairingCode) -> (Self, Vec<u8>) {

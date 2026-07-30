@@ -8,6 +8,7 @@ use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use hkdf::Hkdf;
 use sha2::Sha256;
+use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Paire de clés de session dérivées du handshake (epoch 0).
@@ -23,9 +24,15 @@ impl SessionKeys {
         Self { k_i2r, k_r2i }
     }
 
-    /// Comparaison de clés pour les tests (non constant-time, tests only).
+    /// Vrai si les deux paires portent les mêmes clés.
+    ///
+    /// 🔒 Comparaison à **temps constant**. L'usage est aujourd'hui limité aux
+    /// tests d'accord de handshake, mais la méthode est publique : un `==`
+    /// ordinaire sortirait sur le premier octet différent et donnerait, à qui
+    /// peut le mesurer, un oracle octet par octet sur une clé de session. Le
+    /// coût est nul à cette échelle, la garantie ne dépend plus de l'appelant.
     pub fn same_keys(&self, other: &Self) -> bool {
-        self.k_i2r == other.k_i2r && self.k_r2i == other.k_r2i
+        (self.k_i2r.ct_eq(&other.k_i2r) & self.k_r2i.ct_eq(&other.k_r2i)).into()
     }
 }
 

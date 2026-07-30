@@ -94,12 +94,19 @@ impl Writer {
         self.buf.extend_from_slice(v);
     }
 
-    /// Écrit un `vbytes` (longueur u16 puis octets). Panique si > 65 535 —
-    /// les appelants valident les bornes métier avant l'encodage.
+    /// Écrit un `vbytes` (longueur u16 puis octets). Les appelants valident les
+    /// bornes métier avant l'encodage — d'où le `debug_assert`.
+    ///
+    /// ⚠️ Au-delà de 65 535 octets, la valeur est **tronquée** au lieu d'être
+    /// écrite avec un préfixe de longueur qui ne la décrirait plus : un préfixe
+    /// tronqué (`len as u16`) désynchroniserait tout ce qui suit dans le
+    /// message, alors qu'un champ tronqué se rejette proprement chez le pair.
+    /// L'encodage reste identique octet pour octet pour toute entrée valide.
     pub fn put_vbytes(&mut self, v: &[u8]) {
         debug_assert!(v.len() <= u16::MAX as usize, "vbytes trop long");
-        self.put_u16(v.len() as u16);
-        self.put_raw(v);
+        let n = v.len().min(u16::MAX as usize);
+        self.put_u16(n as u16);
+        self.put_raw(&v[..n]);
     }
 
     /// Écrit un `lbytes` (longueur u32 puis octets).
@@ -126,10 +133,22 @@ impl Writer {
     }
 
     /// Écrit une `list<T>` via une closure d'encodage par élément.
+    ///
+    /// ⚠️ La borne d'encodage est celle du FIL (préfixe `u16`), et non
+    /// [`limits::MAX_LIST`] : cette dernière est la borne par défaut du
+    /// *décodage*, qu'un champ peut resserrer — ou dépasser légitimement, comme
+    /// les feuilles d'un manifest (jusqu'à 8192, dérivées de
+    /// [`limits::MAX_FILE_SIZE`] / [`limits::FILE_BLOCK_SIZE`]). Asserter sur
+    /// `MAX_LIST` faisait paniquer, en profil debug, l'encodage parfaitement
+    /// légitime du manifest d'un fichier de plus d'un gibioctet.
+    ///
+    /// Au-delà de 65 535 éléments la liste est **tronquée** plutôt qu'annoncée
+    /// par un préfixe faux, pour la raison exposée sur [`Writer::put_vbytes`].
     pub fn put_list<T>(&mut self, items: &[T], mut f: impl FnMut(&mut Self, &T)) {
-        debug_assert!(items.len() <= limits::MAX_LIST, "liste trop longue");
-        self.put_u16(items.len() as u16);
-        for item in items {
+        debug_assert!(items.len() <= u16::MAX as usize, "liste trop longue");
+        let n = items.len().min(u16::MAX as usize);
+        self.put_u16(n as u16);
+        for item in &items[..n] {
             f(self, item);
         }
     }
@@ -307,6 +326,17 @@ impl<'a> Reader<'a> {
     }
 
     /// Lit une `list<T>` bornée à `max` éléments.
+    ///
+    /// 🔒 `max` est la borne DU CHAMP et fait foi ; [`limits::MAX_LIST`] n'est
+    /// que la valeur par défaut dont partent les champs sans contrainte propre.
+    /// L'appliquer ici comme plafond dur rejetait le manifest de tout fichier de
+    /// plus d'un gibioctet (au-delà de 4096 feuilles), alors que le format en
+    /// autorise 8192 — encodable, indécodable, sans que rien ne le signale.
+    ///
+    /// Élargir la borne d'un champ n'ouvre aucune voie d'épuisement mémoire :
+    /// la capacité pré-allouée reste plafonnée, et chaque élément coûte à
+    /// l'émetteur les octets qu'il doit réellement fournir — eux-mêmes bornés
+    /// par la taille du frame.
     pub fn list<T>(
         &mut self,
         max: usize,
@@ -314,7 +344,7 @@ impl<'a> Reader<'a> {
         mut f: impl FnMut(&mut Self) -> Result<T, DecodeError>,
     ) -> Result<Vec<T>, DecodeError> {
         let n = self.u16()? as usize;
-        if n > max.min(limits::MAX_LIST) {
+        if n > max {
             return Err(DecodeError::TooLarge(what));
         }
         let mut out = Vec::with_capacity(n.min(1024));

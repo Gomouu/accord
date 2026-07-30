@@ -5,6 +5,13 @@ use crate::wire::{DecodeError, Reader, WireDecode, WireEncode, Writer};
 
 const MAX_NAME: usize = 256;
 /// Nombre maximal de feuilles d'un manifest (2 GiB / 256 KiB = 8192).
+///
+/// 🔒 Plus large que [`limits::MAX_LIST`], et c'est voulu : le nombre de
+/// feuilles n'est pas un choix de l'émetteur mais une conséquence arithmétique
+/// de `size`, elle-même bornée par [`limits::MAX_FILE_SIZE`] — le décodage
+/// vérifie d'ailleurs l'égalité des deux (`manifest.leaf_count`). Un émetteur ne
+/// peut donc pas déclarer plus de feuilles qu'il n'annonce d'octets, ni en
+/// annoncer sans fournir les 32 octets de chacune.
 const MAX_LEAVES: usize = 8192;
 
 /// Manifest signé décrivant un fichier partagé.
@@ -185,5 +192,67 @@ impl WireDecode for FileMsg {
             }),
             _ => Err(DecodeError::InvalidValue("file kind")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Manifest cohérent de `leaves` feuilles (la taille suit le nombre de
+    /// feuilles, comme l'exige le décodage).
+    fn manifest(leaves: usize) -> Manifest {
+        Manifest {
+            merkle_root: [1; 32],
+            size: (leaves as u64) * limits::FILE_BLOCK_SIZE as u64,
+            name: "archive.bin".into(),
+            mime: "application/octet-stream".into(),
+            leaf_hashes: vec![[2; 32]; leaves],
+            publisher: [3; 32],
+            sig: [4; 64],
+        }
+    }
+
+    #[test]
+    fn un_manifest_de_plus_dun_gibioctet_fait_laller_retour() {
+        // 🔒 Non-régression. Un fichier de 1,5 Gio compte 6144 feuilles : au-delà
+        // de l'ancienne borne par défaut des listes (4096), en deçà de la borne
+        // réelle du champ (8192 = MAX_FILE_SIZE / FILE_BLOCK_SIZE). Il
+        // s'encodait sans erreur et ne se décodait chez personne.
+        let m = manifest(6144);
+        assert!(m.leaf_hashes.len() > limits::MAX_LIST);
+        assert_eq!(Manifest::from_bytes(&m.to_bytes()).unwrap(), m);
+        // Et sa préimage de signature s'écrit sans paniquer en profil debug.
+        assert!(!m.signable_bytes().is_empty());
+    }
+
+    #[test]
+    fn un_manifest_au_maximum_du_format_est_accepte() {
+        let m = manifest(MAX_LEAVES);
+        assert_eq!(m.size, limits::MAX_FILE_SIZE);
+        assert_eq!(Manifest::from_bytes(&m.to_bytes()).unwrap(), m);
+    }
+
+    #[test]
+    fn au_dela_du_maximum_le_manifest_est_refuse_au_decodage() {
+        // La borne du champ reste appliquée : une feuille de plus et la taille
+        // dépasse MAX_FILE_SIZE, refusée avant même la liste.
+        let m = manifest(MAX_LEAVES + 1);
+        assert_eq!(
+            Manifest::from_bytes(&m.to_bytes()),
+            Err(DecodeError::TooLarge("manifest.size"))
+        );
+    }
+
+    #[test]
+    fn un_nombre_de_feuilles_incoherent_avec_la_taille_est_refuse() {
+        // 🔒 C'est ce contrôle qui interdit d'annoncer 8192 feuilles pour trois
+        // octets de fichier : le nombre de feuilles n'est jamais un choix libre.
+        let mut m = manifest(4);
+        m.size = limits::FILE_BLOCK_SIZE as u64;
+        assert_eq!(
+            Manifest::from_bytes(&m.to_bytes()),
+            Err(DecodeError::InvalidValue("manifest.leaf_count"))
+        );
     }
 }

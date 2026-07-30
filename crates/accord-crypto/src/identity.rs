@@ -130,11 +130,16 @@ impl Identity {
     /// Secret X25519 statique dérivé : `clamp(SHA-512(seed)[0..32])`
     /// (scalaire Ed25519 standard, propriété birationnelle — SPEC §2.1).
     pub fn x25519_secret(&self) -> x25519_dalek::StaticSecret {
-        let digest = Sha512::digest(self.seed);
+        let mut digest = Sha512::digest(self.seed);
         let mut scalar = [0u8; 32];
         scalar.copy_from_slice(&digest[..32]);
         let secret = x25519_dalek::StaticSecret::from(scalar);
         scalar.zeroize();
+        // 🔒 Le condensat entier est effacé, pas seulement la copie du scalaire
+        // qui en sort : ses trente-deux premiers octets SONT la clé privée
+        // X25519 de l'identité, et la méthode est appelée à chaque handshake —
+        // autant d'exemplaires abandonnés dans la pile sinon.
+        digest[..].zeroize();
         secret
     }
 

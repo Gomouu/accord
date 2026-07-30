@@ -5,7 +5,7 @@
 //! format.
 //!
 //! Construction: each Ed25519 public key is reduced to a fingerprint by
-//! [`FINGERPRINT_ITERATIONS`] rounds of SHA-512 (`version ‖ pubkey`, then
+//! `FINGERPRINT_ITERATIONS` rounds of SHA-512 (`version ‖ pubkey`, then
 //! `hash ‖ pubkey`), keeping 30 bytes → 6 groups of 5 digits. The two
 //! fingerprints, ordered lexicographically by public key, form 60 digits
 //! (12 groups of 5): `safety_number(a, b) == safety_number(b, a)` by
@@ -34,7 +34,7 @@ const EMOJI_COUNT: usize = 8;
 pub struct SafetyNumber {
     /// 60 ASCII digits, no separator (the UI groups them by 5).
     pub digits: String,
-    /// Compact emoji rendering: [`EMOJI_COUNT`] symbols from the fixed table.
+    /// Compact emoji rendering: `EMOJI_COUNT` symbols from the fixed table.
     pub emoji: Vec<&'static str>,
 }
 

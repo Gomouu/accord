@@ -144,8 +144,17 @@ impl BackupSealer {
 
     /// Scelle la tranche `index` (au plus [`CHUNK_LEN`] octets, `last` pour la
     /// dernière) et rend la trame complète `longueur ‖ fin ‖ scellé`.
+    ///
+    /// 🔒 Une tranche plus grande que [`CHUNK_LEN`] est **refusée ici**, et pas
+    /// seulement en profil debug : [`BackupOpener::open_chunk`] la rejetterait,
+    /// si bien qu'un scellement toléré produirait une archive que plus personne
+    /// ne peut ouvrir — la panne se découvrirait à la restauration, c'est-à-dire
+    /// au pire moment possible. Échouer à l'écriture laisse la sauvegarde
+    /// précédente intacte.
     pub fn seal_chunk(&self, index: u64, last: bool, plain: &[u8]) -> Result<Vec<u8>, CryptoError> {
-        debug_assert!(plain.len() <= CHUNK_LEN, "tranche trop grande");
+        if plain.len() > CHUNK_LEN {
+            return Err(CryptoError::VaultCorrupt);
+        }
         let scelle = self
             .cipher
             .encrypt(
@@ -424,6 +433,27 @@ mod tests {
             );
         }
         assert_eq!(open_backup(&flux, b"phrase").unwrap(), contenu);
+    }
+
+    #[test]
+    fn une_tranche_trop_grande_est_refusee_au_scellement() {
+        // 🔒 Refuser à l'écriture plutôt que produire une archive que
+        // `open_chunk` rejettera : la panne se découvrirait sinon à la
+        // restauration, quand la sauvegarde précédente n'existe plus.
+        let sealer = BackupSealer::new(b"phrase", PARAMS).unwrap();
+        assert_eq!(
+            sealer
+                .seal_chunk(0, true, &vec![0u8; CHUNK_LEN + 1])
+                .unwrap_err(),
+            CryptoError::VaultCorrupt
+        );
+        // Pile sur la borne : accepté, et l'ouverture suit.
+        let trame = sealer.seal_chunk(0, true, &vec![7u8; CHUNK_LEN]).unwrap();
+        let opener = BackupOpener::new(sealer.header(), b"phrase").unwrap();
+        assert_eq!(
+            opener.open_chunk(0, true, &trame[5..]).unwrap(),
+            vec![7u8; CHUNK_LEN]
+        );
     }
 
     #[test]

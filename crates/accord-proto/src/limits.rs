@@ -3,7 +3,13 @@
 /// Version courante du protocole filaire.
 pub const PROTOCOL_VERSION: u8 = 1;
 
-/// Nombre maximal d'éléments d'une `list<T>` sauf contrainte plus stricte.
+/// Borne par défaut du nombre d'éléments d'une `list<T>`.
+///
+/// Chaque champ déclare la sienne au décodage ([`crate::wire::Reader::list`]) et
+/// c'est celle-là qui fait foi : presque toutes sont bien plus strictes (4
+/// adresses de nœud, 8 appareils, 10 pièces jointes…), et une seule est plus
+/// large — les feuilles d'un manifest, dont le nombre dérive de
+/// [`MAX_FILE_SIZE`] / [`FILE_BLOCK_SIZE`] et vaut jusqu'à 8192.
 pub const MAX_LIST: usize = 4096;
 
 /// Taille maximale d'un `lbytes` au décodage.

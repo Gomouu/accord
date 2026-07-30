@@ -38,21 +38,27 @@ pub fn generate() -> (String, [u8; 32]) {
 /// Tolère la casse et les espaces multiples ; le checksum BIP39 détecte les
 /// fautes de frappe.
 pub fn restore(phrase: &str) -> Result<[u8; 32], CryptoError> {
-    let normalized = phrase
-        .split_whitespace()
-        .map(str::to_lowercase)
-        .collect::<Vec<_>>()
-        .join(" ");
+    // 🔒 La phrase normalisée et l'entropie qui en sort SONT le compte : deux
+    // copies de plus de la phrase de récupération, effacées à la libération au
+    // même titre que la graine. La normalisation reste identique — mot à mot,
+    // `to_lowercase`, un espace simple — seul le tampon change de nature.
+    let mut normalized = Zeroizing::new(String::with_capacity(phrase.len()));
+    for mot in phrase.split_whitespace() {
+        if !normalized.is_empty() {
+            normalized.push(' ');
+        }
+        normalized.push_str(&mot.to_lowercase());
+    }
     let mnemonic = Mnemonic::parse_in_normalized(Language::English, &normalized)
         .map_err(|_| CryptoError::BadMnemonic)?;
     if mnemonic.word_count() != 12 {
         return Err(CryptoError::BadMnemonic);
     }
-    let entropy = mnemonic.to_entropy();
-    let mut e = Zeroizing::new([0u8; 16]);
+    let entropy = Zeroizing::new(mnemonic.to_entropy());
     if entropy.len() != 16 {
         return Err(CryptoError::BadMnemonic);
     }
+    let mut e = Zeroizing::new([0u8; 16]);
     e.copy_from_slice(&entropy);
     Ok(seed_from_entropy(&e))
 }

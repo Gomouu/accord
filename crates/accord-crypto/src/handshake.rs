@@ -48,7 +48,7 @@ pub struct Established {
     /// 0 pour un pair qui n'annonce rien (version antérieure au champ).
     ///
     /// 🔒 [`CAP_PQ_HYBRID`] en est **toujours retiré** — voir
-    /// [`peer_capabilities_sans_mode`]. Le mode de la session se lit sur
+    /// `peer_capabilities_sans_mode`. Le mode de la session se lit sur
     /// [`Established::is_post_quantum`], jamais ici.
     pub peer_capabilities: u32,
     /// Vrai si la clé de session dérive **aussi** d'un secret ML-KEM, et pas
@@ -205,11 +205,35 @@ fn check_freshness(timestamp_ms: u64, now_ms: u64) -> Result<(), CryptoError> {
 #[derive(Default)]
 pub struct NonceCache {
     seen: HashMap<[u8; 16], u64>,
+    /// Horloge à partir de laquelle un balayage périodique est dû.
+    next_sweep_ms: u64,
+    /// Taille du cache juste après le dernier balayage, référence de croissance.
+    size_after_sweep: usize,
 }
 
 impl NonceCache {
     /// Durée de rétention d'un nonce.
     pub const RETENTION: Duration = Duration::from_secs(300);
+
+    /// Période du balayage des nonces périmés.
+    ///
+    /// ⚠️ Balayer à CHAQUE insertion coûtait un parcours complet par handshake
+    /// entrant : sur un nœud sollicité, le travail total croissait avec le carré
+    /// du nombre de handshakes de la fenêtre — une amplification offerte à qui
+    /// sait déjà produire des HELLO valides. Le balayage est donc amorti.
+    ///
+    /// 🔒 Retenir un nonce **plus longtemps** que la rétention nominale ne peut
+    /// jamais faire accepter un rejeu : c'est l'oubli qui serait dangereux, pas
+    /// la mémoire. Et un faux positif est hors de portée — un nonce est tiré sur
+    /// 128 bits, deux handshakes honnêtes n'en partagent pas.
+    const SWEEP_INTERVAL: Duration = Duration::from_secs(60);
+
+    /// Nombre d'entrées neuves qui déclenche un balayage avant l'échéance.
+    ///
+    /// Borne la mémoire quand les handshakes arrivent plus vite que l'horloge
+    /// n'avance, tout en gardant le balayage amorti : au plus un parcours par
+    /// tranche de [`Self::SWEEP_GROWTH`] insertions.
+    const SWEEP_GROWTH: usize = 4096;
 
     /// Crée un cache vide.
     pub fn new() -> Self {
@@ -218,9 +242,15 @@ impl NonceCache {
 
     /// Enregistre `nonce` ; erreur s'il a déjà été vu dans la fenêtre.
     pub fn check_and_insert(&mut self, nonce: [u8; 16], now_ms: u64) -> Result<(), CryptoError> {
-        let retention = Self::RETENTION.as_millis() as u64;
-        self.seen
-            .retain(|_, t| now_ms.saturating_sub(*t) < retention);
+        if now_ms >= self.next_sweep_ms
+            || self.seen.len() >= self.size_after_sweep.saturating_add(Self::SWEEP_GROWTH)
+        {
+            let retention = Self::RETENTION.as_millis() as u64;
+            self.seen
+                .retain(|_, t| now_ms.saturating_sub(*t) < retention);
+            self.next_sweep_ms = now_ms.saturating_add(Self::SWEEP_INTERVAL.as_millis() as u64);
+            self.size_after_sweep = self.seen.len();
+        }
         if self.seen.insert(nonce, now_ms).is_some() {
             return Err(CryptoError::HandshakeReplay);
         }
@@ -1068,6 +1098,50 @@ mod tests {
              référence ({WELCOME_MESURE} o).",
             welcome_len - WELCOME_MESURE
         );
+    }
+
+    #[test]
+    fn le_cache_de_nonces_oublie_apres_la_retention() {
+        // Le balayage est amorti (voir `SWEEP_INTERVAL`) : ce test fige ce qui
+        // ne doit PAS changer avec lui — un nonce reste refusé tant qu'il est
+        // en mémoire, et redevient acceptable une fois la rétention écoulée.
+        let mut cache = NonceCache::new();
+        let nonce = [0x5Au8; 16];
+        assert!(cache.check_and_insert(nonce, 0).is_ok());
+        assert_eq!(
+            cache.check_and_insert(nonce, 1_000).unwrap_err(),
+            CryptoError::HandshakeReplay
+        );
+        // Un autre nonce passe évidemment sans être gêné.
+        assert!(cache.check_and_insert([0x11; 16], 1_000).is_ok());
+
+        let bien_apres =
+            (NonceCache::RETENTION + NonceCache::SWEEP_INTERVAL).as_millis() as u64 + 1;
+        assert!(cache.check_and_insert(nonce, bien_apres).is_ok());
+    }
+
+    #[test]
+    fn aucun_nonce_nest_perdu_malgre_le_balayage_amorti() {
+        // 🔒 Horloge figée, au-delà du seuil de croissance : c'est le seul cas
+        // où un balayage se déclenche sans que le temps ait avancé. Rien n'y est
+        // périmé, donc rien ne doit disparaître — un nonce oublié, c'est un
+        // rejeu qui redevient possible.
+        let mut cache = NonceCache::new();
+        let total = NonceCache::SWEEP_GROWTH + 10;
+        for i in 0..total {
+            let mut nonce = [0u8; 16];
+            nonce[..8].copy_from_slice(&(i as u64).to_be_bytes());
+            assert!(cache.check_and_insert(nonce, 42).is_ok(), "insertion {i}");
+        }
+        for i in 0..total {
+            let mut nonce = [0u8; 16];
+            nonce[..8].copy_from_slice(&(i as u64).to_be_bytes());
+            assert_eq!(
+                cache.check_and_insert(nonce, 42).unwrap_err(),
+                CryptoError::HandshakeReplay,
+                "rejeu {i}"
+            );
+        }
     }
 
     #[test]

@@ -17,6 +17,12 @@ an investigation. The weekly campaign is roughly eleven times deeper per target,
 and keeps the enriched corpus as an artefact — that corpus is the real product,
 because it makes the next campaign start where the last one stopped.
 
+⚠️ Both workflows pass `fuzz/seeds/<target>` as the corpus directory, so that is
+where libFuzzer writes the new inputs it finds; cargo-fuzz's default
+`fuzz/corpus/<target>` stays empty and is untracked. The weekly artefact
+therefore carries `fuzz/seeds/<target>`, and a local campaign enriches the
+tracked seeds in place — see §3bis on minimizing before committing them.
+
 ⚠️ **Neither is "several days", which is what the roadmap asks for.** A GitHub
 job is cut at six hours. A genuine multi-day campaign needs a machine of one's
 own; the corpus kept by the weekly run is what would seed it. Saying this

@@ -11,6 +11,13 @@
 >
 > Written 2026-07-28 against commit `9a2c9af` (workspace version `7.1.0`,
 > `Cargo.toml:20`). No external audit has ever been performed on this codebase.
+>
+> ⚠️ **Line anchors are as of that commit**, except in §4.3 and §5.2, which are
+> kept current because they describe defects and gate coverage that changed
+> after it. On a newer checkout, treat a `path:line` anchor as a pointer to the
+> named symbol or quoted string, not as an exact address; entries corrected
+> since are struck through and marked *fixed since* rather than deleted, so that
+> a claim you may have read elsewhere can still be traced.
 
 ---
 
@@ -67,7 +74,7 @@ Four project conventions explain things that would otherwise look odd:
    for those two markers is the fastest way to find where the authors thought
    something was load-bearing.
 3. **No panics in production code** is enforced by clippy, not by convention:
-   `ci.sh:31` denies `unwrap_used`, `expect_used`, `panic`, `todo`,
+   `ci.sh:36` denies `unwrap_used`, `expect_used`, `panic`, `todo`,
    `unimplemented` over `--lib --bins`. The rare proven-infallible exceptions
    carry a justified `#[allow]`, e.g. `crypto/handshake.rs:467`.
 4. **`ROADMAP.md` is in the repository** — since 2026-07-28, precisely because
@@ -230,7 +237,7 @@ Strict decoding is the stated contract: any out-of-bounds length, invalid UTF-8
 or trailing byte rejects the whole structure (`proto/wire.rs:1`,
 `proto/wire.rs:12`). Numeric guard rails are centralised in `proto/limits.rs` and
 mirrored in `docs/SPEC.md:910` — and that mirror is **machine-checked** by
-`scripts/check-doc-constants.mjs`, wired into the gate at `ci.sh:87`.
+`scripts/check-doc-constants.mjs`, wired into the gate at `ci.sh:107`.
 
 The largest decoder is `proto/core_msg.rs` (3 918 lines, ~50 message kinds). It
 is fuzzed (§5), and the fuzzing found nothing — read §5's caveats about what that
@@ -352,8 +359,8 @@ finding.
 | Local API token compared in constant time | `api/auth.rs:39` | (`subtle::ConstantTimeEq`; note slice `ct_eq` still short-circuits on length) |
 | `diagnostics.report` is redacted in the node, not the UI | `node/node/diagnostics.rs` | `node/node/diagnostics.rs:482` `le_rapport_ne_porte_ni_cle_ni_adresse_d_ami`; `node/node/diagnostics.rs:551` |
 | No `unsafe` in the sensitive crates | `#![forbid(unsafe_code)]` in 8 of 9 crate roots | compiler; the only exception is `accord-macos` (two Objective-C `msg_send!` blocks, `macos/lib.rs:46`, `macos/lib.rs:70`) |
-| No `unwrap`/`expect`/`panic!` outside tests | `ci.sh:31` | the gate itself |
-| **Secrets never reach a log** | a convention on `tracing` call sites (`SECURITY.md:283`) | **nothing** — see §4.3, item 5 |
+| No `unwrap`/`expect`/`panic!` outside tests | `ci.sh:36` | the gate itself |
+| **Secrets never reach a log** | a convention on `tracing` call sites (`SECURITY.md:283`) | `scripts/check-log-secrets.mjs` in the gate (`ci.sh:114`) — **names only**, see §4.3, item 5 |
 
 ---
 
@@ -514,38 +521,35 @@ revocation is eventually consistent and cannot take the root back
 
 ### 4.3 Documentation defects that will cost you time
 
-1. **`SECURITY.md` §5 numbers items 15, 16 and 17 twice.** The first triple
-   (`SECURITY.md:444`, `SECURITY.md:459`, `SECURITY.md:469`) is about
-   post-quantum scope; the second (`SECURITY.md:474`, `SECURITY.md:487`,
-   `SECURITY.md:498`) is about blocking, device-list dates and silent write
-   failures. Every cross-reference into that range is ambiguous — including
-   `docs/FUZZING.md:47` ("`SECURITY.md` 16 and 17") and the user-facing
-   `CHANGELOG.md:285` ("SECURITY.md §5.15–5.17"). Numbering then continues 18,
-   19.
-2. **`SECURITY.md:58` says the fuzz harness has 8 targets; there are 9.** The
-   audit checklist at `SECURITY.md:578`–`SECURITY.md:582` lists eight by name and
-   the one it omits is `device_list` — which `docs/FUZZING.md:45` describes as
-   *"the structure at the heart of multi-device identity and revocation"* and the
-   target deliberately run first and longest. An auditor working from the
-   checklist would skip exactly the target the fuzzing report considers most
-   important.
-3. **`SECURITY.md:548`–`SECURITY.md:551` contradicts `docs/THREAT-MODEL.md:174`.**
-   The summary still says "clients should cap the size of auto-downloaded
-   previews (**the v0 client does not yet**)"; the detailed document says the
-   server banner/icon has been capped at 8 MiB since v1.0.0. The detailed
-   document is the current one.
+1. ~~**`SECURITY.md` §5 numbers items 15, 16 and 17 twice**~~ — **fixed since**:
+   §5 now runs 1 to 19 with no repeat, so a cross-reference such as
+   `docs/FUZZING.md`'s "`SECURITY.md` 16 and 17" designates one item each.
+2. **`SECURITY.md:58` still says the fuzz harness has 8 targets; there are 9.**
+   The audit checklist further down was corrected and now names all nine
+   (`SECURITY.md:595`), so the two halves of the same document disagree. The
+   ninth is `device_list` — which `docs/FUZZING.md` describes as *"the structure
+   at the heart of multi-device identity and revocation"* and the target
+   deliberately run first and longest. Trust the checklist, not the summary.
+3. ~~**The summary and `docs/THREAT-MODEL.md` disagree on preview size
+   caps**~~ — **fixed since**: `SECURITY.md:564` now states that the server
+   banner and icon have been capped since v1.0.0, which matches
+   `docs/THREAT-MODEL.md` §4.
 4. **`SECURITY.md:117` understates the DHT divergence rule** — it says "most
    recent valid signed value wins", the code implements path-consensus with a
    timestamp tie-break (`dht/lookup.rs:225`). Also, disjoint paths are used for
    *every* `get`, not only "sensitive values (identities)" (`dht/node.rs:30`).
-5. **"Secrets never logged" (`SECURITY.md:169`, `SECURITY.md:283`) is enforced by
-   nothing.** It is a rule on `tracing` call sites across the repository. There
-   is no lint, no test, and no scanner: `scripts/` contains only
-   `check-bundle-budget.mjs`, `check-doc-constants.mjs` and `check-file-size.mjs`.
-   The redaction of `diagnostics.report` *is* tested
-   (`node/node/diagnostics.rs:482`); the general property is not. A diagnostic
-   log is written on every launch to `<app_data>/logs/accord.log`, outside the
-   encrypted database.
+5. **"Secrets never logged" (`SECURITY.md:169`, `SECURITY.md:283`) was enforced
+   by nothing** when this brief was written — **partly fixed since**:
+   `scripts/check-log-secrets.mjs` is now in the gate (`ci.sh:114`,
+   `.github/workflows/ci.yml:190`). Read what it does before crediting it: it
+   fails when a `tracing::` call interpolates an identifier whose **name**
+   announces a secret (`passphrase`, `token`, `seed`, `plaintext`,
+   `friend_code`, `msg_body`, …). It judges names, not values, so a secret
+   passed as `valeur` or `data` still slips through, and it is not a substitute
+   for reading the call sites. The redaction of `diagnostics.report` *is* tested
+   (`node/node/diagnostics.rs:482`); the general property still is not. A
+   diagnostic log is written on every launch to `<app_data>/logs/accord.log`,
+   outside the encrypted database.
 6. ~~**`ROADMAP.md` is cited but untracked**~~ — **fixed 2026-07-28**: it is
    versioned, and every `ROADMAP §x` reference resolves (see §1, item 4).
 
@@ -609,25 +613,26 @@ tables at `docs/FUZZING.md:38` and `docs/FUZZING.md:75`:
 session state machine, the group *authorisation* logic (as opposed to
 `group_state`'s fold), the pairing state machine, or the DHT routing table.
 
-### 5.2 The gate — `./ci.sh`, and its two divergences from GitHub CI
+### 5.2 The gate — `./ci.sh`, and its one divergence from GitHub CI
 
-`ci.sh` is the single gate; `.github/workflows/ci.yml` mirrors it. The rule at
-`CONTRIBUTING.md:16` is that the repository is *never* left in a state where
-`./ci.sh` fails.
+`ci.sh` is the single gate; `.github/workflows/ci.yml` runs the same list. The
+rule at `CONTRIBUTING.md:16` is that the repository is *never* left in a state
+where `./ci.sh` fails.
 
 Steps: `cargo fmt --check` (`ci.sh:20`), `cargo clippy --workspace --all-targets
--D warnings` (`ci.sh:23`), **the anti-panic clippy pass** (`ci.sh:31`),
-`cargo test --workspace` (`ci.sh:37`), `cargo deny check` + `cargo audit`
-(`ci.sh:42`, optional locally, mandatory in CI), then the frontend: tsc, eslint,
-prettier, vitest, production build, bundle budget, an 800-line file-size ratchet
-(`ci.sh:81`), the doc-constants checker (`ci.sh:87`), and Playwright end-to-end
-**inside** the gate (`ci.sh:93`).
+-D warnings` (`ci.sh:28`), **the anti-panic clippy pass** (`ci.sh:36`),
+`cargo test --workspace` (`ci.sh:42`), the transport SimNet suites in **release**
+profile (`ci.sh:51`), `cargo deny check` + `cargo audit` (`ci.sh:60`, `ci.sh:65`
+— optional locally, mandatory in CI), then the frontend: tsc, eslint, prettier,
+vitest, production build, bundle budget, an 800-line file-size ratchet
+(`ci.sh:101`), the doc-constants checker (`ci.sh:107`), the log-secrets checker
+(`ci.sh:114`), and Playwright end-to-end **inside** the gate (`ci.sh:120`).
 
-Two divergences that matter to you:
+One divergence that matters to you:
 
 - **GitHub CI runs `cargo test --workspace --lib` only**
-  (`.github/workflows/ci.yml:119`), against `cargo test --workspace` locally
-  (`ci.sh:37`). Everything under `crates/*/tests/` therefore **does not run in
+  (`.github/workflows/ci.yml:127`), against `cargo test --workspace` locally
+  (`ci.sh:42`). Everything under `crates/*/tests/` therefore **does not run in
   CI** — including all three property-test suites
   (`crates/accord-proto/tests/proptest_codecs.rs`,
   `crates/accord-core/tests/proptest_group.rs`,
@@ -638,10 +643,14 @@ Two divergences that matter to you:
   that a large part of the test estate is not gate-enforced. The inline unit
   tests — including the ML-KEM NIST vector checks at `crypto/pq.rs:241` and
   `crypto/pq.rs:257` — *are* covered by `--lib`.
-- CI additionally runs the transport suites in **release** profile
-  (`.github/workflows/ci.yml:127`), specifically because a `debug_assert!`
-  argument is not evaluated in release. That step exists because of a real
-  four-release outage (see 5.4).
+
+The release-profile transport step (`.github/workflows/ci.yml:136`) exists
+because a `debug_assert!` argument is not evaluated in release, and that caused a
+real four-release outage (see 5.4). It used to run **only** in CI; it is now in
+both, so a maintainer's machine no longer passes a gate that GitHub would fail.
+The supply-chain audits remain the one asymmetry in the other direction:
+`cargo-deny` and `cargo-audit` are not shipped by rustup, so `ci.sh` skips them
+with a warning when the binaries are absent, while CI requires them.
 
 ### 5.3 Property tests
 
@@ -748,7 +757,7 @@ the `Simule` voice backend.
 
 **What is probably not worth your money**: re-fuzzing the decoders (746 M
 executions, zero crashes, corpus available); re-checking for `unsafe` or panics
-(compiler- and lint-enforced, `ci.sh:31`); re-deriving the accepted trade-offs of
+(compiler- and lint-enforced, `ci.sh:36`); re-deriving the accepted trade-offs of
 §4.2, which are already written up with their hardening paths.
 
 **What the project explicitly cannot verify itself** and would most value an

@@ -23,6 +23,21 @@ set -uo pipefail
 cd "$(dirname "$0")" || exit 1
 
 RUNS=${RUNS:-30}
+# ⚠️ Une valeur non numérique fait échouer `seq`, donc la boucle ne s'exécute
+# pas du tout : le script conclut « 0 échec » et sort en 0. Une campagne qui
+# n'a rien lancé se serait déclarée verte — exactement l'inverse de ce que ce
+# fichier existe pour prouver. Elle est donc refusée d'entrée.
+case "$RUNS" in
+  '' | *[!0-9]*)
+    echo "RUNS doit être un entier positif (reçu : « $RUNS »)" >&2
+    exit 2
+    ;;
+esac
+if [ "$RUNS" -lt 1 ]; then
+  echo "RUNS doit valoir au moins 1" >&2
+  exit 2
+fi
+
 LOGS=$(mktemp -d)
 echecs=0
 serie=0

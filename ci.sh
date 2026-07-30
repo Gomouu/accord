@@ -19,8 +19,13 @@ step() { printf '\n\033[1;34m== %s ==\033[0m\n' "$1"; }
 step "Rust: cargo fmt --all --check"
 cargo fmt --all --check
 
+# `debug_assert_with_mut_call` (nursery) : interdit tout appel mutant dans un
+# `debug_assert!` — son argument n'est PAS évalué en release. Cette classe de
+# bug a produit la 3.0.0→3.3.0 sans sessions initiateur. `ci.yml` posait le lint
+# ici, `ci.sh` non : un `debug_assert!` mutant écrit dans un test d'intégration
+# ou un bench passait le gate local et n'échouait qu'en CI.
 step "Rust: cargo clippy --workspace --all-targets -D warnings"
-cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings -D clippy::debug_assert_with_mut_call
 
 # Zéro panic en chemin de production (D23) : unwrap/expect/panic!/todo! sont
 # interdits dans les libs et binaires (les tests inline sont exclus via
@@ -35,6 +40,17 @@ cargo clippy --workspace --lib --bins -- -D warnings \
 
 step "Rust: cargo test --workspace"
 cargo test --workspace --quiet
+
+# Le transport en PROFIL RELEASE. Le comportement du code peut diverger entre
+# profils — un `debug_assert!` n'est pas évalué en release, ce qui est
+# exactement la régression 3.0.0 — donc une suite verte en debug ne dit rien de
+# la release. Ces e2e SimNet sont hermétiques (réseau simulé en mémoire ;
+# `tcp_link_e2e` reste exclu, il ouvre de vraies sockets). Le pas existait dans
+# `ci.yml` et manquait ici : le gate local ne voyait pas ce que la CI bloque.
+step "Rust: tests transport (release)"
+cargo test -p accord-transport --release --quiet \
+  --test handshake_e2e --test hole_punch_e2e \
+  --test relay_e2e --test relay_tunnel_e2e
 
 # Audits de chaîne d'approvisionnement — optionnels en local (binaires non
 # fournis par rustup), obligatoires en CI (.github/workflows/ci.yml). Si un
@@ -55,7 +71,11 @@ fi
 
 if [ -d app ] && [ -f app/package.json ]; then
   step "UI: install (si nécessaire)"
-  (cd app && [ -d node_modules ] || npm ci --no-audit --no-fund)
+  # Les accolades ne sont pas décoratives : sans elles, `cd app && test || npm`
+  # se lit `(cd && test) || npm`, et un `cd` qui échoue lançait `npm ci` à la
+  # RACINE du dépôt — installation dans le mauvais dossier, sans le moindre
+  # message.
+  (cd app && { [ -d node_modules ] || npm ci --no-audit --no-fund; })
 
   step "UI: typecheck (tsc --noEmit)"
   (cd app && npx tsc --noEmit)

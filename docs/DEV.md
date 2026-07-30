@@ -76,34 +76,39 @@ runs, in sequence:
 | # | Step | Note |
 |---|------|------|
 | 1 | `cargo fmt --all --check` | |
-| 2 | `cargo clippy --workspace --all-targets -- -D warnings` | |
+| 2 | `cargo clippy --workspace --all-targets -- -D warnings -D clippy::debug_assert_with_mut_call` | |
 | 3 | clippy **anti-panic** on `--lib --bins` | `unwrap_used`, `expect_used`, `panic`, `todo`, `unimplemented`, `debug_assert_with_mut_call` — see §5 |
 | 4 | `cargo test --workspace` | e2e over real UDP included, unlike CI |
-| 5 | `cargo deny check`, `cargo audit` | **skipped with a warning** if the binary is absent locally; mandatory in CI |
-| 6 | UI: `npm ci` (only if `node_modules` is missing) | |
-| 7 | UI: `npx tsc --noEmit`, `npm run lint`, `npx prettier --check src` | |
-| 8 | UI: `npm test` (vitest), `npm run build` | |
-| 9 | `node scripts/check-bundle-budget.mjs` | initial-chunk budget |
-| 10 | `npx playwright test` | interface e2e — **inside** the gate, see below |
+| 5 | `cargo test -p accord-transport --release` (4 SimNet e2e) | a `debug_assert!` is not evaluated in release — this is the 3.0.0 regression |
+| 6 | `cargo deny check`, `cargo audit` | **skipped with a warning** if the binary is absent locally; mandatory in CI |
+| 7 | UI: `npm ci` (only if `node_modules` is missing) | |
+| 8 | UI: `npx tsc --noEmit`, `npm run lint`, `npx prettier --check src` | |
+| 9 | UI: `npm test` (vitest), `npm run build` | |
+| 10 | `node scripts/check-bundle-budget.mjs` | initial-chunk budget |
+| 11 | `node scripts/check-file-size.mjs` | ratchet: no file over 800 lines |
+| 12 | `node scripts/check-doc-constants.mjs` | public constants quoted in the docs must match the code |
+| 13 | `node scripts/check-log-secrets.mjs` | no secret reachable from a `tracing` call |
+| 14 | `npx playwright test` | interface e2e — **inside** the gate, see below |
 
-Step 10 is not an optional extra, and it was added because it had been one:
+Step 14 is not an optional extra, and it was added because it had been one:
 "mark as read" disappeared from the server menu in the 4.5.0 redesign and the
 regression was published, while the test covering it already existed and had been
 failing on its own for weeks. A suite outside the gate is a suite that does not
 exist.
 
-The GitHub workflow (`.github/workflows/ci.yml`) mirrors this list, and keeping
-the mirror exact is a rule — every divergence is a future trap. The known ones,
-each deliberate:
+The GitHub workflow (`.github/workflows/ci.yml`) runs the same list, and keeping
+the two in step is a rule — a guard present on one side and absent on the other
+is a real defect, and it has already shipped a regression. Only two divergences
+remain, each deliberate and each documented in both files:
 
 - CI runs `cargo test --workspace --lib` only (the real-UDP e2e are flaky on a
-  hosted runner with no P2P network), **plus** the transport SimNet e2e in
-  **release** profile. That extra step is not redundant: a `debug_assert!` is not
-  evaluated in release, which is exactly the 3.0.0 regression, and it would have
-  caught it.
-- The supply-chain audits are mandatory there, optional here.
-- CI pins Node 22 and exports `CMAKE_POLICY_VERSION_MINIMUM=3.5`; `ci.sh` does
-  neither (see below on both).
+  hosted runner with no P2P network), where `ci.sh` runs the whole workspace.
+  The release-profile transport step (5) is common to both.
+- The supply-chain audits are mandatory there, optional here — `cargo-deny` and
+  `cargo-audit` are not shipped by rustup.
+
+CI additionally pins Node 22, which nothing pins locally (see the warning
+below).
 
 Current status (2026-07-26): **1,274 Rust tests** over 54 binaries and **2,113
 vitest tests** over 141 files, zero warnings. Treat these as an order of
@@ -164,9 +169,11 @@ brew install opus pkgconf                    # use the system libopus (preferred
 CMAKE_POLICY_VERSION_MINIMUM=3.5 ./ci.sh     # or build the bundled one anyway
 ```
 
-`ci.yml` exports `CMAKE_POLICY_VERSION_MINIMUM=3.5` for the whole job; `ci.sh`
-does **not**, so on a CMake ≥ 4 machine the two are not interchangeable without
-one of the lines above.
+Both `ci.yml` (job-wide `env`) and `ci.sh` (`export` at the top, defaulted so an
+existing value wins) now set `CMAKE_POLICY_VERSION_MINIMUM=3.5`, so the second
+line is redundant with the gate itself and only matters for a bare `cargo`
+invocation. The first line is still preferable: it skips compiling the vendored
+Opus altogether.
 
 ### Standalone daemon `accord-noded`
 
@@ -298,8 +305,9 @@ tests: waits are bounded (~20 s max, D-024).
 - **Every structural decision** is tracked (context → options → choice →
   rationale), including the "outstanding debts" (never any silent debt).
 - **TypeScript**: strict, `eslint` + `prettier` green; global state via
-  per-domain Zustand stores; UI strings via i18n (`app/src/i18n`,
-  FR/EN).
+  per-domain Zustand stores; UI strings via i18n (`app/src/i18n` — ten
+  languages, all derived from `LANGS`, with `ar` written right to left;
+  `parity.test.ts` fails on any key a dictionary is missing).
 - **Security first**: it is the project's #1 priority; in case of conflict
   with performance or simplicity, security wins (see
   `SECURITY.md`).

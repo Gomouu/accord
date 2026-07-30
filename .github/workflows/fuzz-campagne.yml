@@ -70,20 +70,44 @@ jobs:
         env:
           # audiopus_sys embarque un CMakeLists antérieur à CMake 4.
           CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+          # 🔒 Une entrée de `workflow_dispatch` n'entre JAMAIS dans le corps
+          # d'un `run:` par interpolation `${{ }}` : GitHub substitue le texte
+          # avant que bash ne lise la ligne, donc la valeur saisie devient du
+          # script. Passée par l'environnement, elle reste une donnée.
+          CIBLE: ${{ matrix.cible }}
+          MINUTES: ${{ github.event.inputs.minutes || '45' }}
         run: |
-          MINUTES="${{ github.event.inputs.minutes || '45' }}"
-          cargo fuzz run "${{ matrix.cible }}" "fuzz/seeds/${{ matrix.cible }}" \
-            -- -max_total_time=$((MINUTES * 60))
+          # Une durée non numérique s'évalue à 0 dans `$(( ))` sans la moindre
+          # erreur, et `-max_total_time=0` veut dire « sans limite » pour
+          # libFuzzer : la campagne tournerait jusqu'au plafond du job. On
+          # refuse la saisie plutôt que d'occuper un runner 90 minutes.
+          case "$MINUTES" in
+            '' | *[!0-9]*)
+              echo "minutes doit être un entier positif (reçu : « $MINUTES »)" >&2
+              exit 2
+              ;;
+          esac
+          [ "$MINUTES" -gt 0 ] || { echo "minutes doit être > 0" >&2; exit 2; }
+          cargo fuzz run "$CIBLE" "fuzz/seeds/$CIBLE" -- -max_total_time=$((MINUTES * 60))
 
       # Le corpus enrichi est le vrai produit d'une campagne : il rend la
       # suivante plus profonde, et il amorce une campagne locale de plusieurs
       # jours. Le perdre, c'est refaire le même chemin chaque semaine.
+      #
+      # ⚠️ Quand un répertoire de corpus est passé en argument — c'est le cas
+      # ici, `fuzz/seeds/<cible>` —, libFuzzer écrit les nouvelles entrées
+      # DEDANS, et `fuzz/corpus/<cible>` (le défaut de cargo-fuzz) reste vide.
+      # Ce pas ne visait que le second : combiné à `if-no-files-found: ignore`,
+      # il rendait vert en ne conservant rien. Les deux chemins sont listés
+      # pour ne plus dépendre de ce détail.
       - name: Conserver le corpus enrichi
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: corpus-${{ matrix.cible }}
-          path: fuzz/corpus/${{ matrix.cible }}
+          path: |
+            fuzz/seeds/${{ matrix.cible }}
+            fuzz/corpus/${{ matrix.cible }}
           retention-days: 30
           if-no-files-found: ignore
 

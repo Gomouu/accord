@@ -23,6 +23,10 @@ permissions:
 jobs:
   fuzz:
     runs-on: ubuntu-latest
+    # Neuf cibles à 4 min, plus la compilation nightly de cargo-fuzz et des
+    # cibles : ~1 h. Le plafond borne un blocage (une cible qui ne rend jamais
+    # la main) à un multiple raisonnable, au lieu des 6 h par défaut.
+    timeout-minutes: 120
 
     steps:
       - name: Checkout repository
@@ -38,8 +42,12 @@ jobs:
         with:
           workspaces: "fuzz -> fuzz/target"
 
+      # `--locked` : sans lui, `cargo install` résout les dépendances au plus
+      # récent et une publication amont incompatible casse le job nocturne
+      # pour une raison étrangère à Accord. Même invocation que
+      # `fuzz-campagne.yml`.
       - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
 
       - name: Build fuzz targets
         run: cargo +nightly fuzz build

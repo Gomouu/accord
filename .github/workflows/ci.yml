@@ -1,9 +1,18 @@
 # CI de validation Accord — miroir GitHub du gate local `ci.sh`.
 #
-# Invariant : ce workflow exécute exactement les mêmes commandes que ci.sh
-# (Rust: fmt/clippy/test ; frontend: tsc/eslint/prettier/vitest/build), plus
-# les audits de chaîne d'approvisionnement (cargo deny + cargo audit) qui sont
-# optionnels en local mais obligatoires ici.
+# Invariant : toute garde de `ci.sh` est ici, et réciproquement — les mêmes
+# lints, les mêmes vérifications de dépôt (budget de chunk, cliquet de taille
+# de fichier, constantes citées dans les docs, secrets hors des journaux), les
+# mêmes suites frontend et les mêmes e2e Playwright.
+#
+# Les deux seuls écarts sont délibérés, et vont chacun dans un sens :
+#   - les audits de chaîne d'approvisionnement (cargo deny + cargo audit) sont
+#     obligatoires ici, optionnels en local (binaires non fournis par rustup) ;
+#   - `cargo test --workspace` en local couvre aussi les e2e réseau, qui
+#     lancent de vrais nœuds P2P ; ici la portée est réduite à `--lib` (voir le
+#     commentaire de l'étape), la suite transport en release restant commune.
+# Une garde ajoutée d'un côté doit l'être de l'autre : l'écart est déjà passé
+# en production une fois.
 #
 # Déclencheurs :
 #   - push sur main (post-merge, garde le tronc vert) ;
@@ -25,12 +34,11 @@ env:
   # audiopus_sys embarque un CMakeLists ancien : CMake >= 4 refuse son
   # cmake_minimum_required sans cette variable.
   #
-  # ⚠️ `ci.sh` ne la pose PAS — le commentaire d'origine annonçait ici « même
-  # contournement que ci.sh », ce qui était faux et coûtait le temps de le
-  # découvrir. En local, la parité s'obtient autrement : soit un libopus
-  # système (`brew install opus pkgconf`), soit cette variable exportée à la
-  # main. Les deux chemins sont écrits dans `docs/DEV.md` § application de
-  # bureau.
+  # `ci.sh` la pose désormais aussi (export au début du script), donc le gate
+  # local et celui-ci compilent l'Opus embarqué de la même façon. L'autre
+  # chemin, un libopus système (`brew install opus pkgconf`), reste valable et
+  # évite la compilation ; les deux sont écrits dans `docs/DEV.md`
+  # § application de bureau.
   CMAKE_POLICY_VERSION_MINIMUM: "3.5"
 
 jobs:

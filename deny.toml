@@ -1,15 +1,16 @@
 # Configuration cargo-deny — audits de chaîne d'approvisionnement (CI: ci.yml,
 # local: ci.sh si le binaire est installé).
 #
-# TODO: liste de licences établie sans exécution locale de `cargo deny check`
-# (binaire absent sur la machine de dev) — elle est volontairement large ;
-# resserrer à la première exécution CI si une entrée s'avère inutile, ou
-# ajouter la licence manquante si une dépendance légitime est rejetée.
+# La liste de licences a d'abord été écrite large, faute de pouvoir exécuter
+# `cargo deny check` sur la machine de dev. Ce n'est plus le cas : la commande
+# a été lancée localement à l'intégration de ML-KEM (jalon 2) et passe
+# (advisories, bans, licenses, sources). La famille RustCrypto arrivée avec
+# `ml-kem` (kem, hybrid-array, module-lattice, sha3, keccak, cmov, ctutils) est
+# en Apache-2.0 OR MIT, déjà couverte.
 #
-# Point de situation (jalon 2) : `cargo deny check` a été exécuté localement à
-# l'intégration de ML-KEM et passe (advisories, bans, licenses, sources). La
-# famille RustCrypto arrivée avec `ml-kem` (kem, hybrid-array, module-lattice,
-# sha3, keccak, cmov, ctutils) est en Apache-2.0 OR MIT, déjà couverte.
+# Règle d'entretien : une entrée ne s'ajoute que pour une dépendance légitime
+# effectivement rejetée, avec la raison écrite au-dessus. Elle ne se retire pas
+# sur l'intuition qu'elle est inutile — `cargo deny check` doit le confirmer.
 
 [advisories]
 # Vulnérabilités connues (RUSTSEC) et code `unsound` restent des ERREURS qui

@@ -55,4 +55,11 @@ jobs:
         run: cargo build --release --tests -p accord-node -p accord-transport
 
       - name: Run the campaign
-        run: RUNS="${{ github.event.inputs.runs || '30' }}" ./reconnexion-30.sh
+        env:
+          # 🔒 L'entrée de `workflow_dispatch` n'entre pas dans le corps du
+          # `run:` par interpolation `${{ }}` : GitHub y substitue le texte
+          # avant que bash ne lise la ligne, donc la valeur saisie deviendrait
+          # du script. Par l'environnement, elle reste une donnée — et
+          # `reconnexion-30.sh` la valide avant de s'en servir.
+          RUNS: ${{ github.event.inputs.runs || '30' }}
+        run: ./reconnexion-30.sh

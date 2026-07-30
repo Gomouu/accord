@@ -4,7 +4,42 @@ All notable changes to Accord. This project follows [semantic versioning](https:
 
 ## [Unreleased]
 
-## [8.2.0] — 2026-07-28
+## [8.2.1] — 2026-07-29
+
+A full review pass over every crate, the app, the build scripts and the CI.
+Nothing here changes how Accord works — it changes how it holds up.
+
+### Fixed
+
+- **Files larger than 1 GB could not be received.** The sender built a valid
+  manifest and every peer refused to decode it, because one decoder used the
+  wrong ceiling. Large transfers work now.
+- **A brief network cut could leave the app permanently disconnected**, showing
+  the red banner with no way back short of restarting. A blip is no longer
+  mistaken for a rejected token.
+- **Link previews could show a title written to render backwards**, and could
+  put an unchecked address behind a link. Both closed.
+- Copying to the clipboard now tells you when it fails instead of doing nothing.
+
+### Security
+
+- **Five structures a hostile peer could grow without limit are now bounded**:
+  message reassembly, the rate limiter, the outbound queue, the voice jitter
+  buffer and the loss window. A single crafted 12-byte packet used to reserve
+  1.5 MB.
+- **A spoofed source address could hijack a friend's connection slot.** Refused.
+- Your identity vault and the rendezvous passphrase are now **created**
+  read-only-to-you, instead of being created loosely and tightened a moment
+  later.
+- Four secrets — including the private key derived during every handshake —
+  were left in memory after use. Wiped.
+
+### Performance
+
+- Joining and reading large servers got cheaper: several paths asked the
+  database for everything and then filtered in memory, one of them re-reading
+  the whole address book once per contact.
+- The voice path no longer allocates thirteen times per 20 ms of audio.
 
 ### Added
 

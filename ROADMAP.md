@@ -2,7 +2,7 @@
 
 **Horizon : 12 mois.** Point de départ : v6.1.0, publiée le 2026-07-24.
 
-> Fichier local, non versionné. L'analyse d'écarts du 10 juillet — largement
+> Versionné depuis la 8.0. L'analyse d'écarts du 10 juillet — largement
 > réalisée depuis — est conservée dans `ROADMAP-archive-2026-07-10.md`.
 
 ---

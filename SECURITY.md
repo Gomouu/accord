@@ -55,7 +55,7 @@ verification boundary that does not cover the platform-specific code we would
 actually ship. `accord-crypto` is compiled with
 `#![forbid(unsafe_code)]`; the no-panic rule is **CI-enforced** (clippy denies
 `unwrap`/`expect`/`panic`/`todo`/`unimplemented` in libraries and binaries,
-outside tests), and a `cargo-fuzz` harness (8 targets under `fuzz/`) exercises
+outside tests), and a `cargo-fuzz` harness (9 targets under `fuzz/`) exercises
 the wire decoders, DHT records, group state and the backup archive against
 arbitrary input; in-memory secrets are wiped via `zeroize`.
 

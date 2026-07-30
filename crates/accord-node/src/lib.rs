@@ -306,7 +306,9 @@ impl RunningNode {
     pub fn shutdown(&self) {
         // Prévient les amis joignables que l'on passe hors ligne, tant que le
         // réseau tourne encore (best-effort, jamais mis en file).
-        let _ = self.node.broadcast_presence(false);
+        if let Err(e) = self.node.broadcast_presence(false) {
+            tracing::debug!(erreur = %e, "présence : adieu non diffusé");
+        }
         self.voice.stop();
         self.runtime.stop();
         self.endpoint.shutdown();
@@ -655,7 +657,9 @@ async fn run_node(
 
     // Annonce de présence « en ligne » aux amis joignables (best-effort :
     // ceux hors ligne la perdent, un futur message les remettra en ligne).
-    let _ = node.broadcast_presence(true);
+    if let Err(e) = node.broadcast_presence(true) {
+        tracing::debug!(erreur = %e, "présence : annonce de démarrage non diffusée");
+    }
 
     Ok(RunningNode {
         node,

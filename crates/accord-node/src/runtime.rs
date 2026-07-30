@@ -1523,7 +1523,7 @@ impl Runtime {
                     // Core (seuls à changer l'état des contacts) — le
                     // court-circuit mémoire rend l'appel gratuit ensuite.
                     let est_core = matches!(&*msg, ChannelMsg::Core(_));
-                    self.route(addr, static_pub, *msg).await;
+                    self.route(addr, static_pub, account, *msg).await;
                     if est_core {
                         // Le routage a pu ingérer la liste d'appareils de ce
                         // pair : la traduction qui échouait avant peut réussir
@@ -1732,12 +1732,6 @@ impl Runtime {
         }
     }
 
-    /// Offre à UN de nos appareils l'empreinte de nos conversations actives
-    /// (rattrapage, lot 1.E tâche 4).
-    ///
-    /// Best-effort et silencieux : une offre perdue ne coûte qu'une passe de
-    /// retard, et faire échouer l'établissement d'une session parce que la base
-    /// est momentanément illisible n'aurait aucun sens.
     /// Annonce notre carnet d'amis à UN de nos appareils.
     ///
     /// 🔴 Le chemin de rattrapage du correctif « appareil sourd ». L'annonce
@@ -1746,7 +1740,7 @@ impl Runtime {
     /// compte vraiment, l'appareil qui vient d'être appairé et dont le carnet
     /// est vide.
     ///
-    /// Best-effort et silencieux, comme [`RuntimeInner::offer_self_sync`] : une
+    /// Best-effort et silencieux, comme [`Runtime::offer_self_sync`] : une
     /// annonce perdue coûte une passe de retard, et faire échouer
     /// l'établissement d'une session parce que la base est momentanément
     /// illisible n'aurait aucun sens.
@@ -1782,6 +1776,12 @@ impl Runtime {
         }
     }
 
+    /// Offre à UN de nos appareils l'empreinte de nos conversations actives
+    /// (rattrapage, lot 1.E tâche 4).
+    ///
+    /// Best-effort et silencieux : une offre perdue ne coûte qu'une passe de
+    /// retard, et faire échouer l'établissement d'une session parce que la base
+    /// est momentanément illisible n'aurait aucun sens.
     pub(crate) async fn offer_self_sync(&self, device: &[u8; 32]) {
         let offres = match self.node.self_sync_offers() {
             Ok(o) => o,
@@ -1928,21 +1928,38 @@ impl Runtime {
         }
     }
 
-    async fn route(&self, addr: SocketAddr, static_pub: [u8; 32], msg: ChannelMsg) {
-        // 🔒 Traduction appareil → compte, en un seul point. Tout ce qui suit
-        // travaille sur des comptes : une amitié, un profil, un op-log
-        // appartiennent à une personne, pas à une machine. Sans clé
-        // d'appareil en jeu — le cas de tout le parc aujourd'hui — c'est
-        // l'identité.
-        //
-        // ⚠️ La DHT est l'exception, et c'est délibéré : elle route des
-        // MACHINES. Un pair y est placé sous le `node_id` dérivé de la clé
-        // qu'il présente au handshake, chez nous comme chez tous les autres.
-        // L'inscrire sous son compte parce qu'il se trouve être un ami rendrait
-        // notre table incohérente avec celle du reste du réseau — et nos
-        // réponses `FIND_NODE` enverraient les autres vers un nœud qui n'existe
-        // pas sous cette identité.
-        let account = self.node.account_of_transport_key(&static_pub);
+    /// Aiguille un message déchiffré. `account` est la traduction appareil →
+    /// compte de `static_pub`, faite **une seule fois** par la boucle
+    /// d'événements et passée ici.
+    ///
+    /// 🔒 Traduction appareil → compte, en un seul point. Tout ce qui suit
+    /// travaille sur des comptes : une amitié, un profil, un op-log
+    /// appartiennent à une personne, pas à une machine. Sans clé d'appareil en
+    /// jeu — le cas de tout le parc aujourd'hui — c'est l'identité.
+    ///
+    /// ⚠️ La DHT est l'exception, et c'est délibéré : elle route des MACHINES.
+    /// Un pair y est placé sous le `node_id` dérivé de la clé qu'il présente au
+    /// handshake, chez nous comme chez tous les autres. L'inscrire sous son
+    /// compte parce qu'il se trouve être un ami rendrait notre table
+    /// incohérente avec celle du reste du réseau — et nos réponses `FIND_NODE`
+    /// enverraient les autres vers un nœud qui n'existe pas sous cette
+    /// identité.
+    ///
+    /// ⚠️ La traduction est REÇUE, plus recalculée : la boucle d'événements
+    /// vient de la faire pour le même datagramme, et elle n'est pas gratuite —
+    /// une lecture de la table des contacts, puis une lecture et un décodage de
+    /// liste d'appareils PAR ami. La refaire ici doublait ce coût sur chaque
+    /// trame reçue, trames de voix comprises (cinquante par seconde et par
+    /// pair). Rien entre les deux points ne peut changer le résultat : ni le
+    /// carnet mémoire, ni le suivi des sessions vives, ni le carnet persistant
+    /// n'entrent dans le calcul.
+    async fn route(
+        &self,
+        addr: SocketAddr,
+        static_pub: [u8; 32],
+        account: [u8; 32],
+        msg: ChannelMsg,
+    ) {
         match msg {
             ChannelMsg::Dht(dht_msg) => self.route_dht(addr, static_pub, dht_msg).await,
             ChannelMsg::Core(core_msg) => self.route_core(&static_pub, &account, core_msg).await,
@@ -2402,16 +2419,21 @@ impl Runtime {
 
     /// Route un message FILE : requêtes servies (manifest, blocs — bornées
     /// par pair) et réponses de nos sources (manifest, blocs, refus, `Have`).
-    async fn route_file(&self, static_pub: [u8; 32], msg: FileMsg) {
+    ///
+    /// ⚠️ Le paramètre est le COMPTE, pas la machine : `route` a déjà traduit
+    /// (`account_of_transport_key`). Les débits, la table des demandeurs et les
+    /// réponses raisonnent donc par personne — cohérent avec [`Self::send_file`],
+    /// qui ré-expanse en machines à la sortie.
+    async fn route_file(&self, account: [u8; 32], msg: FileMsg) {
         match msg {
             // ---- Service des pairs ----
             FileMsg::GetManifest { root } => {
-                if !self.files_debit_ok(&static_pub) {
+                if !self.files_debit_ok(&account) {
                     return;
                 }
                 // Ce pair connaît la racine (il la demande) : seul destinataire
                 // légitime d'une future annonce `Have` de cette racine.
-                self.note_file_requester(root, static_pub);
+                self.note_file_requester(root, account);
                 // Lecture + déchiffrement du manifest = travail bloquant : hors
                 // du thread asynchrone (`spawn_blocking`) pour ne pas figer la
                 // boucle réseau, awaitée en ligne (voir `event_loop`).
@@ -2425,13 +2447,13 @@ impl Runtime {
                         index: fetch::INDEX_MANIFESTE,
                     },
                 };
-                self.send_file(&static_pub, reply).await;
+                self.send_file(&account, reply).await;
             }
             FileMsg::GetBlock { root, index } => {
-                if !self.files_debit_ok(&static_pub) {
+                if !self.files_debit_ok(&account) {
                     return;
                 }
-                self.note_file_requester(root, static_pub);
+                self.note_file_requester(root, account);
                 // Lecture disque + parité Reed-Solomon éventuelle = travail
                 // bloquant : déporté hors du thread asynchrone (voir ci-dessus).
                 let node = Arc::clone(&self.node);
@@ -2441,7 +2463,7 @@ impl Runtime {
                     Ok(Ok(Some(data))) => FileMsg::Block { root, index, data },
                     _ => FileMsg::NotFound { root, index },
                 };
-                self.send_file(&static_pub, reply).await;
+                self.send_file(&account, reply).await;
             }
             // ---- Réponses de nos sources ----
             // `Have` et `ManifestMsg` (contrôle, débit légitime très faible —
@@ -2454,29 +2476,29 @@ impl Runtime {
             // s'auto-limite déjà (la source sans le bloc cesse vite d'être
             // sollicitée). `Block` (données en masse) n'est pas bridé non plus.
             FileMsg::ManifestMsg { manifest } => {
-                if !self.files_resp_ok(&static_pub) {
+                if !self.files_resp_ok(&account) {
                     return;
                 }
-                self.on_file_manifest(static_pub, manifest).await;
+                self.on_file_manifest(account, manifest).await;
             }
             FileMsg::Block { root, index, data } => {
-                self.on_file_block(static_pub, root, index, data).await;
+                self.on_file_block(account, root, index, data).await;
             }
             FileMsg::NotFound { root, index } => {
                 let actions = {
                     let mut c = self.files_lock();
-                    c.on_not_found(&static_pub, &root, index);
+                    c.on_not_found(&account, &root, index);
                     c.requests_for(&root)
                 };
                 self.send_file_actions(actions).await;
             }
             FileMsg::Have { root, .. } => {
-                if !self.files_resp_ok(&static_pub) {
+                if !self.files_resp_ok(&account) {
                     return;
                 }
                 let actions = {
                     let mut c = self.files_lock();
-                    c.add_source(&root, static_pub);
+                    c.add_source(&root, account);
                     c.requests_for(&root)
                 };
                 self.send_file_actions(actions).await;
@@ -2947,9 +2969,6 @@ impl NetworkControl for Runtime {
     }
 }
 
-/// `NodeInfo` synthétique pour un RPC DHT direct vers une adresse : seule
-/// `addrs` est utilisée par le transport ; l'identité du pair est inconnue au
-/// démarrage (le récepteur vérifie l'authenticité des records qu'il rend).
 /// Poinçonnage TCP par ouverture simultanée (SPEC §11.3, best-effort). À
 /// chaque ronde, tente `connect()` vers TOUS les candidats en parallèle depuis
 /// le port P2P local (partagé avec l'écouteur TCP via `SO_REUSEPORT`) : les
@@ -3001,10 +3020,6 @@ async fn tcp_punch_toward(
     }
 }
 
-/// Cibles d'une annonce `Have` à la complétion d'un blob : intersection des
-/// DEMANDEURS de cette racine (essaim connu) et des sessions vives, bornée
-/// (anti-inondation) et en ordre stable. Un pair qui n'a pas demandé la
-/// racine — inconnu ou non — n'est jamais ciblé. Pure, testable.
 /// Vivier de sondage à partir des seuls pairs du carnet, borné. Isolé pour le
 /// test : la propriété de sécurité est qu'un pair en session vive mais absent
 /// du carnet (inconnu) ne peut PAS y figurer (l'entrée ne provient que du
@@ -3013,6 +3028,10 @@ fn probe_pool_from_book(book_peers: impl Iterator<Item = [u8; 32]>, cap: usize) 
     book_peers.take(cap).collect()
 }
 
+/// Cibles d'une annonce `Have` à la complétion d'un blob : intersection des
+/// DEMANDEURS de cette racine (essaim connu) et des sessions vives, bornée
+/// (anti-inondation) et en ordre stable. Un pair qui n'a pas demandé la
+/// racine — inconnu ou non — n'est jamais ciblé. Pure, testable.
 fn have_targets(requesters: &[[u8; 32]], live: &HashSet<[u8; 32]>, cap: usize) -> Vec<[u8; 32]> {
     let mut cibles: Vec<[u8; 32]> = requesters
         .iter()
@@ -3051,6 +3070,9 @@ fn evict_oldest_if_full(map: &mut HashMap<[u8; 32], u64>, cap: usize, key: &[u8;
     }
 }
 
+/// `NodeInfo` synthétique pour un RPC DHT direct vers une adresse : seule
+/// `addrs` est utilisée par le transport ; l'identité du pair est inconnue au
+/// démarrage (le récepteur vérifie l'authenticité des records qu'il rend).
 fn direct_target(addr: SocketAddr) -> NodeInfo {
     NodeInfo {
         node_id: NodeId([0u8; 32]),

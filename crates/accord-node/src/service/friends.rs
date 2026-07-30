@@ -31,24 +31,26 @@ impl NodeService {
 /// `search.query` vers le nœud.
 pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Value, NodeError> {
     match method {
+        // ⚠️ Le carnet ET ses annotations base sont lus en UNE passe
+        // (`contacts_with_details`) : la version d'avant reprenait le verrou de
+        // la base cinq fois par contact. Forme de réponse inchangée.
         "friends.list" => Ok(json!({
             "contacts": node
-                .contacts()?
+                .contacts_with_details()?
                 .iter()
-                .map(|c| {
+                .map(|(c, d)| {
                     let mut v = contact_json(c);
                     // Profil public annoncé par le pair (D-027, D-032) :
                     // bio + avatar + bannière + pronoms + couleurs.
-                    let profile = node.peer_public_profile(&c.node_id)?;
-                    v["bio"] = json!(profile.bio);
-                    v["avatar"] = json!(profile.avatar.map(|h| hex::encode(&h)));
-                    v["banner"] = json!(profile.banner.map(|h| hex::encode(&h)));
-                    v["pronouns"] = json!(profile.pronouns);
-                    v["accent_color"] = json!(profile.accent_color);
-                    v["banner_color"] = json!(profile.banner_color);
-                    v["avatar_decoration"] = json!(profile.avatar_decoration);
-                    v["profile_effect"] = json!(profile.profile_effect);
-                    v["profile_frame"] = json!(profile.profile_frame);
+                    v["bio"] = json!(d.profile.bio);
+                    v["avatar"] = json!(d.profile.avatar.map(|h| hex::encode(&h)));
+                    v["banner"] = json!(d.profile.banner.map(|h| hex::encode(&h)));
+                    v["pronouns"] = json!(d.profile.pronouns);
+                    v["accent_color"] = json!(d.profile.accent_color);
+                    v["banner_color"] = json!(d.profile.banner_color);
+                    v["avatar_decoration"] = json!(d.profile.avatar_decoration);
+                    v["profile_effect"] = json!(d.profile.profile_effect);
+                    v["profile_frame"] = json!(d.profile.profile_frame);
                     // Presence (best-effort, rich): `online` kept for
                     // backward compatibility, `status` + `status_text` carry
                     // the announced rich presence. Unread counter follows.
@@ -56,14 +58,14 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                     v["online"] = json!(status != 3);
                     v["status"] = json!(presence::status_str(status));
                     v["status_text"] = json!(status_text);
-                    v["unread"] = json!(node.dm_unread(&c.pubkey)?);
+                    v["unread"] = json!(d.unread);
                     // Notre marque de lecture locale (lamport) pour placer le
                     // séparateur « nouveaux messages » à l'ouverture.
-                    v["read_lamport"] = json!(node.dm_read_lamport(&c.pubkey)?);
+                    v["read_lamport"] = json!(d.read_lamport);
                     // Unread mentions in this DM (local detection) + private,
                     // local-only note attached to this contact.
-                    v["mention_count"] = json!(node.dm_mention_count(&c.pubkey)?);
-                    v["note"] = json!(node.contact_note(&c.pubkey)?);
+                    v["mention_count"] = json!(d.mention_count);
+                    v["note"] = json!(d.note);
                     // Manual identity verification (E1, additive fields):
                     // `key_changed` warns that the key differs from the one
                     // seen at verification time ("verification broken").
@@ -71,9 +73,9 @@ pub(super) fn dispatch(node: &Node, method: &str, params: &Value) -> Result<Valu
                         crate::node::verification_state(Some(c));
                     v["verified"] = json!(verified);
                     v["key_changed"] = json!(key_changed);
-                    Ok(v)
+                    v
                 })
-                .collect::<Result<Vec<_>, NodeError>>()?
+                .collect::<Vec<_>>()
         })),
         "friends.request" => {
             let peer = param_peer(params)?;

@@ -35,6 +35,28 @@ pub(crate) struct PeerPublicProfile {
     pub(crate) profile_frame: Option<String>,
 }
 
+/// Profil public d'un pair sur une base DÉJÀ verrouillée.
+///
+/// Extrait de [`Node::peer_public_profile`] pour que la liste d'amis puisse
+/// l'assembler pour tous ses contacts sous UNE seule prise du verrou : la
+/// version publique en reprenait une par contact, et neuf lectures chacune.
+pub(crate) fn peer_public_profile_db(
+    db: &Db,
+    node_id: &[u8; 32],
+) -> Result<PeerPublicProfile, NodeError> {
+    Ok(PeerPublicProfile {
+        bio: profile::peer_bio(db, node_id)?,
+        avatar: profile::peer_avatar(db, node_id)?,
+        banner: profile::peer_banner(db, node_id)?,
+        pronouns: profile::peer_pronouns(db, node_id)?,
+        accent_color: profile::peer_accent_color(db, node_id)?,
+        banner_color: profile::peer_banner_color(db, node_id)?,
+        avatar_decoration: profile::peer_avatar_decoration(db, node_id)?,
+        profile_effect: profile::peer_profile_effect(db, node_id)?,
+        profile_frame: profile::peer_profile_frame(db, node_id)?,
+    })
+}
+
 impl Node {
     fn with_local_profile_db<T>(
         &self,
@@ -258,19 +280,7 @@ impl Node {
         &self,
         node_id: &[u8; 32],
     ) -> Result<PeerPublicProfile, NodeError> {
-        self.with_db(|db| {
-            Ok(PeerPublicProfile {
-                bio: profile::peer_bio(db, node_id)?,
-                avatar: profile::peer_avatar(db, node_id)?,
-                banner: profile::peer_banner(db, node_id)?,
-                pronouns: profile::peer_pronouns(db, node_id)?,
-                accent_color: profile::peer_accent_color(db, node_id)?,
-                banner_color: profile::peer_banner_color(db, node_id)?,
-                avatar_decoration: profile::peer_avatar_decoration(db, node_id)?,
-                profile_effect: profile::peer_profile_effect(db, node_id)?,
-                profile_frame: profile::peer_profile_frame(db, node_id)?,
-            })
-        })
+        self.with_db(|db| peer_public_profile_db(db, node_id))
     }
 
     /// Notre annonce de profil (pseudo + bio + hash d'avatar + hash de

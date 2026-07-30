@@ -1098,10 +1098,13 @@ impl Node {
                 now_ms(),
             )?)
         })?;
-        let msg_id = match &msg {
-            CoreMsg::GroupMsg { msg_id, .. } => hex::encode(msg_id),
-            _ => unreachable!("compose_group_sticker produit un GroupMsg"),
+        // Même règle que `Node::dm_send_with_attachments` : un variant
+        // inattendu est une erreur rendue, jamais une panique — le cœur ne
+        // produit qu'un `GroupMsg` ici.
+        let CoreMsg::GroupMsg { msg_id, .. } = &msg else {
+            return Err(NodeError::Invalid("message composé inattendu"));
         };
+        let msg_id = hex::encode(msg_id);
         self.outbound.send(Outbound::GroupCast {
             group_id: *group_id,
             msg: Box::new(msg),
@@ -1683,15 +1686,17 @@ impl Node {
                 now_ms(),
             )?)
         })?;
-        let (msg_id, lamport, sent_ms) = match &msg {
-            CoreMsg::GroupMsg {
-                msg_id,
-                lamport,
-                sent_ms,
-                ..
-            } => (*msg_id, *lamport, *sent_ms),
-            _ => unreachable!("compose_group_message produit un GroupMsg"),
+        // Même règle que ci-dessus : erreur rendue, jamais de panique.
+        let CoreMsg::GroupMsg {
+            msg_id,
+            lamport,
+            sent_ms,
+            ..
+        } = &msg
+        else {
+            return Err(NodeError::Invalid("message composé inattendu"));
         };
+        let (msg_id, lamport, sent_ms) = (*msg_id, *lamport, *sent_ms);
         // Mention de soi-même : le chemin d'envoi local doit enregistrer la
         // mention exactement comme le chemin entrant (`CoreMsg::GroupMsg`,
         // node/mod.rs), sinon `mentions_me` resterait faux pour nos propres

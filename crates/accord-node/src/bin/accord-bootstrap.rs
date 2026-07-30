@@ -144,7 +144,16 @@ async fn wait_for_shutdown() -> std::io::Result<()> {
 /// utilisateur — sa perte se répare en repartant d'un état vierge (nouveau
 /// `node_id`), au prix d'une mise à jour d'`ACCORD_BOOTSTRAP` nulle part
 /// nécessaire : les pairs adressent le rendez-vous par `ip:port`.
+///
+/// 🔒 **Le fichier naît en 0600**, exactement comme `session.json` du démon
+/// (voir `write_session`, qui documente la même règle). La version précédente
+/// écrivait d'abord puis restreignait : entre les deux, la phrase qui scelle
+/// l'identité du rendez-vous était lisible par tout compte local, au gré de
+/// l'umask. L'intervalle est bref, mais un secret lu une fois reste lu — et un
+/// rendez-vous tourne sur une machine partagée par construction.
 fn load_or_create_passphrase(state: &Path) -> Result<String, BootstrapError> {
+    use std::io::Write;
+
     if let Ok(pass) = std::env::var("ACCORD_BOOTSTRAP_PASSPHRASE") {
         if !pass.is_empty() {
             return Ok(pass);
@@ -158,7 +167,18 @@ fn load_or_create_passphrase(state: &Path) -> Result<String, BootstrapError> {
     use rand::RngCore;
     rand::rngs::OsRng.fill_bytes(&mut bytes);
     let pass = accord_node::hex::encode(&bytes);
-    std::fs::write(&path, &pass)?;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut fichier = options.open(&path)?;
+    fichier.write_all(pass.as_bytes())?;
+    // Pas un doublon du `mode` ci-dessus : celui-ci ne vaut qu'à la CRÉATION.
+    // Un fichier laissé par une version antérieure — précisément celle qui
+    // pouvait le créer trop ouvert — garderait sinon ses droits d'origine.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

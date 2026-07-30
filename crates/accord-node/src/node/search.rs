@@ -162,24 +162,31 @@ impl Node {
             return Ok(scope);
         }
         let contacts = self.contacts()?;
-        let group_ids = self.group_ids()?;
+        // ⚠️ Les états de groupe sont matérialisés UNE fois, avant la boucle
+        // des opérandes : chacun coûte une lecture d'op-log et son rejeu, et
+        // les refaire par opérande multipliait ce coût par le nombre de filtres
+        // `in:` d'une même requête.
+        let mut groupes = Vec::new();
+        for gid_hex in self.group_ids()? {
+            let Some(gid) = hex::decode::<16>(&gid_hex) else {
+                continue;
+            };
+            let Ok(state) = self.group_state(&gid) else {
+                continue;
+            };
+            groupes.push((gid, state));
+        }
         for op in operands {
             for c in &contacts {
                 if c.display_name.to_lowercase().contains(op) {
                     scope.peers.insert(c.pubkey);
                 }
             }
-            for gid_hex in &group_ids {
-                let Some(gid) = hex::decode::<16>(gid_hex) else {
-                    continue;
-                };
-                let Ok(state) = self.group_state(&gid) else {
-                    continue;
-                };
+            for (gid, state) in &groupes {
                 let group_match = state.name.to_lowercase().contains(op);
                 for (cid, ch) in &state.channels {
                     if group_match || ch.name.to_lowercase().contains(op) {
-                        scope.channels.insert((gid, *cid));
+                        scope.channels.insert((*gid, *cid));
                     }
                 }
             }

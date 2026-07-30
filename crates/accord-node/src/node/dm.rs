@@ -115,10 +115,14 @@ impl Node {
                 now_ms(),
             )?)
         })?;
-        let msg_id = match &msg {
-            CoreMsg::DirectMsg { msg_id, .. } => hex::encode(msg_id),
-            _ => unreachable!("compose_text produit un DirectMsg"),
+        // `compose_text` ne produit qu'un `DirectMsg` ; un autre variant
+        // signalerait un changement de contrat du cœur. On le remonte comme
+        // une erreur plutôt que de paniquer : un nœud qui rend une erreur à un
+        // envoi reste utilisable, un nœud qui panique emporte le processus.
+        let CoreMsg::DirectMsg { msg_id, .. } = &msg else {
+            return Err(NodeError::Invalid("message composé inattendu"));
         };
+        let msg_id = hex::encode(msg_id);
         self.outbound.send(Outbound::Core {
             to: *peer_pubkey,
             msg: Box::new(msg),

@@ -56,6 +56,10 @@ const PING_PERIOD_TICKS: u64 = 50;
 const STATE_PERIOD_TICKS: u64 = 1_500;
 /// Balayage des rosters passifs chaque seconde.
 const PASSIVE_SWEEP_TICKS: u64 = 50;
+/// Salons dont la présence est suivie au plus (le salon rejoint et les
+/// présences passives réunis). Borne mémoire du suivi passif, très au-dessus
+/// de tout usage réel — voir la garde dans `handle_peer_signal`.
+const MAX_PASSIVE_ROOMS: usize = 512;
 /// Réaffirmation des masques de vidéo sélective (voir [`REFRESH_PERIOD`]),
 /// exprimée en trames de 20 ms. Portée par le moteur et non par l'UI : la
 /// déclaration doit survivre à un onglet inactif ou à une UI qui ne re-rend
@@ -447,7 +451,11 @@ impl Engine {
             } => self.handle_video_send(stream, keyframe, encoded).await,
             Cmd::VideoAnnounce { stream, on } => self.handle_video_announce(stream, on).await,
             Cmd::VideoInterest { hidden } => self.handle_video_interest(hidden).await,
-            Cmd::Stop => unreachable!("Stop traité par la boucle"),
+            // `Stop` est intercepté par la boucle avant d'arriver ici. S'il y
+            // parvenait malgré tout, l'ignorer laisse le moteur vivant : une
+            // panique dans l'acteur voix emporterait tout le sous-système
+            // sonore pour une commande sans effet.
+            Cmd::Stop => tracing::debug!("voix : Stop reçu hors de la boucle, ignoré"),
         }
     }
 
@@ -998,6 +1006,20 @@ impl Engine {
                     // masque hérité de son passage précédent lui vaudrait une
                     // tuile noire jusqu'à expiration — on l'oublie tout de suite.
                     self.video_hidden.forget(&from);
+                }
+                // 🔒 Borne du suivi de présence passive. `channel_id` vient du
+                // message et n'est confronté à aucun salon existant — un membre
+                // modifié pourrait donc ouvrir une table de présence par
+                // identifiant tiré au hasard. Le balayage périodique les efface
+                // au bout de [`PASSIVE_TTL_MS`], mais rien ne bornait ce qui
+                // s'accumule ENTRE deux expirations. Refuser au-delà du plafond
+                // ne coûte rien de légitime : un serveur réel n'a pas mille
+                // salons vocaux occupés, et un salon déjà suivi n'est jamais
+                // écarté (l'entrée existe, la borne ne s'applique qu'aux
+                // créations).
+                if !self.rooms.contains_key(&key) && self.rooms.len() >= MAX_PASSIVE_ROOMS {
+                    tracing::debug!("voix : trop de salons suivis, présence ignorée");
+                    return;
                 }
                 {
                     let roster = self.rooms.entry(key).or_default();

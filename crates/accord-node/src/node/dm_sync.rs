@@ -150,11 +150,16 @@ impl Node {
     /// Bornée aux relations, dans le même sens que `ingest_self_sync_item` :
     /// demander l'historique d'un pair qui n'est pas au carnet ne servirait à
     /// rien, puisque l'ingestion le refuserait.
+    ///
+    /// ⚠️ Le filtre porte sur l'état DÉJÀ CHARGÉ de chaque contact, et non sur
+    /// [`Node::is_relation`] : appeler ce dernier ici relisait tout le carnet
+    /// une fois par contact — un coût quadratique pour une réponse que la ligne
+    /// en main contient. Même règle exactement ([`est_une_relation`]).
     pub fn history_conversations(&self) -> Result<Vec<[u8; 32]>, NodeError> {
         let contacts = self.with_db(|db| Ok(db.contacts()?))?;
         Ok(contacts
             .into_iter()
-            .filter(|c| self.is_relation(&c.pubkey))
+            .filter(|c| super::node_friends::est_une_relation(c.state))
             .map(|c| c.pubkey)
             .take(SELF_SYNC_MAX_CONVERSATIONS)
             .collect())

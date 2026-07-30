@@ -32,6 +32,10 @@ use crate::outbound::{Outbound, OutboundSink};
 /// pair (anti-abus) : en deçà, l'événement est silencieusement ignoré.
 const TYPING_MIN_INTERVAL_MS: u64 = 2_000;
 
+/// Borne mémoire du suivi de cadence des indicateurs de frappe : même
+/// dégradation sûre que [`REDEEM_SEEN_MAX_PEERS`].
+const TYPING_SEEN_MAX_PEERS: usize = 1024;
+
 /// Fenêtre de cadence des `InviteRedeem` entrants par pair (anti-abus).
 const REDEEM_WINDOW_MS: u64 = 60_000;
 
@@ -480,14 +484,6 @@ impl Node {
         if !self.is_relation(&compte) && !self.has_queued_for(&compte) {
             return Ok(());
         }
-        // 🔒 Prouvé ne veut pas dire persisté. Notre liste part sur CHAQUE
-        // session établie, donc la leur aussi : un nœud qui parle à des
-        // centaines de pairs DHT verrait sa table grossir d'une ligne par
-        // inconnu croisé, et cette croissance-là, on peut la provoquer. Le
-        // cache reste borné à ce qu'on cherche à joindre — exactement la même
-        // règle que pour un record relevé dans la DHT. Le rattachement, lui,
-        // vit en mémoire et sous une borne dure : il suffit à reconnaître qui
-        // nous écrit, ce qui est tout ce que l'inconnu nous demande.
         let connue = self
             .with_db(|db| Ok(db.device_list(&compte)?))
             .ok()
@@ -1364,15 +1360,23 @@ impl Node {
     /// quiconque signe une liste revendiquant la clé d'appareil d'autrui : il
     /// n'accepte que des rattachements que le pair a **prouvés** sur une
     /// session (voir le champ `device_owners`).
+    ///
+    /// ⚠️ Le carnet et la traduction sont lus sous **une seule** prise du
+    /// verrou. Les enchaîner en prenait deux, sur un chemin traversé par chaque
+    /// datagramme reçu.
     pub fn account_of_transport_key(&self, static_pub: &[u8; 32]) -> [u8; 32] {
-        let mut accounts = self.friend_pubkeys().unwrap_or_default();
-        accounts.push(self.public_key());
+        let now = now_ms();
+        let moi = self.public_key();
         self.with_db(|db| {
+            let mut accounts: Vec<[u8; 32]> = db
+                .contacts()?
+                .into_iter()
+                .filter(|c| c.state == ContactState::Friend)
+                .map(|c| c.pubkey)
+                .collect();
+            accounts.push(moi);
             Ok(crate::device::account_for_static(
-                db,
-                &accounts,
-                static_pub,
-                now_ms(),
+                db, &accounts, static_pub, now,
             ))
         })
         .ok()
@@ -1519,7 +1523,15 @@ impl Node {
         Ok(())
     }
 
-    /// Persiste la liste d'appareils du compte.
+    /// [`Node::store_device_list`] exposée aux tests du module.
+    #[cfg(test)]
+    pub(crate) fn store_device_list_pour_test(
+        &self,
+        list: &accord_proto::device::DeviceList,
+    ) -> Result<(), NodeError> {
+        self.store_device_list(list)
+    }
+
     /// Persiste NOTRE liste d'appareils.
     ///
     /// 🔒 Le refus de `cache_device_list` est remonté, pas avalé.
@@ -1537,14 +1549,6 @@ impl Node {
     /// part, et rien ne le détrompait — jamais. Un échec silencieux sur un
     /// contrôle de sécurité est pire que pas de contrôle : il fabrique une
     /// certitude fausse.
-    #[cfg(test)]
-    pub(crate) fn store_device_list_pour_test(
-        &self,
-        list: &accord_proto::device::DeviceList,
-    ) -> Result<(), NodeError> {
-        self.store_device_list(list)
-    }
-
     fn store_device_list(&self, list: &accord_proto::device::DeviceList) -> Result<(), NodeError> {
         let mut w = accord_proto::Writer::new();
         accord_proto::WireEncode::encode(list, &mut w);
@@ -1888,8 +1892,22 @@ impl Node {
     /// Anti-abus des indicateurs de frappe : au plus un événement toutes les
     /// [`TYPING_MIN_INTERVAL_MS`] ms par pair. Rend vrai si l'événement est
     /// accepté (et enregistre l'instant).
+    ///
+    /// 🔒 Table BORNÉE, comme ses deux voisines ([`REDEEM_SEEN_MAX_PEERS`],
+    /// [`SOUNDBOARD_SEEN_MAX_PEERS`]) : la frappe est acceptée des membres de
+    /// groupe autant que des amis, donc l'ensemble des clés qui peuvent y
+    /// entrer n'est pas borné par le carnet. Pleine, on purge les entrées
+    /// périmées — elles ne servent plus à rien, l'intervalle est écoulé — puis,
+    /// à défaut de place, on ignore les pairs inconnus. Dégradation sûre : au
+    /// pire un indicateur de frappe manque.
     fn typing_allowed(&self, peer: &[u8; 32], now: u64) -> bool {
         let mut seen = self.typing_seen.lock().unwrap_or_else(|e| e.into_inner());
+        if seen.len() >= TYPING_SEEN_MAX_PEERS && !seen.contains_key(peer) {
+            seen.retain(|_, last| now.saturating_sub(*last) < TYPING_MIN_INTERVAL_MS);
+            if seen.len() >= TYPING_SEEN_MAX_PEERS {
+                return false;
+            }
+        }
         match seen.get(peer) {
             Some(&last) if now.saturating_sub(last) < TYPING_MIN_INTERVAL_MS => false,
             _ => {

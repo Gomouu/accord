@@ -164,8 +164,28 @@ pub fn unlock(paths: &Paths, passphrase: &str) -> Result<Unlocked, NodeError> {
 }
 
 /// Écrit un fichier privé (permissions 0600 sur Unix).
+///
+/// 🔒 **Créé en 0600, pas restreint après coup.** Même règle que le
+/// `session.json` du démon (`bin/accord-noded.rs`, qui la documente) : écrire
+/// puis `chmod` laisse le fichier lisible par tout compte local pendant
+/// l'intervalle, au gré de l'umask. Le coffre est chiffré, donc ce qui fuitait
+/// là était du texte scellé et non la graine — mais offrir le ciphertext à qui
+/// pourra attaquer la phrase de passe hors ligne n'a aucune contrepartie.
+///
+/// Le `set_permissions` qui suit n'est pas un doublon : `mode` ne s'applique
+/// qu'à un fichier CRÉÉ ici. Un coffre laissé par une version antérieure garde
+/// sinon les droits de sa création.
 fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    std::fs::write(path, bytes)?;
+    use std::io::Write;
+
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)?.write_all(bytes)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

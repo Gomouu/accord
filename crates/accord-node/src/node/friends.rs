@@ -13,7 +13,7 @@ use crate::error::NodeError;
 use crate::hex;
 use crate::outbound::Outbound;
 
-use super::{now_ms, Node};
+use super::{now_ms, read_u64, Node};
 
 /// Amis annoncés au plus dans une passe de rattrapage vers un appareil frère.
 ///
@@ -24,10 +24,56 @@ use super::{now_ms, Node};
 /// comme avant le correctif, sans que rien ne l'indique.
 const MAX_ANNONCE_CARNET: usize = 512;
 
+/// Ce que la liste d'amis affiche d'un contact en plus de sa ligne de carnet,
+/// chargé en une passe par [`Node::contacts_with_details`].
+#[derive(Debug, Clone)]
+pub(crate) struct ContactDetails {
+    /// Profil public annoncé par le pair (bio, avatar, bannière, pronoms…).
+    pub(crate) profile: super::node_profile::PeerPublicProfile,
+    /// Messages du pair reçus après notre marque de lecture locale.
+    pub(crate) unread: u64,
+    /// Notre marque de lecture locale (lamport), `0` si jamais marquée.
+    pub(crate) read_lamport: u64,
+    /// Mentions non lues de cette conversation directe.
+    pub(crate) mention_count: u64,
+    /// Note privée locale attachée au contact (jamais émise).
+    pub(crate) note: Option<String>,
+}
+
 impl Node {
     /// Liste des contacts.
     pub fn contacts(&self) -> Result<Vec<Contact>, NodeError> {
         self.with_db(|db| Ok(db.contacts()?))
+    }
+
+    /// Le carnet ET, pour chaque contact, tout ce que `friends.list` doit lire
+    /// en base — sous **une seule** prise du verrou.
+    ///
+    /// ⚠️ La version d'avant enchaînait, PAR CONTACT, six appels publics qui
+    /// prenaient chacun le verrou de la base : profil public, non-lus, marque
+    /// de lecture, mentions, note. Sur un carnet de deux cents contacts, ouvrir
+    /// la liste d'amis prenait donc plus de mille fois un verrou que les
+    /// boucles réseau se disputent — et l'ouvrait autant de fois à l'ingestion
+    /// d'un message. Le contenu rendu est identique, champ pour champ.
+    pub(crate) fn contacts_with_details(
+        &self,
+    ) -> Result<Vec<(Contact, ContactDetails)>, NodeError> {
+        self.with_db(|db| {
+            let contacts = db.contacts()?;
+            let mut out = Vec::with_capacity(contacts.len());
+            for contact in contacts {
+                let marque = read_u64(db.meta(&super::dm_mark_key(&contact.pubkey))?);
+                let details = ContactDetails {
+                    profile: super::node_profile::peer_public_profile_db(db, &contact.node_id)?,
+                    unread: db.count_dm_unread(&contact.pubkey, marque)?,
+                    read_lamport: marque,
+                    mention_count: db.count_dm_mentions(&contact.pubkey)?,
+                    note: db.contact_note(&contact.pubkey)?,
+                };
+                out.push((contact, details));
+            }
+            Ok(out)
+        })
     }
 
     /// Prépare et route une demande d'ami vers une clé publique.
@@ -177,21 +223,18 @@ impl Node {
     /// l'adresse que pour les amis raterait exactement cette fenêtre (l'entrée
     /// d'un contact en attente ne devient lisible par [`known_friend_addrs`]
     /// qu'une fois l'amitié conclue ; un bloqué ou un inconnu n'écrit rien).
+    ///
+    /// Lecture INDEXÉE d'un seul contact, comme [`Node::is_friend`] : la
+    /// version précédente chargeait tout le carnet puis le balayait, à chaque
+    /// appel. Or ce prédicat est appelé une fois par contact dans plusieurs
+    /// boucles (transfert d'historique, ingestion de listes d'appareils) : le
+    /// coût y était quadratique en nombre de contacts pour un résultat que la
+    /// clé primaire donne directement.
     pub fn is_relation(&self, pubkey: &[u8; 32]) -> bool {
-        use accord_core::db::ContactState;
-        self.contacts()
-            .map(|cs| {
-                cs.iter().any(|c| {
-                    c.pubkey == *pubkey
-                        && matches!(
-                            c.state,
-                            ContactState::Friend
-                                | ContactState::PendingIn
-                                | ContactState::PendingOut
-                        )
-                })
-            })
-            .unwrap_or(false)
+        self.with_db(|db| Ok(db.contact(&node_id_of(pubkey).0)?))
+            .ok()
+            .flatten()
+            .is_some_and(|c| est_une_relation(c.state))
     }
 
     /// Amis dont une adresse directe fraîche (TTL par défaut) est mémorisée,
@@ -370,6 +413,17 @@ impl Node {
         );
         Ok(())
     }
+}
+
+/// Vrai si cet état de contact vaut RELATION : ami confirmé ou demande en
+/// cours. Règle unique, partagée par [`Node::is_relation`] et par les filtres
+/// qui travaillent sur un carnet déjà chargé (aucune relecture de base).
+pub(crate) fn est_une_relation(state: accord_core::db::ContactState) -> bool {
+    use accord_core::db::ContactState;
+    matches!(
+        state,
+        ContactState::Friend | ContactState::PendingIn | ContactState::PendingOut
+    )
 }
 
 /// Verification state of a contact: `(verified, key_changed)`.
